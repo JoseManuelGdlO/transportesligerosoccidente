@@ -11,6 +11,7 @@ const titles: Record<string, string> = {
   "/camiones": "Camiones",
   "/operadores": "Operadores",
   "/clientes": "Clientes",
+  "/usuarios": "Usuarios y permisos",
 };
 
 export default function AppLayout() {
