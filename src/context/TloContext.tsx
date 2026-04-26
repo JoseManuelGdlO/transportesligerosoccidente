@@ -1,15 +1,20 @@
 import { createContext, useContext, useMemo, useState, ReactNode } from "react";
-import type { Truck, Driver, Client, Trip, FuelLoad, Expense } from "@/types/tlo";
-import { mockTrucks, mockDrivers, mockClients, mockTrips } from "@/data/mockData";
+import type { Truck, Driver, Client, Trip, FuelLoad, Expense, SystemUser, RoleDefinition, Permission, UserRole } from "@/types/tlo";
+import { mockTrucks, mockDrivers, mockClients, mockTrips, mockSystemUsers, mockRoles } from "@/data/mockData";
 
 interface TloState {
   trucks: Truck[];
   drivers: Driver[];
   clients: Client[];
   trips: Trip[];
+  systemUsers: SystemUser[];
+  roles: RoleDefinition[];
   upsertTruck: (t: Truck) => void;
   upsertDriver: (d: Driver) => void;
   upsertClient: (c: Client) => void;
+  upsertSystemUser: (u: SystemUser) => void;
+  toggleSystemUserStatus: (id: string) => void;
+  updateRolePermissions: (role: UserRole, permisos: Permission[]) => void;
   createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">) => Trip;
   updateTrip: (id: string, patch: Partial<Trip>) => void;
   addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => void;
@@ -28,9 +33,11 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   const [drivers, setDrivers] = useState<Driver[]>(mockDrivers);
   const [clients, setClients] = useState<Client[]>(mockClients);
   const [trips, setTrips] = useState<Trip[]>(mockTrips);
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(mockSystemUsers);
+  const [roles, setRoles] = useState<RoleDefinition[]>(mockRoles);
 
   const value = useMemo<TloState>(() => ({
-    trucks, drivers, clients, trips,
+    trucks, drivers, clients, trips, systemUsers, roles,
     upsertTruck: (t) => setTrucks(prev => {
       const i = prev.findIndex(x => x.id === t.id);
       if (i === -1) return [...prev, { ...t, id: t.id || uid("t") }];
@@ -46,6 +53,17 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       if (i === -1) return [...prev, { ...c, id: c.id || uid("c") }];
       const cp = [...prev]; cp[i] = c; return cp;
     }),
+    upsertSystemUser: (u) => setSystemUsers(prev => {
+      const i = prev.findIndex(x => x.id === u.id);
+      if (i === -1) return [...prev, { ...u, id: u.id || uid("u"), creado_en: u.creado_en || new Date().toISOString() }];
+      const c = [...prev]; c[i] = u; return c;
+    }),
+    toggleSystemUserStatus: (id) => setSystemUsers(prev => prev.map(u =>
+      u.id === id ? { ...u, estatus: u.estatus === "activo" ? "inactivo" : "activo" } : u
+    )),
+    updateRolePermissions: (role, permisos) => setRoles(prev => prev.map(r =>
+      r.role === role ? { ...r, permisos } : r
+    )),
     createTrip: (data) => {
       const id = uid("v");
       const year = new Date().getFullYear();
@@ -70,7 +88,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
     closeTrip: (id, data) => setTrips(prev => prev.map(t => t.id === id
       ? { ...t, ...data, estatus: "cerrado" as const }
       : t)),
-  }), [trucks, drivers, clients, trips]);
+  }), [trucks, drivers, clients, trips, systemUsers, roles]);
 
   return <TloCtx.Provider value={value}>{children}</TloCtx.Provider>;
 };

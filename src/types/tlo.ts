@@ -4,6 +4,36 @@ export type TripStatus = "en_curso" | "cerrado";
 export type CommissionType = "porcentaje" | "fijo";
 export type ExpenseCategory = "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
 export type UserRole = "admin" | "capturista";
+export type UserStatus = "activo" | "inactivo";
+
+export type Permission =
+  | "viajes.ver"
+  | "viajes.crear"
+  | "viajes.cerrar"
+  | "viajes.eliminar"
+  | "liquidaciones.ver"
+  | "liquidaciones.cerrar"
+  | "catalogos.ver"
+  | "catalogos.editar"
+  | "reportes.ver"
+  | "usuarios.gestionar";
+
+export interface SystemUser {
+  id: string;
+  nombre: string;
+  email: string;
+  role: UserRole;
+  estatus: UserStatus;
+  ultimo_acceso?: string;
+  creado_en: string;
+}
+
+export interface RoleDefinition {
+  role: UserRole;
+  nombre: string;
+  descripcion: string;
+  permisos: Permission[];
+}
 
 export interface Truck {
   id: string;
