@@ -1,5 +1,5 @@
 import {
-  LayoutDashboard, Truck as TruckIcon, Users, Building2, Route, Wallet, BarChart3, LogOut,
+  LayoutDashboard, Truck as TruckIcon, Users, Building2, Route, Wallet, BarChart3, LogOut, ShieldCheck,
 } from "lucide-react";
 import { NavLink, useLocation, useNavigate } from "react-router-dom";
 import {
@@ -20,6 +20,10 @@ const catalogos = [
   { title: "Camiones", url: "/camiones", icon: TruckIcon },
   { title: "Operadores", url: "/operadores", icon: Users },
   { title: "Clientes", url: "/clientes", icon: Building2 },
+];
+
+const administracion = [
+  { title: "Usuarios y permisos", url: "/usuarios", icon: ShieldCheck },
 ];
 
 export function AppSidebar() {
@@ -77,6 +81,24 @@ export function AppSidebar() {
           <SidebarGroupContent>
             <SidebarMenu>
               {catalogos.map(item => (
+                <SidebarMenuItem key={item.url}>
+                  <SidebarMenuButton asChild>
+                    <NavLink to={item.url} className={linkCls}>
+                      <item.icon className="h-4 w-4 flex-shrink-0" />
+                      {!collapsed && <span>{item.title}</span>}
+                    </NavLink>
+                  </SidebarMenuButton>
+                </SidebarMenuItem>
+              ))}
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Administración</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              {administracion.map(item => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild>
                     <NavLink to={item.url} className={linkCls}>

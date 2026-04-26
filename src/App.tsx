@@ -16,6 +16,7 @@ import Operadores from "@/pages/tlo/Operadores";
 import Clientes from "@/pages/tlo/Clientes";
 import Liquidaciones from "@/pages/tlo/Liquidaciones";
 import Reportes from "@/pages/tlo/Reportes";
+import Usuarios from "@/pages/tlo/Usuarios";
 
 const queryClient = new QueryClient();
 
@@ -38,6 +39,7 @@ const App = () => (
                 <Route path="/clientes" element={<Clientes />} />
                 <Route path="/liquidaciones" element={<Liquidaciones />} />
                 <Route path="/reportes" element={<Reportes />} />
+                <Route path="/usuarios" element={<Usuarios />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>
