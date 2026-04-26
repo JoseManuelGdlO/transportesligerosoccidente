@@ -1,4 +1,4 @@
-import type { Truck, Driver, Client, Trip } from "@/types/tlo";
+import type { Truck, Driver, Client, Trip, SystemUser, RoleDefinition, Permission } from "@/types/tlo";
 
 export const mockTrucks: Truck[] = [
   { id: "t1", numero_economico: "T-101", placas: "JAL-4521-A", marca: "Kenworth", modelo: "T680", anio: 2021, rendimiento_esperado: 3.2, costo_km_ref: 18, estatus: "activo" },
@@ -140,4 +140,38 @@ export const mockTrips: Trip[] = [
     fuel: [],
     expenses: [],
   },
+];
+
+const ALL_PERMS: Permission[] = [
+  "viajes.ver", "viajes.crear", "viajes.cerrar", "viajes.eliminar",
+  "liquidaciones.ver", "liquidaciones.cerrar",
+  "catalogos.ver", "catalogos.editar",
+  "reportes.ver", "usuarios.gestionar",
+];
+
+export const mockRoles: RoleDefinition[] = [
+  {
+    role: "admin",
+    nombre: "Administrador",
+    descripcion: "Acceso total al sistema, gestión de usuarios, cierre de liquidaciones y configuración.",
+    permisos: ALL_PERMS,
+  },
+  {
+    role: "capturista",
+    nombre: "Capturista",
+    descripcion: "Captura y operación diaria de viajes, viáticos y combustible. Sin acceso a usuarios ni cierre de liquidaciones.",
+    permisos: [
+      "viajes.ver", "viajes.crear", "viajes.cerrar",
+      "liquidaciones.ver",
+      "catalogos.ver",
+      "reportes.ver",
+    ],
+  },
+];
+
+export const mockSystemUsers: SystemUser[] = [
+  { id: "u1", nombre: "María Fernanda López", email: "admin@tlo.mx", role: "admin", estatus: "activo", ultimo_acceso: daysAgo(0), creado_en: daysAgo(180) },
+  { id: "u2", nombre: "Jorge Alberto Ramos", email: "jramos@tlo.mx", role: "capturista", estatus: "activo", ultimo_acceso: daysAgo(1), creado_en: daysAgo(90) },
+  { id: "u3", nombre: "Sofía Hernández Vega", email: "shernandez@tlo.mx", role: "capturista", estatus: "activo", ultimo_acceso: daysAgo(2), creado_en: daysAgo(60) },
+  { id: "u4", nombre: "Diego Martínez Cruz", email: "dmartinez@tlo.mx", role: "capturista", estatus: "inactivo", ultimo_acceso: daysAgo(45), creado_en: daysAgo(200) },
 ];
