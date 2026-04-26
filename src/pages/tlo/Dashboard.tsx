@@ -1,0 +1,159 @@
+import { useNavigate } from "react-router-dom";
+import { useTlo } from "@/context/TloContext";
+import { computeTrip, driverById, truckById } from "@/lib/calc";
+import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
+import { KpiCard } from "@/components/tlo/KpiCard";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { TripStatusBadge, MarginBadge } from "@/components/tlo/StatusBadge";
+import { Truck, Users, DollarSign, TrendingUp, AlertTriangle, CheckCircle2, Plus, Wallet, Activity } from "lucide-react";
+import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+
+export default function Dashboard() {
+  const { trips, drivers, trucks } = useTlo();
+  const nav = useNavigate();
+
+  const now = new Date();
+  const wStart = startOfWeek(now);
+  const wEnd = endOfWeek(now);
+
+  const weekTrips = trips.filter(t => {
+    const d = new Date(t.fecha_salida);
+    return d >= wStart && d <= wEnd;
+  });
+
+  const enriched = weekTrips.map(t => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
+  const enCurso = enriched.filter(e => e.trip.estatus === "en_curso").length;
+  const cerrados = enriched.filter(e => e.trip.estatus === "cerrado").length;
+  const ingresos = enriched.reduce((a, e) => a + e.fin.ingreso, 0);
+  const costos = enriched.reduce((a, e) => a + e.fin.costo_total, 0);
+  const utilidad = ingresos - costos;
+  const margen = ingresos > 0 ? (utilidad / ingresos) * 100 : 0;
+  const negativos = enriched.filter(e => e.trip.estatus === "cerrado" && e.fin.utilidad < 0).length;
+
+  // mini gráfico utilidad por día de la semana
+  const days: { day: string; utilidad: number }[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(wStart); d.setDate(wStart.getDate() + i);
+    const key = isoDay(d);
+    const u = enriched
+      .filter(e => isoDay(new Date(e.trip.fecha_salida)) === key)
+      .reduce((a, e) => a + e.fin.utilidad, 0);
+    days.push({ day: d.toLocaleDateString("es-MX", { weekday: "short" }), utilidad: Math.round(u) });
+  }
+
+  const activos = trips.filter(t => t.estatus === "en_curso").slice(0, 5);
+
+  return (
+    <div className="space-y-6">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        <div>
+          <p className="text-sm text-muted-foreground">
+            Semana del {fmtDate(wStart.toISOString())} al {fmtDate(wEnd.toISOString())}
+          </p>
+        </div>
+        <div className="flex gap-2">
+          <Button variant="outline" onClick={() => nav("/liquidaciones")}>
+            <Wallet className="h-4 w-4 mr-2" /> Nueva liquidación
+          </Button>
+          <Button onClick={() => nav("/viajes?nuevo=1")} className="bg-primary text-primary-foreground hover:bg-primary-glow">
+            <Plus className="h-4 w-4 mr-2" /> Nuevo viaje
+          </Button>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+        <KpiCard label="Viajes en curso" value={String(enCurso)} icon={Activity} tone="accent" />
+        <KpiCard label="Viajes cerrados" value={String(cerrados)} icon={CheckCircle2} tone="success" />
+        <KpiCard label="Ingresos" value={fmtMXN(ingresos)} icon={DollarSign} tone="default" />
+        <KpiCard label="Costos" value={fmtMXN(costos)} icon={Truck} tone="default" />
+        <KpiCard label="Utilidad neta" value={fmtMXN(utilidad)} hint={`Margen ${margen.toFixed(1)}%`} icon={TrendingUp} tone={utilidad >= 0 ? "success" : "destructive"} />
+        <KpiCard label="Margen promedio" value={`${margen.toFixed(1)}%`} icon={TrendingUp} tone={margen >= 15 ? "success" : margen >= 5 ? "warning" : "destructive"} />
+        <KpiCard label="Viajes negativos" value={String(negativos)} icon={AlertTriangle} tone={negativos > 0 ? "destructive" : "success"} />
+        <KpiCard label="Operadores activos" value={String(drivers.filter(d => d.estatus === "activo").length)} icon={Users} tone="default" />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <Card className="lg:col-span-2 tlo-shadow-md">
+          <CardHeader>
+            <CardTitle className="text-base">Utilidad por día (semana actual)</CardTitle>
+          </CardHeader>
+          <CardContent className="h-64">
+            <ResponsiveContainer width="100%" height="100%">
+              <BarChart data={days}>
+                <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                <XAxis dataKey="day" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} tickFormatter={v => `$${(v/1000).toFixed(0)}k`} />
+                <Tooltip
+                  contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }}
+                  formatter={(v: number) => [fmtMXN(v), "Utilidad"]}
+                />
+                <Bar dataKey="utilidad" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </CardContent>
+        </Card>
+
+        <Card className="tlo-shadow-md">
+          <CardHeader><CardTitle className="text-base">Flota</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {(["activo", "taller", "baja"] as const).map(s => {
+              const n = trucks.filter(t => t.estatus === s).length;
+              const label = s === "activo" ? "Activas" : s === "taller" ? "En taller" : "De baja";
+              return (
+                <div key={s} className="flex items-center justify-between text-sm">
+                  <span className="text-muted-foreground">{label}</span>
+                  <span className="font-bold text-foreground">{n}</span>
+                </div>
+              );
+            })}
+            <div className="border-t pt-3 mt-3 flex items-center justify-between">
+              <span className="text-sm font-medium">Total flota</span>
+              <span className="text-lg font-bold">{trucks.length}</span>
+            </div>
+          </CardContent>
+        </Card>
+      </div>
+
+      <Card className="tlo-shadow-md">
+        <CardHeader>
+          <CardTitle className="text-base">Viajes en curso</CardTitle>
+        </CardHeader>
+        <CardContent className="p-0">
+          <Table>
+            <TableHeader>
+              <TableRow className="bg-secondary/50">
+                <TableHead>Folio</TableHead>
+                <TableHead>Ruta</TableHead>
+                <TableHead>Operador</TableHead>
+                <TableHead>Camión</TableHead>
+                <TableHead className="text-right">Tarifa</TableHead>
+                <TableHead>Estado</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {activos.length === 0 && (
+                <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sin viajes en curso</TableCell></TableRow>
+              )}
+              {activos.map(t => {
+                const dr = driverById(drivers, t.driver_id);
+                const tk = truckById(trucks, t.truck_id);
+                return (
+                  <TableRow key={t.id} className="cursor-pointer hover:bg-muted/30" onClick={() => nav(`/viajes/${t.id}`)}>
+                    <TableCell className="font-mono font-semibold">{t.folio}</TableCell>
+                    <TableCell className="text-sm">{t.origen} → {t.destino}</TableCell>
+                    <TableCell className="text-sm">{dr?.nombre}</TableCell>
+                    <TableCell className="text-sm font-mono">{tk?.numero_economico}</TableCell>
+                    <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
+                    <TableCell><TripStatusBadge status={t.estatus} /></TableCell>
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </CardContent>
+      </Card>
+    </div>
+  );
+}

@@ -1,0 +1,121 @@
+import type { Trip, Driver, Truck } from "@/types/tlo";
+
+export interface TripFinancials {
+  ingreso: number;
+  diesel_total: number;
+  diesel_litros: number;
+  gastos_total: number;
+  gastos_comprobados: number;
+  gastos_no_comprobados: number;
+  comision: number;
+  costo_total: number;
+  utilidad: number;
+  margen_pct: number;
+  km_recorridos: number;
+  costo_por_km: number;
+  ingreso_por_km: number;
+  rendimiento_real: number; // km/l
+  costo_diesel_por_km: number;
+}
+
+export const computeCommission = (trip: Trip, driver?: Driver): number => {
+  if (typeof trip.comision_override === "number") return trip.comision_override;
+  if (!driver) return 0;
+  if (driver.comision_tipo === "porcentaje") {
+    return (trip.tarifa * driver.comision_valor) / 100;
+  }
+  return driver.comision_valor;
+};
+
+export const computeTrip = (trip: Trip, driver?: Driver): TripFinancials => {
+  const ingreso = trip.tarifa || 0;
+  const diesel_litros = trip.fuel.reduce((a, f) => a + f.litros, 0);
+  const diesel_total = trip.fuel.reduce((a, f) => a + f.litros * f.precio_litro, 0);
+  const gastos_comprobados = trip.expenses.filter(e => e.comprobado).reduce((a, e) => a + e.monto, 0);
+  const gastos_no_comprobados = trip.expenses.filter(e => !e.comprobado).reduce((a, e) => a + e.monto, 0);
+  const gastos_total = gastos_comprobados + gastos_no_comprobados;
+  const comision = computeCommission(trip, driver);
+  const costo_total = diesel_total + gastos_total + comision;
+  const utilidad = ingreso - costo_total;
+  const margen_pct = ingreso > 0 ? (utilidad / ingreso) * 100 : 0;
+  const km_recorridos = trip.km_final && trip.km_inicial != null
+    ? Math.max(0, trip.km_final - trip.km_inicial)
+    : 0;
+  const costo_por_km = km_recorridos > 0 ? costo_total / km_recorridos : 0;
+  const ingreso_por_km = km_recorridos > 0 ? ingreso / km_recorridos : 0;
+  const rendimiento_real = diesel_litros > 0 ? km_recorridos / diesel_litros : 0;
+  const costo_diesel_por_km = km_recorridos > 0 ? diesel_total / km_recorridos : 0;
+  return {
+    ingreso,
+    diesel_total,
+    diesel_litros,
+    gastos_total,
+    gastos_comprobados,
+    gastos_no_comprobados,
+    comision,
+    costo_total,
+    utilidad,
+    margen_pct,
+    km_recorridos,
+    costo_por_km,
+    ingreso_por_km,
+    rendimiento_real,
+    costo_diesel_por_km,
+  };
+};
+
+export interface SettlementSummary {
+  trips: Trip[];
+  total_ingresos: number;
+  total_comisiones: number;
+  total_km: number;
+  viaticos_entregados: number;
+  viaticos_comprobados: number;
+  saldo_viaticos: number; // positivo = saldo a favor del operador
+  neto_pagar: number;
+}
+
+export const computeSettlement = (
+  driver: Driver,
+  trips: Trip[],
+  inicio: Date,
+  fin: Date,
+): SettlementSummary => {
+  const inRange = trips.filter(t => {
+    if (t.driver_id !== driver.id) return false;
+    const d = new Date(t.fecha_salida);
+    return d >= inicio && d <= fin;
+  });
+  let total_ingresos = 0;
+  let total_comisiones = 0;
+  let total_km = 0;
+  let viaticos_entregados = 0;
+  let viaticos_comprobados = 0;
+  for (const t of inRange) {
+    const f = computeTrip(t, driver);
+    total_ingresos += f.ingreso;
+    total_comisiones += f.comision;
+    total_km += f.km_recorridos;
+    viaticos_entregados += t.viaticos_entregados || 0;
+    viaticos_comprobados += f.gastos_comprobados;
+  }
+  const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
+  // Neto = comisiones - viáticos no comprobados (cuando entregaste más que comprobó)
+  const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
+  const neto_pagar = total_comisiones - no_comprobado;
+  return {
+    trips: inRange,
+    total_ingresos,
+    total_comisiones,
+    total_km,
+    viaticos_entregados,
+    viaticos_comprobados,
+    saldo_viaticos,
+    neto_pagar,
+  };
+};
+
+export const truckById = (trucks: Truck[], id: string) =>
+  trucks.find(t => t.id === id);
+export const driverById = (drivers: Driver[], id: string) =>
+  drivers.find(d => d.id === id);
