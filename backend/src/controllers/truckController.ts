@@ -1,0 +1,71 @@
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import type { Request, Response } from "express";
+import { Truck } from "../models";
+import { asyncHandler } from "../utils/asyncHandler";
+import { truckToJson } from "../utils/serialize";
+
+const bodySchema = z.object({
+  numero_economico: z.string().min(1),
+  placas: z.string().min(1),
+  marca: z.string().min(1),
+  modelo: z.string().min(1),
+  anio: z.number().int(),
+  rendimiento_esperado: z.number(),
+  costo_km_ref: z.number(),
+  estatus: z.enum(["activo", "taller", "baja"]).optional(),
+});
+
+export const listTrucks = asyncHandler(async (_req: Request, res: Response) => {
+  const rows = await Truck.findAll({ order: [["numero_economico", "ASC"]] });
+  res.json(rows.map(truckToJson));
+});
+
+export const getTruck = asyncHandler(async (req: Request, res: Response) => {
+  const t = await Truck.findByPk(req.params.id);
+  if (!t) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  res.json(truckToJson(t));
+});
+
+export const createTruck = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = bodySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const b = parsed.data;
+  const t = await Truck.create({
+    id: randomUUID(),
+    ...b,
+    estatus: b.estatus ?? "activo",
+  } as never);
+  res.status(201).json(truckToJson(t));
+});
+
+export const updateTruck = asyncHandler(async (req: Request, res: Response) => {
+  const t = await Truck.findByPk(req.params.id);
+  if (!t) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  const parsed = bodySchema.partial().safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  await t.update(parsed.data as never);
+  res.json(truckToJson(t));
+});
+
+export const deleteTruck = asyncHandler(async (req: Request, res: Response) => {
+  const t = await Truck.findByPk(req.params.id);
+  if (!t) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  await t.destroy();
+  res.status(204).send();
+});
