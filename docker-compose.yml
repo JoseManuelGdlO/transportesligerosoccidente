@@ -3,11 +3,12 @@
 # MySQL va fuera de este compose (BD ya existente en el servidor). Define DB_* en .env.
 #
 # 1) Copia las variables:  cp compose.env.example .env
-# 2) Edita .env (DB_*, JWT_SECRET, PUBLIC_WEB_ORIGIN y VITE_API_BASE_URL)
+# 2) En Easy Panel define las variables de entorno del proyecto (o usa .env en el repo).
 # 3) docker compose up -d --build
 #
 # Puertos por defecto en el HOST: 8088 (web) y 5480 (API).
-# VITE_API_BASE_URL debe ser la URL que el navegador usa para llegar a la API.
+# PUBLIC_WEB_ORIGIN y VITE_API_BASE_URL tienen valores por defecto para que Compose no falle
+# si faltan en el panel; en producción debes poner la URL real con la que abres el front y la API.
 
 services:
   api:
@@ -20,16 +21,16 @@ services:
     environment:
       NODE_ENV: production
       PORT: "4100"
-      DB_HOST: ${DB_HOST:?set DB_HOST in .env}
+      DB_HOST: ${DB_HOST:-127.0.0.1}
       DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-tlgdb}
-      DB_USER: ${DB_USER:?set DB_USER in .env}
-      DB_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD in .env}
+      DB_USER: ${DB_USER:-root}
+      DB_PASSWORD: ${DB_PASSWORD:-}
       DB_DIALECT: ${DB_DIALECT:-mysql}
-      JWT_SECRET: ${JWT_SECRET:?set JWT_SECRET in .env}
+      JWT_SECRET: ${JWT_SECRET:-change-me-set-in-easypanel}
       JWT_ACCESS_EXPIRES_SEC: ${JWT_ACCESS_EXPIRES_SEC:-3600}
       JWT_REFRESH_EXPIRES_SEC: ${JWT_REFRESH_EXPIRES_SEC:-7d}
-      CORS_ORIGIN: ${PUBLIC_WEB_ORIGIN:?set PUBLIC_WEB_ORIGIN in .env}
+      CORS_ORIGIN: ${PUBLIC_WEB_ORIGIN:-http://127.0.0.1:8088}
       SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@tlo.mx}
       SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}
     healthcheck:
@@ -44,7 +45,7 @@ services:
       context: ./frontend
       dockerfile: Dockerfile
       args:
-        VITE_API_BASE_URL: ${VITE_API_BASE_URL:?set VITE_API_BASE_URL in .env}
+        VITE_API_BASE_URL: ${VITE_API_BASE_URL:-http://127.0.0.1:5480/api/v1}
     restart: unless-stopped
     ports:
       - "${WEB_PUBLISH_PORT:-8088}:80"
