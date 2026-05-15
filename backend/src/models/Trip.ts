@@ -15,6 +15,7 @@ import type { Expense } from "./Expense";
 
 export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<Trip>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare folio: string;
   declare truck_id: string;
   declare driver_id: string;
@@ -44,7 +45,8 @@ export function initTrip(sequelize: Sequelize) {
   Trip.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
-      folio: { type: DataTypes.STRING(32), allowNull: false, unique: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
+      folio: { type: DataTypes.STRING(32), allowNull: false },
       truck_id: { type: DataTypes.CHAR(36), allowNull: false },
       driver_id: { type: DataTypes.CHAR(36), allowNull: false },
       client_id: { type: DataTypes.CHAR(36), allowNull: false },

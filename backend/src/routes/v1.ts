@@ -1,7 +1,8 @@
 import { Router } from "express";
 import { authenticateJwt } from "../middlewares/authenticate";
 import { requirePermission } from "../middlewares/requirePermission";
-import { postLogin, getMe } from "../controllers/authController";
+import { postLogin, postRefresh, getMe } from "../controllers/authController";
+import * as tenantC from "../controllers/tenantController";
 import * as truckC from "../controllers/truckController";
 import * as driverC from "../controllers/driverController";
 import * as clientC from "../controllers/clientController";
@@ -14,8 +15,13 @@ import * as reportsC from "../controllers/reportsController";
 const r = Router();
 
 r.post("/auth/login", postLogin);
+r.post("/auth/refresh", postRefresh);
 
 r.get("/auth/me", authenticateJwt, getMe);
+
+r.get("/tenant", authenticateJwt, tenantC.getTenant);
+r.patch("/tenant", authenticateJwt, requirePermission("empresa.gestionar"), tenantC.patchTenant);
+r.patch("/tenant/theme", authenticateJwt, requirePermission("marca.gestionar"), tenantC.patchTenantTheme);
 
 r.get("/trucks", authenticateJwt, requirePermission("catalogos.ver"), truckC.listTrucks);
 r.get("/trucks/:id", authenticateJwt, requirePermission("catalogos.ver"), truckC.getTruck);

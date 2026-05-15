@@ -12,11 +12,20 @@ const titles: Record<string, string> = {
   "/operadores": "Operadores",
   "/clientes": "Clientes",
   "/usuarios": "Usuarios y permisos",
+  "/marca": "Marca y tema",
 };
 
 export default function AppLayout() {
-  const { user } = useAuth();
+  const { user, bootstrapping, apiMode } = useAuth();
   const loc = useLocation();
+  if (apiMode && bootstrapping) {
+    return (
+      <div className="min-h-screen flex w-full bg-background items-center justify-center">
+        <p className="text-sm text-muted-foreground">Cargando sesión…</p>
+      </div>
+    );
+  }
+
   if (!user) return <Navigate to="/login" replace />;
 
   let title = titles[loc.pathname] ?? "";

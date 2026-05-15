@@ -24,18 +24,20 @@ export const getAggregates = asyncHandler(async (req: Request, res: Response) =>
   }
   const desde = parsed.data.desde;
   const hasta = parsed.data.hasta;
+  const tenantId = req.user!.tenantId;
 
   const [trips, trucks, drivers, clients] = await Promise.all([
     Trip.findAll({
+      where: { tenant_id: tenantId },
       include: [
         { association: "fuel" },
         { association: "expenses" },
         { model: Driver, attributes: ["id", "nombre", "comision_tipo", "comision_valor"] },
       ],
     }),
-    Truck.findAll(),
-    Driver.findAll(),
-    Client.findAll(),
+    Truck.findAll({ where: { tenant_id: tenantId } }),
+    Driver.findAll({ where: { tenant_id: tenantId } }),
+    Client.findAll({ where: { tenant_id: tenantId } }),
   ]);
 
   const closed = trips.filter((t) => {

@@ -15,6 +15,8 @@ Variables principales:
 
 - `DB_HOST`, `DB_PORT`, `DB_NAME`, `DB_USER`, `DB_PASSWORD`, `DB_DIALECT=mysql`
 - `JWT_SECRET` (cadena larga y aleatoria en producción)
+- `JWT_ACCESS_EXPIRES_SEC` — segundos de vida del token de acceso (también acepta `1h`, `90m`). Si no existe: `JWT_EXPIRES_SEC`, `JWT_EXPIRES_IN`, y por defecto 1 h.
+- `JWT_REFRESH_EXPIRES_SEC` — vida del refresh token (por defecto 7 días; admite `7d`, segundos, etc.)
 - `PORT` (por defecto `4000`)
 - `CORS_ORIGIN` (por defecto `http://localhost:5173`)
 - `SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD` (solo para el seeder del usuario administrador inicial)
@@ -39,7 +41,8 @@ npm run dev
 La API queda en `http://localhost:4000`. Rutas:
 
 - `GET /health` — sin autenticación
-- `POST /api/v1/auth/login` — sin JWT (devuelve `token` + `user` con `permissions`)
+- `POST /api/v1/auth/login` — sin JWT (devuelve `token`, `refresh_token`, `tenant`, `user` con `permissions`)
+- `POST /api/v1/auth/refresh` — body `{ "refresh_token": "<jwt>" }`; devuelve nuevo `token` y `refresh_token` (rotación)
 - Resto de rutas: header `Authorization: Bearer <token>` y permisos según la operación
 
 ## Producción

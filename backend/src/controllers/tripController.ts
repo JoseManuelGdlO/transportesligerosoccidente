@@ -5,8 +5,11 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { tripToJson, fuelToJson, expenseToJson } from "../utils/serialize";
 import * as tripService from "../services/tripService";
 
-export const listTrips = asyncHandler(async (_req: Request, res: Response) => {
+const tid = (req: Request) => req.user!.tenantId;
+
+export const listTrips = asyncHandler(async (req: Request, res: Response) => {
   const rows = await Trip.findAll({
+    where: { tenant_id: tid(req) },
     order: [["fecha_salida", "DESC"]],
     include: [
       { association: "fuel" },
@@ -17,7 +20,7 @@ export const listTrips = asyncHandler(async (_req: Request, res: Response) => {
 });
 
 export const getTrip = asyncHandler(async (req: Request, res: Response) => {
-  const t = await tripService.getTripOrThrow(req.params.id, true);
+  const t = await tripService.getTripOrThrow(tid(req), req.params.id, true);
   res.json(tripToJson(t));
 });
 
@@ -39,12 +42,12 @@ export const createTrip = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const t = await tripService.createTrip(parsed.data);
+  const t = await tripService.createTrip(tid(req), parsed.data);
   res.status(201).json(tripToJson(t));
 });
 
 export const patchTrip = asyncHandler(async (req: Request, res: Response) => {
-  const t = await tripService.patchTrip(req.params.id, req.body);
+  const t = await tripService.patchTrip(tid(req), req.params.id, req.body);
   res.json(tripToJson(t));
 });
 
@@ -60,12 +63,12 @@ export const postCloseTrip = asyncHandler(async (req: Request, res: Response) =>
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const t = await tripService.closeTrip(req.params.id, parsed.data);
+  const t = await tripService.closeTrip(tid(req), req.params.id, parsed.data);
   res.json(tripToJson(t));
 });
 
 export const deleteTrip = asyncHandler(async (req: Request, res: Response) => {
-  await tripService.deleteTrip(req.params.id);
+  await tripService.deleteTrip(tid(req), req.params.id);
   res.status(204).send();
 });
 
@@ -82,12 +85,12 @@ export const postFuel = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const f = await tripService.addFuel(req.params.id, parsed.data);
+  const f = await tripService.addFuel(tid(req), req.params.id, parsed.data);
   res.status(201).json(fuelToJson(f));
 });
 
 export const deleteFuel = asyncHandler(async (req: Request, res: Response) => {
-  await tripService.removeFuel(req.params.id, req.params.fuelId);
+  await tripService.removeFuel(tid(req), req.params.id, req.params.fuelId);
   res.status(204).send();
 });
 
@@ -105,11 +108,11 @@ export const postExpense = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const e = await tripService.addExpense(req.params.id, parsed.data);
+  const e = await tripService.addExpense(tid(req), req.params.id, parsed.data);
   res.status(201).json(expenseToJson(e));
 });
 
 export const deleteExpense = asyncHandler(async (req: Request, res: Response) => {
-  await tripService.removeExpense(req.params.id, req.params.expenseId);
+  await tripService.removeExpense(tid(req), req.params.id, req.params.expenseId);
   res.status(204).send();
 });

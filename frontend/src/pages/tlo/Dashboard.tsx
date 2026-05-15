@@ -11,8 +11,12 @@ import { Truck, Users, DollarSign, TrendingUp, AlertTriangle, CheckCircle2, Plus
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export default function Dashboard() {
-  const { trips, drivers, trucks } = useTlo();
+  const { trips, drivers, trucks, catalogLoading, catalogError } = useTlo();
   const nav = useNavigate();
+
+  if (catalogLoading) {
+    return <p className="text-sm text-muted-foreground">Cargando datos del servidor…</p>;
+  }
 
   const now = new Date();
   const wStart = startOfWeek(now);
@@ -48,6 +52,9 @@ export default function Dashboard() {
   return (
     <div className="space-y-6">
       <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+        {catalogError && (
+          <p className="text-sm text-destructive w-full sm:order-last">{catalogError}</p>
+        )}
         <div>
           <p className="text-sm text-muted-foreground">
             Semana del {fmtDate(wStart.toISOString())} al {fmtDate(wEnd.toISOString())}

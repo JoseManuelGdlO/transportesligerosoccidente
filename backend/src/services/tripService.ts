@@ -1,12 +1,12 @@
 import { randomUUID } from "node:crypto";
 import { Op, type Transaction } from "sequelize";
-import { Trip, FuelLoad, Expense, Driver, sequelize } from "../models";
+import { Trip, FuelLoad, Expense, Driver, Truck, Client, sequelize } from "../models";
 
-export async function nextFolio(t?: Transaction): Promise<string> {
+export async function nextFolio(tenantId: string, t?: Transaction): Promise<string> {
   const year = new Date().getFullYear();
   const prefix = `V-${year}-`;
   const last = await Trip.findOne({
-    where: { folio: { [Op.like]: `${prefix}%` } },
+    where: { tenant_id: tenantId, folio: { [Op.like]: `${prefix}%` } },
     order: [["folio", "DESC"]],
     transaction: t,
   });
@@ -18,8 +18,9 @@ export async function nextFolio(t?: Transaction): Promise<string> {
   return `${prefix}${String(seq).padStart(4, "0")}`;
 }
 
-export async function getTripOrThrow(id: string, withNested = false, t?: Transaction) {
-  const trip = await Trip.findByPk(id, {
+export async function getTripOrThrow(tenantId: string, id: string, withNested = false, t?: Transaction) {
+  const trip = await Trip.findOne({
+    where: { id, tenant_id: tenantId },
     include: withNested
       ? [
           { association: "fuel" },
@@ -45,10 +46,11 @@ export async function assertTripOpen(trip: Trip) {
 }
 
 export async function closeTrip(
+  tenantId: string,
   id: string,
   data: { km_final: number; fecha_llegada: string; num_factura: string },
 ) {
-  const trip = await getTripOrThrow(id, true);
+  const trip = await getTripOrThrow(tenantId, id, true);
   await assertTripOpen(trip);
   if (data.km_final <= trip.km_inicial) {
     const err = new Error("El km final debe ser mayor al inicial");
@@ -66,22 +68,24 @@ export async function closeTrip(
     num_factura: data.num_factura.trim(),
     estatus: "cerrado",
   });
-  return getTripOrThrow(id, true);
+  return getTripOrThrow(tenantId, id, true);
 }
 
-export async function deleteTrip(id: string) {
-  const trip = await getTripOrThrow(id, false);
+export async function deleteTrip(tenantId: string, id: string) {
+  const trip = await getTripOrThrow(tenantId, id, false);
   await trip.destroy();
 }
 
 export async function addFuel(
+  tenantId: string,
   tripId: string,
   body: { litros: number; precio_litro: number; ubicacion: string; fecha?: string },
 ) {
-  const trip = await getTripOrThrow(tripId, false);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripOpen(trip);
   return FuelLoad.create({
     id: randomUUID(),
+    tenant_id: tenantId,
     trip_id: tripId,
     litros: body.litros,
     precio_litro: body.precio_litro,
@@ -90,10 +94,10 @@ export async function addFuel(
   } as never);
 }
 
-export async function removeFuel(tripId: string, fuelId: string) {
-  const trip = await getTripOrThrow(tripId, false);
+export async function removeFuel(tenantId: string, tripId: string, fuelId: string) {
+  const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripOpen(trip);
-  const f = await FuelLoad.findOne({ where: { id: fuelId, trip_id: tripId } });
+  const f = await FuelLoad.findOne({ where: { id: fuelId, trip_id: tripId, tenant_id: tenantId } });
   if (!f) {
     const err = new Error("Carga no encontrada");
     (err as Error & { status?: number }).status = 404;
@@ -103,6 +107,7 @@ export async function removeFuel(tripId: string, fuelId: string) {
 }
 
 export async function addExpense(
+  tenantId: string,
   tripId: string,
   body: {
     categoria: "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
@@ -112,10 +117,11 @@ export async function addExpense(
     fecha?: string;
   },
 ) {
-  const trip = await getTripOrThrow(tripId, false);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripOpen(trip);
   return Expense.create({
     id: randomUUID(),
+    tenant_id: tenantId,
     trip_id: tripId,
     categoria: body.categoria,
     descripcion: body.descripcion,
@@ -125,10 +131,10 @@ export async function addExpense(
   } as never);
 }
 
-export async function removeExpense(tripId: string, expenseId: string) {
-  const trip = await getTripOrThrow(tripId, false);
+export async function removeExpense(tenantId: string, tripId: string, expenseId: string) {
+  const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripOpen(trip);
-  const e = await Expense.findOne({ where: { id: expenseId, trip_id: tripId } });
+  const e = await Expense.findOne({ where: { id: expenseId, trip_id: tripId, tenant_id: tenantId } });
   if (!e) {
     const err = new Error("Gasto no encontrado");
     (err as Error & { status?: number }).status = 404;
@@ -137,8 +143,8 @@ export async function removeExpense(tripId: string, expenseId: string) {
   await e.destroy();
 }
 
-export async function patchTrip(id: string, patch: Partial<Record<string, unknown>>) {
-  const trip = await getTripOrThrow(id, false);
+export async function patchTrip(tenantId: string, id: string, patch: Partial<Record<string, unknown>>) {
+  const trip = await getTripOrThrow(tenantId, id, false);
   await assertTripOpen(trip);
   const allowed = [
     "truck_id",
@@ -157,25 +163,50 @@ export async function patchTrip(id: string, patch: Partial<Record<string, unknow
   }
   if (patch.fecha_salida !== undefined) data.fecha_salida = new Date(String(patch.fecha_salida));
   await trip.update(data as never);
-  return getTripOrThrow(id, true);
+  return getTripOrThrow(tenantId, id, true);
 }
 
-export async function createTrip(data: {
-  truck_id: string;
-  driver_id: string;
-  client_id: string;
-  origen: string;
-  destino: string;
-  fecha_salida: string | Date;
-  km_inicial: number;
-  tarifa: number;
-  viaticos_entregados?: number;
-}) {
+export async function assertCatalogRefs(
+  tenantId: string,
+  refs: { truck_id: string; driver_id: string; client_id: string },
+) {
+  const [tr, dr, cl] = await Promise.all([
+    Truck.findOne({ where: { id: refs.truck_id, tenant_id: tenantId } }),
+    Driver.findOne({ where: { id: refs.driver_id, tenant_id: tenantId } }),
+    Client.findOne({ where: { id: refs.client_id, tenant_id: tenantId } }),
+  ]);
+  if (!tr || !dr || !cl) {
+    const err = new Error("Camión, operador o cliente no válido para esta empresa");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
+}
+
+export async function createTrip(
+  tenantId: string,
+  data: {
+    truck_id: string;
+    driver_id: string;
+    client_id: string;
+    origen: string;
+    destino: string;
+    fecha_salida: string | Date;
+    km_inicial: number;
+    tarifa: number;
+    viaticos_entregados?: number;
+  },
+) {
+  await assertCatalogRefs(tenantId, {
+    truck_id: data.truck_id,
+    driver_id: data.driver_id,
+    client_id: data.client_id,
+  });
   return sequelize.transaction(async (t) => {
-    const folio = await nextFolio(t);
+    const folio = await nextFolio(tenantId, t);
     const created = await Trip.create(
       {
         id: randomUUID(),
+        tenant_id: tenantId,
         folio,
         truck_id: data.truck_id,
         driver_id: data.driver_id,
@@ -190,16 +221,17 @@ export async function createTrip(data: {
       } as never,
       { transaction: t },
     );
-    return getTripOrThrow(created.id, true, t);
+    return getTripOrThrow(tenantId, created.id, true, t);
   });
 }
 
-export async function listTripsForReports() {
+export async function listTripsForReports(tenantId: string) {
   return Trip.findAll({
+    where: { tenant_id: tenantId },
     include: [
       { association: "fuel" },
       { association: "expenses" },
-      { model: Driver, attributes: ["id", "comision_tipo", "comision_valor"] },
+      { model: Driver, attributes: ["id", "comision_tipo", "comision_valor", "tenant_id"] },
     ],
   });
 }

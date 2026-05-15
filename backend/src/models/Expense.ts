@@ -9,6 +9,7 @@ import {
 
 export class Expense extends Model<InferAttributes<Expense>, InferCreationAttributes<Expense>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare trip_id: string;
   declare categoria: "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
   declare descripcion: string;
@@ -23,6 +24,7 @@ export function initExpense(sequelize: Sequelize) {
   Expense.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), allowNull: false },
       categoria: {
         type: DataTypes.ENUM("casetas", "refacciones", "hospedaje", "comidas", "otros"),

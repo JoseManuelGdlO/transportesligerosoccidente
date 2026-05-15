@@ -17,7 +17,7 @@ export const getSummary = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   const { driver_id, inicio, fin } = parsed.data;
-  const data = await settlementService.settlementSummary(driver_id, inicio, fin);
+  const data = await settlementService.settlementSummary(req.user!.tenantId, driver_id, inicio, fin);
   res.json(data);
 });
 
@@ -34,6 +34,7 @@ export const postClose = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   const row = await settlementService.closeSettlement(
+    req.user!.tenantId,
     parsed.data.driver_id,
     parsed.data.fecha_inicio,
     parsed.data.fecha_fin,

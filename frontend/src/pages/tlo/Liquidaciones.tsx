@@ -1,7 +1,10 @@
-import { useMemo, useState } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { useTlo } from "@/context/TloContext";
-import { computeSettlement, computeTrip, driverById } from "@/lib/calc";
+import { useAuth } from "@/context/AuthContext";
+import { computeSettlement, computeTrip } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, fmtDate, fmtNumber } from "@/lib/format";
+import { downloadSettlementPdf } from "@/lib/settlementPdf";
+import { apiFetch, readJson } from "@/lib/api";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -16,12 +19,21 @@ const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
 
 export default function Liquidaciones() {
   const { drivers, trips } = useTlo();
+  const { tenant, hasApiSession } = useAuth();
+  const [closing, setClosing] = useState(false);
   const activeDrivers = drivers.filter(d => d.estatus === "activo");
 
   const [driverId, setDriverId] = useState(activeDrivers[0]?.id || "");
   const today = new Date();
   const [inicio, setInicio] = useState(toInputDate(startOfWeek(today)));
   const [fin, setFin] = useState(toInputDate(endOfWeek(today)));
+
+  useEffect(() => {
+    if (activeDrivers.length === 0) return;
+    if (!driverId || !activeDrivers.some(d => d.id === driverId)) {
+      setDriverId(activeDrivers[0].id);
+    }
+  }, [activeDrivers, driverId]);
 
   const driver = drivers.find(d => d.id === driverId);
   const summary = useMemo(() => {
@@ -129,11 +141,57 @@ export default function Liquidaciones() {
                   <p className="text-2xl font-bold mt-1">{fmtMXN(summary.neto_pagar)}</p>
                 </div>
                 <div className="flex gap-2">
-                  <Button variant="outline" className="flex-1" onClick={() => toast.info("Exportación a PDF (demo)")}>
+                  <Button
+                    variant="outline"
+                    className="flex-1"
+                    onClick={() => {
+                      if (!driver || !summary) return;
+                      try {
+                        downloadSettlementPdf({
+                          tenantNombre: tenant?.nombre ?? "TLO",
+                          driver,
+                          inicio,
+                          fin,
+                          summary,
+                        });
+                        toast.success("PDF descargado");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "No se pudo generar el PDF");
+                      }
+                    }}
+                  >
                     <FileText className="h-4 w-4 mr-2" /> PDF
                   </Button>
-                  <Button className="flex-1 bg-success text-success-foreground hover:bg-success/90" onClick={() => toast.success("Liquidación cerrada (demo)")}>
-                    <Lock className="h-4 w-4 mr-2" /> Cerrar
+                  <Button
+                    className="flex-1 bg-success text-success-foreground hover:bg-success/90"
+                    disabled={closing}
+                    title={!hasApiSession ? "Requiere sesión con el servidor" : undefined}
+                    onClick={async () => {
+                      if (!driver || !summary) return;
+                      if (!hasApiSession) {
+                        toast.info("El cierre se guarda en el servidor. Inicia sesión con cuenta API para usar esta acción.");
+                        return;
+                      }
+                      setClosing(true);
+                      try {
+                        const res = await apiFetch("/settlements/close", {
+                          method: "POST",
+                          body: JSON.stringify({
+                            driver_id: driver.id,
+                            fecha_inicio: inicio,
+                            fecha_fin: fin,
+                          }),
+                        });
+                        await readJson(res);
+                        toast.success("Liquidación cerrada en el sistema");
+                      } catch (e) {
+                        toast.error(e instanceof Error ? e.message : "No se pudo cerrar la liquidación");
+                      } finally {
+                        setClosing(false);
+                      }
+                    }}
+                  >
+                    <Lock className="h-4 w-4 mr-2" /> {closing ? "Cerrando…" : "Cerrar"}
                   </Button>
                 </div>
               </CardContent>

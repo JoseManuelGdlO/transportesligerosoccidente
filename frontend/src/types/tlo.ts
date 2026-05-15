@@ -16,7 +16,38 @@ export type Permission =
   | "catalogos.ver"
   | "catalogos.editar"
   | "reportes.ver"
-  | "usuarios.gestionar";
+  | "usuarios.gestionar"
+  | "empresa.gestionar"
+  | "marca.gestionar";
+
+/** Todos los permisos conocidos (alineado con el backend). */
+export const FULL_ADMIN_PERMISSIONS: Permission[] = [
+  "viajes.ver",
+  "viajes.crear",
+  "viajes.cerrar",
+  "viajes.eliminar",
+  "liquidaciones.ver",
+  "liquidaciones.cerrar",
+  "catalogos.ver",
+  "catalogos.editar",
+  "reportes.ver",
+  "usuarios.gestionar",
+  "empresa.gestionar",
+  "marca.gestionar",
+];
+
+export type TenantStatus = "activo" | "suspendido";
+
+export interface Tenant {
+  id: string;
+  slug: string;
+  nombre: string;
+  estatus: TenantStatus;
+  logo_url?: string;
+  color_primary?: string;
+  color_accent?: string;
+  color_sidebar?: string;
+}
 
 export interface SystemUser {
   id: string;

@@ -9,6 +9,7 @@ import {
 
 export class FuelLoad extends Model<InferAttributes<FuelLoad>, InferCreationAttributes<FuelLoad>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare trip_id: string;
   declare litros: string;
   declare precio_litro: string;
@@ -22,6 +23,7 @@ export function initFuelLoad(sequelize: Sequelize) {
   FuelLoad.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), allowNull: false },
       litros: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       precio_litro: { type: DataTypes.DECIMAL(12, 4), allowNull: false },

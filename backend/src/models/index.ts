@@ -2,6 +2,7 @@ import { sequelize } from "../config/database";
 import { Permission, initPermission } from "./Permission";
 import { Role, initRole } from "./Role";
 import { RolePermission, initRolePermission } from "./RolePermission";
+import { Tenant, initTenant } from "./Tenant";
 import { User, initUser } from "./User";
 import { Truck, initTruck } from "./Truck";
 import { Driver, initDriver } from "./Driver";
@@ -12,6 +13,7 @@ import { Expense, initExpense } from "./Expense";
 import { Settlement, initSettlement } from "./Settlement";
 
 export function initModels() {
+  initTenant(sequelize);
   initPermission(sequelize);
   initRole(sequelize);
   initRolePermission(sequelize);
@@ -38,8 +40,25 @@ export function initModels() {
   RolePermission.belongsTo(Role, { foreignKey: "role_id" });
   RolePermission.belongsTo(Permission, { foreignKey: "permission_id" });
 
+  Tenant.hasMany(User, { foreignKey: "tenant_id" });
+  User.belongsTo(Tenant, { foreignKey: "tenant_id" });
   User.belongsTo(Role, { foreignKey: "role_id" });
   Role.hasMany(User, { foreignKey: "role_id" });
+
+  Tenant.hasMany(Truck, { foreignKey: "tenant_id" });
+  Truck.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(Driver, { foreignKey: "tenant_id" });
+  Driver.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(Client, { foreignKey: "tenant_id" });
+  Client.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(Trip, { foreignKey: "tenant_id" });
+  Trip.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(Settlement, { foreignKey: "tenant_id" });
+  Settlement.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(FuelLoad, { foreignKey: "tenant_id" });
+  FuelLoad.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(Expense, { foreignKey: "tenant_id" });
+  Expense.belongsTo(Tenant, { foreignKey: "tenant_id" });
 
   Trip.belongsTo(Truck, { foreignKey: "truck_id" });
   Trip.belongsTo(Driver, { foreignKey: "driver_id" });
@@ -60,6 +79,7 @@ export function initModels() {
 
 export {
   sequelize,
+  Tenant,
   Permission,
   Role,
   RolePermission,

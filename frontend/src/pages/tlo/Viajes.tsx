@@ -51,20 +51,24 @@ export default function Viajes() {
       .map(t => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
   }, [trips, drivers, filterStatus, filterDriver, filterTruck, search]);
 
-  const submit = () => {
+  const submit = async () => {
     if (!form.truck_id || !form.driver_id || !form.client_id) {
       toast.error("Selecciona camión, operador y cliente"); return;
     }
-    const t = createTrip({
-      truck_id: form.truck_id, driver_id: form.driver_id, client_id: form.client_id,
-      origen: form.origen, destino: form.destino,
-      fecha_salida: new Date(form.fecha_salida).toISOString(),
-      km_inicial: +form.km_inicial, tarifa: +form.tarifa,
-      viaticos_entregados: +form.viaticos_entregados,
-    });
-    toast.success(`Viaje ${t.folio} abierto`);
-    setOpen(false);
-    nav(`/viajes/${t.id}`);
+    try {
+      const t = await createTrip({
+        truck_id: form.truck_id, driver_id: form.driver_id, client_id: form.client_id,
+        origen: form.origen, destino: form.destino,
+        fecha_salida: new Date(form.fecha_salida).toISOString(),
+        km_inicial: +form.km_inicial, tarifa: +form.tarifa,
+        viaticos_entregados: +form.viaticos_entregados,
+      });
+      toast.success(`Viaje ${t.folio} abierto`);
+      setOpen(false);
+      nav(`/viajes/${t.id}`);
+    } catch {
+      toast.error("No se pudo crear el viaje");
+    }
   };
 
   return (

@@ -1,37 +1,65 @@
 import {
-  LayoutDashboard, Truck as TruckIcon, Users, Building2, Route, Wallet, BarChart3, LogOut, ShieldCheck,
+  LayoutDashboard,
+  Truck as TruckIcon,
+  Users,
+  Building2,
+  Route,
+  Wallet,
+  BarChart3,
+  LogOut,
+  ShieldCheck,
+  Palette,
 } from "lucide-react";
-import { NavLink, useLocation, useNavigate } from "react-router-dom";
+import { NavLink, useNavigate } from "react-router-dom";
 import {
-  Sidebar, SidebarContent, SidebarGroup, SidebarGroupContent, SidebarGroupLabel,
-  SidebarMenu, SidebarMenuButton, SidebarMenuItem, SidebarHeader, SidebarFooter, useSidebar,
+  Sidebar,
+  SidebarContent,
+  SidebarGroup,
+  SidebarGroupContent,
+  SidebarGroupLabel,
+  SidebarMenu,
+  SidebarMenuButton,
+  SidebarMenuItem,
+  SidebarHeader,
+  SidebarFooter,
+  useSidebar,
 } from "@/components/ui/sidebar";
 import logo from "@/assets/tlo-logo.jpeg";
 import { useAuth } from "@/context/AuthContext";
+import type { Permission } from "@/types/tlo";
 
-const items = [
+type NavItem = {
+  title: string;
+  url: string;
+  icon: typeof LayoutDashboard;
+  end?: boolean;
+  /** Si se define, el enlace solo se muestra con este permiso. */
+  perm?: Permission;
+};
+
+const operacion: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, end: true },
-  { title: "Viajes", url: "/viajes", icon: Route },
-  { title: "Liquidaciones", url: "/liquidaciones", icon: Wallet },
-  { title: "Reportes", url: "/reportes", icon: BarChart3 },
+  { title: "Viajes", url: "/viajes", icon: Route, perm: "viajes.ver" },
+  { title: "Liquidaciones", url: "/liquidaciones", icon: Wallet, perm: "liquidaciones.ver" },
+  { title: "Reportes", url: "/reportes", icon: BarChart3, perm: "reportes.ver" },
 ];
 
-const catalogos = [
-  { title: "Camiones", url: "/camiones", icon: TruckIcon },
-  { title: "Operadores", url: "/operadores", icon: Users },
-  { title: "Clientes", url: "/clientes", icon: Building2 },
+const catalogos: NavItem[] = [
+  { title: "Camiones", url: "/camiones", icon: TruckIcon, perm: "catalogos.ver" },
+  { title: "Operadores", url: "/operadores", icon: Users, perm: "catalogos.ver" },
+  { title: "Clientes", url: "/clientes", icon: Building2, perm: "catalogos.ver" },
 ];
 
-const administracion = [
-  { title: "Usuarios y permisos", url: "/usuarios", icon: ShieldCheck },
+const administracion: NavItem[] = [
+  { title: "Marca y tema", url: "/marca", icon: Palette, perm: "marca.gestionar" },
+  { title: "Usuarios y permisos", url: "/usuarios", icon: ShieldCheck, perm: "usuarios.gestionar" },
 ];
 
 export function AppSidebar() {
   const { state } = useSidebar();
   const collapsed = state === "collapsed";
-  const location = useLocation();
   const nav = useNavigate();
-  const { user, logout } = useAuth();
+  const { user, logout, hasPermission } = useAuth();
 
   const linkCls = ({ isActive }: { isActive: boolean }) =>
     `flex items-center gap-3 rounded-md px-3 py-2 text-sm transition-colors ${
@@ -39,6 +67,8 @@ export function AppSidebar() {
         ? "bg-sidebar-accent text-sidebar-accent-foreground font-medium"
         : "text-sidebar-foreground hover:bg-sidebar-accent/60"
     }`;
+
+  const filterNav = (items: NavItem[]) => items.filter(it => !it.perm || hasPermission(it.perm));
 
   return (
     <Sidebar collapsible="icon" className="border-sidebar-border">
@@ -62,7 +92,7 @@ export function AppSidebar() {
           <SidebarGroupLabel>Operación</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {items.map(item => (
+              {filterNav(operacion).map(item => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild>
                     <NavLink to={item.url} end={item.end} className={linkCls}>
@@ -76,29 +106,31 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Catálogos</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {catalogos.map(item => (
-                <SidebarMenuItem key={item.url}>
-                  <SidebarMenuButton asChild>
-                    <NavLink to={item.url} className={linkCls}>
-                      <item.icon className="h-4 w-4 flex-shrink-0" />
-                      {!collapsed && <span>{item.title}</span>}
-                    </NavLink>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {filterNav(catalogos).length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Catálogos</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {filterNav(catalogos).map(item => (
+                  <SidebarMenuItem key={item.url}>
+                    <SidebarMenuButton asChild>
+                      <NavLink to={item.url} className={linkCls}>
+                        <item.icon className="h-4 w-4 flex-shrink-0" />
+                        {!collapsed && <span>{item.title}</span>}
+                      </NavLink>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Administración</SidebarGroupLabel>
           <SidebarGroupContent>
             <SidebarMenu>
-              {administracion.map(item => (
+              {filterNav(administracion).map(item => (
                 <SidebarMenuItem key={item.url}>
                   <SidebarMenuButton asChild>
                     <NavLink to={item.url} className={linkCls}>
@@ -120,7 +152,10 @@ export function AppSidebar() {
           </div>
         )}
         <button
-          onClick={() => { logout(); nav("/login"); }}
+          onClick={() => {
+            logout();
+            nav("/login");
+          }}
           className="flex items-center gap-2 w-full rounded-md px-3 py-2 text-sm text-sidebar-foreground hover:bg-sidebar-accent/60"
         >
           <LogOut className="h-4 w-4" />

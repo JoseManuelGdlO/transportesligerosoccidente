@@ -1,4 +1,5 @@
 import type { Truck, Driver, Client, Trip, SystemUser, RoleDefinition, Permission } from "@/types/tlo";
+import { FULL_ADMIN_PERMISSIONS } from "@/types/tlo";
 
 export const mockTrucks: Truck[] = [
   { id: "t1", numero_economico: "T-101", placas: "JAL-4521-A", marca: "Kenworth", modelo: "T680", anio: 2021, rendimiento_esperado: 3.2, costo_km_ref: 18, estatus: "activo" },
@@ -142,19 +143,12 @@ export const mockTrips: Trip[] = [
   },
 ];
 
-const ALL_PERMS: Permission[] = [
-  "viajes.ver", "viajes.crear", "viajes.cerrar", "viajes.eliminar",
-  "liquidaciones.ver", "liquidaciones.cerrar",
-  "catalogos.ver", "catalogos.editar",
-  "reportes.ver", "usuarios.gestionar",
-];
-
 export const mockRoles: RoleDefinition[] = [
   {
     role: "admin",
     nombre: "Administrador",
     descripcion: "Acceso total al sistema, gestión de usuarios, cierre de liquidaciones y configuración.",
-    permisos: ALL_PERMS,
+    permisos: [...FULL_ADMIN_PERMISSIONS],
   },
   {
     role: "capturista",

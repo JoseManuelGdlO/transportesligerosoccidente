@@ -9,6 +9,7 @@ import {
 
 export class Settlement extends Model<InferAttributes<Settlement>, InferCreationAttributes<Settlement>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare driver_id: string;
   declare fecha_inicio: string;
   declare fecha_fin: string;
@@ -23,6 +24,7 @@ export function initSettlement(sequelize: Sequelize) {
   Settlement.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       driver_id: { type: DataTypes.CHAR(36), allowNull: false },
       fecha_inicio: { type: DataTypes.DATEONLY, allowNull: false },
       fecha_fin: { type: DataTypes.DATEONLY, allowNull: false },

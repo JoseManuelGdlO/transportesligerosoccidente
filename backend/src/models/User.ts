@@ -8,9 +8,11 @@ import {
   type NonAttribute,
 } from "sequelize";
 import type { Role } from "./Role";
+import type { Tenant } from "./Tenant";
 
 export class User extends Model<InferAttributes<User>, InferCreationAttributes<User>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare role_id: string;
   declare email: string;
   declare password_hash: string;
@@ -21,14 +23,16 @@ export class User extends Model<InferAttributes<User>, InferCreationAttributes<U
   declare readonly updatedAt: CreationOptional<Date>;
 
   declare Role?: NonAttribute<Role>;
+  declare Tenant?: NonAttribute<Tenant>;
 }
 
 export function initUser(sequelize: Sequelize) {
   User.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       role_id: { type: DataTypes.CHAR(36), allowNull: false },
-      email: { type: DataTypes.STRING(255), allowNull: false, unique: true },
+      email: { type: DataTypes.STRING(255), allowNull: false },
       password_hash: { type: DataTypes.STRING(255), allowNull: false },
       nombre: { type: DataTypes.STRING(255), allowNull: false },
       estatus: { type: DataTypes.ENUM("activo", "inactivo"), allowNull: false, defaultValue: "activo" },

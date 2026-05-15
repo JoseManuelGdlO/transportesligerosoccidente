@@ -5,6 +5,8 @@ import { Client } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { clientToJson } from "../utils/serialize";
 
+const tid = (req: Request) => req.user!.tenantId;
+
 const bodySchema = z.object({
   razon_social: z.string().min(1),
   rfc: z.string().min(1),
@@ -12,13 +14,16 @@ const bodySchema = z.object({
   telefono: z.string().min(1),
 });
 
-export const listClients = asyncHandler(async (_req: Request, res: Response) => {
-  const rows = await Client.findAll({ order: [["razon_social", "ASC"]] });
+export const listClients = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await Client.findAll({
+    where: { tenant_id: tid(req) },
+    order: [["razon_social", "ASC"]],
+  });
   res.json(rows.map(clientToJson));
 });
 
 export const getClient = asyncHandler(async (req: Request, res: Response) => {
-  const c = await Client.findByPk(req.params.id);
+  const c = await Client.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!c) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -32,12 +37,16 @@ export const createClient = asyncHandler(async (req: Request, res: Response) => 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const c = await Client.create({ id: randomUUID(), ...parsed.data });
+  const c = await Client.create({
+    id: randomUUID(),
+    tenant_id: tid(req),
+    ...parsed.data,
+  } as never);
   res.status(201).json(clientToJson(c));
 });
 
 export const updateClient = asyncHandler(async (req: Request, res: Response) => {
-  const c = await Client.findByPk(req.params.id);
+  const c = await Client.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!c) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -47,12 +56,12 @@ export const updateClient = asyncHandler(async (req: Request, res: Response) => 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  await c.update(parsed.data);
+  await c.update(parsed.data as never);
   res.json(clientToJson(c));
 });
 
 export const deleteClient = asyncHandler(async (req: Request, res: Response) => {
-  const c = await Client.findByPk(req.params.id);
+  const c = await Client.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!c) {
     res.status(404).json({ error: "No encontrado" });
     return;

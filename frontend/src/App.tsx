@@ -17,6 +17,7 @@ import Clientes from "@/pages/tlo/Clientes";
 import Liquidaciones from "@/pages/tlo/Liquidaciones";
 import Reportes from "@/pages/tlo/Reportes";
 import Usuarios from "@/pages/tlo/Usuarios";
+import Marca from "@/pages/tlo/Marca";
 
 const queryClient = new QueryClient();
 
@@ -40,6 +41,7 @@ const App = () => (
                 <Route path="/liquidaciones" element={<Liquidaciones />} />
                 <Route path="/reportes" element={<Reportes />} />
                 <Route path="/usuarios" element={<Usuarios />} />
+                <Route path="/marca" element={<Marca />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

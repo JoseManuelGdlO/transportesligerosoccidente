@@ -6,10 +6,12 @@ import { User, Role } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { userToJson } from "../utils/serialize";
 
+const tid = (req: Request) => req.user!.tenantId;
+
 const createSchema = z.object({
   nombre: z.string().min(1),
   email: z.string().email(),
-  password: z.string().min(6).optional(),
+  password: z.string().min(6),
   role: z.enum(["admin", "capturista"]),
   estatus: z.enum(["activo", "inactivo"]).optional(),
 });
@@ -26,8 +28,12 @@ const statusSchema = z.object({
   estatus: z.enum(["activo", "inactivo"]),
 });
 
-export const listUsers = asyncHandler(async (_req: Request, res: Response) => {
-  const rows = await User.findAll({ include: [Role], order: [["nombre", "ASC"]] });
+export const listUsers = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await User.findAll({
+    where: { tenant_id: tid(req) },
+    include: [Role],
+    order: [["nombre", "ASC"]],
+  });
   res.json(
     rows.map((u) => {
       const roleSlug = u.Role?.slug ?? "";
@@ -48,25 +54,22 @@ export const createUser = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: "Rol inválido" });
     return;
   }
-  const plain = b.password ?? randomUUID().replace(/-/g, "").slice(0, 12);
-  const hash = await bcrypt.hash(plain, 10);
+  const hash = await bcrypt.hash(b.password, 10);
   const user = await User.create({
     id: randomUUID(),
+    tenant_id: tid(req),
     role_id: role.id,
     email: b.email.toLowerCase().trim(),
     password_hash: hash,
     nombre: b.nombre.trim(),
     estatus: b.estatus ?? "activo",
-  });
+  } as never);
   const u = await User.findByPk(user.id, { include: [Role] });
-  res.status(201).json({
-    ...userToJson(u!, u!.Role!.slug),
-    temporary_password: b.password ? undefined : plain,
-  });
+  res.status(201).json(userToJson(u!, u!.Role!.slug));
 });
 
 export const patchUser = asyncHandler(async (req: Request, res: Response) => {
-  const u = await User.findByPk(req.params.id, { include: [Role] });
+  const u = await User.findOne({ where: { id: req.params.id, tenant_id: tid(req) }, include: [Role] });
   if (!u) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -100,7 +103,7 @@ export const patchUserStatus = asyncHandler(async (req: Request, res: Response) 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const u = await User.findByPk(req.params.id, { include: [Role] });
+  const u = await User.findOne({ where: { id: req.params.id, tenant_id: tid(req) }, include: [Role] });
   if (!u) {
     res.status(404).json({ error: "No encontrado" });
     return;

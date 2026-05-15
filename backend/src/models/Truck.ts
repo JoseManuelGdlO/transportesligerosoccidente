@@ -9,6 +9,7 @@ import {
 
 export class Truck extends Model<InferAttributes<Truck>, InferCreationAttributes<Truck>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare numero_economico: string;
   declare placas: string;
   declare marca: string;
@@ -25,6 +26,7 @@ export function initTruck(sequelize: Sequelize) {
   Truck.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       numero_economico: { type: DataTypes.STRING(64), allowNull: false },
       placas: { type: DataTypes.STRING(32), allowNull: false },
       marca: { type: DataTypes.STRING(128), allowNull: false },

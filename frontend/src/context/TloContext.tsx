@@ -1,6 +1,15 @@
-import { createContext, useContext, useMemo, useState, ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import type { Truck, Driver, Client, Trip, FuelLoad, Expense, SystemUser, RoleDefinition, Permission, UserRole } from "@/types/tlo";
 import { mockTrucks, mockDrivers, mockClients, mockTrips, mockSystemUsers, mockRoles } from "@/data/mockData";
+import { hasApiConfigured, apiFetch, readJson } from "@/lib/api";
+import { useAuth } from "@/context/AuthContext";
+import {
+  fetchTloCatalog,
+  fetchUsersAndRoles,
+  normalizeTrip,
+  normalizeFuel,
+  normalizeExpense,
+} from "@/lib/tloApi";
 
 interface TloState {
   trucks: Truck[];
@@ -9,13 +18,16 @@ interface TloState {
   trips: Trip[];
   systemUsers: SystemUser[];
   roles: RoleDefinition[];
+  catalogLoading: boolean;
+  catalogError: string | null;
+  reloadCatalog: () => Promise<void>;
   upsertTruck: (t: Truck) => void;
   upsertDriver: (d: Driver) => void;
   upsertClient: (c: Client) => void;
-  upsertSystemUser: (u: SystemUser) => void;
+  upsertSystemUser: (u: SystemUser, password?: string) => Promise<void>;
   toggleSystemUserStatus: (id: string) => void;
   updateRolePermissions: (role: UserRole, permisos: Permission[]) => void;
-  createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">) => Trip;
+  createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">) => Promise<Trip>;
   updateTrip: (id: string, patch: Partial<Trip>) => void;
   addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => void;
   removeFuel: (tripId: string, fuelId: string) => void;
@@ -29,66 +41,541 @@ const TloCtx = createContext<TloState | null>(null);
 const uid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 
 export const TloProvider = ({ children }: { children: ReactNode }) => {
-  const [trucks, setTrucks] = useState<Truck[]>(mockTrucks);
-  const [drivers, setDrivers] = useState<Driver[]>(mockDrivers);
-  const [clients, setClients] = useState<Client[]>(mockClients);
-  const [trips, setTrips] = useState<Trip[]>(mockTrips);
-  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(mockSystemUsers);
-  const [roles, setRoles] = useState<RoleDefinition[]>(mockRoles);
+  const { user, permissions, hasApiSession } = useAuth();
+  const apiLive = hasApiConfigured() && hasApiSession && !!user;
+  const canManageUsers = permissions.includes("usuarios.gestionar");
 
-  const value = useMemo<TloState>(() => ({
-    trucks, drivers, clients, trips, systemUsers, roles,
-    upsertTruck: (t) => setTrucks(prev => {
-      const i = prev.findIndex(x => x.id === t.id);
-      if (i === -1) return [...prev, { ...t, id: t.id || uid("t") }];
-      const c = [...prev]; c[i] = t; return c;
-    }),
-    upsertDriver: (d) => setDrivers(prev => {
-      const i = prev.findIndex(x => x.id === d.id);
-      if (i === -1) return [...prev, { ...d, id: d.id || uid("d") }];
-      const c = [...prev]; c[i] = d; return c;
-    }),
-    upsertClient: (c) => setClients(prev => {
-      const i = prev.findIndex(x => x.id === c.id);
-      if (i === -1) return [...prev, { ...c, id: c.id || uid("c") }];
-      const cp = [...prev]; cp[i] = c; return cp;
-    }),
-    upsertSystemUser: (u) => setSystemUsers(prev => {
-      const i = prev.findIndex(x => x.id === u.id);
-      if (i === -1) return [...prev, { ...u, id: u.id || uid("u"), creado_en: u.creado_en || new Date().toISOString() }];
-      const c = [...prev]; c[i] = u; return c;
-    }),
-    toggleSystemUserStatus: (id) => setSystemUsers(prev => prev.map(u =>
-      u.id === id ? { ...u, estatus: u.estatus === "activo" ? "inactivo" : "activo" } : u
-    )),
-    updateRolePermissions: (role, permisos) => setRoles(prev => prev.map(r =>
-      r.role === role ? { ...r, permisos } : r
-    )),
-    createTrip: (data) => {
+  const [trucks, setTrucks] = useState<Truck[]>(() => (hasApiConfigured() ? [] : mockTrucks));
+  const [drivers, setDrivers] = useState<Driver[]>(() => (hasApiConfigured() ? [] : mockDrivers));
+  const [clients, setClients] = useState<Client[]>(() => (hasApiConfigured() ? [] : mockClients));
+  const [trips, setTrips] = useState<Trip[]>(() => (hasApiConfigured() ? [] : mockTrips));
+  const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => (hasApiConfigured() ? [] : mockSystemUsers));
+  const [roles, setRoles] = useState<RoleDefinition[]>(() => (hasApiConfigured() ? [] : mockRoles));
+  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
+
+  const reloadCatalog = useCallback(async () => {
+    if (!hasApiConfigured() || !user || !hasApiSession) return;
+    setCatalogLoading(true);
+    setCatalogError(null);
+    try {
+      const c = await fetchTloCatalog();
+      setTrucks(c.trucks);
+      setDrivers(c.drivers);
+      setClients(c.clients);
+      setTrips(c.trips);
+      if (canManageUsers) {
+        const ur = await fetchUsersAndRoles();
+        setSystemUsers(ur.systemUsers);
+        setRoles(ur.roles);
+      } else {
+        setSystemUsers([]);
+        setRoles([]);
+      }
+    } catch (e) {
+      setCatalogError(e instanceof Error ? e.message : "Error al cargar datos");
+    } finally {
+      setCatalogLoading(false);
+    }
+  }, [user, canManageUsers, hasApiSession]);
+
+  useEffect(() => {
+    if (!hasApiConfigured()) return;
+    if (!user) {
+      setTrucks([]);
+      setDrivers([]);
+      setClients([]);
+      setTrips([]);
+      setSystemUsers([]);
+      setRoles([]);
+      setCatalogError(null);
+      return;
+    }
+    if (!hasApiSession) {
+      setTrucks(mockTrucks);
+      setDrivers(mockDrivers);
+      setClients(mockClients);
+      setTrips(mockTrips);
+      setSystemUsers(mockSystemUsers);
+      setRoles(mockRoles);
+      setCatalogError(null);
+      setCatalogLoading(false);
+      return;
+    }
+    void reloadCatalog();
+  }, [user?.id, hasApiSession, reloadCatalog]);
+
+  const upsertTruck = useCallback(
+    (t: Truck) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const body = {
+              numero_economico: t.numero_economico,
+              placas: t.placas,
+              marca: t.marca,
+              modelo: t.modelo,
+              anio: t.anio,
+              rendimiento_esperado: t.rendimiento_esperado,
+              costo_km_ref: t.costo_km_ref,
+              estatus: t.estatus,
+            };
+            if (t.id) {
+              const r = await apiFetch(`/trucks/${t.id}`, { method: "PATCH", body: JSON.stringify(body) });
+              await readJson(r);
+            } else {
+              const r = await apiFetch("/trucks", { method: "POST", body: JSON.stringify(body) });
+              await readJson(r);
+            }
+            await reloadCatalog();
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al guardar camión");
+          }
+        })();
+        return;
+      }
+      setTrucks((prev) => {
+        const i = prev.findIndex((x) => x.id === t.id);
+        if (i === -1) return [...prev, { ...t, id: t.id || uid("t") }];
+        const c = [...prev];
+        c[i] = t;
+        return c;
+      });
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const upsertDriver = useCallback(
+    (d: Driver) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const body = {
+              nombre: d.nombre,
+              telefono: d.telefono,
+              licencia: d.licencia,
+              fecha_ingreso: d.fecha_ingreso.slice(0, 10),
+              comision_tipo: d.comision_tipo,
+              comision_valor: d.comision_valor,
+              estatus: d.estatus,
+            };
+            if (d.id) {
+              const r = await apiFetch(`/drivers/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
+              await readJson(r);
+            } else {
+              const r = await apiFetch("/drivers", { method: "POST", body: JSON.stringify(body) });
+              await readJson(r);
+            }
+            await reloadCatalog();
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al guardar operador");
+          }
+        })();
+        return;
+      }
+      setDrivers((prev) => {
+        const i = prev.findIndex((x) => x.id === d.id);
+        if (i === -1) return [...prev, { ...d, id: d.id || uid("d") }];
+        const c = [...prev];
+        c[i] = d;
+        return c;
+      });
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const upsertClient = useCallback(
+    (c: Client) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const body = {
+              razon_social: c.razon_social,
+              rfc: c.rfc,
+              contacto: c.contacto,
+              telefono: c.telefono,
+            };
+            if (c.id) {
+              const r = await apiFetch(`/clients/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });
+              await readJson(r);
+            } else {
+              const r = await apiFetch("/clients", { method: "POST", body: JSON.stringify(body) });
+              await readJson(r);
+            }
+            await reloadCatalog();
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al guardar cliente");
+          }
+        })();
+        return;
+      }
+      setClients((prev) => {
+        const i = prev.findIndex((x) => x.id === c.id);
+        if (i === -1) return [...prev, { ...c, id: c.id || uid("c") }];
+        const cp = [...prev];
+        cp[i] = c;
+        return cp;
+      });
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const upsertSystemUser = useCallback(
+    async (u: SystemUser, password?: string) => {
+      if (apiLive) {
+        try {
+          if (u.id) {
+            const body: Record<string, unknown> = {
+              nombre: u.nombre,
+              email: u.email,
+              role: u.role,
+              estatus: u.estatus,
+            };
+            if (password && password.length > 0) body.password = password;
+            const r = await apiFetch(`/users/${u.id}`, {
+              method: "PATCH",
+              body: JSON.stringify(body),
+            });
+            await readJson(r);
+          } else {
+            if (!password || password.length < 6) {
+              throw new Error("La contraseña debe tener al menos 6 caracteres");
+            }
+            const r = await apiFetch("/users", {
+              method: "POST",
+              body: JSON.stringify({
+                nombre: u.nombre,
+                email: u.email,
+                role: u.role,
+                estatus: u.estatus,
+                password,
+              }),
+            });
+            await readJson(r);
+          }
+          await reloadCatalog();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al guardar usuario";
+          setCatalogError(msg);
+          throw e;
+        }
+        return;
+      }
+      setSystemUsers((prev) => {
+        const i = prev.findIndex((x) => x.id === u.id);
+        if (i === -1) return [...prev, { ...u, id: u.id || uid("u"), creado_en: u.creado_en || new Date().toISOString() }];
+        const c = [...prev];
+        c[i] = u;
+        return c;
+      });
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const toggleSystemUserStatus = useCallback(
+    (id: string) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const u = systemUsers.find((x) => x.id === id);
+            if (!u) return;
+            const next = u.estatus === "activo" ? "inactivo" : "activo";
+            const r = await apiFetch(`/users/${id}/status`, {
+              method: "PATCH",
+              body: JSON.stringify({ estatus: next }),
+            });
+            await readJson(r);
+            await reloadCatalog();
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al cambiar estatus");
+          }
+        })();
+        return;
+      }
+      setSystemUsers((prev) =>
+        prev.map((x) => (x.id === id ? { ...x, estatus: x.estatus === "activo" ? "inactivo" : "activo" } : x)),
+      );
+    },
+    [apiLive, reloadCatalog, systemUsers],
+  );
+
+  const updateRolePermissions = useCallback(
+    (role: UserRole, permisos: Permission[]) => {
+      if (role === "admin") return;
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/roles/${role}/permissions`, {
+              method: "PUT",
+              body: JSON.stringify({ permisos }),
+            });
+            await readJson(r);
+            await reloadCatalog();
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al actualizar permisos");
+          }
+        })();
+        return;
+      }
+      setRoles((prev) => prev.map((x) => (x.role === role ? { ...x, permisos } : x)));
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const createTrip = useCallback(
+    async (data: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">): Promise<Trip> => {
+      if (apiLive) {
+        try {
+          const r = await apiFetch("/trips", {
+            method: "POST",
+            body: JSON.stringify({
+              truck_id: data.truck_id,
+              driver_id: data.driver_id,
+              client_id: data.client_id,
+              origen: data.origen,
+              destino: data.destino,
+              fecha_salida: data.fecha_salida,
+              km_inicial: data.km_inicial,
+              tarifa: data.tarifa,
+              viaticos_entregados: data.viaticos_entregados ?? 0,
+            }),
+          });
+          const j = await readJson<Record<string, unknown>>(r);
+          const trip = normalizeTrip(j);
+          setTrips((prev) => [trip, ...prev.filter((x) => x.id !== trip.id)]);
+          return trip;
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al crear viaje";
+          setCatalogError(msg);
+          throw e;
+        }
+      }
       const id = uid("v");
       const year = new Date().getFullYear();
-      const folio = `V-${year}-${String(149 + trips.length).padStart(4, "0")}`;
+      const folio = `V-${year}-${String(Date.now()).slice(-4)}`;
       const trip: Trip = { ...data, id, folio, fuel: [], expenses: [], estatus: "en_curso" };
-      setTrips(prev => [trip, ...prev]);
+      setTrips((prev) => [trip, ...prev]);
       return trip;
     },
-    updateTrip: (id, patch) => setTrips(prev => prev.map(t => t.id === id ? { ...t, ...patch } : t)),
-    addFuel: (tripId, fuel) => setTrips(prev => prev.map(t => t.id === tripId
-      ? { ...t, fuel: [...t.fuel, { ...fuel, id: uid("f") }] }
-      : t)),
-    removeFuel: (tripId, fuelId) => setTrips(prev => prev.map(t => t.id === tripId
-      ? { ...t, fuel: t.fuel.filter(f => f.id !== fuelId) }
-      : t)),
-    addExpense: (tripId, e) => setTrips(prev => prev.map(t => t.id === tripId
-      ? { ...t, expenses: [...t.expenses, { ...e, id: uid("e") }] }
-      : t)),
-    removeExpense: (tripId, eid) => setTrips(prev => prev.map(t => t.id === tripId
-      ? { ...t, expenses: t.expenses.filter(e => e.id !== eid) }
-      : t)),
-    closeTrip: (id, data) => setTrips(prev => prev.map(t => t.id === id
-      ? { ...t, ...data, estatus: "cerrado" as const }
-      : t)),
-  }), [trucks, drivers, clients, trips, systemUsers, roles]);
+    [apiLive],
+  );
+
+  const updateTrip = useCallback(
+    (id: string, patch: Partial<Trip>) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const body: Record<string, unknown> = { ...patch };
+            if (patch.fecha_salida) body.fecha_salida = patch.fecha_salida;
+            const r = await apiFetch(`/trips/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+            const j = await readJson<Record<string, unknown>>(r);
+            const next = normalizeTrip(j);
+            setTrips((prev) => prev.map((t) => (t.id === id ? next : t)));
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al actualizar viaje");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+    },
+    [apiLive],
+  );
+
+  const addFuel = useCallback(
+    (tripId: string, fuel: Omit<FuelLoad, "id">) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/trips/${tripId}/fuel`, {
+              method: "POST",
+              body: JSON.stringify({
+                litros: fuel.litros,
+                precio_litro: fuel.precio_litro,
+                ubicacion: fuel.ubicacion,
+                fecha: fuel.fecha,
+              }),
+            });
+            const j = await readJson<Record<string, unknown>>(r);
+            const row = normalizeFuel(j);
+            setTrips((prev) =>
+              prev.map((t) => (t.id === tripId ? { ...t, fuel: [...t.fuel, row] } : t)),
+            );
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al registrar diesel");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) =>
+        prev.map((t) =>
+          t.id === tripId ? { ...t, fuel: [...t.fuel, { ...fuel, id: uid("f") }] } : t,
+        ),
+      );
+    },
+    [apiLive],
+  );
+
+  const removeFuel = useCallback(
+    (tripId: string, fuelId: string) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/trips/${tripId}/fuel/${fuelId}`, { method: "DELETE" });
+            if (!r.ok) await readJson(r);
+            setTrips((prev) =>
+              prev.map((t) => (t.id === tripId ? { ...t, fuel: t.fuel.filter((f) => f.id !== fuelId) } : t)),
+            );
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al eliminar carga");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) =>
+        prev.map((t) => (t.id === tripId ? { ...t, fuel: t.fuel.filter((f) => f.id !== fuelId) } : t)),
+      );
+    },
+    [apiLive],
+  );
+
+  const addExpense = useCallback(
+    (tripId: string, e: Omit<Expense, "id">) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/trips/${tripId}/expenses`, {
+              method: "POST",
+              body: JSON.stringify({
+                categoria: e.categoria,
+                descripcion: e.descripcion,
+                monto: e.monto,
+                comprobado: e.comprobado,
+                fecha: e.fecha,
+              }),
+            });
+            const j = await readJson<Record<string, unknown>>(r);
+            const row = normalizeExpense(j);
+            setTrips((prev) =>
+              prev.map((t) => (t.id === tripId ? { ...t, expenses: [...t.expenses, row] } : t)),
+            );
+          } catch (err) {
+            setCatalogError(err instanceof Error ? err.message : "Error al registrar gasto");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) =>
+        prev.map((t) =>
+          t.id === tripId ? { ...t, expenses: [...t.expenses, { ...e, id: uid("e") }] } : t,
+        ),
+      );
+    },
+    [apiLive],
+  );
+
+  const removeExpense = useCallback(
+    (tripId: string, eid: string) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/trips/${tripId}/expenses/${eid}`, { method: "DELETE" });
+            if (!r.ok) await readJson(r);
+            setTrips((prev) =>
+              prev.map((t) =>
+                t.id === tripId ? { ...t, expenses: t.expenses.filter((e) => e.id !== eid) } : t,
+              ),
+            );
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al eliminar gasto");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) =>
+        prev.map((t) =>
+          t.id === tripId ? { ...t, expenses: t.expenses.filter((e) => e.id !== eid) } : t,
+        ),
+      );
+    },
+    [apiLive],
+  );
+
+  const closeTrip = useCallback(
+    (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => {
+      if (apiLive) {
+        void (async () => {
+          try {
+            const r = await apiFetch(`/trips/${id}/close`, {
+              method: "POST",
+              body: JSON.stringify(data),
+            });
+            const j = await readJson<Record<string, unknown>>(r);
+            const next = normalizeTrip(j);
+            setTrips((prev) => prev.map((t) => (t.id === id ? next : t)));
+          } catch (e) {
+            setCatalogError(e instanceof Error ? e.message : "Error al cerrar viaje");
+          }
+        })();
+        return;
+      }
+      setTrips((prev) =>
+        prev.map((t) => (t.id === id ? { ...t, ...data, estatus: "cerrado" as const } : t)),
+      );
+    },
+    [apiLive],
+  );
+
+  const value = useMemo<TloState>(
+    () => ({
+      trucks,
+      drivers,
+      clients,
+      trips,
+      systemUsers,
+      roles,
+      catalogLoading,
+      catalogError,
+      reloadCatalog,
+      upsertTruck,
+      upsertDriver,
+      upsertClient,
+      upsertSystemUser,
+      toggleSystemUserStatus,
+      updateRolePermissions,
+      createTrip,
+      updateTrip,
+      addFuel,
+      removeFuel,
+      addExpense,
+      removeExpense,
+      closeTrip,
+    }),
+    [
+      trucks,
+      drivers,
+      clients,
+      trips,
+      systemUsers,
+      roles,
+      catalogLoading,
+      catalogError,
+      reloadCatalog,
+      upsertTruck,
+      upsertDriver,
+      upsertClient,
+      upsertSystemUser,
+      toggleSystemUserStatus,
+      updateRolePermissions,
+      createTrip,
+      updateTrip,
+      addFuel,
+      removeFuel,
+      addExpense,
+      removeExpense,
+      closeTrip,
+    ],
+  );
 
   return <TloCtx.Provider value={value}>{children}</TloCtx.Provider>;
 };

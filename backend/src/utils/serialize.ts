@@ -8,6 +8,7 @@ import type { User } from "../models/User";
 import type { Role } from "../models/Role";
 import type { Permission } from "../models/Permission";
 import type { Settlement } from "../models/Settlement";
+import type { Tenant } from "../models/Tenant";
 import { num, iso } from "./numbers";
 
 export function fuelToJson(f: FuelLoad): Record<string, unknown> {
@@ -131,5 +132,19 @@ export function settlementToJson(s: Settlement): Record<string, unknown> {
     fecha_fin: p.fecha_fin,
     cerrado: p.cerrado,
     cerrado_at: p.cerrado_at ? iso(p.cerrado_at) : undefined,
+  };
+}
+
+export function tenantToJson(t: Tenant): Record<string, unknown> {
+  const p = t.get({ plain: true }) as Record<string, unknown>;
+  return {
+    id: p.id,
+    slug: p.slug,
+    nombre: p.nombre,
+    estatus: p.estatus,
+    logo_url: p.logo_url ?? undefined,
+    color_primary: p.color_primary ?? undefined,
+    color_accent: p.color_accent ?? undefined,
+    color_sidebar: p.color_sidebar ?? undefined,
   };
 }

@@ -4,11 +4,12 @@ import { computeSettlement } from "./calc";
 import { tripToJson } from "../utils/serialize";
 
 export async function settlementSummary(
+  tenantId: string,
   driverId: string,
   inicioStr: string,
   finStr: string,
 ): Promise<Record<string, unknown>> {
-  const driver = await Driver.findByPk(driverId);
+  const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
     const err = new Error("Operador no encontrado");
     (err as Error & { status?: number }).status = 404;
@@ -17,7 +18,7 @@ export async function settlementSummary(
   const inicio = new Date(`${inicioStr}T00:00:00`);
   const fin = new Date(`${finStr}T23:59:59`);
   const trips = await Trip.findAll({
-    where: { driver_id: driverId },
+    where: { tenant_id: tenantId, driver_id: driverId },
     include: [
       { association: "fuel" },
       { association: "expenses" },
@@ -44,8 +45,13 @@ export async function settlementSummary(
   };
 }
 
-export async function closeSettlement(driverId: string, fechaInicio: string, fechaFin: string) {
-  const driver = await Driver.findByPk(driverId);
+export async function closeSettlement(
+  tenantId: string,
+  driverId: string,
+  fechaInicio: string,
+  fechaFin: string,
+) {
+  const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
     const err = new Error("Operador no encontrado");
     (err as Error & { status?: number }).status = 404;
@@ -54,7 +60,7 @@ export async function closeSettlement(driverId: string, fechaInicio: string, fec
   const inicio = new Date(`${fechaInicio}T00:00:00`);
   const fin = new Date(`${fechaFin}T23:59:59`);
   const trips = await Trip.findAll({
-    where: { driver_id: driverId },
+    where: { tenant_id: tenantId, driver_id: driverId },
     include: [
       { association: "fuel" },
       { association: "expenses" },
@@ -63,6 +69,7 @@ export async function closeSettlement(driverId: string, fechaInicio: string, fec
   const summary = computeSettlement(driver, trips, inicio, fin);
   const existing = await Settlement.findOne({
     where: {
+      tenant_id: tenantId,
       driver_id: driverId,
       fecha_inicio: fechaInicio,
       fecha_fin: fechaFin,
@@ -76,6 +83,7 @@ export async function closeSettlement(driverId: string, fechaInicio: string, fec
   }
   return Settlement.create({
     id: randomUUID(),
+    tenant_id: tenantId,
     driver_id: driverId,
     fecha_inicio: fechaInicio,
     fecha_fin: fechaFin,
@@ -91,5 +99,5 @@ export async function closeSettlement(driverId: string, fechaInicio: string, fec
       neto_pagar: summary.neto_pagar,
       trip_ids: summary.trips.map((t) => t.id),
     },
-  });
+  } as never);
 }

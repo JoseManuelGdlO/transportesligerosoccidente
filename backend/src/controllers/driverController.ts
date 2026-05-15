@@ -5,6 +5,8 @@ import { Driver } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { driverToJson } from "../utils/serialize";
 
+const tid = (req: Request) => req.user!.tenantId;
+
 const bodySchema = z.object({
   nombre: z.string().min(1),
   telefono: z.string().min(1),
@@ -15,13 +17,16 @@ const bodySchema = z.object({
   estatus: z.enum(["activo", "inactivo"]).optional(),
 });
 
-export const listDrivers = asyncHandler(async (_req: Request, res: Response) => {
-  const rows = await Driver.findAll({ order: [["nombre", "ASC"]] });
+export const listDrivers = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await Driver.findAll({
+    where: { tenant_id: tid(req) },
+    order: [["nombre", "ASC"]],
+  });
   res.json(rows.map(driverToJson));
 });
 
 export const getDriver = asyncHandler(async (req: Request, res: Response) => {
-  const d = await Driver.findByPk(req.params.id);
+  const d = await Driver.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!d) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -38,6 +43,7 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
   const b = parsed.data;
   const d = await Driver.create({
     id: randomUUID(),
+    tenant_id: tid(req),
     ...b,
     estatus: b.estatus ?? "activo",
   } as never);
@@ -45,7 +51,7 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
 });
 
 export const updateDriver = asyncHandler(async (req: Request, res: Response) => {
-  const d = await Driver.findByPk(req.params.id);
+  const d = await Driver.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!d) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -60,7 +66,7 @@ export const updateDriver = asyncHandler(async (req: Request, res: Response) => 
 });
 
 export const deleteDriver = asyncHandler(async (req: Request, res: Response) => {
-  const d = await Driver.findByPk(req.params.id);
+  const d = await Driver.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!d) {
     res.status(404).json({ error: "No encontrado" });
     return;

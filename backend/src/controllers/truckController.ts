@@ -5,6 +5,8 @@ import { Truck } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { truckToJson } from "../utils/serialize";
 
+const tid = (req: Request) => req.user!.tenantId;
+
 const bodySchema = z.object({
   numero_economico: z.string().min(1),
   placas: z.string().min(1),
@@ -16,13 +18,16 @@ const bodySchema = z.object({
   estatus: z.enum(["activo", "taller", "baja"]).optional(),
 });
 
-export const listTrucks = asyncHandler(async (_req: Request, res: Response) => {
-  const rows = await Truck.findAll({ order: [["numero_economico", "ASC"]] });
+export const listTrucks = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await Truck.findAll({
+    where: { tenant_id: tid(req) },
+    order: [["numero_economico", "ASC"]],
+  });
   res.json(rows.map(truckToJson));
 });
 
 export const getTruck = asyncHandler(async (req: Request, res: Response) => {
-  const t = await Truck.findByPk(req.params.id);
+  const t = await Truck.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!t) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -39,6 +44,7 @@ export const createTruck = asyncHandler(async (req: Request, res: Response) => {
   const b = parsed.data;
   const t = await Truck.create({
     id: randomUUID(),
+    tenant_id: tid(req),
     ...b,
     estatus: b.estatus ?? "activo",
   } as never);
@@ -46,7 +52,7 @@ export const createTruck = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const updateTruck = asyncHandler(async (req: Request, res: Response) => {
-  const t = await Truck.findByPk(req.params.id);
+  const t = await Truck.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!t) {
     res.status(404).json({ error: "No encontrado" });
     return;
@@ -61,7 +67,7 @@ export const updateTruck = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const deleteTruck = asyncHandler(async (req: Request, res: Response) => {
-  const t = await Truck.findByPk(req.params.id);
+  const t = await Truck.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!t) {
     res.status(404).json({ error: "No encontrado" });
     return;

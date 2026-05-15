@@ -48,6 +48,13 @@ const PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string
       { id: "usuarios.gestionar", label: "Gestionar usuarios y permisos" },
     ],
   },
+  {
+    label: "Empresa y marca",
+    perms: [
+      { id: "empresa.gestionar", label: "Editar datos básicos de la empresa" },
+      { id: "marca.gestionar", label: "Editar logo y colores del tema" },
+    ],
+  },
 ];
 
 const emptyUser: SystemUser = {
@@ -61,20 +68,52 @@ const emptyUser: SystemUser = {
 
 export default function Usuarios() {
   const { systemUsers, roles, upsertSystemUser, toggleSystemUserStatus, updateRolePermissions } = useTlo();
-  const { user } = useAuth();
-  const isAdmin = user?.role === "admin";
+  const { hasPermission } = useAuth();
+  const isAdmin = hasPermission("usuarios.gestionar");
 
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<SystemUser>(emptyUser);
+  const [userPw, setUserPw] = useState("");
+  const [userPw2, setUserPw2] = useState("");
 
-  const save = () => {
+  const resetPasswordFields = () => {
+    setUserPw("");
+    setUserPw2("");
+  };
+
+  const save = async () => {
     if (!form.nombre.trim() || !form.email.trim()) {
       toast.error("Nombre y correo son obligatorios");
       return;
     }
-    upsertSystemUser(form);
-    toast.success(form.id ? "Usuario actualizado" : "Usuario creado");
-    setOpen(false);
+    if (!form.id) {
+      if (userPw.length < 6) {
+        toast.error("La contraseña debe tener al menos 6 caracteres");
+        return;
+      }
+      if (userPw !== userPw2) {
+        toast.error("Las contraseñas no coinciden");
+        return;
+      }
+    } else if (userPw.length > 0 || userPw2.length > 0) {
+      if (userPw.length < 6) {
+        toast.error("La contraseña debe tener al menos 6 caracteres");
+        return;
+      }
+      if (userPw !== userPw2) {
+        toast.error("Las contraseñas no coinciden");
+        return;
+      }
+    }
+    try {
+      const pass = form.id ? (userPw.length > 0 ? userPw : undefined) : userPw;
+      await upsertSystemUser(form, pass);
+      toast.success(form.id ? "Usuario actualizado" : "Usuario creado");
+      resetPasswordFields();
+      setOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar el usuario");
+    }
   };
 
   const togglePerm = (role: UserRole, perm: Permission, checked: boolean) => {
@@ -107,7 +146,11 @@ export default function Usuarios() {
             <p className="text-sm text-muted-foreground">{systemUsers.length} usuarios del sistema</p>
             <Button
               disabled={!isAdmin}
-              onClick={() => { setForm({ ...emptyUser, id: "", creado_en: new Date().toISOString() }); setOpen(true); }}
+              onClick={() => {
+                setForm({ ...emptyUser, id: "", creado_en: new Date().toISOString() });
+                resetPasswordFields();
+                setOpen(true);
+              }}
               className="bg-primary text-primary-foreground hover:bg-primary-glow"
             >
               <Plus className="h-4 w-4 mr-2" /> Nuevo usuario
@@ -165,7 +208,16 @@ export default function Usuarios() {
                       </div>
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button variant="ghost" size="sm" disabled={!isAdmin} onClick={() => { setForm(u); setOpen(true); }}>
+                      <Button
+                        variant="ghost"
+                        size="sm"
+                        disabled={!isAdmin}
+                        onClick={() => {
+                          setForm(u);
+                          resetPasswordFields();
+                          setOpen(true);
+                        }}
+                      >
                         <Pencil className="h-4 w-4" />
                       </Button>
                     </TableCell>
@@ -230,7 +282,13 @@ export default function Usuarios() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog
+        open={open}
+        onOpenChange={o => {
+          setOpen(o);
+          if (!o) resetPasswordFields();
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader><DialogTitle>{form.id ? "Editar usuario" : "Nuevo usuario"}</DialogTitle></DialogHeader>
           <div className="space-y-3">
@@ -246,10 +304,55 @@ export default function Usuarios() {
                 </SelectContent>
               </Select>
             </div>
-            {!form.id && (
-              <div className="text-xs text-muted-foreground bg-muted/50 rounded-md p-2.5">
-                Se enviará un correo de invitación con instrucciones para definir contraseña.
-              </div>
+            {!form.id ? (
+              <>
+                <div>
+                  <Label htmlFor="user-pw">Contraseña</Label>
+                  <Input
+                    id="user-pw"
+                    type="password"
+                    autoComplete="new-password"
+                    value={userPw}
+                    onChange={e => setUserPw(e.target.value)}
+                    placeholder="Mínimo 6 caracteres"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="user-pw2">Confirmar contraseña</Label>
+                  <Input
+                    id="user-pw2"
+                    type="password"
+                    autoComplete="new-password"
+                    value={userPw2}
+                    onChange={e => setUserPw2(e.target.value)}
+                  />
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="text-xs text-muted-foreground border-t pt-3">Cambiar contraseña (opcional)</div>
+                <div>
+                  <Label htmlFor="user-pw-edit">Nueva contraseña</Label>
+                  <Input
+                    id="user-pw-edit"
+                    type="password"
+                    autoComplete="new-password"
+                    value={userPw}
+                    onChange={e => setUserPw(e.target.value)}
+                    placeholder="Dejar vacío para no cambiar"
+                  />
+                </div>
+                <div>
+                  <Label htmlFor="user-pw2-edit">Confirmar</Label>
+                  <Input
+                    id="user-pw2-edit"
+                    type="password"
+                    autoComplete="new-password"
+                    value={userPw2}
+                    onChange={e => setUserPw2(e.target.value)}
+                  />
+                </div>
+              </>
             )}
           </div>
           <DialogFooter>

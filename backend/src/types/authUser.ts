@@ -6,4 +6,6 @@ export interface AuthedUser {
   nombre: string;
   roleSlug: string;
   permissions: PermissionSlug[];
+  tenantId: string;
+  tenantSlug: string;
 }

@@ -9,6 +9,7 @@ import {
 
 export class Driver extends Model<InferAttributes<Driver>, InferCreationAttributes<Driver>> {
   declare id: CreationOptional<string>;
+  declare tenant_id: string;
   declare nombre: string;
   declare telefono: string;
   declare licencia: string;
@@ -24,6 +25,7 @@ export function initDriver(sequelize: Sequelize) {
   Driver.init(
     {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
+      tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       nombre: { type: DataTypes.STRING(255), allowNull: false },
       telefono: { type: DataTypes.STRING(64), allowNull: false },
       licencia: { type: DataTypes.STRING(64), allowNull: false },
