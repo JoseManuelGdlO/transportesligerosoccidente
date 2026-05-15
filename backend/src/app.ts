@@ -5,7 +5,11 @@ import morgan from "morgan";
 import v1 from "./routes/v1";
 import { errorHandler } from "./middlewares/errorHandler";
 
-/** Orígenes permitidos: `CORS_ORIGIN` puede ser lista separada por comas. En desarrollo se unen puertos típicos de Vite. */
+function normalizeOrigin(o: string): string {
+  return o.trim().replace(/\/+$/, "");
+}
+
+/** Orígenes permitidos: listas separadas por comas en `CORS_ORIGIN` y/o `PUBLIC_WEB_ORIGIN` (Easy Panel suele definir esta última). */
 function parseCorsOrigins(): string[] {
   const devDefaults = [
     "http://localhost:5173",
@@ -13,13 +17,15 @@ function parseCorsOrigins(): string[] {
     "http://127.0.0.1:5173",
     "http://127.0.0.1:8080",
   ];
-  const raw = process.env.CORS_ORIGIN?.trim();
-  const fromEnv = raw
-    ? raw
-        .split(",")
-        .map((s) => s.trim())
-        .filter(Boolean)
-    : [];
+  const chunks: string[] = [];
+  for (const key of [process.env.CORS_ORIGIN, process.env.PUBLIC_WEB_ORIGIN]) {
+    if (!key?.trim()) continue;
+    for (const part of key.split(",")) {
+      const n = normalizeOrigin(part);
+      if (n) chunks.push(n);
+    }
+  }
+  const fromEnv = [...new Set(chunks)];
   if (process.env.NODE_ENV === "production") {
     return fromEnv;
   }
@@ -30,6 +36,11 @@ export function createApp() {
   const app = express();
   app.use(helmet());
   const allowedOrigins = parseCorsOrigins();
+  if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
+    console.warn(
+      "[cors] Producción sin orígenes: define CORS_ORIGIN o PUBLIC_WEB_ORIGIN (coma si son varios).",
+    );
+  }
   app.use(
     cors({
       origin(origin, callback) {
@@ -37,11 +48,13 @@ export function createApp() {
           callback(null, true);
           return;
         }
-        if (allowedOrigins.includes(origin)) {
+        const o = normalizeOrigin(origin);
+        if (allowedOrigins.some((a) => normalizeOrigin(a) === o)) {
           callback(null, true);
           return;
         }
-        callback(new Error(`CORS: origen no permitido: ${origin}`));
+        // null, false: respuesta coherente para preflight; no usar Error() o el navegador ve “sin cabecera CORS”
+        callback(null, false);
       },
       credentials: true,
     }),
