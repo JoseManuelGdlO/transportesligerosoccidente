@@ -16,11 +16,20 @@ services:
       context: ./backend
       dockerfile: Dockerfile
     restart: unless-stopped
+    volumes:
+      - ${UPLOADS_HOST_DIR:-/srv/tlo/uploads}:/app/uploads
     ports:
       - "${API_PUBLISH_PORT:-5480}:4100"
     environment:
       NODE_ENV: production
       PORT: "4100"
+      UPLOAD_DIR: /app/uploads
+      MAX_UPLOAD_MB: ${MAX_UPLOAD_MB:-10}
+      VAPID_PUBLIC_KEY: ${VAPID_PUBLIC_KEY:-}
+      VAPID_PRIVATE_KEY: ${VAPID_PRIVATE_KEY:-}
+      VAPID_SUBJECT: ${VAPID_SUBJECT:-mailto:admin@tlo.mx}
+      CRON_DOC_CHECK: ${CRON_DOC_CHECK:-0 7 * * *}
+      TZ: ${TZ:-America/Mexico_City}
       DB_HOST: ${DB_HOST:-127.0.0.1}
       DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-tlgdb}

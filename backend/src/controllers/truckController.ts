@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
+import { Op } from "sequelize";
 import { Truck } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { truckToJson } from "../utils/serialize";
@@ -20,7 +21,10 @@ const bodySchema = z.object({
 
 export const listTrucks = asyncHandler(async (req: Request, res: Response) => {
   const rows = await Truck.findAll({
-    where: { tenant_id: tid(req) },
+    where: {
+      tenant_id: tid(req),
+      estatus: { [Op.ne]: "baja" },
+    },
     order: [["numero_economico", "ASC"]],
   });
   res.json(rows.map(truckToJson));
@@ -66,12 +70,17 @@ export const updateTruck = asyncHandler(async (req: Request, res: Response) => {
   res.json(truckToJson(t));
 });
 
+/** Baja lógica: marca `estatus` como baja (no borra fila ni historial asociado). */
 export const deleteTruck = asyncHandler(async (req: Request, res: Response) => {
   const t = await Truck.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!t) {
     res.status(404).json({ error: "No encontrado" });
     return;
   }
-  await t.destroy();
-  res.status(204).send();
+  if (t.estatus === "baja") {
+    res.status(409).json({ error: "La unidad ya está dada de baja" });
+    return;
+  }
+  await t.update({ estatus: "baja" });
+  res.json(truckToJson(t));
 });

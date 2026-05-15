@@ -18,7 +18,11 @@ export type Permission =
   | "reportes.ver"
   | "usuarios.gestionar"
   | "empresa.gestionar"
-  | "marca.gestionar";
+  | "marca.gestionar"
+  | "documentos.ver"
+  | "documentos.editar"
+  | "tipos_documento.gestionar"
+  | "notificaciones.ver";
 
 /** Todos los permisos conocidos (alineado con el backend). */
 export const FULL_ADMIN_PERMISSIONS: Permission[] = [
@@ -34,6 +38,10 @@ export const FULL_ADMIN_PERMISSIONS: Permission[] = [
   "usuarios.gestionar",
   "empresa.gestionar",
   "marca.gestionar",
+  "documentos.ver",
+  "documentos.editar",
+  "tipos_documento.gestionar",
+  "notificaciones.ver",
 ];
 
 export type TenantStatus = "activo" | "suspendido";
@@ -87,6 +95,72 @@ export interface Driver {
   comision_tipo: CommissionType;
   comision_valor: number; // % (0-100) o monto fijo
   estatus: DriverStatus;
+}
+
+export type DocumentCatalogStatus = "pendiente" | "vigente" | "por_vencer" | "vencido" | "sin_vigencia";
+
+export interface DocTypeRow {
+  id: string;
+  slug: string;
+  nombre: string;
+  aplica_a: "operador" | "unidad";
+  dias_aviso: number;
+  requiere_vigencia: boolean;
+  activo: boolean;
+}
+
+export interface CatalogDocument {
+  id: string;
+  tenant_id: string;
+  document_type_id: string;
+  documentable_type: "driver" | "truck";
+  documentable_id: string;
+  numero?: string | null;
+  vigencia_inicio?: string | null;
+  vigencia_fin?: string | null;
+  file_name?: string | null;
+  mime?: string | null;
+  size?: number | null;
+  notas?: string | null;
+  file_url: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface DocumentCatalogItem {
+  document_type: DocTypeRow;
+  document: CatalogDocument | null;
+  status: DocumentCatalogStatus;
+}
+
+export interface TenantDocumentType extends DocTypeRow {
+  tenant_id: string;
+  created_at?: string;
+  updated_at?: string;
+}
+
+export interface NotificationItem {
+  id: string;
+  tipo: string;
+  payload: Record<string, unknown>;
+  document_id?: string | null;
+  alert_date: string;
+  leida: boolean;
+  created_at?: string;
+}
+
+export interface DocumentDashboardSummary {
+  por_vencer_count: number;
+  vencido_count: number;
+  upcoming: {
+    document_id: string;
+    document_type_nombre: string;
+    documentable_type: string;
+    documentable_id: string;
+    vigencia_fin: string;
+    status: string;
+    days_left: number;
+  }[];
 }
 
 export interface Client {

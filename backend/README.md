@@ -66,6 +66,16 @@ npm start
 | `catalogos.editar` | CRUD catálogos |
 | `reportes.ver` | `GET /reports/aggregates` |
 | `usuarios.gestionar` | Usuarios y roles/permisos |
+| `documentos.ver` | Ver documentos y archivos de operadores/unidades |
+| `documentos.editar` | Subir y editar documentos |
+| `tipos_documento.gestionar` | CRUD de tipos de documento por tenant |
+| `notificaciones.ver` | Campana de notificaciones y avisos de vencimiento |
+
+## Archivos adjuntos y Web Push
+
+- **`UPLOAD_DIR`**: directorio donde se guardan PDF/imagenes (en Docker debe ser un **volumen del host** montado en el contenedor, p. ej. `UPLOAD_DIR=/app/uploads` y bind mount `./data/uploads:/app/uploads`).
+- **`VAPID_*`**: claves para notificaciones push en el navegador. Generar con `npx web-push generate-vapid-keys` y copiar a las variables de entorno.
+- **`CRON_DOC_CHECK`**: expresión cron del job diario que crea notificaciones por documentos por vencer / vencidos.
 
 El rol `admin` tiene todos los permisos; `capturista` se ajusta en el seed (coincide con el mock del frontend).
 

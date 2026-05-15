@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
+import { Op } from "sequelize";
 import { Driver } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { driverToJson } from "../utils/serialize";
@@ -19,7 +20,10 @@ const bodySchema = z.object({
 
 export const listDrivers = asyncHandler(async (req: Request, res: Response) => {
   const rows = await Driver.findAll({
-    where: { tenant_id: tid(req) },
+    where: {
+      tenant_id: tid(req),
+      estatus: { [Op.ne]: "inactivo" },
+    },
     order: [["nombre", "ASC"]],
   });
   res.json(rows.map(driverToJson));
@@ -65,12 +69,17 @@ export const updateDriver = asyncHandler(async (req: Request, res: Response) => 
   res.json(driverToJson(d));
 });
 
+/** Baja lógica: marca `estatus` inactivo (no borra fila ni historial asociado). */
 export const deleteDriver = asyncHandler(async (req: Request, res: Response) => {
   const d = await Driver.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
   if (!d) {
     res.status(404).json({ error: "No encontrado" });
     return;
   }
-  await d.destroy();
-  res.status(204).send();
+  if (d.estatus === "inactivo") {
+    res.status(409).json({ error: "El operador ya está dado de baja" });
+    return;
+  }
+  await d.update({ estatus: "inactivo" });
+  res.json(driverToJson(d));
 });

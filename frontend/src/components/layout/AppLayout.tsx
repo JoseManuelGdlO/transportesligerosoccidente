@@ -1,6 +1,8 @@
 import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
+import { NotificationBell } from "./NotificationBell";
+import { PushOptInBanner } from "./PushOptInBanner";
 import { useAuth } from "@/context/AuthContext";
 
 const titles: Record<string, string> = {
@@ -13,6 +15,7 @@ const titles: Record<string, string> = {
   "/clientes": "Clientes",
   "/usuarios": "Usuarios y permisos",
   "/marca": "Marca y tema",
+  "/tipos-documento": "Tipos de documento",
 };
 
 export default function AppLayout() {
@@ -41,10 +44,17 @@ export default function AppLayout() {
             <div className="flex-1">
               <h1 className="text-base font-semibold text-foreground">{title}</h1>
             </div>
+            <NotificationBell />
             <div className="text-xs text-muted-foreground hidden md:block">
-              {new Date().toLocaleDateString("es-MX", { weekday: "long", day: "numeric", month: "long", year: "numeric" })}
+              {new Date().toLocaleDateString("es-MX", {
+                weekday: "long",
+                day: "numeric",
+                month: "long",
+                year: "numeric",
+              })}
             </div>
           </header>
+          <PushOptInBanner />
           <main className="flex-1 p-4 md:p-6 overflow-auto">
             <Outlet />
           </main>

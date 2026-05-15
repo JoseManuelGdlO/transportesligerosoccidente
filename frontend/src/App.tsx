@@ -18,6 +18,7 @@ import Liquidaciones from "@/pages/tlo/Liquidaciones";
 import Reportes from "@/pages/tlo/Reportes";
 import Usuarios from "@/pages/tlo/Usuarios";
 import Marca from "@/pages/tlo/Marca";
+import TiposDocumento from "@/pages/tlo/TiposDocumento";
 
 const queryClient = new QueryClient();
 
@@ -42,6 +43,7 @@ const App = () => (
                 <Route path="/reportes" element={<Reportes />} />
                 <Route path="/usuarios" element={<Usuarios />} />
                 <Route path="/marca" element={<Marca />} />
+                <Route path="/tipos-documento" element={<TiposDocumento />} />
               </Route>
               <Route path="*" element={<NotFound />} />
             </Routes>

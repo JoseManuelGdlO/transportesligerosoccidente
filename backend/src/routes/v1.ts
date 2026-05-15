@@ -11,6 +11,12 @@ import * as settlementC from "../controllers/settlementController";
 import * as userC from "../controllers/userController";
 import * as roleC from "../controllers/roleController";
 import * as reportsC from "../controllers/reportsController";
+import * as docTypeC from "../controllers/documentTypeController";
+import * as docC from "../controllers/documentController";
+import * as notifC from "../controllers/notificationController";
+import * as pushC from "../controllers/pushController";
+import { uploadDriverDocument, uploadTruckDocument } from "../middlewares/uploadDocument";
+import { loadDocumentForPatch, uploadDocumentPatch } from "../middlewares/documentPatchUpload";
 
 const r = Router();
 
@@ -65,5 +71,52 @@ r.get("/roles", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.
 r.put("/roles/:slug/permissions", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.putRolePermissions);
 
 r.get("/reports/aggregates", authenticateJwt, requirePermission("reportes.ver"), reportsC.getAggregates);
+
+r.get(
+  "/document-types",
+  authenticateJwt,
+  requirePermission("catalogos.ver", "tipos_documento.gestionar"),
+  docTypeC.listDocumentTypes,
+);
+r.post("/document-types", authenticateJwt, requirePermission("tipos_documento.gestionar"), docTypeC.createDocumentType);
+r.patch("/document-types/:id", authenticateJwt, requirePermission("tipos_documento.gestionar"), docTypeC.updateDocumentType);
+r.delete("/document-types/:id", authenticateJwt, requirePermission("tipos_documento.gestionar"), docTypeC.deleteDocumentType);
+
+r.get("/drivers/:id/documents", authenticateJwt, requirePermission("documentos.ver"), docC.listDriverDocuments);
+r.post(
+  "/drivers/:id/documents",
+  authenticateJwt,
+  requirePermission("documentos.editar"),
+  uploadDriverDocument.single("file"),
+  docC.createDriverDocument,
+);
+r.get("/trucks/:id/documents", authenticateJwt, requirePermission("documentos.ver"), docC.listTruckDocuments);
+r.post(
+  "/trucks/:id/documents",
+  authenticateJwt,
+  requirePermission("documentos.editar"),
+  uploadTruckDocument.single("file"),
+  docC.createTruckDocument,
+);
+
+r.get("/documents/dashboard", authenticateJwt, requirePermission("documentos.ver"), docC.getDashboardDocumentSummary);
+r.get("/documents/:id/file", authenticateJwt, requirePermission("documentos.ver"), docC.streamDocumentFile);
+r.patch(
+  "/documents/:id",
+  authenticateJwt,
+  requirePermission("documentos.editar"),
+  loadDocumentForPatch,
+  uploadDocumentPatch.single("file"),
+  docC.patchDocument,
+);
+r.delete("/documents/:id", authenticateJwt, requirePermission("documentos.editar"), docC.deleteDocument);
+
+r.get("/notifications", authenticateJwt, requirePermission("notificaciones.ver"), notifC.listNotifications);
+r.patch("/notifications/:id/read", authenticateJwt, requirePermission("notificaciones.ver"), notifC.markNotificationRead);
+r.post("/notifications/mark-all-read", authenticateJwt, requirePermission("notificaciones.ver"), notifC.markAllNotificationsRead);
+
+r.get("/push/public-key", authenticateJwt, pushC.getPushPublicKey);
+r.post("/push/subscribe", authenticateJwt, pushC.postSubscribe);
+r.post("/push/unsubscribe", authenticateJwt, pushC.postUnsubscribe);
 
 export default r;

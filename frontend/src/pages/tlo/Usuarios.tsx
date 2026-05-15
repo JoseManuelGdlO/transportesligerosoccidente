@@ -49,6 +49,15 @@ const PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string
     ],
   },
   {
+    label: "Documentación y avisos",
+    perms: [
+      { id: "documentos.ver", label: "Ver documentación de operadores y unidades" },
+      { id: "documentos.editar", label: "Subir y editar documentos / archivos" },
+      { id: "tipos_documento.gestionar", label: "Gestionar catálogo de tipos de documento" },
+      { id: "notificaciones.ver", label: "Ver notificaciones de vencimientos" },
+    ],
+  },
+  {
     label: "Empresa y marca",
     perms: [
       { id: "empresa.gestionar", label: "Editar datos básicos de la empresa" },

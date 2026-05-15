@@ -9,6 +9,7 @@ import {
   LogOut,
   ShieldCheck,
   Palette,
+  FileText,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -48,6 +49,7 @@ const catalogos: NavItem[] = [
   { title: "Camiones", url: "/camiones", icon: TruckIcon, perm: "catalogos.ver" },
   { title: "Operadores", url: "/operadores", icon: Users, perm: "catalogos.ver" },
   { title: "Clientes", url: "/clientes", icon: Building2, perm: "catalogos.ver" },
+  { title: "Tipos de documento", url: "/tipos-documento", icon: FileText, perm: "catalogos.ver" },
 ];
 
 const administracion: NavItem[] = [

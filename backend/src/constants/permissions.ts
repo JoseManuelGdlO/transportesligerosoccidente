@@ -12,6 +12,10 @@ export const ALL_PERMISSIONS = [
   "usuarios.gestionar",
   "empresa.gestionar",
   "marca.gestionar",
+  "documentos.ver",
+  "documentos.editar",
+  "tipos_documento.gestionar",
+  "notificaciones.ver",
 ] as const;
 
 export type PermissionSlug = (typeof ALL_PERMISSIONS)[number];

@@ -11,6 +11,10 @@ import { Trip, initTrip } from "./Trip";
 import { FuelLoad, initFuelLoad } from "./FuelLoad";
 import { Expense, initExpense } from "./Expense";
 import { Settlement, initSettlement } from "./Settlement";
+import { DocumentType, initDocumentType } from "./DocumentType";
+import { Document, initDocument } from "./Document";
+import { PushSubscription, initPushSubscription } from "./PushSubscription";
+import { Notification, initNotification } from "./Notification";
 
 export function initModels() {
   initTenant(sequelize);
@@ -25,6 +29,10 @@ export function initModels() {
   initFuelLoad(sequelize);
   initExpense(sequelize);
   initSettlement(sequelize);
+  initDocumentType(sequelize);
+  initDocument(sequelize);
+  initPushSubscription(sequelize);
+  initNotification(sequelize);
 
   Role.belongsToMany(Permission, {
     through: RolePermission,
@@ -75,6 +83,26 @@ export function initModels() {
 
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });
+
+  Tenant.hasMany(DocumentType, { foreignKey: "tenant_id" });
+  DocumentType.belongsTo(Tenant, { foreignKey: "tenant_id" });
+
+  Tenant.hasMany(Document, { foreignKey: "tenant_id" });
+  Document.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  DocumentType.hasMany(Document, { foreignKey: "document_type_id" });
+  Document.belongsTo(DocumentType, { foreignKey: "document_type_id" });
+
+  Tenant.hasMany(PushSubscription, { foreignKey: "tenant_id" });
+  PushSubscription.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  User.hasMany(PushSubscription, { foreignKey: "user_id" });
+  PushSubscription.belongsTo(User, { foreignKey: "user_id" });
+
+  Tenant.hasMany(Notification, { foreignKey: "tenant_id" });
+  Notification.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  User.hasMany(Notification, { foreignKey: "user_id" });
+  Notification.belongsTo(User, { foreignKey: "user_id" });
+  Document.hasMany(Notification, { foreignKey: "document_id" });
+  Notification.belongsTo(Document, { foreignKey: "document_id" });
 }
 
 export {
@@ -91,6 +119,10 @@ export {
   FuelLoad,
   Expense,
   Settlement,
+  DocumentType,
+  Document,
+  PushSubscription,
+  Notification,
 };
 
 initModels();

@@ -1,18 +1,54 @@
+import { useEffect, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
+import { useAuth } from "@/context/AuthContext";
+import { fetchDocumentDashboard } from "@/lib/tloApi";
+import type { DocumentDashboardSummary } from "@/types/tlo";
 import { computeTrip, driverById, truckById } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TripStatusBadge, MarginBadge } from "@/components/tlo/StatusBadge";
-import { Truck, Users, DollarSign, TrendingUp, AlertTriangle, CheckCircle2, Plus, Wallet, Activity } from "lucide-react";
+import { TripStatusBadge } from "@/components/tlo/StatusBadge";
+import {
+  Truck,
+  Users,
+  DollarSign,
+  TrendingUp,
+  AlertTriangle,
+  CheckCircle2,
+  Plus,
+  Wallet,
+  Activity,
+  CalendarClock,
+  FileWarning,
+} from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 
 export default function Dashboard() {
   const { trips, drivers, trucks, catalogLoading, catalogError } = useTlo();
+  const { hasPermission, apiMode } = useAuth();
   const nav = useNavigate();
+  const [docDash, setDocDash] = useState<DocumentDashboardSummary | null>(null);
+
+  useEffect(() => {
+    if (!apiMode || !hasPermission("documentos.ver") || catalogLoading) {
+      setDocDash(null);
+      return;
+    }
+    let cancel = false;
+    void fetchDocumentDashboard()
+      .then((d) => {
+        if (!cancel) setDocDash(d);
+      })
+      .catch(() => {
+        if (!cancel) setDocDash(null);
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [apiMode, hasPermission, catalogLoading]);
 
   if (catalogLoading) {
     return <p className="text-sm text-muted-foreground">Cargando datos del servidor…</p>;
@@ -80,6 +116,73 @@ export default function Dashboard() {
         <KpiCard label="Viajes negativos" value={String(negativos)} icon={AlertTriangle} tone={negativos > 0 ? "destructive" : "success"} />
         <KpiCard label="Operadores activos" value={String(drivers.filter(d => d.estatus === "activo").length)} icon={Users} tone="default" />
       </div>
+
+      {docDash && hasPermission("documentos.ver") && (
+        <>
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KpiCard
+              label="Documentos por vencer"
+              value={String(docDash.por_vencer_count)}
+              icon={CalendarClock}
+              tone="warning"
+            />
+            <KpiCard
+              label="Documentos vencidos"
+              value={String(docDash.vencido_count)}
+              icon={FileWarning}
+              tone="destructive"
+            />
+          </div>
+          <Card className="tlo-shadow-md">
+            <CardHeader>
+              <CardTitle className="text-base">Próximos vencimientos y alertas</CardTitle>
+            </CardHeader>
+            <CardContent className="p-0">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Documento</TableHead>
+                    <TableHead>Tipo entidad</TableHead>
+                    <TableHead className="text-right">Vence</TableHead>
+                    <TableHead className="text-right">Días</TableHead>
+                    <TableHead>Estatus</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {docDash.upcoming.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={5} className="text-center text-muted-foreground py-6">
+                        Sin vencimientos urgentes en ventana de alerta
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {docDash.upcoming.map((u) => (
+                    <TableRow
+                      key={u.document_id}
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() =>
+                        nav(
+                          u.documentable_type === "truck"
+                            ? `/camiones?open=${u.documentable_id}`
+                            : `/operadores?open=${u.documentable_id}`,
+                        )
+                      }
+                    >
+                      <TableCell className="text-sm font-medium">{u.document_type_nombre}</TableCell>
+                      <TableCell className="text-sm">
+                        {u.documentable_type === "truck" ? "Unidad" : "Operador"}
+                      </TableCell>
+                      <TableCell className="text-right text-sm">{fmtDate(u.vigencia_fin)}</TableCell>
+                      <TableCell className="text-right font-mono text-sm">{u.days_left}</TableCell>
+                      <TableCell className="text-sm capitalize">{u.status.replace("_", " ")}</TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </CardContent>
+          </Card>
+        </>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="lg:col-span-2 tlo-shadow-md">

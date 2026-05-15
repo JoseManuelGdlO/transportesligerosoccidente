@@ -34,6 +34,10 @@ interface TloState {
   addExpense: (tripId: string, e: Omit<Expense, "id">) => void;
   removeExpense: (tripId: string, eid: string) => void;
   closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => void;
+  /** Marca la unidad como baja (no borra el registro en base de datos). */
+  deleteTruck: (id: string) => Promise<void>;
+  /** Marca el operador como inactivo / baja lógica (no borra el registro). */
+  deleteDriver: (id: string) => Promise<void>;
 }
 
 const TloCtx = createContext<TloState | null>(null);
@@ -141,6 +145,44 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         c[i] = t;
         return c;
       });
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const deleteTruck = useCallback(
+    async (id: string) => {
+      if (apiLive) {
+        try {
+          const r = await apiFetch(`/trucks/${id}`, { method: "DELETE" });
+          await readJson(r);
+          await reloadCatalog();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al dar de baja el camión";
+          setCatalogError(msg);
+          throw e;
+        }
+        return;
+      }
+      setTrucks((prev) => prev.filter((x) => x.id !== id));
+    },
+    [apiLive, reloadCatalog],
+  );
+
+  const deleteDriver = useCallback(
+    async (id: string) => {
+      if (apiLive) {
+        try {
+          const r = await apiFetch(`/drivers/${id}`, { method: "DELETE" });
+          await readJson(r);
+          await reloadCatalog();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al dar de baja el operador";
+          setCatalogError(msg);
+          throw e;
+        }
+        return;
+      }
+      setDrivers((prev) => prev.filter((x) => x.id !== id));
     },
     [apiLive, reloadCatalog],
   );
@@ -550,6 +592,8 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       addExpense,
       removeExpense,
       closeTrip,
+      deleteTruck,
+      deleteDriver,
     }),
     [
       trucks,
@@ -574,6 +618,8 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       addExpense,
       removeExpense,
       closeTrip,
+      deleteTruck,
+      deleteDriver,
     ],
   );
 

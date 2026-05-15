@@ -86,19 +86,28 @@ export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<R
   const headers = new Headers(init.headers);
   const token = getStoredToken();
   if (token) headers.set("Authorization", `Bearer ${token}`);
-  if (init.body && typeof init.body === "string" && !headers.has("Content-Type")) {
+  if (init.body instanceof FormData) {
+    headers.delete("Content-Type");
+  } else if (init.body && typeof init.body === "string" && !headers.has("Content-Type")) {
     headers.set("Content-Type", "application/json");
   }
   const { _retry, ...rest } = init;
   let res = await fetch(url, { ...rest, headers });
 
-  if (res.status === 401 && !_retry && getStoredRefreshToken()) {
+  if (
+    res.status === 401 &&
+    !_retry &&
+    getStoredRefreshToken() &&
+    !(init.body instanceof FormData)
+  ) {
     const refreshed = await refreshAccessTokenSingleton();
     if (refreshed) {
       const h2 = new Headers(rest.headers);
       const t2 = getStoredToken();
       if (t2) h2.set("Authorization", `Bearer ${t2}`);
-      if (rest.body && typeof rest.body === "string" && !h2.has("Content-Type")) {
+      if (rest.body instanceof FormData) {
+        h2.delete("Content-Type");
+      } else if (rest.body && typeof rest.body === "string" && !h2.has("Content-Type")) {
         h2.set("Content-Type", "application/json");
       }
       res = await fetch(url, { ...rest, headers: h2 });
