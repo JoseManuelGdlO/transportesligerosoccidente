@@ -48,6 +48,9 @@ export default function AppLayout() {
           <main className="flex-1 p-4 md:p-6 overflow-auto">
             <Outlet />
           </main>
+          <footer className="border-t bg-card/50 px-4 py-2 text-center text-[11px] text-muted-foreground shrink-0">
+            Powered by <span className="font-medium text-foreground/70">Intelekia Dgo</span>
+          </footer>
         </div>
       </div>
     </SidebarProvider>

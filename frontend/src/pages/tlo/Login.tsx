@@ -40,8 +40,9 @@ export default function Login() {
   };
 
   return (
-    <div className="min-h-screen w-full flex items-center justify-center p-4 tlo-gradient-primary">
-      <div className="w-full max-w-md">
+    <div className="min-h-screen w-full flex flex-col tlo-gradient-primary">
+      <div className="flex-1 flex items-center justify-center p-4">
+        <div className="w-full max-w-md">
         <div className="flex flex-col items-center mb-6">
           <div className="rounded-xl bg-white p-3 tlo-shadow-lg">
             <img src={logo} alt="TLO" className="h-16 w-16 object-contain" />
@@ -113,7 +114,11 @@ export default function Login() {
             </form>
           </CardContent>
         </Card>
+        </div>
       </div>
+      <p className="text-center text-[11px] text-white/55 pb-4 px-4">
+        Powered by <span className="font-medium text-white/75">Intelekia Dgo</span>
+      </p>
     </div>
   );
 }
