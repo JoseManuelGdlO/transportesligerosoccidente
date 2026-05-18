@@ -19,6 +19,22 @@ export type FuelSyncResult = {
   error?: string;
 };
 
+export function logFuelSyncResult(r: FuelSyncResult): void {
+  const tag = `[fuel-sync] tenant=${r.tenant_id} "${r.tenant_nombre}"`;
+  if (r.status === "ok") {
+    const imp = r.import;
+    console.log(
+      `${tag} ok rango=${r.inicio}..${r.fin} creados=${imp?.creados ?? 0} duplicados=${imp?.duplicados ?? 0} errores_fila=${imp?.errores.length ?? 0} unidades=${r.unidades_con_tickets ?? 0}`,
+    );
+    return;
+  }
+  if (r.status === "error") {
+    console.log(`${tag} error rango=${r.inicio}..${r.fin} msg=${r.error ?? "desconocido"}`);
+    return;
+  }
+  console.log(`${tag} skipped rango=${r.inicio}..${r.fin} motivo=${r.error ?? "sin detalle"}`);
+}
+
 export function defaultSyncDateRange(): { inicio: string; fin: string } {
   const fin = localDateStr();
   const lookback = Math.max(1, Number(process.env.FUEL_SYNC_LOOKBACK_DAYS || "35"));
@@ -107,8 +123,10 @@ export async function runFuelSyncForTenant(
   }
 
   try {
+    console.log(`[fuel-sync] tenant=${tenant.id} "${tenant.nombre}" descargando ${inicio}..${fin}`);
     const provider = createFuelProvider(creds);
     const buffer = await provider.downloadReport({ inicio, fin });
+    console.log(`[fuel-sync] tenant=${tenant.id} descarga ok bytes=${buffer.length}`);
     const importResult = await importFuelTicketsFromBuffer(String(tenant.id), buffer, "api");
     const proration = await prorateRangeAll(String(tenant.id), inicio, fin);
 
@@ -118,12 +136,14 @@ export async function runFuelSyncForTenant(
 
     await notifyFuelSync(String(tenant.id), true, title, body);
 
-    return {
+    const result: FuelSyncResult = {
       ...base,
       status: "ok",
       import: importResult,
       unidades_con_tickets: proration.unidades.length,
     };
+    logFuelSyncResult(result);
+    return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error desconocido al sincronizar combustible";
     console.error(`[fuel-sync] tenant=${tenant.id}`, e);
@@ -133,13 +153,16 @@ export async function runFuelSyncForTenant(
       "Falló sincronización de combustibles",
       `${msg}. Puede importar el Excel manualmente en Combustibles.`,
     );
-    return { ...base, status: "error", error: msg };
+    const result: FuelSyncResult = { ...base, status: "error", error: msg };
+    logFuelSyncResult(result);
+    return result;
   }
 }
 
 export async function runFuelSyncAll(
   range?: { inicio: string; fin: string },
 ): Promise<FuelSyncResult[]> {
+  const { inicio, fin } = range ?? defaultSyncDateRange();
   const tenants = await Tenant.findAll({
     where: { estatus: "activo", fuel_sync_habilitado: { [Op.eq]: true } },
   });
@@ -153,9 +176,28 @@ export async function runFuelSyncAll(
     }
   }
 
+  console.log(
+    `[fuel-sync] inicio sync rango=${inicio}..${fin} empresas=${toRun.size} (FUEL_SYNC_ENABLED=${process.env.FUEL_SYNC_ENABLED === "true"})`,
+  );
+
+  if (toRun.size === 0) {
+    console.log(
+      "[fuel-sync] sin empresas que sincronizar (activa FUEL_SYNC_ENABLED + credenciales, o fuel_sync_habilitado por tenant)",
+    );
+    return [];
+  }
+
   const results: FuelSyncResult[] = [];
   for (const tenant of toRun.values()) {
-    results.push(await runFuelSyncForTenant(tenant, range));
+    const r = await runFuelSyncForTenant(tenant, range);
+    if (r.status === "skipped") logFuelSyncResult(r);
+    results.push(r);
   }
+
+  const ok = results.filter((r) => r.status === "ok").length;
+  const err = results.filter((r) => r.status === "error").length;
+  const skipped = results.filter((r) => r.status === "skipped").length;
+  console.log(`[fuel-sync] fin sync ok=${ok} error=${err} skipped=${skipped} total=${results.length}`);
+
   return results;
 }

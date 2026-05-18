@@ -9,9 +9,10 @@ import { runFuelSyncAll } from "../services/fuelSyncService";
 
 async function main() {
   await sequelize.authenticate();
+  console.log("[fuel-sync] job manual (npm run job:fuel-sync)");
   const results = await runFuelSyncAll();
   for (const r of results) {
-    console.log(JSON.stringify(r));
+    console.log("[fuel-sync] detalle:", JSON.stringify(r));
   }
   const failed = results.some((r) => r.status === "error");
   process.exit(failed ? 1 : 0);

@@ -1,5 +1,5 @@
 import cron from "node-cron";
-import { runFuelSyncAll } from "../services/fuelSyncService";
+import { defaultSyncDateRange, runFuelSyncAll } from "../services/fuelSyncService";
 
 export function startFuelSyncJob(): void {
   const expr = process.env.CRON_FUEL_SYNC || "0 5 * * *";
@@ -11,14 +11,26 @@ export function startFuelSyncJob(): void {
   }
 
   cron.schedule(expr, () => {
-    void runFuelSyncAll()
+    const startedAt = Date.now();
+    const range = defaultSyncDateRange();
+    console.log(
+      `[cron fuel-sync] disparo ${new Date().toISOString()} rango=${range.inicio}..${range.fin} TZ=${process.env.TZ || "default"}`,
+    );
+
+    void runFuelSyncAll(range)
       .then((results) => {
         const ok = results.filter((r) => r.status === "ok").length;
         const err = results.filter((r) => r.status === "error").length;
-        console.log(`[cron fuel-sync] tenants=${results.length} ok=${ok} error=${err}`);
+        const skipped = results.filter((r) => r.status === "skipped").length;
+        console.log(
+          `[cron fuel-sync] terminado duracion_ms=${Date.now() - startedAt} tenants=${results.length} ok=${ok} error=${err} skipped=${skipped}`,
+        );
       })
-      .catch((e) => console.error("[cron fuel-sync]", e));
+      .catch((e) => console.error("[cron fuel-sync] fallo no controlado", e));
   });
 
-  console.log(`[cron] Combustibles: planificación "${expr}" (${process.env.TZ || "default TZ"})`);
+  const range = defaultSyncDateRange();
+  console.log(
+    `[cron] Combustibles: planificación "${expr}" (${process.env.TZ || "default TZ"}) próximo rango típico ${range.inicio}..${range.fin}`,
+  );
 }
