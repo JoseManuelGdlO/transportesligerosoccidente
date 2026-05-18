@@ -16,8 +16,9 @@ import { Plus, Pencil, ShieldCheck, ShieldAlert, Lock, Mail, UserCog } from "luc
 import { fmtDate } from "@/lib/format";
 import type { SystemUser, UserRole, Permission } from "@/types/tlo";
 import { toast } from "sonner";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 
-const PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string }[] }[] = [
+const ALL_PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string }[] }[] = [
   {
     label: "Viajes",
     perms: [
@@ -62,9 +63,26 @@ const PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string
     perms: [
       { id: "empresa.gestionar", label: "Editar datos básicos de la empresa" },
       { id: "marca.gestionar", label: "Editar logo y colores del tema" },
+      { id: "fiscal.configurar", label: "Configurar datos fiscales y CSD" },
+    ],
+  },
+  {
+    label: "Carta Porte SAT",
+    perms: [
+      { id: "cartaporte.ver", label: "Ver carta porte en viajes" },
+      { id: "cartaporte.timbrar", label: "Validar y timbrar carta porte" },
+      { id: "cartaporte.cancelar", label: "Cancelar carta porte timbrada" },
     ],
   },
 ];
+
+const PERMISSION_GROUPS = ALL_PERMISSION_GROUPS.filter(
+  (g) => FEATURE_CARTA_PORTE || g.label !== "Carta Porte SAT",
+).map((g) =>
+  g.label === "Empresa y marca" && !FEATURE_CARTA_PORTE
+    ? { ...g, perms: g.perms.filter((p) => p.id !== "fiscal.configurar") }
+    : g,
+);
 
 const emptyUser: SystemUser = {
   id: "",

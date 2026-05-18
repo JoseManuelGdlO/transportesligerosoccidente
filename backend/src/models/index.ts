@@ -9,12 +9,16 @@ import { Driver, initDriver } from "./Driver";
 import { Client, initClient } from "./Client";
 import { Trip, initTrip } from "./Trip";
 import { FuelLoad, initFuelLoad } from "./FuelLoad";
+import { FuelTicket, initFuelTicket } from "./FuelTicket";
 import { Expense, initExpense } from "./Expense";
 import { Settlement, initSettlement } from "./Settlement";
 import { DocumentType, initDocumentType } from "./DocumentType";
 import { Document, initDocument } from "./Document";
 import { PushSubscription, initPushSubscription } from "./PushSubscription";
 import { Notification, initNotification } from "./Notification";
+import { TripUbicacion, initTripUbicacion } from "./TripUbicacion";
+import { TripMercancia, initTripMercancia } from "./TripMercancia";
+import { CartaPorte, initCartaPorte } from "./CartaPorte";
 
 export function initModels() {
   initTenant(sequelize);
@@ -27,12 +31,16 @@ export function initModels() {
   initClient(sequelize);
   initTrip(sequelize);
   initFuelLoad(sequelize);
+  initFuelTicket(sequelize);
   initExpense(sequelize);
   initSettlement(sequelize);
   initDocumentType(sequelize);
   initDocument(sequelize);
   initPushSubscription(sequelize);
   initNotification(sequelize);
+  initTripUbicacion(sequelize);
+  initTripMercancia(sequelize);
+  initCartaPorte(sequelize);
 
   Role.belongsToMany(Permission, {
     through: RolePermission,
@@ -65,6 +73,8 @@ export function initModels() {
   Settlement.belongsTo(Tenant, { foreignKey: "tenant_id" });
   Tenant.hasMany(FuelLoad, { foreignKey: "tenant_id" });
   FuelLoad.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Tenant.hasMany(FuelTicket, { foreignKey: "tenant_id" });
+  FuelTicket.belongsTo(Tenant, { foreignKey: "tenant_id" });
   Tenant.hasMany(Expense, { foreignKey: "tenant_id" });
   Expense.belongsTo(Tenant, { foreignKey: "tenant_id" });
 
@@ -72,6 +82,8 @@ export function initModels() {
   Trip.belongsTo(Driver, { foreignKey: "driver_id" });
   Trip.belongsTo(Client, { foreignKey: "client_id" });
   Truck.hasMany(Trip, { foreignKey: "truck_id" });
+  Truck.hasMany(FuelTicket, { foreignKey: "truck_id", as: "fuelTickets" });
+  FuelTicket.belongsTo(Truck, { foreignKey: "truck_id" });
   Driver.hasMany(Trip, { foreignKey: "driver_id" });
   Client.hasMany(Trip, { foreignKey: "client_id" });
 
@@ -80,6 +92,13 @@ export function initModels() {
 
   Expense.belongsTo(Trip, { foreignKey: "trip_id" });
   Trip.hasMany(Expense, { foreignKey: "trip_id", as: "expenses" });
+
+  Trip.hasMany(TripUbicacion, { foreignKey: "trip_id", as: "ubicaciones" });
+  TripUbicacion.belongsTo(Trip, { foreignKey: "trip_id" });
+  Trip.hasMany(TripMercancia, { foreignKey: "trip_id", as: "mercancias" });
+  TripMercancia.belongsTo(Trip, { foreignKey: "trip_id" });
+  Trip.hasOne(CartaPorte, { foreignKey: "trip_id", as: "cartaPorte" });
+  CartaPorte.belongsTo(Trip, { foreignKey: "trip_id" });
 
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });
@@ -117,12 +136,16 @@ export {
   Client,
   Trip,
   FuelLoad,
+  FuelTicket,
   Expense,
   Settlement,
   DocumentType,
   Document,
   PushSubscription,
   Notification,
+  TripUbicacion,
+  TripMercancia,
+  CartaPorte,
 };
 
 initModels();

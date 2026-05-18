@@ -1,7 +1,7 @@
 import { Op } from "sequelize";
 import { z } from "zod";
 import type { Request, Response } from "express";
-import { Role, Permission, RolePermission } from "../models";
+import { Role, Permission, RolePermission, sequelize } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { roleDefinitionToJson } from "../utils/serialize";
 import { ALL_PERMISSIONS } from "../constants/permissions";
@@ -39,14 +39,23 @@ export const putRolePermissions = asyncHandler(async (req: Request, res: Respons
     res.status(404).json({ error: "Rol no encontrado" });
     return;
   }
-  const slugs = parsed.data.permisos.filter((p) => (ALL_PERMISSIONS as readonly string[]).includes(p));
+  const slugs = [...new Set(parsed.data.permisos.filter((p) => (ALL_PERMISSIONS as readonly string[]).includes(p)))];
   const perms = await Permission.findAll({ where: { slug: { [Op.in]: slugs } } });
-  await RolePermission.bulkCreate(
-    perms.map((p) => ({
-      role_id: role.id,
-      permission_id: p.id,
-    })),
-  );
+  const now = new Date();
+  await sequelize.transaction(async (t) => {
+    await RolePermission.destroy({ where: { role_id: role.id }, transaction: t });
+    if (perms.length > 0) {
+      await RolePermission.bulkCreate(
+        perms.map((p) => ({
+          role_id: role.id,
+          permission_id: p.id,
+          created_at: now,
+          updated_at: now,
+        })),
+        { transaction: t },
+      );
+    }
+  });
   const fresh = await Role.findByPk(role.id, {
     include: [{ model: Permission, through: { attributes: [] } }],
   });

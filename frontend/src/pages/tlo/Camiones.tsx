@@ -41,6 +41,7 @@ const empty: Truck = {
   id: "",
   numero_economico: "",
   placas: "",
+  folio_tag: "",
   marca: "",
   modelo: "",
   anio: new Date().getFullYear(),
@@ -355,6 +356,14 @@ export default function Camiones() {
                 <div>
                   <Label>Placas</Label>
                   <Input value={form.placas} onChange={(e) => setForm({ ...form, placas: e.target.value })} />
+                </div>
+                <div>
+                  <Label>Folio TAG</Label>
+                  <Input
+                    value={form.folio_tag ?? ""}
+                    onChange={(e) => setForm({ ...form, folio_tag: e.target.value })}
+                    placeholder="ID proveedor combustible"
+                  />
                 </div>
                 <div>
                   <Label>Marca</Label>

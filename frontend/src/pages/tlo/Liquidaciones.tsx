@@ -89,6 +89,7 @@ export default function Liquidaciones() {
                   <TableHeader>
                     <TableRow className="bg-secondary/50">
                       <TableHead>Folio</TableHead>
+                      <TableHead>Factura</TableHead>
                       <TableHead>Fecha</TableHead>
                       <TableHead>Ruta</TableHead>
                       <TableHead className="text-right">Km</TableHead>
@@ -98,13 +99,14 @@ export default function Liquidaciones() {
                   </TableHeader>
                   <TableBody>
                     {summary.trips.length === 0 && (
-                      <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sin viajes en el periodo</TableCell></TableRow>
+                      <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin viajes en el periodo</TableCell></TableRow>
                     )}
                     {summary.trips.map(t => {
                       const f = computeTrip(t, driver);
                       return (
                         <TableRow key={t.id}>
                           <TableCell className="font-mono text-sm">{t.folio}</TableCell>
+                          <TableCell className="font-mono text-sm">{t.num_factura || "—"}</TableCell>
                           <TableCell className="text-sm">{fmtDate(t.fecha_salida)}</TableCell>
                           <TableCell className="text-sm">{t.origen} → {t.destino}</TableCell>
                           <TableCell className="text-right font-mono">{fmtNumber(f.km_recorridos)}</TableCell>

@@ -6,6 +6,7 @@ import {
   Route,
   Wallet,
   BarChart3,
+  Fuel,
   LogOut,
   ShieldCheck,
   Palette,
@@ -28,6 +29,7 @@ import {
 import logo from "@/assets/tlo-logo.jpeg";
 import { useAuth } from "@/context/AuthContext";
 import type { Permission } from "@/types/tlo";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 type NavItem = {
   title: string;
@@ -43,6 +45,7 @@ const operacion: NavItem[] = [
   { title: "Viajes", url: "/viajes", icon: Route, perm: "viajes.ver" },
   { title: "Liquidaciones", url: "/liquidaciones", icon: Wallet, perm: "liquidaciones.ver" },
   { title: "Reportes", url: "/reportes", icon: BarChart3, perm: "reportes.ver" },
+  { title: "Combustibles", url: "/combustibles", icon: Fuel, perm: "combustibles.ver" },
 ];
 
 const catalogos: NavItem[] = [
@@ -53,6 +56,9 @@ const catalogos: NavItem[] = [
 ];
 
 const administracion: NavItem[] = [
+  ...(FEATURE_CARTA_PORTE
+    ? [{ title: "Empresa y fiscal", url: "/empresa", icon: Building2, perm: "fiscal.configurar" as Permission }]
+    : []),
   { title: "Marca y tema", url: "/marca", icon: Palette, perm: "marca.gestionar" },
   { title: "Usuarios y permisos", url: "/usuarios", icon: ShieldCheck, perm: "usuarios.gestionar" },
 ];

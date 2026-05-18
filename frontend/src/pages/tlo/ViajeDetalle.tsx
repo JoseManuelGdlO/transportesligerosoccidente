@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { computeTrip, driverById, truckById } from "@/lib/calc";
@@ -15,14 +15,34 @@ import { Badge } from "@/components/ui/badge";
 import { TripStatusBadge } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
 import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar } from "lucide-react";
-import type { ExpenseCategory } from "@/types/tlo";
+import type { ExpenseCategory, Trip } from "@/types/tlo";
+import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
+import { normalizeTrip } from "@/lib/tloApi";
 import { toast } from "sonner";
 
 export default function ViajeDetalle() {
   const { id } = useParams();
   const nav = useNavigate();
   const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip } = useTlo();
-  const trip = trips.find(t => t.id === id);
+  const tripCtx = trips.find(t => t.id === id);
+  const [tripOverride, setTripOverride] = useState<Trip | null>(null);
+  const trip = tripOverride ?? tripCtx;
+  useEffect(() => {
+    setTripOverride(null);
+  }, [tripCtx]);
+
+  const reloadTrip = async () => {
+    if (!id || !hasApiConfigured()) return;
+    const r = await apiFetch(`/trips/${id}`);
+    if (r.ok) {
+      const j = await readJson<Record<string, unknown>>(r);
+      setTripOverride(normalizeTrip(j));
+    }
+  };
+
+  useEffect(() => {
+    void reloadTrip();
+  }, [id]);
 
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
@@ -46,19 +66,21 @@ export default function ViajeDetalle() {
   const fin = computeTrip(trip, driver);
   const isClosed = trip.estatus === "cerrado";
 
-  const onAddFuel = () => {
+  const onAddFuel = async () => {
     if (fuel.litros <= 0 || fuel.precio_litro <= 0) { toast.error("Captura litros y precio"); return; }
     addFuel(trip.id, { ...fuel, fecha: new Date().toISOString() });
     setFuel({ litros: 0, precio_litro: 26, ubicacion: "" });
     setFuelOpen(false);
     toast.success("Carga de diesel registrada");
+    await reloadTrip();
   };
-  const onAddExp = () => {
+  const onAddExp = async () => {
     if (exp.monto <= 0) { toast.error("Captura el monto"); return; }
     addExpense(trip.id, { ...exp, fecha: new Date().toISOString() });
     setExp({ categoria: "casetas", descripcion: "", monto: 0, comprobado: true });
     setExpOpen(false);
     toast.success("Gasto registrado");
+    await reloadTrip();
   };
   const onClose = () => {
     if (closeData.km_final <= trip.km_inicial) { toast.error("El km final debe ser mayor al inicial"); return; }
@@ -170,7 +192,72 @@ export default function ViajeDetalle() {
                 <div className="flex items-start gap-2"><Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" /><div><p className="text-xs uppercase text-muted-foreground">Salida</p><p className="font-medium">{fmtDateTime(trip.fecha_salida)}</p></div></div>
                 <div className="flex items-start gap-2"><Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" /><div><p className="text-xs uppercase text-muted-foreground">Llegada</p><p className="font-medium">{fmtDateTime(trip.fecha_llegada)}</p></div></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Km inicial → final</p><p className="font-medium font-mono">{fmtNumber(trip.km_inicial)} → {trip.km_final ? fmtNumber(trip.km_final) : "—"}</p></div>
-                <div><p className="text-xs uppercase text-muted-foreground">Factura</p><p className="font-medium font-mono">{trip.num_factura || "—"}</p></div>
+                {!isClosed ? (
+                  <>
+                    <div>
+                      <Label>Ubicación de salida</Label>
+                      <Input
+                        defaultValue={trip.origen}
+                        placeholder="Ciudad, estado — ej. Guadalajara, JAL"
+                        onBlur={e => {
+                          const v = e.target.value.trim();
+                          if (v && v !== trip.origen) {
+                            updateTrip(trip.id, { origen: v });
+                            toast.success('Ubicación de salida actualizada');
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label>Ubicación destino</Label>
+                      <Input
+                        defaultValue={trip.destino}
+                        placeholder="Ciudad, estado — ej. Monterrey, NL"
+                        onBlur={e => {
+                          const v = e.target.value.trim();
+                          if (v && v !== trip.destino) {
+                            updateTrip(trip.id, { destino: v });
+                            toast.success('Ubicación destino actualizada');
+                          }
+                        }}
+                      />
+                    </div>
+                    <div>
+                      <Label>Número de factura</Label>
+                      <Input
+                        defaultValue={trip.num_factura || ''}
+                        placeholder='F-8826'
+                        onBlur={e => {
+                          const v = e.target.value.trim();
+                          if (v !== (trip.num_factura || '')) {
+                            updateTrip(trip.id, { num_factura: v || undefined });
+                            toast.success('Número de factura guardado');
+                          }
+                        }}
+                      />
+                    </div>
+                  </>
+                ) : (
+                  <>
+                    <div><p className='text-xs uppercase text-muted-foreground'>Ubicación de salida</p><p className='font-medium'>{trip.origen}</p></div>
+                    <div><p className='text-xs uppercase text-muted-foreground'>Ubicación destino</p><p className='font-medium'>{trip.destino}</p></div>
+                    <div>
+                      <Label>Número de factura</Label>
+                      <Input
+                        defaultValue={trip.num_factura || ""}
+                        placeholder="F-8826"
+                        onBlur={async (e) => {
+                          const v = e.target.value.trim();
+                          if (v !== (trip.num_factura || "")) {
+                            updateTrip(trip.id, { num_factura: v || undefined });
+                            toast.success("Número de factura guardado");
+                            await reloadTrip();
+                          }
+                        }}
+                      />
+                    </div>
+                  </>
+                )}
               </div>
             </CardContent>
           </Card>
@@ -180,7 +267,7 @@ export default function ViajeDetalle() {
           <Card className="tlo-shadow-md">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2"><Fuel className="h-4 w-4" /> Cargas de diesel</CardTitle>
-              {!isClosed && <Button size="sm" onClick={() => setFuelOpen(true)}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>}
+              <Button size="sm" onClick={() => setFuelOpen(true)}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -194,7 +281,7 @@ export default function ViajeDetalle() {
                       <TableCell className="text-right font-mono">{fmtNumber(f.litros, 1)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtMXN(f.precio_litro)}</TableCell>
                       <TableCell className="text-right font-semibold">{fmtMXN(f.litros * f.precio_litro)}</TableCell>
-                      <TableCell className="text-right">{!isClosed && <Button variant="ghost" size="sm" onClick={() => removeFuel(trip.id, f.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</TableCell>
+                      <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={async () => { removeFuel(trip.id, f.id); await reloadTrip(); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -207,7 +294,7 @@ export default function ViajeDetalle() {
           <Card className="tlo-shadow-md">
             <CardHeader className="flex flex-row items-center justify-between">
               <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Gastos del viaje</CardTitle>
-              {!isClosed && <Button size="sm" onClick={() => setExpOpen(true)}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>}
+              <Button size="sm" onClick={() => setExpOpen(true)}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
             </CardHeader>
             <CardContent className="p-0">
               <Table>
@@ -225,7 +312,7 @@ export default function ViajeDetalle() {
                           : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
                       </TableCell>
                       <TableCell className="text-right font-semibold">{fmtMXN(e.monto)}</TableCell>
-                      <TableCell className="text-right">{!isClosed && <Button variant="ghost" size="sm" onClick={() => removeExpense(trip.id, e.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button>}</TableCell>
+                      <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
                     </TableRow>
                   ))}
                 </TableBody>
@@ -246,18 +333,24 @@ export default function ViajeDetalle() {
                 <p className="text-xs uppercase text-muted-foreground">Comisión calculada</p>
                 <p className="text-2xl font-bold">{fmtMXN(fin.comision)}</p>
               </div>
-              {!isClosed && (
-                <div>
-                  <Label>Ajustar manualmente (opcional)</Label>
-                  <div className="flex gap-2">
-                    <Input type="number" placeholder="Monto override" defaultValue={trip.comision_override || ""} onBlur={e => {
-                      const v = e.target.value === "" ? undefined : +e.target.value;
+              <div>
+                <Label>Ajustar manualmente (opcional)</Label>
+                <div className="flex gap-2">
+                  <Input
+                    type="number"
+                    placeholder="Monto override"
+                    defaultValue={trip.comision_override ?? ""}
+                    onBlur={async (e) => {
+                      const v = e.target.value === "" ? null : +e.target.value;
+                      const prev = trip.comision_override ?? null;
+                      if (v === prev) return;
                       updateTrip(trip.id, { comision_override: v });
                       toast.success("Comisión actualizada");
-                    }} />
-                  </div>
+                      await reloadTrip();
+                    }}
+                  />
                 </div>
-              )}
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -313,7 +406,7 @@ export default function ViajeDetalle() {
           <div className="space-y-3">
             <div><Label>Kilometraje final</Label><Input type="number" value={closeData.km_final} onChange={e => setCloseData({ ...closeData, km_final: +e.target.value })} /><p className="text-xs text-muted-foreground mt-1">Inicial: {fmtNumber(trip.km_inicial)} km</p></div>
             <div><Label>Fecha y hora de llegada</Label><Input type="datetime-local" value={closeData.fecha_llegada} onChange={e => setCloseData({ ...closeData, fecha_llegada: e.target.value })} /></div>
-            <div><Label>Número de factura emitida</Label><Input value={closeData.num_factura} onChange={e => setCloseData({ ...closeData, num_factura: e.target.value })} placeholder="F-8826" /></div>
+            <div><Label>Número de factura</Label><Input value={closeData.num_factura} onChange={e => setCloseData({ ...closeData, num_factura: e.target.value })} placeholder="F-8826" /></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setCloseOpen(false)}>Cancelar</Button><Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90"><Lock className="h-4 w-4 mr-2" />Cerrar viaje</Button></DialogFooter>
         </DialogContent>

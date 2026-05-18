@@ -51,11 +51,12 @@ export function downloadSettlementPdf(opts: {
   doc.text(`Neto a pagar: ${fmtMXN(summary.neto_pagar)}`, margin + 55, y);
   y += 8;
 
-  const head = [["Folio", "Fecha", "Ruta", "Km", "Ingreso", "Comisión"]];
+  const head = [["Folio", "Factura", "Fecha", "Ruta", "Km", "Ingreso", "Comisión"]];
   const body: string[][] = summary.trips.map((t: Trip) => {
     const f = computeTrip(t, driver);
     return [
       String(t.folio),
+      t.num_factura?.trim() || "—",
       fmtDate(t.fecha_salida),
       `${t.origen} → ${t.destino}`,
       fmtNumber(f.km_recorridos),
@@ -67,17 +68,18 @@ export function downloadSettlementPdf(opts: {
   autoTable(doc, {
     startY: y,
     head,
-    body: body.length > 0 ? body : [["—", "—", "Sin viajes en el periodo", "", "", ""]],
+    body: body.length > 0 ? body : [["—", "—", "—", "Sin viajes en el periodo", "", "", ""]],
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: [33, 37, 41], textColor: 255 },
     margin: { left: margin, right: margin },
     columnStyles: {
-      0: { cellWidth: 22 },
-      1: { cellWidth: 24 },
-      2: { cellWidth: 58 },
-      3: { halign: "right", cellWidth: 18 },
-      4: { halign: "right", cellWidth: 28 },
-      5: { halign: "right", cellWidth: 28 },
+      0: { cellWidth: 20 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 22 },
+      3: { cellWidth: 48 },
+      4: { halign: "right", cellWidth: 16 },
+      5: { halign: "right", cellWidth: 26 },
+      6: { halign: "right", cellWidth: 26 },
     },
   });
 

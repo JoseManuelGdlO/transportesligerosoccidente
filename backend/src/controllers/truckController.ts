@@ -11,12 +11,19 @@ const tid = (req: Request) => req.user!.tenantId;
 const bodySchema = z.object({
   numero_economico: z.string().min(1),
   placas: z.string().min(1),
+  folio_tag: z.string().optional().nullable(),
   marca: z.string().min(1),
   modelo: z.string().min(1),
   anio: z.number().int(),
   rendimiento_esperado: z.number(),
   costo_km_ref: z.number(),
   estatus: z.enum(["activo", "taller", "baja"]).optional(),
+  config_vehicular: z.string().optional(),
+  perm_sct: z.string().optional(),
+  num_permiso_sct: z.string().optional(),
+  peso_bruto_vehicular: z.number().optional(),
+  aseguradora_resp_civil: z.string().optional(),
+  poliza_resp_civil: z.string().optional(),
 });
 
 export const listTrucks = asyncHandler(async (req: Request, res: Response) => {

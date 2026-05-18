@@ -1,10 +1,17 @@
 import { apiFetch, readJson } from "@/lib/api";
 import type {
+  CartaPorteRecord,
   Client,
   Driver,
   Expense,
   FuelLoad,
+  FuelTicket,
+  FuelProrationReport,
+  FuelSummaryRow,
+  FuelImportResult,
   Trip,
+  TripMercancia,
+  TripUbicacion,
   Truck,
   SystemUser,
   RoleDefinition,
@@ -44,11 +51,69 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
   };
 }
 
+export function normalizeTripUbicacion(raw: Record<string, unknown>): TripUbicacion {
+  return {
+    id: String(raw.id),
+    tipo: raw.tipo === "Destino" ? "Destino" : "Origen",
+    rfc: raw.rfc != null ? String(raw.rfc) : undefined,
+    nombre: raw.nombre != null ? String(raw.nombre) : undefined,
+    fecha_hora: raw.fecha_hora != null ? String(raw.fecha_hora) : undefined,
+    calle: raw.calle != null ? String(raw.calle) : undefined,
+    colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    estado: raw.estado != null ? String(raw.estado) : undefined,
+    cp: raw.cp != null ? String(raw.cp) : undefined,
+    distancia_km: raw.distancia_km != null ? Number(raw.distancia_km) : undefined,
+  };
+}
+
+export function normalizeTripMercancia(raw: Record<string, unknown>): TripMercancia {
+  return {
+    id: String(raw.id),
+    descripcion: String(raw.descripcion ?? ""),
+    cantidad: Number(raw.cantidad ?? 1),
+    unidad: String(raw.unidad ?? "H87"),
+    peso_kg: Number(raw.peso_kg ?? 0),
+    clave_prod_serv: raw.clave_prod_serv != null ? String(raw.clave_prod_serv) : undefined,
+    material_peligroso: Boolean(raw.material_peligroso),
+    embalaje: raw.embalaje != null ? String(raw.embalaje) : undefined,
+  };
+}
+
+export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRecord {
+  const estatus = raw.estatus;
+  const e: CartaPorteRecord["estatus"] =
+    estatus === "timbrada" || estatus === "cancelada" || estatus === "error" ? estatus : "borrador";
+  return {
+    id: String(raw.id),
+    trip_id: String(raw.trip_id ?? ""),
+    estatus: e,
+    uuid: raw.uuid != null ? String(raw.uuid) : undefined,
+    serie: raw.serie != null ? String(raw.serie) : undefined,
+    folio_cfdi: raw.folio_cfdi != null ? String(raw.folio_cfdi) : undefined,
+    pac_proveedor: raw.pac_proveedor != null ? String(raw.pac_proveedor) : undefined,
+    error_mensaje: raw.error_mensaje != null ? String(raw.error_mensaje) : undefined,
+    timbrado_at: raw.timbrado_at != null ? String(raw.timbrado_at) : undefined,
+    has_xml: Boolean(raw.has_xml),
+  };
+}
+
 export function normalizeTrip(raw: Record<string, unknown>): Trip {
   const fuel = Array.isArray(raw.fuel) ? (raw.fuel as Record<string, unknown>[]).map(normalizeFuel) : [];
   const expenses = Array.isArray(raw.expenses)
     ? (raw.expenses as Record<string, unknown>[]).map(normalizeExpense)
     : [];
+  const ubicaciones = Array.isArray(raw.ubicaciones)
+    ? (raw.ubicaciones as Record<string, unknown>[]).map(normalizeTripUbicacion)
+    : undefined;
+  const mercancias = Array.isArray(raw.mercancias)
+    ? (raw.mercancias as Record<string, unknown>[]).map(normalizeTripMercancia)
+    : undefined;
+  const carta_porte =
+    raw.carta_porte && typeof raw.carta_porte === "object"
+      ? normalizeCartaPorte(raw.carta_porte as Record<string, unknown>)
+      : undefined;
   return {
     id: String(raw.id),
     folio: String(raw.folio ?? ""),
@@ -68,6 +133,9 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     estatus: raw.estatus === "cerrado" ? "cerrado" : "en_curso",
     fuel,
     expenses,
+    ubicaciones,
+    mercancias,
+    carta_porte,
   };
 }
 
@@ -76,12 +144,19 @@ export function normalizeTruck(raw: Record<string, unknown>): Truck {
     id: String(raw.id),
     numero_economico: String(raw.numero_economico ?? ""),
     placas: String(raw.placas ?? ""),
+    folio_tag: raw.folio_tag != null ? String(raw.folio_tag) : undefined,
     marca: String(raw.marca ?? ""),
     modelo: String(raw.modelo ?? ""),
     anio: Number(raw.anio ?? new Date().getFullYear()),
     rendimiento_esperado: Number(raw.rendimiento_esperado ?? 0),
     costo_km_ref: Number(raw.costo_km_ref ?? 0),
     estatus: (raw.estatus === "taller" || raw.estatus === "baja" ? raw.estatus : "activo") as Truck["estatus"],
+    config_vehicular: raw.config_vehicular != null ? String(raw.config_vehicular) : undefined,
+    perm_sct: raw.perm_sct != null ? String(raw.perm_sct) : undefined,
+    num_permiso_sct: raw.num_permiso_sct != null ? String(raw.num_permiso_sct) : undefined,
+    peso_bruto_vehicular: raw.peso_bruto_vehicular != null ? Number(raw.peso_bruto_vehicular) : undefined,
+    aseguradora_resp_civil: raw.aseguradora_resp_civil != null ? String(raw.aseguradora_resp_civil) : undefined,
+    poliza_resp_civil: raw.poliza_resp_civil != null ? String(raw.poliza_resp_civil) : undefined,
   };
 }
 
@@ -96,6 +171,8 @@ export function normalizeDriver(raw: Record<string, unknown>): Driver {
     comision_tipo: raw.comision_tipo === "fijo" ? "fijo" : "porcentaje",
     comision_valor: Number(raw.comision_valor ?? 0),
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+    rfc: raw.rfc != null ? String(raw.rfc) : undefined,
+    licencia_federal: raw.licencia_federal != null ? String(raw.licencia_federal) : undefined,
   };
 }
 
@@ -106,6 +183,12 @@ export function normalizeClient(raw: Record<string, unknown>): Client {
     rfc: String(raw.rfc ?? ""),
     contacto: String(raw.contacto ?? ""),
     telefono: String(raw.telefono ?? ""),
+    calle: raw.calle != null ? String(raw.calle) : undefined,
+    colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    estado: raw.estado != null ? String(raw.estado) : undefined,
+    cp: raw.cp != null ? String(raw.cp) : undefined,
+    pais: raw.pais != null ? String(raw.pais) : undefined,
   };
 }
 
@@ -378,6 +461,111 @@ export async function unsubscribePush(endpoint: string) {
     body: JSON.stringify({ endpoint }),
   });
   await readJson(res);
+}
+
+export function normalizeFuelTicket(raw: Record<string, unknown>): FuelTicket {
+  const origen = raw.origen;
+  const o: FuelTicket["origen"] =
+    origen === "import_excel" || origen === "api" ? origen : "manual";
+  return {
+    id: String(raw.id),
+    truck_id: String(raw.truck_id ?? ""),
+    fecha: String(raw.fecha ?? "").slice(0, 10),
+    hora: raw.hora != null ? String(raw.hora) : undefined,
+    folio_tag: raw.folio_tag != null ? String(raw.folio_tag) : undefined,
+    numero_economico_raw: raw.numero_economico_raw != null ? String(raw.numero_economico_raw) : undefined,
+    placas_raw: raw.placas_raw != null ? String(raw.placas_raw) : undefined,
+    odometro: Number(raw.odometro ?? 0),
+    litros: Number(raw.litros ?? 0),
+    precio_litro: Number(raw.precio_litro ?? 0),
+    importe_total: Number(raw.importe_total ?? 0),
+    ubicacion: String(raw.ubicacion ?? ""),
+    origen: o,
+    external_id: raw.external_id != null ? String(raw.external_id) : undefined,
+    numero_economico: raw.numero_economico != null ? String(raw.numero_economico) : undefined,
+    placas: raw.placas != null ? String(raw.placas) : undefined,
+  };
+}
+
+export async function fetchFuelTickets(params: {
+  truck_id?: string;
+  inicio?: string;
+  fin?: string;
+}): Promise<FuelTicket[]> {
+  const q = new URLSearchParams();
+  if (params.truck_id) q.set("truck_id", params.truck_id);
+  if (params.inicio) q.set("inicio", params.inicio);
+  if (params.fin) q.set("fin", params.fin);
+  const qs = q.toString();
+  const res = await apiFetch(`/fuel-tickets${qs ? `?${qs}` : ""}`);
+  const j = await readJson<unknown[]>(res);
+  return j.map((x) => normalizeFuelTicket(x as Record<string, unknown>));
+}
+
+export async function createFuelTicket(body: Omit<FuelTicket, "id" | "numero_economico" | "placas">): Promise<FuelTicket> {
+  const res = await apiFetch("/fuel-tickets", { method: "POST", body: JSON.stringify(body) });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeFuelTicket(raw);
+}
+
+export async function updateFuelTicket(
+  id: string,
+  body: Partial<Omit<FuelTicket, "id" | "numero_economico" | "placas">>,
+): Promise<FuelTicket> {
+  const res = await apiFetch(`/fuel-tickets/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeFuelTicket(raw);
+}
+
+export async function deleteFuelTicket(id: string): Promise<void> {
+  const res = await apiFetch(`/fuel-tickets/${id}`, { method: "DELETE" });
+  if (res.ok || res.status === 204) return;
+  await readJson(res);
+}
+
+export type FuelSyncResult = {
+  tenant_id: string;
+  tenant_nombre: string;
+  inicio: string;
+  fin: string;
+  status: "ok" | "error" | "skipped";
+  import?: FuelImportResult;
+  unidades_con_tickets?: number;
+  error?: string;
+};
+
+export async function syncFuelTickets(params?: { inicio?: string; fin?: string }): Promise<FuelSyncResult> {
+  const res = await apiFetch("/fuel-tickets/sync", {
+    method: "POST",
+    body: JSON.stringify(params ?? {}),
+  });
+  const data = await readJson<FuelSyncResult>(res);
+  if (!res.ok) {
+    throw new Error(data.error || "No se pudo sincronizar con el proveedor");
+  }
+  return data;
+}
+
+export async function importFuelTickets(file: File): Promise<FuelImportResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch("/fuel-tickets/import", { method: "POST", body: form });
+  return readJson<FuelImportResult>(res);
+}
+
+export async function fetchFuelProration(inicio: string, fin: string): Promise<FuelProrationReport> {
+  const q = new URLSearchParams({ inicio, fin });
+  const res = await apiFetch(`/reports/fuel/proration?${q}`);
+  return readJson<FuelProrationReport>(res);
+}
+
+export async function fetchFuelSummary(
+  inicio: string,
+  fin: string,
+): Promise<{ inicio: string; fin: string; unidades: FuelSummaryRow[] }> {
+  const q = new URLSearchParams({ inicio, fin });
+  const res = await apiFetch(`/reports/fuel/summary?${q}`);
+  return readJson(res);
 }
 
 export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> {

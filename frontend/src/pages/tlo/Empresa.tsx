@@ -6,15 +6,20 @@ import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import { apiFetch, hasApiConfigured } from "@/lib/api";
-import type { Tenant } from "@/types/tlo";
+import type { Tenant, TenantFiscal } from "@/types/tlo";
 import { toast } from "sonner";
-import { Building2 } from "lucide-react";
+import { Building2, FileText } from "lucide-react";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 export default function Empresa() {
   const { tenant: ctxTenant, hasPermission, refreshTenant, apiMode } = useAuth();
   const canEdit = hasPermission("empresa.gestionar");
+  const canFiscal = hasPermission("fiscal.configurar");
   const [tenant, setTenant] = useState<Tenant | null>(ctxTenant);
   const [nombre, setNombre] = useState(ctxTenant?.nombre ?? "");
+  const [fiscal, setFiscal] = useState<TenantFiscal>({});
+  const [pacToken, setPacToken] = useState("");
+  const [csdPassword, setCsdPassword] = useState("");
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -30,8 +35,12 @@ export default function Empresa() {
       const data = (await res.json()) as Tenant;
       setTenant(data);
       setNombre(data.nombre);
+      if (canFiscal) {
+        const fr = await apiFetch("/tenant/fiscal");
+        if (fr.ok) setFiscal((await fr.json()) as TenantFiscal);
+      }
     })();
-  }, []);
+  }, [canFiscal]);
 
   const save = async () => {
     if (!canEdit || !nombre.trim()) {
@@ -58,8 +67,49 @@ export default function Empresa() {
     }
   };
 
+  const saveFiscal = async () => {
+    if (!canFiscal || !apiMode) return;
+    setLoading(true);
+    try {
+      const body: Record<string, unknown> = { ...fiscal };
+      if (pacToken) body.pac_token = pacToken;
+      if (csdPassword) body.csd_password = csdPassword;
+      const res = await apiFetch("/tenant/fiscal", { method: "PATCH", body: JSON.stringify(body) });
+      if (!res.ok) {
+        toast.error("No se pudo guardar configuración fiscal");
+        return;
+      }
+      setFiscal((await res.json()) as TenantFiscal);
+      setPacToken("");
+      setCsdPassword("");
+      toast.success("Configuración fiscal guardada");
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const uploadCsd = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const cer = e.target.files?.[0];
+    const keyInput = document.getElementById("csd-key") as HTMLInputElement | null;
+    const key = keyInput?.files?.[0];
+    if (!cer || !key) {
+      toast.error("Selecciona archivo .cer y .key");
+      return;
+    }
+    const fd = new FormData();
+    fd.append("cer", cer);
+    fd.append("key", key);
+    const res = await apiFetch("/tenant/fiscal/csd", { method: "POST", body: fd });
+    if (!res.ok) {
+      toast.error("No se pudieron subir los certificados");
+      return;
+    }
+    setFiscal((await res.json()) as TenantFiscal);
+    toast.success("CSD cargado");
+  };
+
   return (
-    <div className="max-w-lg space-y-4">
+    <div className="max-w-2xl space-y-4">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2">
@@ -87,6 +137,33 @@ export default function Empresa() {
           </Button>
         </CardContent>
       </Card>
+      {FEATURE_CARTA_PORTE && canFiscal && (
+        <Card>
+          <CardHeader>
+            <CardTitle className="flex items-center gap-2 text-base"><FileText className="h-5 w-5" /> Datos fiscales (Carta Porte)</CardTitle>
+            <CardDescription>RFC, régimen, CP fiscal y certificado CSD para timbrado SAT.</CardDescription>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            <div className="grid grid-cols-2 gap-3">
+              <div><Label>RFC</Label><Input value={fiscal.rfc || ""} onChange={e => setFiscal({ ...fiscal, rfc: e.target.value })} placeholder="XAXX010101000" /></div>
+              <div><Label>Régimen fiscal</Label><Input value={fiscal.regimen_fiscal || ""} onChange={e => setFiscal({ ...fiscal, regimen_fiscal: e.target.value })} placeholder="601" /></div>
+              <div className="col-span-2"><Label>Razón social</Label><Input value={fiscal.razon_social || ""} onChange={e => setFiscal({ ...fiscal, razon_social: e.target.value })} /></div>
+              <div><Label>CP fiscal</Label><Input value={fiscal.cp_fiscal || ""} onChange={e => setFiscal({ ...fiscal, cp_fiscal: e.target.value })} maxLength={5} placeholder="44100" /></div>
+              <div><Label>Serie CFDI</Label><Input value={fiscal.cfdi_serie || "CP"} onChange={e => setFiscal({ ...fiscal, cfdi_serie: e.target.value })} /></div>
+            </div>
+            <div className="pt-3 border-t space-y-2">
+              <p className="text-sm font-medium">Certificado CSD</p>
+              {fiscal.has_csd ? <Badge variant="outline">CSD cargado</Badge> : <p className="text-xs text-muted-foreground">Selecciona .cer y .key; al elegir .cer se suben ambos archivos</p>}
+              <div className="grid grid-cols-2 gap-3">
+                <div><Label>Archivo .cer</Label><Input type="file" accept=".cer" onChange={e => void uploadCsd(e)} /></div>
+                <div><Label>Archivo .key</Label><Input id="csd-key" type="file" accept=".key" /></div>
+                <div className="col-span-2"><Label>Contraseña llave</Label><Input type="password" value={csdPassword} onChange={e => setCsdPassword(e.target.value)} placeholder="Contraseña del CSD" /></div>
+              </div>
+            </div>
+            <Button onClick={() => void saveFiscal()} disabled={loading}>Guardar datos fiscales</Button>
+          </CardContent>
+        </Card>
+      )}
     </div>
   );
 }

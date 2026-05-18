@@ -77,6 +77,18 @@ npm start
 - **`VAPID_*`**: claves para notificaciones push en el navegador. Generar con `npx web-push generate-vapid-keys` y copiar a las variables de entorno.
 - **`CRON_DOC_CHECK`**: expresión cron del job diario que crea notificaciones por documentos por vencer / vencidos.
 
+## Combustibles (sincronización automática)
+
+Job diario (`CRON_FUEL_SYNC`, por defecto 05:00) que:
+
+1. Descarga el Excel del proveedor de combustible (HTTP o archivo local de prueba).
+2. Importa tickets (`origen: api`) con deduplicación.
+3. El **prorrateo** no se guarda en BD: al abrir **Combustibles → Prorrateo / Resumen** se calcula con los tickets ya importados.
+
+Variables en `.env.example`: `FUEL_SYNC_ENABLED`, `FUEL_PROVIDER_*`, `FUEL_SYNC_LOOKBACK_DAYS`. Por empresa: `PATCH /api/v1/tenant/fuel` (`fuel_sync_habilitado`, URL y credenciales). Disparo manual: `POST /api/v1/fuel-tickets/sync`. Prueba: `npm run job:fuel-sync`.
+
+Si el proveedor está caído, el usuario recibe notificación y puede importar el Excel a mano en **Combustibles → Tickets**.
+
 El rol `admin` tiene todos los permisos; `capturista` se ajusta en el seed (coincide con el mock del frontend).
 
 ## Seguridad

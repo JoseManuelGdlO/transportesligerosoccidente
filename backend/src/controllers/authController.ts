@@ -6,6 +6,7 @@ import { User, Role, Permission, Tenant } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { userToJson, tenantToJson } from "../utils/serialize";
 import { signAccessToken, signRefreshToken } from "../utils/jwtTokens";
+import { permissionsForRole } from "../constants/permissions";
 
 const loginSchema = z.object({
   email: z.string().email(),
@@ -94,7 +95,7 @@ export const postLogin = asyncHandler(async (req: Request, res: Response) => {
   await user.update({ ultimo_acceso: new Date() });
   const role = user.Role;
   const permModels = (role as unknown as { Permissions?: Permission[] })?.Permissions ?? [];
-  const permissions = permModels.map((p) => p.slug);
+  const permissions = permissionsForRole(role?.slug ?? "", permModels.map((p) => p.slug));
   res.json({
     token,
     refresh_token,

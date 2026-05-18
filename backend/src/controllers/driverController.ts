@@ -16,6 +16,8 @@ const bodySchema = z.object({
   comision_tipo: z.enum(["porcentaje", "fijo"]),
   comision_valor: z.number(),
   estatus: z.enum(["activo", "inactivo"]).optional(),
+  rfc: z.string().optional(),
+  licencia_federal: z.string().optional(),
 });
 
 export const listDrivers = asyncHandler(async (req: Request, res: Response) => {

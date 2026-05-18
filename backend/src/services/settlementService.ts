@@ -98,6 +98,14 @@ export async function closeSettlement(
       saldo_viaticos: summary.saldo_viaticos,
       neto_pagar: summary.neto_pagar,
       trip_ids: summary.trips.map((t) => t.id),
+      trips: summary.trips.map((t) => ({
+        id: t.id,
+        folio: t.folio,
+        num_factura: t.num_factura?.trim() || null,
+        origen: t.origen,
+        destino: t.destino,
+        fecha_salida: t.fecha_salida,
+      })),
     },
   } as never);
 }

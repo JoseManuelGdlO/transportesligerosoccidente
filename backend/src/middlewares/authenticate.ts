@@ -2,6 +2,7 @@ import type { Request, Response, NextFunction } from "express";
 import jwt from "jsonwebtoken";
 import { User, Role, Permission, Tenant } from "../models";
 import type { AuthedUser } from "../types/authUser";
+import { permissionsForRole } from "../constants/permissions";
 
 export async function authenticateJwt(req: Request, res: Response, next: NextFunction) {
   const header = req.headers.authorization;
@@ -45,7 +46,7 @@ export async function authenticateJwt(req: Request, res: Response, next: NextFun
     }
     const role = user.Role;
     const permModels = (role as unknown as { Permissions?: Permission[] })?.Permissions ?? [];
-    const perms = permModels.map((p) => p.slug) as AuthedUser["permissions"];
+    const perms = permissionsForRole(role?.slug ?? "", permModels.map((p) => p.slug));
     req.user = {
       id: user.id,
       email: user.email,

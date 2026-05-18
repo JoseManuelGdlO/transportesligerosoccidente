@@ -12,6 +12,12 @@ const bodySchema = z.object({
   rfc: z.string().min(1),
   contacto: z.string().min(1),
   telefono: z.string().min(1),
+  calle: z.string().optional(),
+  colonia: z.string().optional(),
+  municipio: z.string().optional(),
+  estado: z.string().optional(),
+  cp: z.string().optional(),
+  pais: z.string().optional(),
 });
 
 export const listClients = asyncHandler(async (req: Request, res: Response) => {

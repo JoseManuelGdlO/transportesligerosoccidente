@@ -17,6 +17,8 @@ export class Driver extends Model<InferAttributes<Driver>, InferCreationAttribut
   declare comision_tipo: "porcentaje" | "fijo";
   declare comision_valor: string;
   declare estatus: "activo" | "inactivo";
+  declare rfc: CreationOptional<string | null>;
+  declare licencia_federal: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -33,6 +35,8 @@ export function initDriver(sequelize: Sequelize) {
       comision_tipo: { type: DataTypes.ENUM("porcentaje", "fijo"), allowNull: false },
       comision_valor: { type: DataTypes.DECIMAL(12, 2), allowNull: false },
       estatus: { type: DataTypes.ENUM("activo", "inactivo"), allowNull: false, defaultValue: "activo" },
+      rfc: { type: DataTypes.STRING(13), allowNull: true },
+      licencia_federal: { type: DataTypes.STRING(64), allowNull: true },
     } as never,
     { sequelize, tableName: "drivers", underscored: true },
   );

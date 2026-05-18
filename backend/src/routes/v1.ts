@@ -7,10 +7,17 @@ import * as truckC from "../controllers/truckController";
 import * as driverC from "../controllers/driverController";
 import * as clientC from "../controllers/clientController";
 import * as tripC from "../controllers/tripController";
+import * as cartaPorteC from "../controllers/cartaPorteController";
+import * as fiscalC from "../controllers/fiscalController";
+import { uploadCsd } from "../middlewares/uploadCsd";
 import * as settlementC from "../controllers/settlementController";
 import * as userC from "../controllers/userController";
 import * as roleC from "../controllers/roleController";
 import * as reportsC from "../controllers/reportsController";
+import * as fuelTicketC from "../controllers/fuelTicketController";
+import * as fuelConfigC from "../controllers/fuelConfigController";
+import * as reportsFuelC from "../controllers/reportsFuelController";
+import { uploadFuelImport } from "../middlewares/uploadFuelImport";
 import * as docTypeC from "../controllers/documentTypeController";
 import * as docC from "../controllers/documentController";
 import * as notifC from "../controllers/notificationController";
@@ -28,6 +35,16 @@ r.get("/auth/me", authenticateJwt, getMe);
 r.get("/tenant", authenticateJwt, tenantC.getTenant);
 r.patch("/tenant", authenticateJwt, requirePermission("empresa.gestionar"), tenantC.patchTenant);
 r.patch("/tenant/theme", authenticateJwt, requirePermission("marca.gestionar"), tenantC.patchTenantTheme);
+
+r.get("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar", "cartaporte.ver"), fiscalC.getFiscalConfig);
+r.patch("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar"), fiscalC.patchFiscalConfig);
+r.post(
+  "/tenant/fiscal/csd",
+  authenticateJwt,
+  requirePermission("fiscal.configurar"),
+  uploadCsd,
+  fiscalC.uploadCsd,
+);
 
 r.get("/trucks", authenticateJwt, requirePermission("catalogos.ver"), truckC.listTrucks);
 r.get("/trucks/:id", authenticateJwt, requirePermission("catalogos.ver"), truckC.getTruck);
@@ -59,6 +76,16 @@ r.delete("/trips/:id/fuel/:fuelId", authenticateJwt, requirePermission("viajes.c
 r.post("/trips/:id/expenses", authenticateJwt, requirePermission("viajes.crear"), tripC.postExpense);
 r.delete("/trips/:id/expenses/:expenseId", authenticateJwt, requirePermission("viajes.crear"), tripC.deleteExpense);
 
+r.get("/trips/:id/carta-porte", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPorte);
+r.post("/trips/:id/carta-porte/preview", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postPreview);
+r.post("/trips/:id/carta-porte/timbrar", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postTimbrar);
+r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);
+r.put("/trips/:id/carta-porte/ubicacion-origen", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionOrigen);
+r.put("/trips/:id/carta-porte/ubicacion-destino", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionDestino);
+r.get("/trips/:id/mercancias", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.listMercancias);
+r.post("/trips/:id/mercancias", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.postMercancia);
+r.delete("/trips/:id/mercancias/:mercanciaId", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.deleteMercancia);
+
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);
 r.post("/settlements/close", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postClose);
 
@@ -71,6 +98,53 @@ r.get("/roles", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.
 r.put("/roles/:slug/permissions", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.putRolePermissions);
 
 r.get("/reports/aggregates", authenticateJwt, requirePermission("reportes.ver"), reportsC.getAggregates);
+r.get(
+  "/reports/fuel/proration",
+  authenticateJwt,
+  requirePermission("combustibles.ver", "reportes.ver"),
+  reportsFuelC.getFuelProration,
+);
+r.get(
+  "/reports/fuel/summary",
+  authenticateJwt,
+  requirePermission("combustibles.ver", "reportes.ver"),
+  reportsFuelC.getFuelSummary,
+);
+
+r.get("/fuel-tickets", authenticateJwt, requirePermission("combustibles.ver"), fuelTicketC.listFuelTickets);
+r.post("/fuel-tickets", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.createFuelTicket);
+r.patch("/fuel-tickets/:id", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.patchFuelTicket);
+r.delete(
+  "/fuel-tickets/:id",
+  authenticateJwt,
+  requirePermission("combustibles.eliminar"),
+  fuelTicketC.deleteFuelTicket,
+);
+r.post(
+  "/fuel-tickets/import",
+  authenticateJwt,
+  requirePermission("combustibles.importar"),
+  uploadFuelImport.single("file"),
+  fuelTicketC.importFuelTickets,
+);
+r.post(
+  "/fuel-tickets/sync",
+  authenticateJwt,
+  requirePermission("combustibles.importar"),
+  fuelConfigC.postFuelSyncNow,
+);
+r.get(
+  "/tenant/fuel",
+  authenticateJwt,
+  requirePermission("combustibles.importar"),
+  fuelConfigC.getFuelConfig,
+);
+r.patch(
+  "/tenant/fuel",
+  authenticateJwt,
+  requirePermission("combustibles.importar"),
+  fuelConfigC.patchFuelConfig,
+);
 
 r.get(
   "/document-types",

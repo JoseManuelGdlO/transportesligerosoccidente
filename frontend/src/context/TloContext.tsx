@@ -117,12 +117,16 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
             const body = {
               numero_economico: t.numero_economico,
               placas: t.placas,
+              folio_tag: t.folio_tag || undefined,
               marca: t.marca,
               modelo: t.modelo,
               anio: t.anio,
               rendimiento_esperado: t.rendimiento_esperado,
               costo_km_ref: t.costo_km_ref,
               estatus: t.estatus,
+              config_vehicular: t.config_vehicular || undefined,
+              perm_sct: t.perm_sct || undefined,
+              num_permiso_sct: t.num_permiso_sct || undefined,
             };
             if (t.id) {
               const r = await apiFetch(`/trucks/${t.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -380,6 +384,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               km_inicial: data.km_inicial,
               tarifa: data.tarifa,
               viaticos_entregados: data.viaticos_entregados ?? 0,
+              ...(data.num_factura?.trim() ? { num_factura: data.num_factura.trim() } : {}),
             }),
           });
           const j = await readJson<Record<string, unknown>>(r);

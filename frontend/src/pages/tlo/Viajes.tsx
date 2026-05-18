@@ -27,7 +27,7 @@ export default function Viajes() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState({
     truck_id: "", driver_id: "", client_id: "",
-    origen: "", destino: "",
+    origen: "", destino: "", num_factura: "",
     fecha_salida: new Date().toISOString().slice(0, 16),
     km_inicial: 0, tarifa: 0, viaticos_entregados: 0,
   });
@@ -59,6 +59,7 @@ export default function Viajes() {
       const t = await createTrip({
         truck_id: form.truck_id, driver_id: form.driver_id, client_id: form.client_id,
         origen: form.origen, destino: form.destino,
+        num_factura: form.num_factura.trim() || undefined,
         fecha_salida: new Date(form.fecha_salida).toISOString(),
         km_inicial: +form.km_inicial, tarifa: +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
@@ -126,6 +127,7 @@ export default function Viajes() {
               <TableHead>Folio</TableHead>
               <TableHead>Fecha</TableHead>
               <TableHead>Ruta</TableHead>
+              <TableHead>Factura</TableHead>
               <TableHead>Operador</TableHead>
               <TableHead>Camión</TableHead>
               <TableHead className="text-right">Tarifa</TableHead>
@@ -137,7 +139,7 @@ export default function Viajes() {
           </TableHeader>
           <TableBody>
             {rows.length === 0 && (
-              <TableRow><TableCell colSpan={10} className="text-center text-muted-foreground py-8">Sin resultados</TableCell></TableRow>
+              <TableRow><TableCell colSpan={11} className="text-center text-muted-foreground py-8">Sin resultados</TableCell></TableRow>
             )}
             {rows.map(({ trip: t, fin }) => {
               const dr = driverById(drivers, t.driver_id);
@@ -147,6 +149,7 @@ export default function Viajes() {
                   <TableCell className="font-mono font-semibold">{t.folio}</TableCell>
                   <TableCell className="text-sm">{fmtDate(t.fecha_salida)}</TableCell>
                   <TableCell className="text-sm">{t.origen} → {t.destino}</TableCell>
+                  <TableCell className="font-mono text-sm">{t.num_factura || "—"}</TableCell>
                   <TableCell className="text-sm">{dr?.nombre}</TableCell>
                   <TableCell className="font-mono text-sm">{tk?.numero_economico}</TableCell>
                   <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
@@ -200,8 +203,9 @@ export default function Viajes() {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Origen</Label><Input value={form.origen} onChange={e => setForm({ ...form, origen: e.target.value })} placeholder="Guadalajara, JAL" /></div>
-            <div><Label>Destino</Label><Input value={form.destino} onChange={e => setForm({ ...form, destino: e.target.value })} placeholder="Monterrey, NL" /></div>
+            <div><Label>Ubicación de salida</Label><Input value={form.origen} onChange={e => setForm({ ...form, origen: e.target.value })} placeholder="Guadalajara, JAL" /></div>
+            <div><Label>Ubicación destino</Label><Input value={form.destino} onChange={e => setForm({ ...form, destino: e.target.value })} placeholder="Monterrey, NL" /></div>
+            <div className="col-span-2"><Label>Número de factura</Label><Input value={form.num_factura} onChange={e => setForm({ ...form, num_factura: e.target.value })} placeholder="F-8826 (opcional)" /></div>
             <div><Label>Fecha y hora salida</Label><Input type="datetime-local" value={form.fecha_salida} onChange={e => setForm({ ...form, fecha_salida: e.target.value })} /></div>
             <div><Label>Kilometraje inicial</Label><Input type="number" value={form.km_inicial} onChange={e => setForm({ ...form, km_inicial: +e.target.value })} /></div>
             <div><Label>Tarifa pactada (MXN)</Label><Input type="number" value={form.tarifa} onChange={e => setForm({ ...form, tarifa: +e.target.value })} /></div>

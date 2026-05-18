@@ -20,7 +20,7 @@ export const listTrips = asyncHandler(async (req: Request, res: Response) => {
 });
 
 export const getTrip = asyncHandler(async (req: Request, res: Response) => {
-  const t = await tripService.getTripOrThrow(tid(req), req.params.id, true);
+  const t = await tripService.getTripOrThrow(tid(req), req.params.id, true, undefined, true);
   res.json(tripToJson(t));
 });
 
@@ -34,6 +34,7 @@ const createSchema = z.object({
   km_inicial: z.number().int(),
   tarifa: z.number(),
   viaticos_entregados: z.number().optional(),
+  num_factura: z.string().optional(),
 });
 
 export const createTrip = asyncHandler(async (req: Request, res: Response) => {
@@ -46,15 +47,36 @@ export const createTrip = asyncHandler(async (req: Request, res: Response) => {
   res.status(201).json(tripToJson(t));
 });
 
+const patchSchema = z
+  .object({
+    truck_id: z.string().min(1).optional(),
+    driver_id: z.string().min(1).optional(),
+    client_id: z.string().min(1).optional(),
+    origen: z.string().min(1).optional(),
+    destino: z.string().min(1).optional(),
+    fecha_salida: z.string().optional(),
+    km_inicial: z.number().int().optional(),
+    tarifa: z.number().optional(),
+    viaticos_entregados: z.number().optional(),
+    comision_override: z.number().nullable().optional(),
+    num_factura: z.string().optional(),
+  })
+  .strict();
+
 export const patchTrip = asyncHandler(async (req: Request, res: Response) => {
-  const t = await tripService.patchTrip(tid(req), req.params.id, req.body);
+  const parsed = patchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const t = await tripService.patchTrip(tid(req), req.params.id, parsed.data);
   res.json(tripToJson(t));
 });
 
 const closeSchema = z.object({
   km_final: z.number().int(),
   fecha_llegada: z.string(),
-  num_factura: z.string().min(1),
+  num_factura: z.string().optional(),
 });
 
 export const postCloseTrip = asyncHandler(async (req: Request, res: Response) => {
