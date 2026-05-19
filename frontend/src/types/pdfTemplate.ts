@@ -6,10 +6,16 @@ export type BlockType =
   | "logo"
   | "title"
   | "tenant_name"
+  | "company_fiscal_block"
+  | "period_label"
   | "settlement_meta"
   | "trip_header"
   | "trip_meta"
+  | "trip_info_grid"
+  | "providers_breakdown_table"
+  | "trip_total_box"
   | "generated_at"
+  | "page_counter"
   | "kpis_summary"
   | "profitability_kpis"
   | "performance_kpis"
@@ -79,6 +85,8 @@ export interface PropFieldDef {
   max?: number;
   step?: number;
   placeholder?: string;
+  /** When true, renders a multiline textarea. Only honored for `type: "text"`. */
+  multiline?: boolean;
 }
 
 export interface BlockCatalogEntry {
@@ -142,6 +150,39 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     zones: ["header", "body"],
     kinds: BOTH_KINDS,
   },
+  company_fiscal_block: {
+    label: "Datos de la empresa",
+    description:
+      "Razón social, dirección, RFC y teléfonos (varias líneas). Se ancla a la esquina superior derecha.",
+    zones: ["header", "body", "footer"],
+    kinds: BOTH_KINDS,
+    defaultProps: {
+      align: "right",
+      text:
+        "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000",
+    },
+    propSchema: [
+      {
+        key: "text",
+        label: "Texto (una línea por dato)",
+        type: "text",
+        multiline: true,
+        placeholder: "Razón social\nDirección\nCiudad, Estado\nRFC: ...",
+      },
+      ...COMMON_PROPS,
+    ],
+  },
+  period_label: {
+    label: "Periodo / Fecha",
+    description: "Periodo del viaje o de la liquidación",
+    zones: ["header", "body"],
+    kinds: BOTH_KINDS,
+    defaultProps: { align: "left", label: "Fecha" },
+    propSchema: [
+      { key: "label", label: "Etiqueta", type: "text", placeholder: "Fecha / Periodo" },
+      ...COMMON_PROPS,
+    ],
+  },
   settlement_meta: {
     label: "Datos de liquidación",
     description: "Operador y periodo",
@@ -160,10 +201,38 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     zones: ["body"],
     kinds: ["trip"],
   },
+  trip_info_grid: {
+    label: "Resumen de viaje (2 columnas)",
+    description:
+      "Folio, ruta, operador, cliente, factura… + Flete, Com. Operador, Gastos, Utilidad y costo/km (estilo análisis).",
+    zones: ["body"],
+    kinds: ["trip"],
+  },
+  providers_breakdown_table: {
+    label: "Desglose por proveedor",
+    description:
+      "Diésel agrupado por estación y gastos agrupados por categoría, con subtotal y rendimiento por grupo.",
+    zones: ["body"],
+    kinds: ["trip"],
+  },
+  trip_total_box: {
+    label: "Total de gastos (caja)",
+    description: "Caja resaltada con la suma total de gastos comprobados (diésel + gastos).",
+    zones: ["body"],
+    kinds: ["trip"],
+  },
   generated_at: {
     label: "Fecha de generación",
     zones: ["header", "footer"],
     kinds: BOTH_KINDS,
+  },
+  page_counter: {
+    label: "Numeración de página",
+    description: "Muestra «Página X de Y» — útil en el pie de página",
+    zones: ["footer", "header"],
+    kinds: BOTH_KINDS,
+    defaultProps: { align: "right" },
+    propSchema: COMMON_PROPS,
   },
   kpis_summary: {
     label: "KPIs resumen",
@@ -248,7 +317,13 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     multi: true,
     defaultProps: { text: "Texto…", align: "left" },
     propSchema: [
-      { key: "text", label: "Contenido", type: "text", placeholder: "Texto a mostrar" },
+      {
+        key: "text",
+        label: "Contenido",
+        type: "text",
+        multiline: true,
+        placeholder: "Texto a mostrar",
+      },
       ...COMMON_PROPS,
     ],
   },
@@ -280,12 +355,15 @@ export const DEFAULT_BRANDING_SETTLEMENT: PdfBranding = {
 };
 
 export const DEFAULT_BRANDING_TRIP: PdfBranding = {
-  titulo: "Detalle de viaje",
+  titulo: "Análisis de Viaje",
   color_header: "#212529",
   color_header_text: "#ffffff",
   color_accent: "#2563eb",
   pie_pagina: "",
 };
+
+const DEFAULT_TRIP_COMPANY_TEXT =
+  "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000";
 
 export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
   branding: { ...DEFAULT_BRANDING_SETTLEMENT },
@@ -314,20 +392,24 @@ export const DEFAULT_TEMPLATE_TRIP: PdfTemplate = {
   sections: {
     header: [
       { id: "logo", enabled: true, props: { align: "right" } },
-      { id: "title", enabled: true },
-      { id: "tenant_name", enabled: true },
-      { id: "trip_header", enabled: true },
-      { id: "generated_at", enabled: true },
+      { id: "title", enabled: true, props: { align: "left", size: "lg" } },
+      {
+        id: "company_fiscal_block",
+        enabled: true,
+        props: { align: "right", text: DEFAULT_TRIP_COMPANY_TEXT },
+      },
+      { id: "period_label", enabled: true, props: { align: "left", label: "Fecha" } },
     ],
     body: [
-      { id: "trip_meta", enabled: true },
-      { id: "profitability_kpis", enabled: true },
-      { id: "performance_kpis", enabled: true },
-      { id: "fuel_table", enabled: true },
-      { id: "expenses_table", enabled: true },
-      { id: "commission_block", enabled: true },
+      { id: "trip_info_grid", enabled: true },
+      { id: "providers_breakdown_table", enabled: true },
+      { id: "trip_total_box", enabled: true },
     ],
-    footer: [{ id: "footer_text", enabled: true }],
+    footer: [
+      { id: "footer_text", enabled: true, props: { align: "center" } },
+      { id: "generated_at", enabled: true, props: { align: "left" } },
+      { id: "page_counter", enabled: true, props: { align: "right" } },
+    ],
   },
 };
 

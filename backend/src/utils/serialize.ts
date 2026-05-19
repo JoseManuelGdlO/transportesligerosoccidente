@@ -305,12 +305,15 @@ const DEFAULT_BRANDING_SETTLEMENT: PdfBrandingJson = {
 };
 
 const DEFAULT_BRANDING_TRIP: PdfBrandingJson = {
-  titulo: "Detalle de viaje",
+  titulo: "Análisis de Viaje",
   color_header: "#212529",
   color_header_text: "#ffffff",
   color_accent: "#2563eb",
   pie_pagina: "",
 };
+
+const DEFAULT_TRIP_COMPANY_TEXT =
+  "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000";
 
 export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplateJson = {
   branding: { ...DEFAULT_BRANDING_SETTLEMENT },
@@ -341,21 +344,23 @@ export const DEFAULT_TEMPLATE_TRIP: PdfTemplateJson = {
   sections: {
     header: [
       { id: "logo", enabled: true, props: { align: "right" } },
-      { id: "title", enabled: true },
-      { id: "tenant_name", enabled: true },
-      { id: "trip_header", enabled: true },
-      { id: "generated_at", enabled: true },
+      { id: "title", enabled: true, props: { align: "left", size: "lg" } },
+      {
+        id: "company_fiscal_block",
+        enabled: true,
+        props: { align: "right", text: DEFAULT_TRIP_COMPANY_TEXT },
+      },
+      { id: "period_label", enabled: true, props: { align: "left", label: "Fecha" } },
     ],
     body: [
-      { id: "trip_meta", enabled: true },
-      { id: "profitability_kpis", enabled: true },
-      { id: "performance_kpis", enabled: true },
-      { id: "fuel_table", enabled: true },
-      { id: "expenses_table", enabled: true },
-      { id: "commission_block", enabled: true },
+      { id: "trip_info_grid", enabled: true },
+      { id: "providers_breakdown_table", enabled: true },
+      { id: "trip_total_box", enabled: true },
     ],
     footer: [
-      { id: "footer_text", enabled: true },
+      { id: "footer_text", enabled: true, props: { align: "center" } },
+      { id: "generated_at", enabled: true, props: { align: "left" } },
+      { id: "page_counter", enabled: true, props: { align: "right" } },
     ],
   },
 };

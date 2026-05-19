@@ -17,6 +17,7 @@ const titles: Record<string, string> = {
   "/clientes": "Clientes",
   "/usuarios": "Usuarios y permisos",
   "/marca": "Marca y tema",
+  "/personalizacion-pdf": "Personalización PDF",
   "/tipos-documento": "Tipos de documento",
 };
 

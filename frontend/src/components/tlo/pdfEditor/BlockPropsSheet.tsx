@@ -1,5 +1,6 @@
 import { Sheet, SheetContent, SheetDescription, SheetHeader, SheetTitle } from "@/components/ui/sheet";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { BLOCK_CATALOG, type BlockInstance, type BlockProps } from "@/types/pdfTemplate";
@@ -73,6 +74,20 @@ export function BlockPropsSheet({ block, onClose, onChange }: BlockPropsSheetPro
               );
             }
             const txt = typeof current === "string" ? current : "";
+            if (field.multiline) {
+              return (
+                <div key={field.key} className="space-y-1">
+                  <Label htmlFor={id}>{field.label}</Label>
+                  <Textarea
+                    id={id}
+                    rows={6}
+                    value={txt}
+                    placeholder={field.placeholder}
+                    onChange={(e) => update(field.key, e.target.value)}
+                  />
+                </div>
+              );
+            }
             return (
               <div key={field.key} className="space-y-1">
                 <Label htmlFor={id}>{field.label}</Label>

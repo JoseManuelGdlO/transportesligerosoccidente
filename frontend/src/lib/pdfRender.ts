@@ -54,15 +54,34 @@ interface RenderState {
   branding: PdfBranding;
   logoDataUrl: string | null;
   data: RenderData;
+  zone: ZoneId;
+  /** Bottom Y of anchored content on the right (logo, company block in header). */
+  rightColumnY: number;
+  /** Reserved bottom margin for footer in mm; used by ensureSpace. */
+  footerReserve: number;
+  /** Active page being drawn (1-based). Updated during footer/header loops. */
+  currentPage: number;
 }
 
 type BlockRenderer = (state: RenderState, props: BlockProps) => void;
 
 function ensureSpace(state: RenderState, needed: number): void {
-  if (state.y + needed > state.pageH - 14) {
+  const bottom = state.pageH - Math.max(14, state.footerReserve);
+  if (state.y + needed > bottom) {
     state.doc.addPage();
     state.y = 16;
+    state.rightColumnY = 0;
   }
+}
+
+function fmtDateShort(iso?: string): string {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yyyy = d.getFullYear();
+  return `${dd}/${mm}/${yyyy}`;
 }
 
 function setHeaderColors(state: RenderState): {
@@ -96,10 +115,37 @@ const renderLogo: BlockRenderer = (state, props) => {
   const align = props.align ?? "right";
   const w = 32;
   const h = 14;
-  const x = align === "right" ? state.pageW - state.margin - w : align === "center" ? (state.pageW - w) / 2 : state.margin;
+  const fmt = state.logoDataUrl.includes("image/png") ? "PNG" : "JPEG";
+
+  if (state.zone === "header") {
+    const yTop = 10;
+    const x =
+      align === "right"
+        ? state.pageW - state.margin - w
+        : align === "center"
+          ? (state.pageW - w) / 2
+          : state.margin;
+    try {
+      state.doc.addImage(state.logoDataUrl, fmt, x, yTop, w, h);
+    } catch {
+      /* ignore */
+    }
+    if (align === "right") {
+      state.rightColumnY = Math.max(state.rightColumnY, yTop + h + 2);
+    } else {
+      state.y = Math.max(state.y, yTop + h + 2);
+    }
+    return;
+  }
+
+  const x =
+    align === "right"
+      ? state.pageW - state.margin - w
+      : align === "center"
+        ? (state.pageW - w) / 2
+        : state.margin;
   ensureSpace(state, h + 2);
   try {
-    const fmt = state.logoDataUrl.includes("image/png") ? "PNG" : "JPEG";
     state.doc.addImage(state.logoDataUrl, fmt, x, state.y, w, h);
   } catch {
     /* ignore */
@@ -164,6 +210,361 @@ const renderGeneratedAt: BlockRenderer = (state, props) => {
     gray: true,
     align: props.align,
   });
+};
+
+/** Multi-line right-aligned block for fiscal address. Anchored top-right when in header. */
+const renderCompanyFiscalBlock: BlockRenderer = (state, props) => {
+  const text = (props.text ?? "").toString().trim();
+  if (!text) return;
+  const align = props.align ?? "right";
+  const lines = text.split(/\r?\n/).map((l) => l.trim()).filter(Boolean);
+  if (lines.length === 0) return;
+  const { doc, margin, pageW } = state;
+  const lineH = 3.6;
+
+  const anchored = state.zone === "header" && align === "right";
+  if (anchored) {
+    const x = pageW - margin;
+    let y = Math.max(state.rightColumnY + 1, 12);
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(10);
+    doc.text(lines[0], x, y, { align: "right" });
+    y += lineH + 0.8;
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    for (let i = 1; i < lines.length; i++) {
+      doc.text(lines[i], x, y, { align: "right" });
+      y += lineH;
+    }
+    state.rightColumnY = Math.max(state.rightColumnY, y + 1);
+    return;
+  }
+
+  ensureSpace(state, lineH * lines.length + 4);
+  const x =
+    align === "right" ? pageW - margin : align === "center" ? pageW / 2 : margin;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(lines[0], x, state.y, { align });
+  state.y += lineH + 0.8;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  for (let i = 1; i < lines.length; i++) {
+    doc.text(lines[i], x, state.y, { align });
+    state.y += lineH;
+  }
+  state.y += 2;
+};
+
+const renderPeriodLabel: BlockRenderer = (state, props) => {
+  const labelTxt = ((props.label ?? "") as string).trim() || "Fecha";
+  let value = "";
+  if (state.data.kind === "trip") {
+    const t = state.data.trip;
+    const a = fmtDateShort(t.fecha_salida);
+    const b = t.fecha_llegada ? fmtDateShort(t.fecha_llegada) : "";
+    value = a + (b && b !== a ? ` a ${b}` : "");
+  } else {
+    const a = fmtDateShort(`${state.data.inicio}T12:00:00`);
+    const b = fmtDateShort(`${state.data.fin}T12:00:00`);
+    value = a + (b && b !== a ? ` a ${b}` : "");
+  }
+  if (!value || value === "—") return;
+  ensureSpace(state, 6);
+  const { doc, margin, pageW } = state;
+  const align = props.align ?? "left";
+  const x = align === "right" ? pageW - margin : align === "center" ? pageW / 2 : margin;
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(10);
+  doc.text(`${labelTxt}: ${value}`, x, state.y, { align });
+  doc.setFont("helvetica", "normal");
+  state.y += 5;
+};
+
+const renderTripInfoGrid: BlockRenderer = (state) => {
+  if (state.data.kind !== "trip") return;
+  const { trip, driver, truck, client } = state.data;
+  const f = computeTrip(trip, driver ?? undefined);
+  const { doc, margin, pageW } = state;
+  const totalGastos = f.diesel_total + f.gastos_total;
+  const utilXKm = f.km_recorridos > 0 ? f.utilidad / f.km_recorridos : 0;
+
+  const peso = (trip.mercancias ?? []).reduce(
+    (s, m) => s + (m.peso_kg || 0) * (m.cantidad || 1),
+    0,
+  );
+  const cartas = (trip.carta_porte
+    ? [
+        [trip.carta_porte.serie, trip.carta_porte.folio_cfdi]
+          .filter(Boolean)
+          .join("-"),
+      ]
+    : []
+  ).filter(Boolean) as string[];
+
+  const leftRows: Array<[string, string]> = [
+    ["Folio", `AT-${trip.folio}`],
+    ["Unidad", truck?.numero_economico || truck?.placas || "—"],
+    ["Ruta", `${trip.origen} / ${trip.destino}`],
+    ["Operador", driver?.nombre ?? "—"],
+    ["Vendedor(es)", trip.tipo_viaje === "foraneo" ? "FORÁNEO" : "LOCAL"],
+    ["KM Recorridos", fmtNumber(f.km_recorridos, 2)],
+    ["Cliente(s)", client?.razon_social ?? "—"],
+    ["Carta(s) Porte", cartas.length > 0 ? cartas.join(", ") : "—"],
+    ["Factura(s)", trip.num_factura?.trim() || "—"],
+    ["Peso", peso > 0 ? `${fmtNumber(peso, 2)} kg` : "—"],
+    ["SubTotal", fmtMXN(trip.tarifa)],
+  ];
+  const rightRows: Array<[string, string, boolean]> = [
+    ["Flete", fmtMXN(f.ingreso), true],
+    ["Com. Operador", fmtMXN(f.comision), false],
+    ["Gastos", fmtMXN(f.costo_total), false],
+    ["Total Gastos", fmtMXN(totalGastos), false],
+    ["Utilidad Viaje", fmtMXN(f.utilidad), true],
+    ["% Utilidad", `${fmtNumber(f.margen_pct, 2)} %`, false],
+    ["Costo X KM", fmtMXN(f.costo_por_km), false],
+    ["Utilidad X KM", fmtMXN(utilXKm), false],
+  ];
+
+  const gap = 6;
+  const colWidth = (pageW - 2 * margin - gap) / 2;
+  const col1X = margin;
+  const col2X = margin + colWidth + gap;
+  const rowH = 5.4;
+  const padX = 2;
+
+  const totalRows = Math.max(leftRows.length, rightRows.length);
+  const blockHeight = totalRows * rowH + 4;
+  ensureSpace(state, blockHeight + 4);
+
+  const startY = state.y;
+
+  doc.setDrawColor(225, 225, 230);
+  doc.setLineWidth(0.2);
+  doc.rect(col1X, startY, colWidth, totalRows * rowH + 2);
+  doc.rect(col2X, startY, colWidth, totalRows * rowH + 2);
+
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(9);
+
+  let y1 = startY + 4;
+  for (let i = 0; i < leftRows.length; i++) {
+    if (i % 2 === 1) {
+      doc.setFillColor(248, 249, 251);
+      doc.rect(col1X + 0.1, y1 - 3.6, colWidth - 0.2, rowH, "F");
+    }
+    const [k, v] = leftRows[i];
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(60, 60, 60);
+    doc.text(`${k} :`, col1X + padX, y1);
+    doc.setFont("helvetica", "normal");
+    doc.setTextColor(20, 20, 20);
+    const vw = doc.splitTextToSize(v, colWidth - padX - 32) as string[];
+    doc.text(vw[0] ?? v, col1X + colWidth - padX, y1, { align: "right" });
+    y1 += rowH;
+  }
+
+  let y2 = startY + 4;
+  for (let i = 0; i < rightRows.length; i++) {
+    if (i % 2 === 1) {
+      doc.setFillColor(248, 249, 251);
+      doc.rect(col2X + 0.1, y2 - 3.6, colWidth - 0.2, rowH, "F");
+    }
+    const [k, v, bold] = rightRows[i];
+    doc.setFont("helvetica", "bold");
+    doc.setTextColor(60, 60, 60);
+    doc.text(`${k} :`, col2X + padX, y2);
+    doc.setFont("helvetica", bold ? "bold" : "normal");
+    doc.setTextColor(20, 20, 20);
+    doc.text(v, col2X + colWidth - padX, y2, { align: "right" });
+    y2 += rowH;
+  }
+
+  doc.setTextColor(0, 0, 0);
+  state.y = startY + totalRows * rowH + 4;
+};
+
+const renderProvidersBreakdownTable: BlockRenderer = (state) => {
+  if (state.data.kind !== "trip") return;
+  const { trip } = state.data;
+  const colors = setHeaderColors(state);
+  const { doc, margin, pageW } = state;
+
+  interface BreakdownRow {
+    articulo: string;
+    fecha: string;
+    cantidad: string;
+    importe: number;
+    folio: string;
+    detalle: string;
+  }
+  interface BreakdownGroup {
+    proveedor: string;
+    rows: BreakdownRow[];
+    isFuel: boolean;
+  }
+
+  const fuel = trip.fuel ?? [];
+  const expenses = trip.expenses ?? [];
+
+  const fuelGroups = new Map<string, BreakdownGroup>();
+  for (const f of fuel) {
+    const prov = (f.estacion_nombre || f.ubicacion || "DIESEL").toUpperCase();
+    if (!fuelGroups.has(prov)) {
+      fuelGroups.set(prov, { proveedor: prov, rows: [], isFuel: true });
+    }
+    const importe = (f.litros || 0) * (f.precio_litro || 0);
+    fuelGroups.get(prov)!.rows.push({
+      articulo: "DIESEL",
+      fecha: fmtDateShort(f.fecha),
+      cantidad: fmtNumber(f.litros || 0, 2),
+      importe,
+      folio: (f.id || "").slice(0, 8).toUpperCase(),
+      detalle: f.ubicacion || "",
+    });
+  }
+
+  const expGroups = new Map<string, BreakdownGroup>();
+  for (const e of expenses) {
+    const prov = (e.categoria || "GASTOS").toUpperCase();
+    if (!expGroups.has(prov)) {
+      expGroups.set(prov, { proveedor: prov, rows: [], isFuel: false });
+    }
+    expGroups.get(prov)!.rows.push({
+      articulo: e.categoria || "",
+      fecha: fmtDateShort(e.fecha),
+      cantidad: "1.00",
+      importe: e.monto || 0,
+      folio: (e.id || "").slice(0, 8).toUpperCase(),
+      detalle: e.descripcion || "",
+    });
+  }
+
+  const groups: BreakdownGroup[] = [
+    ...Array.from(fuelGroups.values()),
+    ...Array.from(expGroups.values()),
+  ];
+
+  if (groups.length === 0) {
+    ensureSpace(state, 12);
+    doc.setFont("helvetica", "italic");
+    doc.setFontSize(9);
+    doc.setTextColor(120, 120, 120);
+    doc.text("Sin diésel ni gastos registrados.", margin, state.y);
+    doc.setTextColor(0, 0, 0);
+    doc.setFont("helvetica", "normal");
+    state.y += 7;
+    return;
+  }
+
+  const km = (trip.km_final ?? 0) - (trip.km_inicial ?? 0);
+
+  for (const g of groups) {
+    ensureSpace(state, 24);
+
+    doc.setFillColor(243, 244, 246);
+    doc.rect(margin, state.y, pageW - margin * 2, 6, "F");
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.setTextColor(40, 40, 40);
+    doc.text(g.proveedor, margin + 2, state.y + 4.2);
+    doc.setTextColor(0, 0, 0);
+    state.y += 6;
+
+    autoTable(doc, {
+      startY: state.y,
+      head: [["Artículo", "Fecha", "Cantidad", "Importe", "Folio", "Detalle"]],
+      body: g.rows.map((r) => [
+        r.articulo,
+        r.fecha,
+        r.cantidad,
+        fmtMXN(r.importe),
+        r.folio,
+        r.detalle,
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.4, font: "helvetica" },
+      headStyles: {
+        fillColor: colors.fill,
+        textColor: colors.text,
+        fontSize: 8,
+      },
+      alternateRowStyles: { fillColor: [250, 250, 252] },
+      margin: { left: margin, right: margin },
+      columnStyles: {
+        0: { cellWidth: 26 },
+        1: { cellWidth: 22 },
+        2: { halign: "right", cellWidth: 22 },
+        3: { halign: "right", cellWidth: 26 },
+        4: { cellWidth: 22 },
+        5: { cellWidth: "auto" },
+      },
+    });
+    state.y = ((doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 1;
+
+    const subtotal = g.rows.reduce((s, r) => s + r.importe, 0);
+    const totalQty = g.rows.reduce(
+      (s, r) => s + parseFloat(r.cantidad.replace(/,/g, "")),
+      0,
+    );
+
+    doc.setDrawColor(220, 220, 220);
+    doc.setLineWidth(0.2);
+    doc.line(margin, state.y, pageW - margin, state.y);
+    state.y += 1.5;
+
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(9);
+    doc.text("Totales:", margin + 2, state.y + 3.6);
+    doc.text(fmtMXN(subtotal), pageW - margin - 2, state.y + 3.6, { align: "right" });
+    doc.setFont("helvetica", "normal");
+    doc.setFontSize(8);
+    if (g.isFuel && km > 0 && totalQty > 0) {
+      const rendKmL = km / totalQty;
+      doc.text(
+        `${fmtNumber(totalQty, 2)} L · Rendimiento ${fmtNumber(rendKmL, 2)} km/L`,
+        margin + 26,
+        state.y + 3.6,
+      );
+    } else {
+      doc.text(`${g.rows.length} conceptos`, margin + 26, state.y + 3.6);
+    }
+    state.y += 7;
+  }
+};
+
+const renderTripTotalBox: BlockRenderer = (state) => {
+  if (state.data.kind !== "trip") return;
+  const f = computeTrip(state.data.trip, state.data.driver ?? undefined);
+  const colors = setHeaderColors(state);
+  ensureSpace(state, 14);
+  const { doc, margin, pageW } = state;
+  doc.setFillColor(colors.fill[0], colors.fill[1], colors.fill[2]);
+  doc.rect(margin, state.y, pageW - margin * 2, 9, "F");
+  doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.text("TOTAL:", margin + 3, state.y + 6);
+  doc.text(
+    fmtMXN(f.diesel_total + f.gastos_total),
+    pageW - margin - 3,
+    state.y + 6,
+    { align: "right" },
+  );
+  doc.setTextColor(0, 0, 0);
+  state.y += 13;
+};
+
+/** Renders «Página X de Y». Total Y is filled at the end of render via a placeholder. */
+const renderPageCounter: BlockRenderer = (state, props) => {
+  const align = props.align ?? "right";
+  const { doc, margin, pageW } = state;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  doc.setTextColor(110, 110, 110);
+  const x = align === "right" ? pageW - margin : align === "center" ? pageW / 2 : margin;
+  doc.text(`Página ${state.currentPage} de {{TOTAL_PAGES}}`, x, state.y, { align });
+  doc.setTextColor(0, 0, 0);
+  state.y += 4;
 };
 
 const renderKpisSummary: BlockRenderer = (state) => {
@@ -551,10 +952,16 @@ const BLOCK_RENDERERS: Record<BlockType, BlockRenderer> = {
   logo: renderLogo,
   title: renderTitle,
   tenant_name: renderTenantName,
+  company_fiscal_block: renderCompanyFiscalBlock,
+  period_label: renderPeriodLabel,
   settlement_meta: renderSettlementMeta,
   trip_header: renderTripHeader,
   trip_meta: renderTripMeta,
+  trip_info_grid: renderTripInfoGrid,
+  providers_breakdown_table: renderProvidersBreakdownTable,
+  trip_total_box: renderTripTotalBox,
   generated_at: renderGeneratedAt,
+  page_counter: renderPageCounter,
   kpis_summary: renderKpisSummary,
   profitability_kpis: renderProfitabilityKpis,
   performance_kpis: renderPerformanceKpis,
@@ -575,6 +982,7 @@ const BLOCK_RENDERERS: Record<BlockType, BlockRenderer> = {
 };
 
 function renderBlocks(state: RenderState, blocks: BlockInstance[], zone: ZoneId, kind: TemplateKind): void {
+  state.zone = zone;
   for (const block of blocks) {
     if (!block.enabled) continue;
     if (!isBlockType(block.id)) continue;
@@ -584,6 +992,26 @@ function renderBlocks(state: RenderState, blocks: BlockInstance[], zone: ZoneId,
     const renderer = BLOCK_RENDERERS[block.id];
     if (!renderer) continue;
     renderer(state, block.props ?? {});
+  }
+}
+
+/** Replace «{{TOTAL_PAGES}}» placeholders left by page_counter on every page. */
+function fillPageTotals(doc: jsPDF): void {
+  // jsPDF doesn't expose a clean rewrite API for already-drawn text; use the internal pages workaround.
+  const total = doc.getNumberOfPages();
+  const internal = doc as unknown as {
+    internal: { pages: string[][] };
+  };
+  const pages = internal.internal?.pages;
+  if (!Array.isArray(pages)) return;
+  for (let i = 1; i <= total; i++) {
+    const page = pages[i];
+    if (!Array.isArray(page)) continue;
+    for (let j = 0; j < page.length; j++) {
+      if (typeof page[j] === "string" && page[j].includes("{{TOTAL_PAGES}}")) {
+        page[j] = page[j].split("{{TOTAL_PAGES}}").join(String(total));
+      }
+    }
   }
 }
 
@@ -598,6 +1026,12 @@ export function renderTemplatePdf(opts: RenderOptions): jsPDF {
   const margin = 14;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
+
+  const footerBlocks = opts.template.sections.footer.filter(
+    (b) => b.enabled && isBlockType(b.id),
+  );
+  const footerReserve = footerBlocks.length > 0 ? 26 : 14;
+
   const state: RenderState = {
     doc,
     y: 16,
@@ -607,17 +1041,26 @@ export function renderTemplatePdf(opts: RenderOptions): jsPDF {
     branding: opts.template.branding,
     logoDataUrl: opts.logoDataUrl ?? null,
     data: opts.data,
+    zone: "header",
+    rightColumnY: 0,
+    footerReserve,
+    currentPage: 1,
   };
 
   renderBlocks(state, opts.template.sections.header, "header", opts.data.kind);
-  state.y += 2;
+  // Snap Y past anchored right-column content (logo + company block) before body.
+  state.y = Math.max(state.y, state.rightColumnY) + 2;
   renderBlocks(state, opts.template.sections.body, "body", opts.data.kind);
 
-  const footer = opts.template.sections.footer.filter((b) => b.enabled && isBlockType(b.id));
-  if (footer.length > 0) {
-    const startY = Math.max(state.y + 4, pageH - 30);
-    state.y = startY;
-    renderBlocks(state, footer, "footer", opts.data.kind);
+  if (footerBlocks.length > 0) {
+    const pageCount = doc.getNumberOfPages();
+    for (let p = 1; p <= pageCount; p++) {
+      doc.setPage(p);
+      state.currentPage = p;
+      state.y = pageH - footerReserve + 4;
+      renderBlocks(state, footerBlocks, "footer", opts.data.kind);
+    }
+    fillPageTotals(doc);
   }
 
   return doc;
