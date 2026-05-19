@@ -265,37 +265,205 @@ export function settlementToJson(s: Settlement): Record<string, unknown> {
   };
 }
 
-export type PdfConfigJson = {
+export type PdfBrandingJson = {
   titulo: string;
   color_header: string;
   color_header_text: string;
+  color_accent: string;
   pie_pagina: string;
 };
 
-export const DEFAULT_PDF_CONFIG: PdfConfigJson = {
+export type BlockInstanceJson = {
+  id: string;
+  enabled: boolean;
+  props?: Record<string, unknown>;
+};
+
+export type PdfTemplateJson = {
+  branding: PdfBrandingJson;
+  sections: {
+    header: BlockInstanceJson[];
+    body: BlockInstanceJson[];
+    footer: BlockInstanceJson[];
+  };
+};
+
+export type PdfTemplatesConfigJson = {
+  version: 2;
+  settlement: PdfTemplateJson;
+  trip: PdfTemplateJson;
+};
+
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+const DEFAULT_BRANDING_SETTLEMENT: PdfBrandingJson = {
   titulo: "Liquidación semanal",
   color_header: "#212529",
   color_header_text: "#ffffff",
+  color_accent: "#2563eb",
   pie_pagina: "",
 };
 
-export function normalizePdfConfig(raw: unknown): PdfConfigJson {
+const DEFAULT_BRANDING_TRIP: PdfBrandingJson = {
+  titulo: "Detalle de viaje",
+  color_header: "#212529",
+  color_header_text: "#ffffff",
+  color_accent: "#2563eb",
+  pie_pagina: "",
+};
+
+export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplateJson = {
+  branding: { ...DEFAULT_BRANDING_SETTLEMENT },
+  sections: {
+    header: [
+      { id: "logo", enabled: true, props: { align: "right" } },
+      { id: "title", enabled: true },
+      { id: "tenant_name", enabled: true },
+      { id: "settlement_meta", enabled: true },
+      { id: "generated_at", enabled: true },
+    ],
+    body: [
+      { id: "kpis_summary", enabled: true },
+      { id: "trips_table", enabled: true },
+      { id: "viaticos_summary", enabled: true },
+      { id: "advances_table", enabled: true },
+      { id: "discounts_table", enabled: true },
+      { id: "net_box", enabled: true },
+    ],
+    footer: [
+      { id: "footer_text", enabled: true },
+    ],
+  },
+};
+
+export const DEFAULT_TEMPLATE_TRIP: PdfTemplateJson = {
+  branding: { ...DEFAULT_BRANDING_TRIP },
+  sections: {
+    header: [
+      { id: "logo", enabled: true, props: { align: "right" } },
+      { id: "title", enabled: true },
+      { id: "tenant_name", enabled: true },
+      { id: "trip_header", enabled: true },
+      { id: "generated_at", enabled: true },
+    ],
+    body: [
+      { id: "trip_meta", enabled: true },
+      { id: "profitability_kpis", enabled: true },
+      { id: "performance_kpis", enabled: true },
+      { id: "fuel_table", enabled: true },
+      { id: "expenses_table", enabled: true },
+      { id: "commission_block", enabled: true },
+    ],
+    footer: [
+      { id: "footer_text", enabled: true },
+    ],
+  },
+};
+
+export const DEFAULT_PDF_CONFIG: PdfTemplatesConfigJson = {
+  version: 2,
+  settlement: DEFAULT_TEMPLATE_SETTLEMENT,
+  trip: DEFAULT_TEMPLATE_TRIP,
+};
+
+function normalizeBranding(raw: unknown, fallback: PdfBrandingJson): PdfBrandingJson {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
-  const hex = /^#[0-9A-Fa-f]{6}$/;
   return {
     titulo:
       typeof o.titulo === "string" && o.titulo.trim()
         ? o.titulo.trim().slice(0, 80)
-        : DEFAULT_PDF_CONFIG.titulo,
+        : fallback.titulo,
     color_header:
-      typeof o.color_header === "string" && hex.test(o.color_header)
+      typeof o.color_header === "string" && HEX_RE.test(o.color_header)
         ? o.color_header
-        : DEFAULT_PDF_CONFIG.color_header,
+        : fallback.color_header,
     color_header_text:
-      typeof o.color_header_text === "string" && hex.test(o.color_header_text)
+      typeof o.color_header_text === "string" && HEX_RE.test(o.color_header_text)
         ? o.color_header_text
-        : DEFAULT_PDF_CONFIG.color_header_text,
+        : fallback.color_header_text,
+    color_accent:
+      typeof o.color_accent === "string" && HEX_RE.test(o.color_accent)
+        ? o.color_accent
+        : fallback.color_accent,
     pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina.slice(0, 200) : "",
+  };
+}
+
+function normalizeBlocks(raw: unknown): BlockInstanceJson[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BlockInstanceJson[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || !o.id) continue;
+    const block: BlockInstanceJson = {
+      id: o.id.slice(0, 64),
+      enabled: o.enabled !== false,
+    };
+    if (o.props && typeof o.props === "object" && !Array.isArray(o.props)) {
+      block.props = o.props as Record<string, unknown>;
+    }
+    out.push(block);
+  }
+  return out;
+}
+
+function normalizeTemplate(raw: unknown, fallback: PdfTemplateJson): PdfTemplateJson {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const sectionsRaw =
+    o.sections && typeof o.sections === "object" ? (o.sections as Record<string, unknown>) : {};
+  const header = normalizeBlocks(sectionsRaw.header);
+  const body = normalizeBlocks(sectionsRaw.body);
+  const footer = normalizeBlocks(sectionsRaw.footer);
+  return {
+    branding: normalizeBranding(o.branding, fallback.branding),
+    sections: {
+      header: header.length > 0 ? header : fallback.sections.header,
+      body: body.length > 0 ? body : fallback.sections.body,
+      footer: footer.length > 0 ? footer : fallback.sections.footer,
+    },
+  };
+}
+
+export function normalizePdfConfig(raw: unknown): PdfTemplatesConfigJson {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+
+  const isV2 = (o.version === 2) || ("settlement" in o) || ("trip" in o);
+
+  if (isV2) {
+    return {
+      version: 2,
+      settlement: normalizeTemplate(o.settlement, DEFAULT_TEMPLATE_SETTLEMENT),
+      trip: normalizeTemplate(o.trip, DEFAULT_TEMPLATE_TRIP),
+    };
+  }
+
+  const settlementBranding: PdfBrandingJson = {
+    titulo:
+      typeof o.titulo === "string" && o.titulo.trim()
+        ? o.titulo.trim().slice(0, 80)
+        : DEFAULT_BRANDING_SETTLEMENT.titulo,
+    color_header:
+      typeof o.color_header === "string" && HEX_RE.test(o.color_header)
+        ? o.color_header
+        : DEFAULT_BRANDING_SETTLEMENT.color_header,
+    color_header_text:
+      typeof o.color_header_text === "string" && HEX_RE.test(o.color_header_text)
+        ? o.color_header_text
+        : DEFAULT_BRANDING_SETTLEMENT.color_header_text,
+    color_accent: DEFAULT_BRANDING_SETTLEMENT.color_accent,
+    pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina.slice(0, 200) : "",
+  };
+  return {
+    version: 2,
+    settlement: {
+      branding: settlementBranding,
+      sections: { ...DEFAULT_TEMPLATE_SETTLEMENT.sections },
+    },
+    trip: {
+      branding: { ...DEFAULT_BRANDING_TRIP },
+      sections: { ...DEFAULT_TEMPLATE_TRIP.sections },
+    },
   };
 }
 
@@ -313,5 +481,6 @@ export function tenantToJson(t: Tenant): Record<string, unknown> {
     color_sidebar: p.color_sidebar ?? undefined,
     pdf_config: pdfConfig,
     has_pdf_logo: Boolean(p.pdf_logo_path),
+    has_pdf_trip_logo: Boolean(p.pdf_trip_logo_path),
   };
 }

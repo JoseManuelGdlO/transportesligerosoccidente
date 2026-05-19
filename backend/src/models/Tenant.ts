@@ -38,6 +38,7 @@ export class Tenant extends Model<InferAttributes<Tenant>, InferCreationAttribut
   declare fuel_sync_habilitado: CreationOptional<boolean>;
   declare pdf_config: CreationOptional<Record<string, unknown> | null>;
   declare pdf_logo_path: CreationOptional<string | null>;
+  declare pdf_trip_logo_path: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -75,6 +76,7 @@ export function initTenant(sequelize: Sequelize) {
       fuel_sync_habilitado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       pdf_config: { type: DataTypes.JSON, allowNull: true },
       pdf_logo_path: { type: DataTypes.TEXT, allowNull: true },
+      pdf_trip_logo_path: { type: DataTypes.TEXT, allowNull: true },
     } as never,
     { sequelize, tableName: "tenants", underscored: true },
   );

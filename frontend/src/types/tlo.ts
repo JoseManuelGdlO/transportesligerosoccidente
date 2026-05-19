@@ -124,12 +124,7 @@ export interface TenantFiscal {
 
 export type TenantStatus = "activo" | "suspendido";
 
-export interface PdfConfig {
-  titulo: string;
-  color_header: string;
-  color_header_text: string;
-  pie_pagina: string;
-}
+import type { PdfTemplatesConfig } from "@/types/pdfTemplate";
 
 export interface Tenant {
   id: string;
@@ -140,8 +135,9 @@ export interface Tenant {
   color_primary?: string;
   color_accent?: string;
   color_sidebar?: string;
-  pdf_config?: PdfConfig;
+  pdf_config?: PdfTemplatesConfig;
   has_pdf_logo?: boolean;
+  has_pdf_trip_logo?: boolean;
 }
 
 export interface SystemUser {

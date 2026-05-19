@@ -43,14 +43,19 @@ r.patch("/tenant/theme", authenticateJwt, requirePermission("marca.gestionar"), 
 r.get("/tenant/pdf-config", authenticateJwt, requirePermission("marca.gestionar"), tenantC.getPdfConfig);
 r.patch("/tenant/pdf-config", authenticateJwt, requirePermission("marca.gestionar"), tenantC.patchPdfConfig);
 r.post(
-  "/tenant/pdf-logo",
+  "/tenant/pdf-logo/:template",
   authenticateJwt,
   requirePermission("marca.gestionar"),
   uploadPdfLogo.single("file"),
   tenantC.uploadPdfLogoHandler,
 );
-r.delete("/tenant/pdf-logo", authenticateJwt, requirePermission("marca.gestionar"), tenantC.deletePdfLogo);
-r.get("/tenant/pdf-logo", authenticateJwt, tenantC.streamPdfLogo);
+r.delete(
+  "/tenant/pdf-logo/:template",
+  authenticateJwt,
+  requirePermission("marca.gestionar"),
+  tenantC.deletePdfLogo,
+);
+r.get("/tenant/pdf-logo/:template", authenticateJwt, tenantC.streamPdfLogo);
 
 r.get("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar", "cartaporte.ver"), fiscalC.getFiscalConfig);
 r.patch("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar"), fiscalC.patchFiscalConfig);

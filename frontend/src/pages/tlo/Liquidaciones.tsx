@@ -394,14 +394,14 @@ export default function Liquidaciones() {
                   <Button variant="outline" disabled={!summaryForPdf} onClick={() => {
                     void (async () => {
                       if (!driver || !summaryForPdf) return;
-                      const logoDataUrl = tenant?.has_pdf_logo ? await loadPdfLogoDataUrl() : null;
+                      const logoDataUrl = tenant?.has_pdf_logo ? await loadPdfLogoDataUrl("settlement") : null;
                       await downloadSettlementPdf({
                         tenantNombre: tenant?.nombre ?? "TLO",
                         driver,
                         inicio,
                         fin,
                         summary: summaryForPdf,
-                        branding: tenant?.pdf_config,
+                        template: tenant?.pdf_config?.settlement,
                         logoDataUrl,
                       });
                       toast.success("PDF descargado");

@@ -1,5 +1,13 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { UserRole, Permission, Tenant, PdfConfig } from "@/types/tlo";
+import type { UserRole, Permission, Tenant } from "@/types/tlo";
+import {
+  DEFAULT_PDF_TEMPLATES,
+  isBlockType,
+  type BlockInstance,
+  type PdfBranding,
+  type PdfTemplate,
+  type PdfTemplatesConfig,
+} from "@/types/pdfTemplate";
 import { FULL_ADMIN_PERMISSIONS } from "@/types/tlo";
 import { apiFetch, getStoredToken, getStoredRefreshToken, hasApiConfigured, clearAuthTokens, setStoredToken, setStoredRefreshToken, tryRestoreSessionFromRefresh } from "@/lib/api";
 import { applyTenantThemeCss } from "@/lib/theme";
@@ -41,20 +49,74 @@ function parseTenant(raw: Record<string, unknown>): Tenant {
     color_primary: raw.color_primary != null ? String(raw.color_primary) : undefined,
     color_accent: raw.color_accent != null ? String(raw.color_accent) : undefined,
     color_sidebar: raw.color_sidebar != null ? String(raw.color_sidebar) : undefined,
-    pdf_config: parsePdfConfig(raw.pdf_config),
+    pdf_config: parsePdfTemplates(raw.pdf_config),
     has_pdf_logo: raw.has_pdf_logo === true,
+    has_pdf_trip_logo: raw.has_pdf_trip_logo === true,
   };
 }
 
-function parsePdfConfig(raw: unknown): PdfConfig | undefined {
+const HEX_RE = /^#[0-9A-Fa-f]{6}$/;
+
+function parseBranding(raw: unknown, fallback: PdfBranding): PdfBranding {
+  if (!raw || typeof raw !== "object") return { ...fallback };
+  const o = raw as Record<string, unknown>;
+  return {
+    titulo:
+      typeof o.titulo === "string" && o.titulo.trim() ? o.titulo.trim().slice(0, 80) : fallback.titulo,
+    color_header:
+      typeof o.color_header === "string" && HEX_RE.test(o.color_header) ? o.color_header : fallback.color_header,
+    color_header_text:
+      typeof o.color_header_text === "string" && HEX_RE.test(o.color_header_text)
+        ? o.color_header_text
+        : fallback.color_header_text,
+    color_accent:
+      typeof o.color_accent === "string" && HEX_RE.test(o.color_accent) ? o.color_accent : fallback.color_accent,
+    pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina.slice(0, 200) : "",
+  };
+}
+
+function parseBlocks(raw: unknown): BlockInstance[] {
+  if (!Array.isArray(raw)) return [];
+  const out: BlockInstance[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const o = item as Record<string, unknown>;
+    if (typeof o.id !== "string" || !isBlockType(o.id)) continue;
+    out.push({
+      id: o.id,
+      enabled: o.enabled !== false,
+      props: o.props && typeof o.props === "object" && !Array.isArray(o.props)
+        ? (o.props as BlockInstance["props"])
+        : undefined,
+    });
+  }
+  return out;
+}
+
+function parseTemplate(raw: unknown, fallback: PdfTemplate): PdfTemplate {
+  const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
+  const sectionsRaw =
+    o.sections && typeof o.sections === "object" ? (o.sections as Record<string, unknown>) : {};
+  const header = parseBlocks(sectionsRaw.header);
+  const body = parseBlocks(sectionsRaw.body);
+  const footer = parseBlocks(sectionsRaw.footer);
+  return {
+    branding: parseBranding(o.branding, fallback.branding),
+    sections: {
+      header: header.length ? header : fallback.sections.header,
+      body: body.length ? body : fallback.sections.body,
+      footer: footer.length ? footer : fallback.sections.footer,
+    },
+  };
+}
+
+function parsePdfTemplates(raw: unknown): PdfTemplatesConfig | undefined {
   if (!raw || typeof raw !== "object") return undefined;
   const o = raw as Record<string, unknown>;
-  if (typeof o.titulo !== "string") return undefined;
   return {
-    titulo: o.titulo,
-    color_header: typeof o.color_header === "string" ? o.color_header : "#212529",
-    color_header_text: typeof o.color_header_text === "string" ? o.color_header_text : "#ffffff",
-    pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina : "",
+    version: 2,
+    settlement: parseTemplate(o.settlement, DEFAULT_PDF_TEMPLATES.settlement),
+    trip: parseTemplate(o.trip, DEFAULT_PDF_TEMPLATES.trip),
   };
 }
 

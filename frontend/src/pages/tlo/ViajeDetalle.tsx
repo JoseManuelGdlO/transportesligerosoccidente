@@ -14,16 +14,20 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusBadge } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
-import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar } from "lucide-react";
+import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText } from "lucide-react";
 import type { ExpenseCategory, Trip } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
 import { normalizeTrip } from "@/lib/tloApi";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { downloadTripPdf } from "@/lib/tripPdf";
+import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 
 export default function ViajeDetalle() {
   const { id } = useParams();
   const nav = useNavigate();
   const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip } = useTlo();
+  const { tenant } = useAuth();
   const tripCtx = trips.find(t => t.id === id);
   const [tripOverride, setTripOverride] = useState<Trip | null>(null);
   const trip = tripOverride ?? tripCtx;
@@ -147,12 +151,43 @@ export default function ViajeDetalle() {
             </p>
           </div>
         </div>
-        {!isClosed && (
-          <Button onClick={() => { setCloseData({ km_final: trip.km_inicial, fecha_llegada: new Date().toISOString().slice(0,16), num_factura: "" }); setCloseOpen(true); }}
-            className="bg-success text-success-foreground hover:bg-success/90">
-            <Lock className="h-4 w-4 mr-2" /> Cerrar viaje
+        <div className="flex items-center gap-2">
+          <Button
+            variant="outline"
+            onClick={() => {
+              void (async () => {
+                const logoDataUrl = tenant?.has_pdf_trip_logo ? await loadPdfLogoDataUrl("trip") : null;
+                await downloadTripPdf({
+                  tenantNombre: tenant?.nombre ?? "TLO",
+                  trip,
+                  driver: driver ?? null,
+                  truck: truck ?? null,
+                  client: client ?? null,
+                  template: tenant?.pdf_config?.trip,
+                  logoDataUrl,
+                });
+                toast.success("PDF descargado");
+              })();
+            }}
+          >
+            <FileText className="h-4 w-4 mr-2" /> PDF
           </Button>
-        )}
+          {!isClosed && (
+            <Button
+              onClick={() => {
+                setCloseData({
+                  km_final: trip.km_inicial,
+                  fecha_llegada: new Date().toISOString().slice(0, 16),
+                  num_factura: "",
+                });
+                setCloseOpen(true);
+              }}
+              className="bg-success text-success-foreground hover:bg-success/90"
+            >
+              <Lock className="h-4 w-4 mr-2" /> Cerrar viaje
+            </Button>
+          )}
+        </div>
       </div>
 
       {isClosed && (
