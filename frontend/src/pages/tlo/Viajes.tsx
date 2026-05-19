@@ -30,6 +30,7 @@ export default function Viajes() {
     origen: "", destino: "", num_factura: "",
     fecha_salida: new Date().toISOString().slice(0, 16),
     km_inicial: 0, tarifa: 0, viaticos_entregados: 0,
+    tipo_viaje: "local" as const,
   });
 
   useEffect(() => {
@@ -63,6 +64,7 @@ export default function Viajes() {
         fecha_salida: new Date(form.fecha_salida).toISOString(),
         km_inicial: +form.km_inicial, tarifa: +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
+        tipo_viaje: form.tipo_viaje,
       });
       toast.success(`Viaje ${t.folio} abierto`);
       setOpen(false);
@@ -209,7 +211,17 @@ export default function Viajes() {
             <div><Label>Fecha y hora salida</Label><Input type="datetime-local" value={form.fecha_salida} onChange={e => setForm({ ...form, fecha_salida: e.target.value })} /></div>
             <div><Label>Kilometraje inicial</Label><Input type="number" value={form.km_inicial} onChange={e => setForm({ ...form, km_inicial: +e.target.value })} /></div>
             <div><Label>Tarifa pactada (MXN)</Label><Input type="number" value={form.tarifa} onChange={e => setForm({ ...form, tarifa: +e.target.value })} /></div>
-            <div><Label>Viáticos entregados</Label><Input type="number" value={form.viaticos_entregados} onChange={e => setForm({ ...form, viaticos_entregados: +e.target.value })} /></div>
+            <div>
+              <Label>Tipo de viaje</Label>
+              <Select value={form.tipo_viaje} onValueChange={v => setForm({ ...form, tipo_viaje: v as "local" | "foraneo" })}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">Local</SelectItem>
+                  <SelectItem value="foraneo">Foráneo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+                        <div><Label>Viáticos entregados</Label><Input type="number" value={form.viaticos_entregados} onChange={e => setForm({ ...form, viaticos_entregados: +e.target.value })} /></div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setOpen(false)}>Cancelar</Button>

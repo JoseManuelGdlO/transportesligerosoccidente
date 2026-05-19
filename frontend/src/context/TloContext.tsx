@@ -202,7 +202,8 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               licencia: d.licencia,
               fecha_ingreso: d.fecha_ingreso.slice(0, 10),
               comision_tipo: d.comision_tipo,
-              comision_valor: d.comision_valor,
+              comision_valor_local: d.comision_valor_local,
+              comision_valor_foraneo: d.comision_valor_foraneo,
               estatus: d.estatus,
             };
             if (d.id) {
@@ -384,6 +385,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               km_inicial: data.km_inicial,
               tarifa: data.tarifa,
               viaticos_entregados: data.viaticos_entregados ?? 0,
+              tipo_viaje: data.tipo_viaje ?? "local",
               ...(data.num_factura?.trim() ? { num_factura: data.num_factura.trim() } : {}),
             }),
           });
@@ -400,7 +402,15 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       const id = uid("v");
       const year = new Date().getFullYear();
       const folio = `V-${year}-${String(Date.now()).slice(-4)}`;
-      const trip: Trip = { ...data, id, folio, fuel: [], expenses: [], estatus: "en_curso" };
+      const trip: Trip = {
+        ...data,
+        id,
+        folio,
+        fuel: [],
+        expenses: [],
+        tipo_viaje: data.tipo_viaje ?? "local",
+        estatus: "en_curso",
+      };
       setTrips((prev) => [trip, ...prev]);
       return trip;
     },
@@ -441,6 +451,10 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
                 precio_litro: fuel.precio_litro,
                 ubicacion: fuel.ubicacion,
                 fecha: fuel.fecha,
+                es_foraneo: fuel.es_foraneo ?? false,
+                estacion_nombre: fuel.estacion_nombre,
+                es_estacion_empresa: fuel.es_estacion_empresa,
+                comprobante_url: fuel.comprobante_url,
               }),
             });
             const j = await readJson<Record<string, unknown>>(r);

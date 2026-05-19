@@ -14,7 +14,9 @@ const bodySchema = z.object({
   licencia: z.string().min(1),
   fecha_ingreso: z.string().min(1),
   comision_tipo: z.enum(["porcentaje", "fijo"]),
-  comision_valor: z.number(),
+  comision_valor: z.number().optional(),
+  comision_valor_local: z.number().optional(),
+  comision_valor_foraneo: z.number().optional(),
   estatus: z.enum(["activo", "inactivo"]).optional(),
   rfc: z.string().optional(),
   licencia_federal: z.string().optional(),
@@ -47,11 +49,22 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
     return;
   }
   const b = parsed.data;
+  const local = b.comision_valor_local ?? b.comision_valor ?? 0;
+  const foraneo = b.comision_valor_foraneo ?? b.comision_valor ?? local;
   const d = await Driver.create({
     id: randomUUID(),
     tenant_id: tid(req),
-    ...b,
+    nombre: b.nombre,
+    telefono: b.telefono,
+    licencia: b.licencia,
+    fecha_ingreso: b.fecha_ingreso,
+    comision_tipo: b.comision_tipo,
+    comision_valor: local,
+    comision_valor_local: local,
+    comision_valor_foraneo: foraneo,
     estatus: b.estatus ?? "activo",
+    rfc: b.rfc,
+    licencia_federal: b.licencia_federal,
   } as never);
   res.status(201).json(driverToJson(d));
 });
@@ -67,7 +80,18 @@ export const updateDriver = asyncHandler(async (req: Request, res: Response) => 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  await d.update(parsed.data as never);
+  const b = parsed.data;
+  const patch: Record<string, unknown> = { ...b };
+  if (b.comision_valor_local != null || b.comision_valor != null) {
+    const local = b.comision_valor_local ?? b.comision_valor;
+    if (local != null) {
+      patch.comision_valor_local = local;
+      patch.comision_valor = local;
+    }
+  }
+  if (b.comision_valor_foraneo != null) patch.comision_valor_foraneo = b.comision_valor_foraneo;
+  delete patch.comision_valor;
+  await d.update(patch as never);
   res.json(driverToJson(d));
 });
 

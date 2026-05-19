@@ -105,7 +105,16 @@ export function downloadSettlementPdf(opts: {
   doc.text(`${saldoLabel}: ${fmtMXN(Math.abs(summary.saldo_viaticos))}`, margin, y);
   y += 6;
   doc.text(`Viáticos no comprobados (deducción): ${fmtMXN(Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados))}`, margin, y);
-  y += 10;
+  y += 6;
+  if (summary.total_descuentos > 0) {
+    doc.text(`Descuentos: −${fmtMXN(summary.total_descuentos)}`, margin, y);
+    y += 6;
+  }
+  if (summary.total_anticipos > 0) {
+    doc.text(`Anticipos aplicados: −${fmtMXN(summary.total_anticipos)}`, margin, y);
+    y += 6;
+  }
+  y += 4;
 
   doc.setFillColor(33, 37, 41);
   doc.roundedRect(margin, y, 182, 18, 2, 2, "F");

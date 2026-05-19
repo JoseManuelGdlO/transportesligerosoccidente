@@ -18,13 +18,21 @@ export interface TripFinancials {
   costo_diesel_por_km: number;
 }
 
+export const driverCommissionRate = (trip: Trip, driver: Driver): number => {
+  const isForaneo = trip.tipo_viaje === "foraneo";
+  const local = driver.comision_valor_local ?? driver.comision_valor;
+  const foraneo = driver.comision_valor_foraneo ?? driver.comision_valor;
+  return isForaneo ? foraneo : local;
+};
+
 export const computeCommission = (trip: Trip, driver?: Driver): number => {
   if (typeof trip.comision_override === "number") return trip.comision_override;
   if (!driver) return 0;
+  const rate = driverCommissionRate(trip, driver);
   if (driver.comision_tipo === "porcentaje") {
-    return (trip.tarifa * driver.comision_valor) / 100;
+    return (trip.tarifa * rate) / 100;
   }
-  return driver.comision_valor;
+  return rate;
 };
 
 export const computeTrip = (trip: Trip, driver?: Driver): TripFinancials => {
@@ -72,6 +80,8 @@ export interface SettlementSummary {
   viaticos_entregados: number;
   viaticos_comprobados: number;
   saldo_viaticos: number; // positivo = saldo a favor del operador
+  total_descuentos: number;
+  total_anticipos: number;
   neto_pagar: number;
 }
 
@@ -80,6 +90,7 @@ export const computeSettlement = (
   trips: Trip[],
   inicio: Date,
   fin: Date,
+  opts?: { total_descuentos?: number; total_anticipos?: number },
 ): SettlementSummary => {
   const inRange = trips.filter(t => {
     if (t.driver_id !== driver.id) return false;
@@ -100,9 +111,10 @@ export const computeSettlement = (
     viaticos_comprobados += f.gastos_comprobados;
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  // Neto = comisiones - viáticos no comprobados (cuando entregaste más que comprobó)
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
-  const neto_pagar = total_comisiones - no_comprobado;
+  const total_descuentos = opts?.total_descuentos ?? 0;
+  const total_anticipos = opts?.total_anticipos ?? 0;
+  const neto_pagar = total_comisiones - no_comprobado - total_descuentos - total_anticipos;
   return {
     trips: inRange,
     total_ingresos,
@@ -111,6 +123,8 @@ export const computeSettlement = (
     viaticos_entregados,
     viaticos_comprobados,
     saldo_viaticos,
+    total_descuentos,
+    total_anticipos,
     neto_pagar,
   };
 };

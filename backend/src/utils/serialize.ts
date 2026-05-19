@@ -51,6 +51,10 @@ export function fuelToJson(f: FuelLoad): Record<string, unknown> {
     precio_litro: num(p.precio_litro),
     ubicacion: p.ubicacion,
     fecha: iso(p.fecha),
+    es_foraneo: !!p.es_foraneo,
+    estacion_nombre: p.estacion_nombre ?? undefined,
+    es_estacion_empresa: p.es_estacion_empresa !== false,
+    comprobante_url: p.comprobante_url ?? undefined,
   };
 }
 
@@ -136,6 +140,8 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     viaticos_entregados: num(t.viaticos_entregados),
     num_factura: t.num_factura ?? undefined,
     comision_override: t.comision_override != null ? num(t.comision_override) : undefined,
+    tipo_viaje: t.tipo_viaje ?? "local",
+    settlement_id: t.settlement_id ?? undefined,
     estatus: t.estatus,
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),
@@ -177,6 +183,8 @@ export function driverToJson(d: Driver): Record<string, unknown> {
     fecha_ingreso: p.fecha_ingreso,
     comision_tipo: p.comision_tipo,
     comision_valor: num(p.comision_valor),
+    comision_valor_local: num(p.comision_valor_local ?? p.comision_valor),
+    comision_valor_foraneo: num(p.comision_valor_foraneo ?? p.comision_valor),
     estatus: p.estatus,
     rfc: p.rfc ?? undefined,
     licencia_federal: p.licencia_federal ?? undefined,
@@ -253,6 +261,7 @@ export function settlementToJson(s: Settlement): Record<string, unknown> {
     fecha_fin: p.fecha_fin,
     cerrado: p.cerrado,
     cerrado_at: p.cerrado_at ? iso(p.cerrado_at) : undefined,
+    snapshot: p.snapshot ?? undefined,
   };
 }
 

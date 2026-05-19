@@ -1,9 +1,11 @@
+import path from "node:path";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { Trip } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { tripToJson, fuelToJson, expenseToJson } from "../utils/serialize";
 import * as tripService from "../services/tripService";
+import * as maintenanceService from "../services/maintenanceService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -35,6 +37,7 @@ const createSchema = z.object({
   tarifa: z.number(),
   viaticos_entregados: z.number().optional(),
   num_factura: z.string().optional(),
+  tipo_viaje: z.enum(["local", "foraneo"]).optional(),
 });
 
 export const createTrip = asyncHandler(async (req: Request, res: Response) => {
@@ -60,6 +63,7 @@ const patchSchema = z
     viaticos_entregados: z.number().optional(),
     comision_override: z.number().nullable().optional(),
     num_factura: z.string().optional(),
+    tipo_viaje: z.enum(["local", "foraneo"]).optional(),
   })
   .strict();
 
@@ -86,7 +90,19 @@ export const postCloseTrip = asyncHandler(async (req: Request, res: Response) =>
     return;
   }
   const t = await tripService.closeTrip(tid(req), req.params.id, parsed.data);
+  void maintenanceService.checkMaintenanceAlerts(tid(req)).catch(() => undefined);
   res.json(tripToJson(t));
+});
+
+export const postFuelReceipt = asyncHandler(async (req: Request, res: Response) => {
+  await tripService.getTripOrThrow(tid(req), req.params.id, false);
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "Archivo requerido" });
+    return;
+  }
+  const rel = path.relative(process.cwd(), file.path).replace(/\\/g, "/");
+  res.status(201).json({ comprobante_url: `/${rel}` });
 });
 
 export const deleteTrip = asyncHandler(async (req: Request, res: Response) => {
@@ -99,6 +115,10 @@ const fuelSchema = z.object({
   precio_litro: z.number().positive(),
   ubicacion: z.string().min(1),
   fecha: z.string().optional(),
+  es_foraneo: z.boolean().optional(),
+  estacion_nombre: z.string().optional(),
+  es_estacion_empresa: z.boolean().optional(),
+  comprobante_url: z.string().optional(),
 });
 
 export const postFuel = asyncHandler(async (req: Request, res: Response) => {

@@ -19,6 +19,10 @@ import { Notification, initNotification } from "./Notification";
 import { TripUbicacion, initTripUbicacion } from "./TripUbicacion";
 import { TripMercancia, initTripMercancia } from "./TripMercancia";
 import { CartaPorte, initCartaPorte } from "./CartaPorte";
+import { DriverAdvance, initDriverAdvance } from "./DriverAdvance";
+import { DriverDiscount, initDriverDiscount } from "./DriverDiscount";
+import { MaintenanceSchedule, initMaintenanceSchedule } from "./MaintenanceSchedule";
+import { MaintenanceRecord, initMaintenanceRecord } from "./MaintenanceRecord";
 
 export function initModels() {
   initTenant(sequelize);
@@ -41,6 +45,10 @@ export function initModels() {
   initTripUbicacion(sequelize);
   initTripMercancia(sequelize);
   initCartaPorte(sequelize);
+  initDriverAdvance(sequelize);
+  initDriverDiscount(sequelize);
+  initMaintenanceSchedule(sequelize);
+  initMaintenanceRecord(sequelize);
 
   Role.belongsToMany(Permission, {
     through: RolePermission,
@@ -103,6 +111,18 @@ export function initModels() {
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });
 
+  Driver.hasMany(DriverAdvance, { foreignKey: "driver_id", as: "advances" });
+  DriverAdvance.belongsTo(Driver, { foreignKey: "driver_id" });
+  Driver.hasMany(DriverDiscount, { foreignKey: "driver_id", as: "discounts" });
+  DriverDiscount.belongsTo(Driver, { foreignKey: "driver_id" });
+  Settlement.hasMany(DriverAdvance, { foreignKey: "settlement_id" });
+  Settlement.hasMany(DriverDiscount, { foreignKey: "settlement_id" });
+
+  Truck.hasMany(MaintenanceSchedule, { foreignKey: "truck_id", as: "maintenanceSchedules" });
+  MaintenanceSchedule.belongsTo(Truck, { foreignKey: "truck_id" });
+  Truck.hasMany(MaintenanceRecord, { foreignKey: "truck_id", as: "maintenanceRecords" });
+  MaintenanceRecord.belongsTo(Truck, { foreignKey: "truck_id" });
+
   Tenant.hasMany(DocumentType, { foreignKey: "tenant_id" });
   DocumentType.belongsTo(Tenant, { foreignKey: "tenant_id" });
 
@@ -146,6 +166,10 @@ export {
   TripUbicacion,
   TripMercancia,
   CartaPorte,
+  DriverAdvance,
+  DriverDiscount,
+  MaintenanceSchedule,
+  MaintenanceRecord,
 };
 
 initModels();

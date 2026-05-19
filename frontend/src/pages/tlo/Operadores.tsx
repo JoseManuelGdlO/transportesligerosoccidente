@@ -45,6 +45,8 @@ const empty: Driver = {
   fecha_ingreso: new Date().toISOString().slice(0, 10),
   comision_tipo: "porcentaje",
   comision_valor: 8,
+  comision_valor_local: 8,
+  comision_valor_foraneo: 10,
   estatus: "activo",
 };
 
@@ -233,8 +235,8 @@ export default function Operadores() {
                   <TableCell className="text-sm">{fmtDate(d.fecha_ingreso)}</TableCell>
                   <TableCell className="text-sm">
                     {d.comision_tipo === "porcentaje"
-                      ? `${d.comision_valor}% por viaje`
-                      : `${fmtMXN(d.comision_valor)} fijo`}
+                      ? `Local ${d.comision_valor_local}% · Foráneo ${d.comision_valor_foraneo}%`
+                      : `Local ${fmtMXN(d.comision_valor_local)} · Foráneo ${fmtMXN(d.comision_valor_foraneo)}`}
                   </TableCell>
                   <TableCell>
                     <DriverStatusBadge status={d.estatus} />
@@ -392,11 +394,25 @@ export default function Operadores() {
                   </Select>
                 </div>
                 <div>
-                  <Label>{form.comision_tipo === "porcentaje" ? "% sobre tarifa" : "Monto MXN"}</Label>
+                  <Label>{form.comision_tipo === "porcentaje" ? "% local" : "Monto local MXN"}</Label>
                   <Input
                     type="number"
-                    value={form.comision_valor}
-                    onChange={(e) => setForm({ ...form, comision_valor: +e.target.value })}
+                    value={form.comision_valor_local}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        comision_valor_local: +e.target.value,
+                        comision_valor: +e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>{form.comision_tipo === "porcentaje" ? "% foráneo" : "Monto foráneo MXN"}</Label>
+                  <Input
+                    type="number"
+                    value={form.comision_valor_foraneo}
+                    onChange={(e) => setForm({ ...form, comision_valor_foraneo: +e.target.value })}
                   />
                 </div>
                 <div>

@@ -1,0 +1,200 @@
+import { randomUUID } from "node:crypto";
+import { Op } from "sequelize";
+import {
+  MaintenanceSchedule,
+  MaintenanceRecord,
+  Trip,
+  FuelTicket,
+  Truck,
+  Notification,
+} from "../models";
+import type { MaintenanceType } from "../models/MaintenanceSchedule";
+
+export async function getTruckOdometer(tenantId: string, truckId: string): Promise<number> {
+  const lastTrip = await Trip.findOne({
+    where: { tenant_id: tenantId, truck_id: truckId, estatus: "cerrado", km_final: { [Op.ne]: null } },
+    order: [["fecha_llegada", "DESC"]],
+    attributes: ["km_final"],
+  });
+  const lastFuel = await FuelTicket.findOne({
+    where: { tenant_id: tenantId, truck_id: truckId },
+    order: [["fecha", "DESC"], ["hora", "DESC"]],
+    attributes: ["odometro"],
+  });
+  const kmTrip = lastTrip?.km_final ?? 0;
+  const kmFuel = lastFuel?.odometro ?? 0;
+  return Math.max(kmTrip, kmFuel);
+}
+
+export async function listSchedules(tenantId: string, truckId?: string) {
+  const where: Record<string, unknown> = { tenant_id: tenantId, activo: true };
+  if (truckId) where.truck_id = truckId;
+  return MaintenanceSchedule.findAll({ where, order: [["truck_id", "ASC"], ["tipo", "ASC"]] });
+}
+
+export async function upsertSchedule(
+  tenantId: string,
+  data: {
+    truck_id: string;
+    tipo: MaintenanceType;
+    intervalo_km?: number | null;
+    ultimo_km?: number;
+    ultima_fecha?: string | null;
+  },
+) {
+  const truck = await Truck.findOne({ where: { id: data.truck_id, tenant_id: tenantId } });
+  if (!truck) {
+    const err = new Error("Camión no encontrado");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  const existing = await MaintenanceSchedule.findOne({
+    where: { tenant_id: tenantId, truck_id: data.truck_id, tipo: data.tipo },
+  });
+  if (existing) {
+    await existing.update({
+      intervalo_km: data.intervalo_km ?? null,
+      ultimo_km: data.ultimo_km ?? existing.ultimo_km,
+      ultima_fecha: data.ultima_fecha ?? existing.ultima_fecha,
+    } as never);
+    return existing;
+  }
+  return MaintenanceSchedule.create({
+    id: randomUUID(),
+    tenant_id: tenantId,
+    truck_id: data.truck_id,
+    tipo: data.tipo,
+    intervalo_km: data.intervalo_km ?? null,
+    ultimo_km: data.ultimo_km ?? 0,
+    ultima_fecha: data.ultima_fecha ?? null,
+    activo: true,
+  } as never);
+}
+
+export async function listRecords(tenantId: string, truckId?: string) {
+  const where: Record<string, unknown> = { tenant_id: tenantId };
+  if (truckId) where.truck_id = truckId;
+  return MaintenanceRecord.findAll({
+    where,
+    order: [["fecha", "DESC"], ["km_odometro", "DESC"]],
+  });
+}
+
+export async function createRecord(
+  tenantId: string,
+  data: {
+    truck_id: string;
+    tipo: MaintenanceType;
+    km_odometro: number;
+    fecha: string;
+    costo: number;
+    descripcion: string;
+    taller?: string;
+  },
+) {
+  const truck = await Truck.findOne({ where: { id: data.truck_id, tenant_id: tenantId } });
+  if (!truck) {
+    const err = new Error("Camión no encontrado");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  const record = await MaintenanceRecord.create({
+    id: randomUUID(),
+    tenant_id: tenantId,
+    ...data,
+  } as never);
+
+  const schedule = await MaintenanceSchedule.findOne({
+    where: { tenant_id: tenantId, truck_id: data.truck_id, tipo: data.tipo },
+  });
+  if (schedule) {
+    await schedule.update({ ultimo_km: data.km_odometro, ultima_fecha: data.fecha } as never);
+  }
+
+  return record;
+}
+
+export async function checkMaintenanceAlerts(tenantId: string) {
+  const schedules = await MaintenanceSchedule.findAll({
+    where: { tenant_id: tenantId, activo: true, tipo: { [Op.ne]: "correctivo" } },
+  });
+  const alerts: { truck_id: string; tipo: MaintenanceType; km_actual: number; km_proximo: number }[] = [];
+
+  for (const s of schedules) {
+    if (!s.intervalo_km || s.intervalo_km <= 0) continue;
+    const kmActual = await getTruckOdometer(tenantId, s.truck_id);
+    const kmProximo = s.ultimo_km + s.intervalo_km;
+    if (kmActual >= kmProximo) {
+      alerts.push({ truck_id: s.truck_id, tipo: s.tipo, km_actual: kmActual, km_proximo: kmProximo });
+      const existing = await Notification.findOne({
+        where: {
+          tenant_id: tenantId,
+          tipo: "mantenimiento_km",
+          leida: false,
+        },
+      });
+      if (!existing) {
+        await Notification.create({
+          id: randomUUID(),
+          tenant_id: tenantId,
+          user_id: null,
+          tipo: "mantenimiento_km",
+          payload: { truck_id: s.truck_id, tipo: s.tipo, km_actual: kmActual, km_proximo: kmProximo },
+          alert_date: new Date().toISOString().slice(0, 10),
+          leida: false,
+        } as never);
+      }
+    }
+  }
+  return alerts;
+}
+
+export async function maintenanceOverview(tenantId: string): Promise<
+  {
+    truck_id: string;
+    numero_economico: string;
+    placas: string;
+    km_actual: number;
+    proximos: { tipo: MaintenanceType; km_proximo: number; km_restantes: number; vencido: boolean }[];
+    ultimos_registros: { id: string; tipo: MaintenanceType; fecha: string; km_odometro: number; descripcion: string }[];
+  }[]
+> {
+  const trucks = await Truck.findAll({
+    where: { tenant_id: tenantId, estatus: { [Op.ne]: "baja" } },
+    order: [["numero_economico", "ASC"]],
+  });
+  const schedules = await listSchedules(tenantId);
+  const records = await listRecords(tenantId);
+
+  return Promise.all(
+    trucks.map(async (truck) => {
+      const km_actual = await getTruckOdometer(tenantId, truck.id);
+      const truckSchedules = schedules.filter((s) => s.truck_id === truck.id);
+      const proximos = truckSchedules
+        .filter((s) => s.tipo !== "correctivo" && s.intervalo_km)
+        .map((s) => ({
+          tipo: s.tipo,
+          km_proximo: s.ultimo_km + (s.intervalo_km ?? 0),
+          km_restantes: Math.max(0, s.ultimo_km + (s.intervalo_km ?? 0) - km_actual),
+          vencido: km_actual >= s.ultimo_km + (s.intervalo_km ?? 0),
+        }));
+      return {
+        truck_id: truck.id,
+        numero_economico: truck.numero_economico,
+        placas: truck.placas,
+        km_actual,
+        proximos,
+        ultimos_registros: records
+          .filter((r) => r.truck_id === truck.id)
+          .slice(0, 5)
+          .map((r) => ({
+            id: r.id,
+            tipo: r.tipo,
+            fecha: r.fecha,
+            km_odometro: r.km_odometro,
+            descripcion: r.descripcion,
+          })),
+      };
+    }),
+  );
+}

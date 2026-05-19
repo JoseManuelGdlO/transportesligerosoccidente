@@ -1,7 +1,10 @@
 export type TruckStatus = "activo" | "taller" | "baja";
 export type DriverStatus = "activo" | "inactivo";
 export type TripStatus = "en_curso" | "cerrado";
+export type TripType = "local" | "foraneo";
 export type CommissionType = "porcentaje" | "fijo";
+export type MaintenanceType = "menor" | "intermedio" | "correctivo";
+export type DiscountType = "prestamo" | "dano" | "multa" | "otro";
 export type ExpenseCategory = "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
 export type UserRole = "admin" | "capturista";
 export type UserStatus = "activo" | "inactivo";
@@ -258,7 +261,9 @@ export interface Driver {
   licencia: string;
   fecha_ingreso: string; // ISO
   comision_tipo: CommissionType;
-  comision_valor: number; // % (0-100) o monto fijo
+  comision_valor: number; // legacy / local
+  comision_valor_local: number;
+  comision_valor_foraneo: number;
   estatus: DriverStatus;
   rfc?: string;
   licencia_federal?: string;
@@ -350,6 +355,10 @@ export interface FuelLoad {
   precio_litro: number;
   ubicacion: string;
   fecha: string;
+  es_foraneo?: boolean;
+  estacion_nombre?: string;
+  es_estacion_empresa?: boolean;
+  comprobante_url?: string;
 }
 
 export interface Expense {
@@ -377,12 +386,48 @@ export interface Trip {
   viaticos_entregados: number;
   num_factura?: string;
   comision_override?: number | null; // si admin lo edita
+  tipo_viaje: TripType;
+  settlement_id?: string;
   estatus: TripStatus;
   fuel: FuelLoad[];
   expenses: Expense[];
   ubicaciones?: TripUbicacion[];
   mercancias?: TripMercancia[];
   carta_porte?: CartaPorteRecord;
+}
+
+export interface DriverAdvance {
+  id: string;
+  monto: number;
+  fecha: string;
+  descripcion: string;
+  settlement_id?: string;
+}
+
+export interface DriverDiscount {
+  id: string;
+  tipo: DiscountType;
+  monto: number;
+  fecha: string;
+  descripcion: string;
+  settlement_id?: string;
+}
+
+export interface SettlementSummaryApi {
+  driver: Driver;
+  periodo: { inicio: string; fin: string };
+  total_ingresos: number;
+  total_comisiones: number;
+  total_km: number;
+  viaticos_entregados: number;
+  viaticos_comprobados: number;
+  saldo_viaticos: number;
+  total_descuentos: number;
+  total_anticipos: number;
+  neto_pagar: number;
+  advances: DriverAdvance[];
+  discounts: DriverDiscount[];
+  trips: Trip[];
 }
 
 export interface SettlementRecord {
@@ -392,4 +437,35 @@ export interface SettlementRecord {
   fecha_fin: string;
   cerrado: boolean;
   cerrado_at?: string;
+  snapshot?: SettlementSummaryApi;
+}
+
+export interface MaintenanceScheduleRow {
+  id: string;
+  truck_id: string;
+  tipo: MaintenanceType;
+  intervalo_km: number | null;
+  ultimo_km: number;
+  ultima_fecha?: string;
+  activo: boolean;
+}
+
+export interface MaintenanceRecordRow {
+  id: string;
+  truck_id: string;
+  tipo: MaintenanceType;
+  km_odometro: number;
+  fecha: string;
+  costo: number;
+  descripcion: string;
+  taller?: string;
+}
+
+export interface MaintenanceOverviewUnit {
+  truck_id: string;
+  numero_economico: string;
+  placas: string;
+  km_actual: number;
+  proximos: { tipo: MaintenanceType; km_proximo: number; km_restantes: number; vencido: boolean }[];
+  ultimos_registros: { id: string; tipo: MaintenanceType; fecha: string; km_odometro: number; descripcion: string }[];
 }

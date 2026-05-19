@@ -9,12 +9,35 @@ export const mockTrucks: Truck[] = [
   { id: "t5", numero_economico: "T-105", placas: "JAL-5566-E", marca: "Kenworth", modelo: "T880", anio: 2019, rendimiento_esperado: 2.9, costo_km_ref: 19.5, estatus: "activo" },
 ];
 
+const mkDriver = (
+  id: string,
+  nombre: string,
+  telefono: string,
+  licencia: string,
+  fecha_ingreso: string,
+  comision_tipo: Driver["comision_tipo"],
+  local: number,
+  foraneo: number,
+  estatus: Driver["estatus"],
+): Driver => ({
+  id,
+  nombre,
+  telefono,
+  licencia,
+  fecha_ingreso,
+  comision_tipo,
+  comision_valor: local,
+  comision_valor_local: local,
+  comision_valor_foraneo: foraneo,
+  estatus,
+});
+
 export const mockDrivers: Driver[] = [
-  { id: "d1", nombre: "Juan Pérez Hernández", telefono: "33-1122-3344", licencia: "E-78451", fecha_ingreso: "2022-03-15", comision_tipo: "porcentaje", comision_valor: 8, estatus: "activo" },
-  { id: "d2", nombre: "Carlos Ramírez López", telefono: "33-2233-4455", licencia: "E-65213", fecha_ingreso: "2021-08-01", comision_tipo: "porcentaje", comision_valor: 10, estatus: "activo" },
-  { id: "d3", nombre: "Miguel Ángel Torres", telefono: "33-3344-5566", licencia: "E-90112", fecha_ingreso: "2023-01-10", comision_tipo: "fijo", comision_valor: 1500, estatus: "activo" },
-  { id: "d4", nombre: "Roberto Castañeda Ruiz", telefono: "33-4455-6677", licencia: "E-44321", fecha_ingreso: "2020-06-20", comision_tipo: "porcentaje", comision_valor: 9, estatus: "activo" },
-  { id: "d5", nombre: "José Luis Mendoza", telefono: "33-5566-7788", licencia: "E-33445", fecha_ingreso: "2024-02-05", comision_tipo: "porcentaje", comision_valor: 7, estatus: "inactivo" },
+  mkDriver("d1", "Juan Pérez Hernández", "33-1122-3344", "E-78451", "2022-03-15", "porcentaje", 8, 10, "activo"),
+  mkDriver("d2", "Carlos Ramírez López", "33-2233-4455", "E-65213", "2021-08-01", "porcentaje", 10, 12, "activo"),
+  mkDriver("d3", "Miguel Ángel Torres", "33-3344-5566", "E-90112", "2023-01-10", "fijo", 1500, 1800, "activo"),
+  mkDriver("d4", "Roberto Castañeda Ruiz", "33-4455-6677", "E-44321", "2020-06-20", "porcentaje", 9, 11, "activo"),
+  mkDriver("d5", "José Luis Mendoza", "33-5566-7788", "E-33445", "2024-02-05", "porcentaje", 7, 9, "inactivo"),
 ];
 
 export const mockClients: Client[] = [
@@ -39,7 +62,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(6), fecha_llegada: daysAgo(5),
     km_inicial: 145320, km_final: 146120,
     tarifa: 38000, viaticos_entregados: 3500,
-    num_factura: "F-8821", estatus: "cerrado",
+    num_factura: "F-8821", tipo_viaje: "foraneo", estatus: "cerrado",
     fuel: [
       { id: "f1", litros: 180, precio_litro: 25.8, ubicacion: "Pemex GDL Norte", fecha: daysAgo(6) },
       { id: "f2", litros: 80, precio_litro: 26.1, ubicacion: "Pemex Saltillo", fecha: daysAgo(5) },
@@ -57,7 +80,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(5), fecha_llegada: daysAgo(4),
     km_inicial: 98220, km_final: 98780,
     tarifa: 28500, viaticos_entregados: 2800,
-    num_factura: "F-8822", estatus: "cerrado",
+    num_factura: "F-8822", tipo_viaje: "local", estatus: "cerrado",
     fuel: [
       { id: "f3", litros: 165, precio_litro: 25.9, ubicacion: "Pemex Tlaquepaque", fecha: daysAgo(5) },
     ],
@@ -74,7 +97,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(4), fecha_llegada: daysAgo(3),
     km_inicial: 210450, km_final: 210860,
     tarifa: 18500, viaticos_entregados: 1800,
-    num_factura: "F-8823", estatus: "cerrado",
+    num_factura: "F-8823", tipo_viaje: "local", estatus: "cerrado",
     fuel: [
       { id: "f4", litros: 130, precio_litro: 26.0, ubicacion: "Pemex La Piedad", fecha: daysAgo(4) },
     ],
@@ -90,7 +113,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(3), fecha_llegada: daysAgo(2),
     km_inicial: 146120, km_final: 146650,
     tarifa: 22000, viaticos_entregados: 2200,
-    num_factura: "F-8824", estatus: "cerrado",
+    num_factura: "F-8824", tipo_viaje: "foraneo", estatus: "cerrado",
     fuel: [
       { id: "f5", litros: 150, precio_litro: 26.2, ubicacion: "Pemex Tepic", fecha: daysAgo(3) },
     ],
@@ -106,7 +129,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(2), fecha_llegada: daysAgo(1),
     km_inicial: 320110, km_final: 320390,
     tarifa: 14500, viaticos_entregados: 1500,
-    num_factura: "F-8825", estatus: "cerrado",
+    num_factura: "F-8825", tipo_viaje: "local", estatus: "cerrado",
     fuel: [
       { id: "f6", litros: 95, precio_litro: 26.3, ubicacion: "Pemex Zapotlanejo", fecha: daysAgo(2) },
     ],
@@ -122,6 +145,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(1),
     km_inicial: 98780,
     tarifa: 16800, viaticos_entregados: 1600,
+    tipo_viaje: "local",
     estatus: "en_curso",
     fuel: [
       { id: "f7", litros: 100, precio_litro: 26.4, ubicacion: "Pemex Ameca", fecha: daysAgo(1) },
@@ -137,6 +161,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(0),
     km_inicial: 210860,
     tarifa: 13200, viaticos_entregados: 1300,
+    tipo_viaje: "local",
     estatus: "en_curso",
     fuel: [],
     expenses: [],

@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, driverById, truckById } from "@/lib/calc";
+import { computeTrip, driverById, truckById, driverCommissionRate } from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -47,7 +47,14 @@ export default function ViajeDetalle() {
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
-  const [fuel, setFuel] = useState({ litros: 0, precio_litro: 26, ubicacion: "" });
+  const [fuel, setFuel] = useState({
+    litros: 0,
+    precio_litro: 26,
+    ubicacion: "",
+    es_foraneo: false,
+    estacion_nombre: "",
+  });
+  const [fuelReceipt, setFuelReceipt] = useState<File | null>(null);
   const [exp, setExp] = useState<{ categoria: ExpenseCategory; descripcion: string; monto: number; comprobado: boolean }>({ categoria: "casetas", descripcion: "", monto: 0, comprobado: true });
   const [closeData, setCloseData] = useState({ km_final: 0, fecha_llegada: new Date().toISOString().slice(0, 16), num_factura: "" });
 
@@ -68,10 +75,33 @@ export default function ViajeDetalle() {
 
   const onAddFuel = async () => {
     if (fuel.litros <= 0 || fuel.precio_litro <= 0) { toast.error("Captura litros y precio"); return; }
-    addFuel(trip.id, { ...fuel, fecha: new Date().toISOString() });
-    setFuel({ litros: 0, precio_litro: 26, ubicacion: "" });
+    if (!fuel.ubicacion.trim()) { toast.error("Captura la estación o ubicación"); return; }
+    let comprobante_url: string | undefined;
+    if (fuelReceipt && hasApiConfigured()) {
+      const fd = new FormData();
+      fd.append("file", fuelReceipt);
+      const r = await apiFetch(`/trips/${trip.id}/fuel-receipt`, { method: "POST", body: fd });
+      if (!r.ok) {
+        toast.error("No se pudo subir el comprobante");
+        return;
+      }
+      const j = await readJson<{ comprobante_url: string }>(r);
+      comprobante_url = j.comprobante_url;
+    }
+    addFuel(trip.id, {
+      litros: fuel.litros,
+      precio_litro: fuel.precio_litro,
+      ubicacion: fuel.ubicacion,
+      fecha: new Date().toISOString(),
+      es_foraneo: fuel.es_foraneo,
+      estacion_nombre: fuel.estacion_nombre || fuel.ubicacion,
+      es_estacion_empresa: !fuel.es_foraneo,
+      comprobante_url,
+    });
+    setFuel({ litros: 0, precio_litro: 26, ubicacion: "", es_foraneo: false, estacion_nombre: "" });
+    setFuelReceipt(null);
     setFuelOpen(false);
-    toast.success("Carga de diesel registrada");
+    toast.success(fuel.es_foraneo ? "Ticket foráneo registrado" : "Carga de diesel registrada");
     await reloadTrip();
   };
   const onAddExp = async () => {
@@ -110,6 +140,7 @@ export default function ViajeDetalle() {
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold font-mono">{trip.folio}</h2>
               <TripStatusBadge status={trip.estatus} />
+              <Badge variant="outline">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</Badge>
             </div>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               <MapPin className="h-3 w-3" /> {trip.origen} → {trip.destino}
@@ -123,6 +154,12 @@ export default function ViajeDetalle() {
           </Button>
         )}
       </div>
+
+      {isClosed && (
+        <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground">
+          Viaje cerrado: puedes seguir registrando <strong>gastos</strong> y <strong>diesel</strong> (incluye tickets foráneos de estaciones externas).
+        </div>
+      )}
 
       {/* Tarjeta de rentabilidad siempre visible */}
       <Card className="tlo-shadow-lg border-0 tlo-gradient-primary text-primary-foreground">
@@ -186,6 +223,7 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Cliente</p><p className="font-medium">{client?.razon_social}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Operador</p><p className="font-medium">{driver?.nombre}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
+                <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>
               </div>
               <div className="space-y-3">
@@ -271,13 +309,14 @@ export default function ViajeDetalle() {
             </CardHeader>
             <CardContent className="p-0">
               <Table>
-                <TableHeader><TableRow className="bg-secondary/50"><TableHead>Fecha</TableHead><TableHead>Ubicación</TableHead><TableHead className="text-right">Litros</TableHead><TableHead className="text-right">$/L</TableHead><TableHead className="text-right">Total</TableHead><TableHead></TableHead></TableRow></TableHeader>
+                <TableHeader><TableRow className="bg-secondary/50"><TableHead>Fecha</TableHead><TableHead>Ubicación</TableHead><TableHead>Tipo</TableHead><TableHead className="text-right">Litros</TableHead><TableHead className="text-right">$/L</TableHead><TableHead className="text-right">Total</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {trip.fuel.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sin cargas registradas</TableCell></TableRow>}
+                  {trip.fuel.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin cargas registradas</TableCell></TableRow>}
                   {trip.fuel.map(f => (
                     <TableRow key={f.id}>
                       <TableCell className="text-sm">{fmtDate(f.fecha)}</TableCell>
-                      <TableCell className="text-sm">{f.ubicacion}</TableCell>
+                      <TableCell className="text-sm">{f.estacion_nombre || f.ubicacion}</TableCell>
+                      <TableCell>{f.es_foraneo ? <Badge variant="outline" className="text-warning-foreground border-warning/40">Foráneo</Badge> : <Badge variant="outline">Empresa</Badge>}</TableCell>
                       <TableCell className="text-right font-mono">{fmtNumber(f.litros, 1)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtMXN(f.precio_litro)}</TableCell>
                       <TableCell className="text-right font-semibold">{fmtMXN(f.litros * f.precio_litro)}</TableCell>
@@ -300,7 +339,7 @@ export default function ViajeDetalle() {
               <Table>
                 <TableHeader><TableRow className="bg-secondary/50"><TableHead>Fecha</TableHead><TableHead>Categoría</TableHead><TableHead>Descripción</TableHead><TableHead>Comprobado</TableHead><TableHead className="text-right">Monto</TableHead><TableHead></TableHead></TableRow></TableHeader>
                 <TableBody>
-                  {trip.expenses.length === 0 && <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sin gastos registrados</TableCell></TableRow>}
+                  {trip.expenses.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin gastos registrados</TableCell></TableRow>}
                   {trip.expenses.map(e => (
                     <TableRow key={e.id}>
                       <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
@@ -326,7 +365,8 @@ export default function ViajeDetalle() {
             <CardHeader><CardTitle className="text-base flex items-center gap-2"><DollarSign className="h-4 w-4" /> Comisión del operador</CardTitle></CardHeader>
             <CardContent className="space-y-4">
               <div className="grid grid-cols-2 gap-4 text-sm">
-                <div><p className="text-muted-foreground">Esquema configurado</p><p className="font-semibold">{driver?.comision_tipo === "porcentaje" ? `${driver.comision_valor}% sobre tarifa` : `${fmtMXN(driver?.comision_valor || 0)} fijo`}</p></div>
+                <div><p className="text-muted-foreground">Esquema configurado</p><p className="font-semibold">{driver?.comision_tipo === "porcentaje" ? `Local ${driver.comision_valor_local}% · Foráneo ${driver.comision_valor_foraneo}%` : `Local ${fmtMXN(driver?.comision_valor_local || 0)} · Foráneo ${fmtMXN(driver?.comision_valor_foraneo || 0)}`}</p></div>
+                <div><p className="text-muted-foreground">Aplica en este viaje</p><p className="font-semibold">{driver && driver.comision_tipo === "porcentaje" ? `${driverCommissionRate(trip, driver)}%` : fmtMXN(driver ? driverCommissionRate(trip, driver) : 0)}</p></div>
                 <div><p className="text-muted-foreground">Tarifa del viaje</p><p className="font-semibold">{fmtMXN(trip.tarifa)}</p></div>
               </div>
               <div className="bg-secondary p-4 rounded-md">
@@ -361,9 +401,14 @@ export default function ViajeDetalle() {
         <DialogContent>
           <DialogHeader><DialogTitle>Agregar carga de diesel</DialogTitle></DialogHeader>
           <div className="grid grid-cols-2 gap-3">
+            <label className="col-span-2 flex items-center gap-2 text-sm cursor-pointer border rounded-md p-3">
+              <Checkbox checked={fuel.es_foraneo} onCheckedChange={c => setFuel({ ...fuel, es_foraneo: !!c })} />
+              Ticket foráneo / estación externa (fuera de red empresa)
+            </label>
             <div><Label>Litros</Label><Input type="number" step="0.1" value={fuel.litros} onChange={e => setFuel({ ...fuel, litros: +e.target.value })} /></div>
             <div><Label>Precio por litro</Label><Input type="number" step="0.1" value={fuel.precio_litro} onChange={e => setFuel({ ...fuel, precio_litro: +e.target.value })} /></div>
-            <div className="col-span-2"><Label>Ubicación</Label><Input value={fuel.ubicacion} onChange={e => setFuel({ ...fuel, ubicacion: e.target.value })} placeholder="Pemex GDL Norte" /></div>
+            <div className="col-span-2"><Label>Estación / ubicación</Label><Input value={fuel.ubicacion} onChange={e => setFuel({ ...fuel, ubicacion: e.target.value, estacion_nombre: e.target.value })} placeholder={fuel.es_foraneo ? "Gasolinera en ruta" : "Pemex GDL Norte"} /></div>
+            <div className="col-span-2"><Label>Comprobante (opcional)</Label><Input type="file" accept="image/*,application/pdf" onChange={e => setFuelReceipt(e.target.files?.[0] ?? null)} /></div>
             <div className="col-span-2 bg-secondary p-3 rounded text-sm">Total: <span className="font-bold">{fmtMXN(fuel.litros * fuel.precio_litro)}</span></div>
           </div>
           <DialogFooter><Button variant="outline" onClick={() => setFuelOpen(false)}>Cancelar</Button><Button onClick={onAddFuel}>Registrar</Button></DialogFooter>

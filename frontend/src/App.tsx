@@ -21,6 +21,7 @@ import Usuarios from "@/pages/tlo/Usuarios";
 import Marca from "@/pages/tlo/Marca";
 import Empresa from "@/pages/tlo/Empresa";
 import TiposDocumento from "@/pages/tlo/TiposDocumento";
+import Mantenimiento from "@/pages/tlo/Mantenimiento";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 const queryClient = new QueryClient();
@@ -40,6 +41,7 @@ const App = () => (
                 <Route path="/viajes" element={<Viajes />} />
                 <Route path="/viajes/:id" element={<ViajeDetalle />} />
                 <Route path="/camiones" element={<Camiones />} />
+                <Route path="/mantenimiento" element={<Mantenimiento />} />
                 <Route path="/operadores" element={<Operadores />} />
                 <Route path="/clientes" element={<Clientes />} />
                 <Route path="/liquidaciones" element={<Liquidaciones />} />

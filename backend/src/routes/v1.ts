@@ -11,6 +11,9 @@ import * as cartaPorteC from "../controllers/cartaPorteController";
 import * as fiscalC from "../controllers/fiscalController";
 import { uploadCsd } from "../middlewares/uploadCsd";
 import * as settlementC from "../controllers/settlementController";
+import * as driverFinanceC from "../controllers/driverFinanceController";
+import * as maintenanceC from "../controllers/maintenanceController";
+import { uploadFuelReceipt } from "../middlewares/uploadFuelReceipt";
 import * as userC from "../controllers/userController";
 import * as roleC from "../controllers/roleController";
 import * as reportsC from "../controllers/reportsController";
@@ -72,6 +75,13 @@ r.post("/trips/:id/close", authenticateJwt, requirePermission("viajes.cerrar"), 
 r.delete("/trips/:id", authenticateJwt, requirePermission("viajes.eliminar"), tripC.deleteTrip);
 
 r.post("/trips/:id/fuel", authenticateJwt, requirePermission("viajes.crear"), tripC.postFuel);
+r.post(
+  "/trips/:id/fuel-receipt",
+  authenticateJwt,
+  requirePermission("viajes.crear"),
+  uploadFuelReceipt.single("file"),
+  tripC.postFuelReceipt,
+);
 r.delete("/trips/:id/fuel/:fuelId", authenticateJwt, requirePermission("viajes.crear"), tripC.deleteFuel);
 r.post("/trips/:id/expenses", authenticateJwt, requirePermission("viajes.crear"), tripC.postExpense);
 r.delete("/trips/:id/expenses/:expenseId", authenticateJwt, requirePermission("viajes.crear"), tripC.deleteExpense);
@@ -86,8 +96,59 @@ r.get("/trips/:id/mercancias", authenticateJwt, requirePermission("cartaporte.ve
 r.post("/trips/:id/mercancias", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.postMercancia);
 r.delete("/trips/:id/mercancias/:mercanciaId", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.deleteMercancia);
 
+r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);
+r.post("/settlements/draft", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postDraft);
 r.post("/settlements/close", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postClose);
+r.post(
+  "/settlements/:id/close",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  settlementC.postCloseById,
+);
+
+r.get(
+  "/drivers/:id/advances",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.listAdvances,
+);
+r.post(
+  "/drivers/:id/advances",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createAdvance,
+);
+r.delete(
+  "/drivers/:id/advances/:advanceId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.deleteAdvance,
+);
+r.get(
+  "/drivers/:id/discounts",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.listDiscounts,
+);
+r.post(
+  "/drivers/:id/discounts",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createDiscount,
+);
+r.delete(
+  "/drivers/:id/discounts/:discountId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.deleteDiscount,
+);
+
+r.get("/maintenance/overview", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.getOverview);
+r.get("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listSchedules);
+r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.upsertSchedule);
+r.get("/maintenance/records", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listRecords);
+r.post("/maintenance/records", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.createRecord);
 
 r.get("/users", authenticateJwt, requirePermission("usuarios.gestionar"), userC.listUsers);
 r.post("/users", authenticateJwt, requirePermission("usuarios.gestionar"), userC.createUser);

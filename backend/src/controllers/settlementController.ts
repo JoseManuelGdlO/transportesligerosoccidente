@@ -21,14 +21,35 @@ export const getSummary = asyncHandler(async (req: Request, res: Response) => {
   res.json(data);
 });
 
-const closeBody = z.object({
+export const listSettlements = asyncHandler(async (req: Request, res: Response) => {
+  const driverId = typeof req.query.driver_id === "string" ? req.query.driver_id : undefined;
+  const rows = await settlementService.listSettlements(req.user!.tenantId, driverId);
+  res.json(rows.map((r) => settlementToJson(r)));
+});
+
+const periodBody = z.object({
   driver_id: z.string().min(1),
   fecha_inicio: z.string().min(1),
   fecha_fin: z.string().min(1),
 });
 
+export const postDraft = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = periodBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await settlementService.createDraftSettlement(
+    req.user!.tenantId,
+    parsed.data.driver_id,
+    parsed.data.fecha_inicio,
+    parsed.data.fecha_fin,
+  );
+  res.status(201).json(settlementToJson(row));
+});
+
 export const postClose = asyncHandler(async (req: Request, res: Response) => {
-  const parsed = closeBody.safeParse(req.body);
+  const parsed = periodBody.safeParse(req.body);
   if (!parsed.success) {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
@@ -40,4 +61,9 @@ export const postClose = asyncHandler(async (req: Request, res: Response) => {
     parsed.data.fecha_fin,
   );
   res.status(201).json(settlementToJson(row));
+});
+
+export const postCloseById = asyncHandler(async (req: Request, res: Response) => {
+  const row = await settlementService.closeSettlementById(req.user!.tenantId, req.params.id);
+  res.json(settlementToJson(row));
 });

@@ -7,6 +7,7 @@ import {
   Wallet,
   BarChart3,
   Fuel,
+  Wrench,
   LogOut,
   ShieldCheck,
   Palette,
@@ -50,6 +51,7 @@ const operacion: NavItem[] = [
 
 const catalogos: NavItem[] = [
   { title: "Camiones", url: "/camiones", icon: TruckIcon, perm: "catalogos.ver" },
+  { title: "Mantenimiento", url: "/mantenimiento", icon: Wrench, perm: "catalogos.ver" },
   { title: "Operadores", url: "/operadores", icon: Users, perm: "catalogos.ver" },
   { title: "Clientes", url: "/clientes", icon: Building2, perm: "catalogos.ver" },
   { title: "Tipos de documento", url: "/tipos-documento", icon: FileText, perm: "catalogos.ver" },

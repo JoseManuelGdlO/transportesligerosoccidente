@@ -35,6 +35,10 @@ export function normalizeFuel(raw: Record<string, unknown>): FuelLoad {
     precio_litro: Number(raw.precio_litro ?? 0),
     ubicacion: String(raw.ubicacion ?? ""),
     fecha: String(raw.fecha ?? new Date().toISOString()),
+    es_foraneo: Boolean(raw.es_foraneo),
+    estacion_nombre: raw.estacion_nombre != null ? String(raw.estacion_nombre) : undefined,
+    es_estacion_empresa: raw.es_estacion_empresa !== false,
+    comprobante_url: raw.comprobante_url != null ? String(raw.comprobante_url) : undefined,
   };
 }
 
@@ -130,6 +134,8 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     viaticos_entregados: Number(raw.viaticos_entregados ?? 0),
     num_factura: raw.num_factura != null ? String(raw.num_factura) : undefined,
     comision_override: raw.comision_override != null ? Number(raw.comision_override) : undefined,
+    tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : "local",
+    settlement_id: raw.settlement_id != null ? String(raw.settlement_id) : undefined,
     estatus: raw.estatus === "cerrado" ? "cerrado" : "en_curso",
     fuel,
     expenses,
@@ -169,7 +175,9 @@ export function normalizeDriver(raw: Record<string, unknown>): Driver {
     licencia: String(raw.licencia ?? ""),
     fecha_ingreso: fi instanceof Date ? fi.toISOString().slice(0, 10) : String(fi ?? "").slice(0, 10),
     comision_tipo: raw.comision_tipo === "fijo" ? "fijo" : "porcentaje",
-    comision_valor: Number(raw.comision_valor ?? 0),
+    comision_valor: Number(raw.comision_valor ?? raw.comision_valor_local ?? 0),
+    comision_valor_local: Number(raw.comision_valor_local ?? raw.comision_valor ?? 0),
+    comision_valor_foraneo: Number(raw.comision_valor_foraneo ?? raw.comision_valor ?? 0),
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
     rfc: raw.rfc != null ? String(raw.rfc) : undefined,
     licencia_federal: raw.licencia_federal != null ? String(raw.licencia_federal) : undefined,

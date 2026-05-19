@@ -92,9 +92,19 @@ export async function deleteTrip(tenantId: string, id: string) {
 export async function addFuel(
   tenantId: string,
   tripId: string,
-  body: { litros: number; precio_litro: number; ubicacion: string; fecha?: string },
+  body: {
+    litros: number;
+    precio_litro: number;
+    ubicacion: string;
+    fecha?: string;
+    es_foraneo?: boolean;
+    estacion_nombre?: string;
+    es_estacion_empresa?: boolean;
+    comprobante_url?: string;
+  },
 ) {
   await getTripOrThrow(tenantId, tripId, false);
+  const esForaneo = !!body.es_foraneo;
   return FuelLoad.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -102,6 +112,10 @@ export async function addFuel(
     litros: body.litros,
     precio_litro: body.precio_litro,
     ubicacion: body.ubicacion,
+    es_foraneo: esForaneo,
+    estacion_nombre: body.estacion_nombre?.trim() || body.ubicacion,
+    es_estacion_empresa: esForaneo ? false : body.es_estacion_empresa !== false,
+    comprobante_url: body.comprobante_url ?? null,
     fecha: body.fecha ? new Date(body.fecha) : new Date(),
   } as never);
 }
@@ -162,6 +176,7 @@ const PATCH_OPEN_ONLY = [
   "tarifa",
   "viaticos_entregados",
   "fecha_salida",
+  "tipo_viaje",
 ] as const;
 
 const PATCH_WHEN_CLOSED = ["num_factura", "comision_override"] as const;
@@ -233,6 +248,7 @@ export async function createTrip(
     tarifa: number;
     viaticos_entregados?: number;
     num_factura?: string;
+    tipo_viaje?: "local" | "foraneo";
   },
 ) {
   await assertCatalogRefs(tenantId, {
@@ -257,6 +273,7 @@ export async function createTrip(
         tarifa: data.tarifa,
         viaticos_entregados: data.viaticos_entregados ?? 0,
         num_factura: data.num_factura?.trim() || null,
+        tipo_viaje: data.tipo_viaje ?? "local",
         estatus: "en_curso",
       } as never,
       { transaction: t },
