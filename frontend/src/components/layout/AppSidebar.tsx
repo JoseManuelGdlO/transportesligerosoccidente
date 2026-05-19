@@ -12,6 +12,7 @@ import {
   ShieldCheck,
   Palette,
   FileText,
+  FileImage,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -62,6 +63,7 @@ const administracion: NavItem[] = [
     ? [{ title: "Empresa y fiscal", url: "/empresa", icon: Building2, perm: "fiscal.configurar" as Permission }]
     : []),
   { title: "Marca y tema", url: "/marca", icon: Palette, perm: "marca.gestionar" },
+  { title: "Personalización PDF", url: "/personalizacion-pdf", icon: FileImage, perm: "marca.gestionar" },
   { title: "Usuarios y permisos", url: "/usuarios", icon: ShieldCheck, perm: "usuarios.gestionar" },
 ];
 

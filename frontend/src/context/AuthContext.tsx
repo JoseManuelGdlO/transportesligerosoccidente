@@ -1,5 +1,5 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
-import type { UserRole, Permission, Tenant } from "@/types/tlo";
+import type { UserRole, Permission, Tenant, PdfConfig } from "@/types/tlo";
 import { FULL_ADMIN_PERMISSIONS } from "@/types/tlo";
 import { apiFetch, getStoredToken, getStoredRefreshToken, hasApiConfigured, clearAuthTokens, setStoredToken, setStoredRefreshToken, tryRestoreSessionFromRefresh } from "@/lib/api";
 import { applyTenantThemeCss } from "@/lib/theme";
@@ -41,6 +41,20 @@ function parseTenant(raw: Record<string, unknown>): Tenant {
     color_primary: raw.color_primary != null ? String(raw.color_primary) : undefined,
     color_accent: raw.color_accent != null ? String(raw.color_accent) : undefined,
     color_sidebar: raw.color_sidebar != null ? String(raw.color_sidebar) : undefined,
+    pdf_config: parsePdfConfig(raw.pdf_config),
+    has_pdf_logo: raw.has_pdf_logo === true,
+  };
+}
+
+function parsePdfConfig(raw: unknown): PdfConfig | undefined {
+  if (!raw || typeof raw !== "object") return undefined;
+  const o = raw as Record<string, unknown>;
+  if (typeof o.titulo !== "string") return undefined;
+  return {
+    titulo: o.titulo,
+    color_header: typeof o.color_header === "string" ? o.color_header : "#212529",
+    color_header_text: typeof o.color_header_text === "string" ? o.color_header_text : "#ffffff",
+    pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina : "",
   };
 }
 

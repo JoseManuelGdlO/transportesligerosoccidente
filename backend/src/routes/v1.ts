@@ -27,6 +27,7 @@ import * as notifC from "../controllers/notificationController";
 import * as pushC from "../controllers/pushController";
 import { uploadDriverDocument, uploadTruckDocument } from "../middlewares/uploadDocument";
 import { loadDocumentForPatch, uploadDocumentPatch } from "../middlewares/documentPatchUpload";
+import { uploadPdfLogo } from "../middlewares/uploadPdfLogo";
 
 const r = Router();
 
@@ -38,6 +39,18 @@ r.get("/auth/me", authenticateJwt, getMe);
 r.get("/tenant", authenticateJwt, tenantC.getTenant);
 r.patch("/tenant", authenticateJwt, requirePermission("empresa.gestionar"), tenantC.patchTenant);
 r.patch("/tenant/theme", authenticateJwt, requirePermission("marca.gestionar"), tenantC.patchTenantTheme);
+
+r.get("/tenant/pdf-config", authenticateJwt, requirePermission("marca.gestionar"), tenantC.getPdfConfig);
+r.patch("/tenant/pdf-config", authenticateJwt, requirePermission("marca.gestionar"), tenantC.patchPdfConfig);
+r.post(
+  "/tenant/pdf-logo",
+  authenticateJwt,
+  requirePermission("marca.gestionar"),
+  uploadPdfLogo.single("file"),
+  tenantC.uploadPdfLogoHandler,
+);
+r.delete("/tenant/pdf-logo", authenticateJwt, requirePermission("marca.gestionar"), tenantC.deletePdfLogo);
+r.get("/tenant/pdf-logo", authenticateJwt, tenantC.streamPdfLogo);
 
 r.get("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar", "cartaporte.ver"), fiscalC.getFiscalConfig);
 r.patch("/tenant/fiscal", authenticateJwt, requirePermission("fiscal.configurar"), fiscalC.patchFiscalConfig);

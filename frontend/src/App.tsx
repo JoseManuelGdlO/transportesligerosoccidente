@@ -19,6 +19,7 @@ import Reportes from "@/pages/tlo/Reportes";
 import Combustibles from "@/pages/tlo/Combustibles";
 import Usuarios from "@/pages/tlo/Usuarios";
 import Marca from "@/pages/tlo/Marca";
+import PersonalizacionPdf from "@/pages/tlo/PersonalizacionPdf";
 import Empresa from "@/pages/tlo/Empresa";
 import TiposDocumento from "@/pages/tlo/TiposDocumento";
 import Mantenimiento from "@/pages/tlo/Mantenimiento";
@@ -49,6 +50,7 @@ const App = () => (
                 <Route path="/combustibles" element={<Combustibles />} />
                 <Route path="/usuarios" element={<Usuarios />} />
                 <Route path="/marca" element={<Marca />} />
+                <Route path="/personalizacion-pdf" element={<PersonalizacionPdf />} />
                 {FEATURE_CARTA_PORTE ? <Route path="/empresa" element={<Empresa />} /> : null}
                 <Route path="/tipos-documento" element={<TiposDocumento />} />
               </Route>

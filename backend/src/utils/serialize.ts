@@ -265,8 +265,43 @@ export function settlementToJson(s: Settlement): Record<string, unknown> {
   };
 }
 
+export type PdfConfigJson = {
+  titulo: string;
+  color_header: string;
+  color_header_text: string;
+  pie_pagina: string;
+};
+
+export const DEFAULT_PDF_CONFIG: PdfConfigJson = {
+  titulo: "Liquidación semanal",
+  color_header: "#212529",
+  color_header_text: "#ffffff",
+  pie_pagina: "",
+};
+
+export function normalizePdfConfig(raw: unknown): PdfConfigJson {
+  const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
+  const hex = /^#[0-9A-Fa-f]{6}$/;
+  return {
+    titulo:
+      typeof o.titulo === "string" && o.titulo.trim()
+        ? o.titulo.trim().slice(0, 80)
+        : DEFAULT_PDF_CONFIG.titulo,
+    color_header:
+      typeof o.color_header === "string" && hex.test(o.color_header)
+        ? o.color_header
+        : DEFAULT_PDF_CONFIG.color_header,
+    color_header_text:
+      typeof o.color_header_text === "string" && hex.test(o.color_header_text)
+        ? o.color_header_text
+        : DEFAULT_PDF_CONFIG.color_header_text,
+    pie_pagina: typeof o.pie_pagina === "string" ? o.pie_pagina.slice(0, 200) : "",
+  };
+}
+
 export function tenantToJson(t: Tenant): Record<string, unknown> {
   const p = t.get({ plain: true }) as Record<string, unknown>;
+  const pdfConfig = normalizePdfConfig(p.pdf_config);
   return {
     id: p.id,
     slug: p.slug,
@@ -276,5 +311,7 @@ export function tenantToJson(t: Tenant): Record<string, unknown> {
     color_primary: p.color_primary ?? undefined,
     color_accent: p.color_accent ?? undefined,
     color_sidebar: p.color_sidebar ?? undefined,
+    pdf_config: pdfConfig,
+    has_pdf_logo: Boolean(p.pdf_logo_path),
   };
 }

@@ -4,7 +4,7 @@ import { useAuth } from "@/context/AuthContext";
 import { computeTrip } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
 import { Badge } from "@/components/ui/badge";
-import { downloadSettlementPdf } from "@/lib/settlementPdf";
+import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { apiFetch, readJson } from "@/lib/api";
 import type { DriverAdvance, DriverDiscount, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -392,9 +392,20 @@ export default function Liquidaciones() {
               <Card className="tlo-shadow-md">
                 <CardContent className="p-4 flex flex-wrap gap-2 justify-end">
                   <Button variant="outline" disabled={!summaryForPdf} onClick={() => {
-                    if (!driver || !summaryForPdf) return;
-                    downloadSettlementPdf({ tenantNombre: tenant?.nombre ?? "TLO", driver, inicio, fin, summary: summaryForPdf });
-                    toast.success("PDF descargado");
+                    void (async () => {
+                      if (!driver || !summaryForPdf) return;
+                      const logoDataUrl = tenant?.has_pdf_logo ? await loadPdfLogoDataUrl() : null;
+                      await downloadSettlementPdf({
+                        tenantNombre: tenant?.nombre ?? "TLO",
+                        driver,
+                        inicio,
+                        fin,
+                        summary: summaryForPdf,
+                        branding: tenant?.pdf_config,
+                        logoDataUrl,
+                      });
+                      toast.success("PDF descargado");
+                    })();
                   }}>
                     <FileText className="h-4 w-4 mr-2" /> PDF
                   </Button>
