@@ -25,7 +25,10 @@ function normHeader(h: string): string {
 }
 
 const HEADER_ALIASES: Record<string, string[]> = {
-  folio_tag: ["folio_tag", "folio", "id_token", "id", "tag", "folio_del_tag"],
+  /** TAG RFID del camión (columna "Tag" en Tothem). No confundir con "Folio" del dispensario. */
+  folio_tag: ["folio_tag", "tag", "id_token", "folio_del_tag"],
+  folio_proveedor: ["folio"],
+  id_tothem: ["id_tothem", "id_tothems"],
   numero_economico: [
     "numero_economico",
     "no_economico",
@@ -33,16 +36,15 @@ const HEADER_ALIASES: Record<string, string[]> = {
     "unidad",
     "numero_de_unidad",
     "referencia",
-    "descripcion",
   ],
-  placas: ["placas", "placa"],
+  placas: ["placas", "placa", "descripcion_corta"],
   fecha: ["fecha", "date"],
   hora: ["hora", "time"],
   odometro: ["odometro", "kilometraje", "km"],
   litros: ["litros", "litro", "volumen"],
   precio_litro: ["precio_litro", "precio", "precio_por_litro", "precio/l"],
   importe_total: ["importe_total", "importe", "total", "monto"],
-  ubicacion: ["ubicacion", "estacion", "gasolinera"],
+  ubicacion: ["ubicacion", "estacion", "gasolinera", "ruta"],
 };
 
 function mapHeaders(row: Record<string, unknown>): Record<string, string> {
@@ -69,8 +71,40 @@ function cellStr(row: Record<string, unknown>, col?: string): string {
 function cellNum(row: Record<string, unknown>, col?: string): number | null {
   const s = cellStr(row, col);
   if (!s) return null;
-  const n = Number(s.replace(/,/g, ""));
+  const normalized = s.replace(/[\s\u00a0\u202f]/g, "").replace(/,/g, "");
+  const n = Number(normalized);
   return Number.isFinite(n) ? n : null;
+}
+
+/** Tothem / portal: filas de título antes del encabezado real (fila 3 típica). */
+export function sheetToFuelDataRows(sheet: XLSX.WorkSheet): Record<string, unknown>[] {
+  const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+  if (matrix.length === 0) return [];
+
+  let headerIdx = matrix.findIndex((row) => {
+    const cells = row.map((c) => normHeader(String(c)));
+    const hasLitros = cells.some((c) => c === "litros" || c === "litro");
+    const hasFecha = cells.includes("fecha");
+    const hasOdometro = cells.includes("odometro") || cells.includes("kilometraje");
+    return hasLitros && hasFecha && hasOdometro;
+  });
+  if (headerIdx < 0) headerIdx = 0;
+
+  const headers = matrix[headerIdx]!.map((c) => String(c).trim());
+  const rows: Record<string, unknown>[] = [];
+
+  for (let i = headerIdx + 1; i < matrix.length; i++) {
+    const line = matrix[i]!;
+    if (!line.some((c) => String(c).trim() !== "")) continue;
+    const obj: Record<string, unknown> = {};
+    headers.forEach((h, j) => {
+      if (h) obj[h] = line[j] ?? "";
+    });
+    const first = normHeader(String(Object.values(obj)[0] ?? ""));
+    if (first.includes("total_litros") || first.includes("total_importe")) continue;
+    rows.push(obj);
+  }
+  return rows;
 }
 
 function parseExcelDate(v: unknown): string | null {
@@ -126,9 +160,9 @@ export async function importFuelTicketsFromBuffer(
     return { creados: 0, duplicados: 0, errores: [{ fila: 0, mensaje: "El archivo no tiene hojas" }] };
   }
   const sheet = wb.Sheets[sheetName];
-  const rows = XLSX.utils.sheet_to_json<Record<string, unknown>>(sheet, { defval: "" });
+  const rows = sheetToFuelDataRows(sheet);
   if (rows.length === 0) {
-    return { creados: 0, duplicados: 0, errores: [{ fila: 0, mensaje: "El archivo está vacío" }] };
+    return { creados: 0, duplicados: 0, errores: [{ fila: 0, mensaje: "El archivo está vacío o sin filas de datos" }] };
   }
 
   const headerMap = mapHeaders(rows[0]!);
@@ -163,11 +197,27 @@ export async function importFuelTicketsFromBuffer(
   const errores: FuelImportError[] = [];
   let duplicados = 0;
 
+  const dataStartRow =
+    (() => {
+      const matrix = XLSX.utils.sheet_to_json<unknown[]>(sheet, { header: 1, defval: "" });
+      const headerIdx = matrix.findIndex((row) => {
+        const cells = row.map((c) => normHeader(String(c)));
+        return (
+          cells.some((c) => c === "litros" || c === "litro") &&
+          cells.includes("fecha") &&
+          (cells.includes("odometro") || cells.includes("kilometraje"))
+        );
+      });
+      return (headerIdx >= 0 ? headerIdx : 0) + 2;
+    })();
+
   rows.forEach((row, idx) => {
-    const fila = idx + 2;
+    const fila = dataStartRow + idx;
     const economico = cellStr(row, headerMap.numero_economico);
     const placas = cellStr(row, headerMap.placas);
     const tag = cellStr(row, headerMap.folio_tag);
+    const idTothem = cellStr(row, headerMap.id_tothem);
+    const folioProveedor = cellStr(row, headerMap.folio_proveedor);
     const fecha = parseExcelDate(row[headerMap.fecha ?? ""]);
     const litros = cellNum(row, headerMap.litros);
     const precio = cellNum(row, headerMap.precio_litro);
@@ -224,7 +274,9 @@ export async function importFuelTicketsFromBuffer(
       importe_total: String(total),
       ubicacion,
       origen,
-      external_id: tag ? `${tag}-${fecha}-${odometro}` : null,
+      external_id:
+        [idTothem, folioProveedor, fecha, String(Math.round(odometro))].filter(Boolean).join("|") ||
+        (tag ? `${tag}-${fecha}-${odometro}` : null),
       created_at: new Date(),
       updated_at: new Date(),
     });
