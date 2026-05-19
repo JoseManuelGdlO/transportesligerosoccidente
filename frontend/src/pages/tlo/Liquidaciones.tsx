@@ -2,7 +2,8 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import { computeTrip } from "@/lib/calc";
-import { startOfWeek, endOfWeek, fmtMXN, fmtDate, fmtNumber } from "@/lib/format";
+import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
+import { Badge } from "@/components/ui/badge";
 import { downloadSettlementPdf } from "@/lib/settlementPdf";
 import { apiFetch, readJson } from "@/lib/api";
 import type { DriverAdvance, DriverDiscount, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
@@ -17,7 +18,11 @@ import { KpiCard } from "@/components/tlo/KpiCard";
 import { Wallet, FileText, Lock, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-const toInputDate = (d: Date) => d.toISOString().slice(0, 10);
+const clampDate = (day: string, inicio: string, fin: string) => {
+  if (day < inicio) return inicio;
+  if (day > fin) return fin;
+  return day;
+};
 
 export default function Liquidaciones() {
   const { drivers } = useTlo();
@@ -27,21 +32,27 @@ export default function Liquidaciones() {
 
   const [driverId, setDriverId] = useState(activeDrivers[0]?.id || "");
   const today = new Date();
-  const [inicio, setInicio] = useState(toInputDate(startOfWeek(today)));
-  const [fin, setFin] = useState(toInputDate(endOfWeek(today)));
+  const [inicio, setInicio] = useState(isoDay(startOfWeek(today)));
+  const [fin, setFin] = useState(isoDay(endOfWeek(today)));
   const [summary, setSummary] = useState<SettlementSummaryApi | null>(null);
   const [history, setHistory] = useState<SettlementRecord[]>([]);
   const [drafts, setDrafts] = useState<SettlementRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
 
-  const [advForm, setAdvForm] = useState({ monto: 0, fecha: toInputDate(today), descripcion: "" });
+  const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
+  const [advForm, setAdvForm] = useState({ monto: 0, fecha: defaultFechaEnPeriodo(), descripcion: "" });
   const [discForm, setDiscForm] = useState({
     tipo: "otro" as const,
     monto: 0,
-    fecha: toInputDate(today),
+    fecha: defaultFechaEnPeriodo(),
     descripcion: "",
   });
+
+  useEffect(() => {
+    setAdvForm((a) => ({ ...a, fecha: clampDate(a.fecha, inicio, fin) }));
+    setDiscForm((d) => ({ ...d, fecha: clampDate(d.fecha, inicio, fin) }));
+  }, [inicio, fin]);
 
   useEffect(() => {
     if (activeDrivers.length === 0) return;
@@ -90,32 +101,57 @@ export default function Liquidaciones() {
   const driver = drivers.find((d) => d.id === driverId);
 
   const addAdvance = async () => {
-    if (!driverId || advForm.monto <= 0) return;
+    if (!driverId) return;
+    if (advForm.monto <= 0) {
+      toast.error("Captura un monto mayor a cero");
+      return;
+    }
+    const fecha = clampDate(advForm.fecha, inicio, fin);
     try {
-      await apiFetch(`/drivers/${driverId}/advances`, {
+      const res = await apiFetch(`/drivers/${driverId}/advances`, {
         method: "POST",
-        body: JSON.stringify(advForm),
+        body: JSON.stringify({
+          monto: advForm.monto,
+          fecha,
+          descripcion: advForm.descripcion.trim() || "Anticipo",
+        }),
       });
-      setAdvForm({ monto: 0, fecha: toInputDate(today), descripcion: "" });
+      await readJson(res);
+      setAdvForm({ monto: 0, fecha: clampDate(isoDay(today), inicio, fin), descripcion: "" });
       toast.success("Anticipo registrado");
       await loadSummary();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error");
+      toast.error(e instanceof Error ? e.message : "Error al registrar anticipo");
     }
   };
 
   const addDiscount = async () => {
-    if (!driverId || discForm.monto <= 0) return;
+    if (!driverId) return;
+    if (discForm.monto <= 0) {
+      toast.error("Captura un monto mayor a cero");
+      return;
+    }
+    const fecha = clampDate(discForm.fecha, inicio, fin);
     try {
-      await apiFetch(`/drivers/${driverId}/discounts`, {
+      const res = await apiFetch(`/drivers/${driverId}/discounts`, {
         method: "POST",
-        body: JSON.stringify(discForm),
+        body: JSON.stringify({
+          ...discForm,
+          fecha,
+          descripcion: discForm.descripcion.trim() || "Descuento",
+        }),
       });
-      setDiscForm({ tipo: "otro", monto: 0, fecha: toInputDate(today), descripcion: "" });
+      await readJson(res);
+      setDiscForm({
+        tipo: "otro",
+        monto: 0,
+        fecha: clampDate(isoDay(today), inicio, fin),
+        descripcion: "",
+      });
       toast.success("Descuento registrado");
       await loadSummary();
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error");
+      toast.error(e instanceof Error ? e.message : "Error al registrar descuento");
     }
   };
 
@@ -186,6 +222,8 @@ export default function Liquidaciones() {
       total_descuentos: summary.total_descuentos,
       total_anticipos: summary.total_anticipos,
       neto_pagar: summary.neto_pagar,
+      advances: summary.advances ?? [],
+      discounts: summary.discounts ?? [],
     };
   }, [summary, driver]);
 
@@ -206,7 +244,7 @@ export default function Liquidaciones() {
           </div>
           <div><Label className="text-xs">Desde</Label><Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} /></div>
           <div><Label className="text-xs">Hasta</Label><Input type="date" value={fin} onChange={(e) => setFin(e.target.value)} /></div>
-          <Button variant="outline" onClick={() => { setInicio(toInputDate(startOfWeek(today))); setFin(toInputDate(endOfWeek(today))); }}>Semana actual</Button>
+          <Button variant="outline" onClick={() => { setInicio(isoDay(startOfWeek(today))); setFin(isoDay(endOfWeek(today))); }}>Semana actual</Button>
           <Button variant="secondary" onClick={() => void loadSummary()} disabled={loading}>Recalcular</Button>
         </div>
       </Card>
@@ -246,10 +284,22 @@ export default function Liquidaciones() {
                     )}
                     <Table>
                       <TableBody>
-                        {summary.advances.map((a: DriverAdvance) => (
+                        {(summary.advances ?? []).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
+                              Sin anticipos pendientes de liquidar
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {(summary.advances ?? []).map((a: DriverAdvance) => (
                           <TableRow key={a.id}>
                             <TableCell>{fmtDate(a.fecha)}</TableCell>
-                            <TableCell className="text-sm">{a.descripcion}</TableCell>
+                            <TableCell className="text-sm">
+                              {a.descripcion}
+                              {a.en_periodo === false && (
+                                <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">{fmtMXN(a.monto)}</TableCell>
                             {canClose && !a.settlement_id && (
                               <TableCell><Button variant="ghost" size="sm" onClick={() => removeAdvance(a.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
@@ -282,10 +332,22 @@ export default function Liquidaciones() {
                     )}
                     <Table>
                       <TableBody>
-                        {summary.discounts.map((d: DriverDiscount) => (
+                        {(summary.discounts ?? []).length === 0 && (
+                          <TableRow>
+                            <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
+                              Sin descuentos pendientes de liquidar
+                            </TableCell>
+                          </TableRow>
+                        )}
+                        {(summary.discounts ?? []).map((d: DriverDiscount) => (
                           <TableRow key={d.id}>
                             <TableCell>{d.tipo}</TableCell>
-                            <TableCell className="text-sm">{d.descripcion}</TableCell>
+                            <TableCell className="text-sm">
+                              {d.descripcion}
+                              {d.en_periodo === false && (
+                                <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                              )}
+                            </TableCell>
                             <TableCell className="text-right">{fmtMXN(d.monto)}</TableCell>
                             {canClose && !d.settlement_id && (
                               <TableCell><Button variant="ghost" size="sm" onClick={() => removeDiscount(d.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>

@@ -83,6 +83,8 @@ export interface SettlementSummary {
   total_descuentos: number;
   total_anticipos: number;
   neto_pagar: number;
+  advances?: { id: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
+  discounts?: { id: string; tipo: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
 }
 
 export const computeSettlement = (

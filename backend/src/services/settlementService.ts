@@ -5,31 +5,38 @@ import { computeSettlement } from "./calc";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 
+function fechaEnPeriodo(fecha: string, inicioStr: string, finStr: string): boolean {
+  return fecha >= inicioStr && fecha <= finStr;
+}
+
 async function pendingAdvancesAndDiscounts(
   tenantId: string,
   driverId: string,
   inicioStr: string,
   finStr: string,
 ) {
-  const advances = await DriverAdvance.findAll({
-    where: {
-      tenant_id: tenantId,
-      driver_id: driverId,
-      settlement_id: null,
-      fecha: { [Op.between]: [inicioStr, finStr] },
-    },
-  });
-  const discounts = await DriverDiscount.findAll({
-    where: {
-      tenant_id: tenantId,
-      driver_id: driverId,
-      settlement_id: null,
-      fecha: { [Op.between]: [inicioStr, finStr] },
-    },
-  });
-  const total_anticipos = advances.reduce((a, r) => a + num(r.monto), 0);
-  const total_descuentos = discounts.reduce((a, r) => a + num(r.monto), 0);
-  return { advances, discounts, total_anticipos, total_descuentos };
+  const [allAdvances, allDiscounts] = await Promise.all([
+    DriverAdvance.findAll({
+      where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
+      order: [["fecha", "DESC"]],
+    }),
+    DriverDiscount.findAll({
+      where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
+      order: [["fecha", "DESC"]],
+    }),
+  ]);
+  const advancesInPeriod = allAdvances.filter((r) => fechaEnPeriodo(String(r.fecha), inicioStr, finStr));
+  const discountsInPeriod = allDiscounts.filter((r) => fechaEnPeriodo(String(r.fecha), inicioStr, finStr));
+  const total_anticipos = advancesInPeriod.reduce((a, r) => a + num(r.monto), 0);
+  const total_descuentos = discountsInPeriod.reduce((a, r) => a + num(r.monto), 0);
+  return {
+    advances: allAdvances,
+    discounts: allDiscounts,
+    advancesInPeriod,
+    discountsInPeriod,
+    total_anticipos,
+    total_descuentos,
+  };
 }
 
 export async function settlementSummary(
@@ -78,15 +85,17 @@ export async function settlementSummary(
     advances: advances.map((a) => ({
       id: a.id,
       monto: num(a.monto),
-      fecha: a.fecha,
+      fecha: String(a.fecha).slice(0, 10),
       descripcion: a.descripcion,
+      en_periodo: fechaEnPeriodo(String(a.fecha), inicioStr, finStr),
     })),
     discounts: discounts.map((d) => ({
       id: d.id,
       tipo: d.tipo,
       monto: num(d.monto),
-      fecha: d.fecha,
+      fecha: String(d.fecha).slice(0, 10),
       descripcion: d.descripcion,
+      en_periodo: fechaEnPeriodo(String(d.fecha), inicioStr, finStr),
     })),
     trips: summary.trips.map((t) => tripToJson(t)),
   };
@@ -189,14 +198,14 @@ export async function closeSettlement(
   const sid = row!.id;
   await Trip.update({ settlement_id: sid }, { where: { id: { [Op.in]: tripIds }, tenant_id: tenantId } });
 
-  const { advances, discounts } = await pendingAdvancesAndDiscounts(
+  const { advancesInPeriod, discountsInPeriod } = await pendingAdvancesAndDiscounts(
     tenantId,
     driverId,
     fechaInicio,
     fechaFin,
   );
-  for (const a of advances) await a.update({ settlement_id: sid } as never);
-  for (const d of discounts) await d.update({ settlement_id: sid } as never);
+  for (const a of advancesInPeriod) await a.update({ settlement_id: sid } as never);
+  for (const d of discountsInPeriod) await d.update({ settlement_id: sid } as never);
 
   return row!;
 }

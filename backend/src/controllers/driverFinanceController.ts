@@ -20,14 +20,14 @@ async function assertDriver(tenantId: string, driverId: string) {
 const advanceSchema = z.object({
   monto: z.number().positive(),
   fecha: z.string().min(1),
-  descripcion: z.string().min(1),
+  descripcion: z.string().optional(),
 });
 
 const discountSchema = z.object({
   tipo: z.enum(["prestamo", "dano", "multa", "otro"]).optional(),
   monto: z.number().positive(),
   fecha: z.string().min(1),
-  descripcion: z.string().min(1),
+  descripcion: z.string().optional(),
 });
 
 export const listAdvances = asyncHandler(async (req: Request, res: Response) => {
@@ -58,7 +58,9 @@ export const createAdvance = asyncHandler(async (req: Request, res: Response) =>
     id: randomUUID(),
     tenant_id: tid(req),
     driver_id: req.params.id,
-    ...parsed.data,
+    monto: parsed.data.monto,
+    fecha: parsed.data.fecha,
+    descripcion: parsed.data.descripcion?.trim() || "Anticipo",
     settlement_id: null,
   } as never);
   res.status(201).json({
@@ -117,7 +119,7 @@ export const createDiscount = asyncHandler(async (req: Request, res: Response) =
     tipo: parsed.data.tipo ?? "otro",
     monto: parsed.data.monto,
     fecha: parsed.data.fecha,
-    descripcion: parsed.data.descripcion,
+    descripcion: parsed.data.descripcion?.trim() || "Descuento",
     settlement_id: null,
   } as never);
   res.status(201).json({

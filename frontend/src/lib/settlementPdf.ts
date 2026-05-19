@@ -107,14 +107,68 @@ export function downloadSettlementPdf(opts: {
   doc.text(`Viáticos no comprobados (deducción): ${fmtMXN(Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados))}`, margin, y);
   y += 6;
   if (summary.total_descuentos > 0) {
-    doc.text(`Descuentos: −${fmtMXN(summary.total_descuentos)}`, margin, y);
+    doc.text(`Descuentos (periodo): −${fmtMXN(summary.total_descuentos)}`, margin, y);
     y += 6;
   }
   if (summary.total_anticipos > 0) {
-    doc.text(`Anticipos aplicados: −${fmtMXN(summary.total_anticipos)}`, margin, y);
+    doc.text(`Anticipos (periodo): −${fmtMXN(summary.total_anticipos)}`, margin, y);
     y += 6;
   }
   y += 4;
+
+  const advances = summary.advances ?? [];
+  const discounts = summary.discounts ?? [];
+
+  if (advances.length > 0) {
+    if (y > 240) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Anticipos pendientes", margin, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Fecha", "Descripción", "Monto", "En periodo"]],
+      body: advances.map((a) => [
+        fmtDate(a.fecha),
+        a.descripcion,
+        fmtMXN(a.monto),
+        a.en_periodo === false ? "No" : "Sí",
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [33, 37, 41], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+    y = ((doc as DocWithAutoTable).lastAutoTable?.finalY ?? y) + 8;
+  }
+
+  if (discounts.length > 0) {
+    if (y > 240) {
+      doc.addPage();
+      y = 20;
+    }
+    doc.setFont("helvetica", "bold");
+    doc.setFontSize(11);
+    doc.text("Descuentos pendientes", margin, y);
+    y += 4;
+    autoTable(doc, {
+      startY: y,
+      head: [["Tipo", "Fecha", "Descripción", "Monto", "En periodo"]],
+      body: discounts.map((d) => [
+        d.tipo,
+        fmtDate(d.fecha),
+        d.descripcion,
+        fmtMXN(d.monto),
+        d.en_periodo === false ? "No" : "Sí",
+      ]),
+      styles: { fontSize: 8, cellPadding: 1.5 },
+      headStyles: { fillColor: [33, 37, 41], textColor: 255 },
+      margin: { left: margin, right: margin },
+    });
+    y = ((doc as DocWithAutoTable).lastAutoTable?.finalY ?? y) + 8;
+  }
 
   doc.setFillColor(33, 37, 41);
   doc.roundedRect(margin, y, 182, 18, 2, 2, "F");

@@ -402,6 +402,7 @@ export interface DriverAdvance {
   fecha: string;
   descripcion: string;
   settlement_id?: string;
+  en_periodo?: boolean;
 }
 
 export interface DriverDiscount {
@@ -411,6 +412,7 @@ export interface DriverDiscount {
   fecha: string;
   descripcion: string;
   settlement_id?: string;
+  en_periodo?: boolean;
 }
 
 export interface SettlementSummaryApi {
