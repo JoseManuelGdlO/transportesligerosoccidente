@@ -347,12 +347,15 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
 };
 
 export const DEFAULT_BRANDING_SETTLEMENT: PdfBranding = {
-  titulo: "Liquidación semanal",
+  titulo: "Liquidación Semanal",
   color_header: "#212529",
   color_header_text: "#ffffff",
   color_accent: "#2563eb",
   pie_pagina: "",
 };
+
+const DEFAULT_SETTLEMENT_COMPANY_TEXT =
+  "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000";
 
 export const DEFAULT_BRANDING_TRIP: PdfBranding = {
   titulo: "Análisis de Viaje",
@@ -370,10 +373,14 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
   sections: {
     header: [
       { id: "logo", enabled: true, props: { align: "right" } },
-      { id: "title", enabled: true },
-      { id: "tenant_name", enabled: true },
+      { id: "title", enabled: true, props: { align: "left", size: "lg" } },
+      {
+        id: "company_fiscal_block",
+        enabled: true,
+        props: { align: "right", text: DEFAULT_SETTLEMENT_COMPANY_TEXT },
+      },
+      { id: "period_label", enabled: true, props: { align: "left", label: "Periodo" } },
       { id: "settlement_meta", enabled: true },
-      { id: "generated_at", enabled: true },
     ],
     body: [
       { id: "kpis_summary", enabled: true },
@@ -383,7 +390,11 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
       { id: "discounts_table", enabled: true },
       { id: "net_box", enabled: true },
     ],
-    footer: [{ id: "footer_text", enabled: true }],
+    footer: [
+      { id: "footer_text", enabled: true, props: { align: "center" } },
+      { id: "generated_at", enabled: true, props: { align: "left" } },
+      { id: "page_counter", enabled: true, props: { align: "right" } },
+    ],
   },
 };
 

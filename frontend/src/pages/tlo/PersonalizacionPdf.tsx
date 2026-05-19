@@ -267,7 +267,7 @@ export default function PersonalizacionPdf() {
 
         {(["settlement", "trip"] as const).map((kind) => (
           <TabsContent key={kind} value={kind} className="mt-4">
-            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+            <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
               <div className="space-y-4 min-w-0">
                 <TemplateEditor
                   kind={kind}
@@ -291,7 +291,7 @@ export default function PersonalizacionPdf() {
                 </div>
               </div>
 
-              <Card className="flex flex-col lg:sticky lg:top-0 lg:self-start lg:max-h-[calc(100vh-6rem)]">
+              <Card className="flex flex-col md:sticky md:top-0 md:self-start md:max-h-[calc(100vh-6rem)] min-w-0">
                 <CardHeader className="pb-2">
                   <CardTitle className="text-lg">Vista previa</CardTitle>
                   <CardDescription>{`Plantilla "${tabLabel}" con datos de ejemplo.`}</CardDescription>
@@ -301,7 +301,7 @@ export default function PersonalizacionPdf() {
                     <iframe
                       title="Vista previa PDF"
                       src={previewUrl}
-                      className="w-full h-[min(70vh,640px)] lg:h-[calc(100vh-12rem)] border-0 rounded-b-lg"
+                      className="w-full h-[min(70vh,640px)] md:h-[calc(100vh-12rem)] border-0 rounded-b-lg"
                     />
                   ) : (
                     <div className="flex items-center justify-center h-48 text-muted-foreground text-sm">
