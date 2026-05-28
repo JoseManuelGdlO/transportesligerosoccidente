@@ -13,6 +13,7 @@ import {
 } from "../models";
 import { getTripOrThrow } from "./tripService";
 import { getPacProvider } from "./pac";
+import { ensureUbicacionesFromClient, defaultIdUbicacionSat } from "./tripFiscalService";
 import { num } from "../utils/numbers";
 
 function err(msg: string, status = 400): Error {
@@ -34,15 +35,46 @@ function formatFecha(d: Date): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+function idUbicacion(u: TripUbicacion, tripId: string): string {
+  return u.id_ubicacion_sat || defaultIdUbicacionSat(u.tipo, tripId);
+}
+
+function domicilioAttrs(
+  u: TripUbicacion,
+  trip: Trip,
+  tipo: "Origen" | "Destino",
+  client: Client,
+): string {
+  const calleFallback = tipo === "Origen" ? trip.origen : trip.destino;
+  const parts = [
+    `Calle="${esc(u.calle || calleFallback || "")}"`,
+    u.numero_exterior ? ` NumeroExterior="${esc(u.numero_exterior)}"` : "",
+    u.numero_interior ? ` NumeroInterior="${esc(u.numero_interior)}"` : "",
+    u.colonia ? ` Colonia="${esc(u.colonia)}"` : "",
+    u.municipio ? ` Municipio="${esc(u.municipio)}"` : "",
+    u.localidad ? ` Localidad="${esc(u.localidad)}"` : "",
+    ` Estado="${esc(u.estado!)}"`,
+    ` Pais="${esc(u.pais || client.pais || "MEX")}"`,
+    ` CodigoPostal="${esc(u.cp!)}"`,
+  ];
+  return parts.join("");
+}
+
 export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
+  await ensureUbicacionesFromClient(tenantId, tripId);
   let cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
   if (!cp) {
+    const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
     cp = await CartaPorte.create({
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
       estatus: "borrador",
+      id_ccp: randomUUID(),
+      transporte_internacional: trip?.tipo_viaje === "foraneo",
     } as never);
+  } else if (!cp.id_ccp) {
+    await cp.update({ id_ccp: randomUUID() } as never);
   }
   return cp;
 }
@@ -66,7 +98,8 @@ async function loadTripContext(tenantId: string, tripId: string) {
   if (!trip) throw err("Viaje no encontrado", 404);
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant) throw err("Empresa no encontrada", 404);
-  return { trip, tenant };
+  const cartaPorte = await getOrCreateCartaPorte(tenantId, tripId);
+  return { trip, tenant, cartaPorte };
 }
 
 export function validateCartaPorteData(
@@ -96,7 +129,18 @@ export function validateCartaPorteData(
   if (!truck?.config_vehicular) issues.push("Camión: falta configuración vehicular SAT");
   if (!truck?.perm_sct) issues.push("Camión: falta permiso SCT");
   if (!truck?.num_permiso_sct) issues.push("Camión: falta número de permiso SCT");
+  if (!truck?.peso_bruto_vehicular) issues.push("Camión: falta peso bruto vehicular");
+  if (!truck?.aseguradora_resp_civil || truck.aseguradora_resp_civil === "NA") {
+    issues.push("Camión: falta aseguradora de responsabilidad civil");
+  }
+  if (!truck?.poliza_resp_civil || truck.poliza_resp_civil === "NA") {
+    issues.push("Camión: falta póliza de responsabilidad civil");
+  }
   if (!driver?.nombre) issues.push("Operador no asignado");
+  if (!driver?.rfc) issues.push("Operador: falta RFC");
+  if (!driver?.licencia_federal && !driver?.licencia) {
+    issues.push("Operador: falta licencia federal");
+  }
   if (trip.estatus !== "en_curso" && trip.estatus !== "cerrado") {
     issues.push("Estado de viaje no válido para carta porte");
   }
@@ -106,6 +150,7 @@ export function validateCartaPorteData(
 export function buildCartaPorteXml(
   trip: Trip,
   tenant: Tenant,
+  cartaPorte: CartaPorte,
   ubicaciones: TripUbicacion[],
   mercancias: TripMercancia[],
   truck: Truck,
@@ -115,36 +160,49 @@ export function buildCartaPorteXml(
 ): string {
   const origen = ubicaciones.find((u) => u.tipo === "Origen")!;
   const destino = ubicaciones.find((u) => u.tipo === "Destino")!;
+  const idOrigen = idUbicacion(origen, trip.id);
+  const idDestino = idUbicacion(destino, trip.id);
   const now = formatFecha(new Date());
+  const transpInternac =
+    cartaPorte.transporte_internacional || trip.tipo_viaje === "foraneo" ? "Sí" : "No";
+  const idCcp = cartaPorte.id_ccp || randomUUID();
+
   const mercXml = mercancias
-    .map(
-      (m) =>
-        `<cartaporte31:Mercancia Descripcion="${esc(m.descripcion)}" Cantidad="${m.cantidad}" ClaveUnidad="${esc(m.unidad)}" PesoEnKg="${m.peso_kg}"${m.clave_prod_serv ? ` ClaveProdServ="${esc(m.clave_prod_serv)}"` : ""} />`,
-    )
+    .map((m) => {
+      const cantTransp = m.cantidad_transportada ?? m.cantidad;
+      const bienes = m.clave_prod_serv ? ` BienesTransp="${esc(m.clave_prod_serv)}"` : "";
+      return `<cartaporte31:Mercancia Descripcion="${esc(m.descripcion)}" Cantidad="${m.cantidad}" ClaveUnidad="${esc(m.unidad)}" PesoEnKg="${m.peso_kg}"${bienes}>
+        <cartaporte31:CantidadTransportada Cantidad="${cantTransp}" IDOrigen="${esc(idOrigen)}" IDDestino="${esc(idDestino)}" />
+      </cartaporte31:Mercancia>`;
+    })
     .join("");
+
+  const tipoFigura = driver.tipo_figura || "01";
+
+  const regimenReceptor = client.regimen_fiscal || "601";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Serie="${esc(tenant.cfdi_serie || "CP")}" Folio="${esc(folio)}" Fecha="${now}" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" Exportacion="01" LugarExpedicion="${esc(tenant.cp_fiscal || "00000")}" MetodoPago="PUE" FormaPago="99">
   <cfdi:Emisor Rfc="${esc(tenant.rfc!)}" Nombre="${esc(tenant.razon_social!)}" RegimenFiscal="${esc(tenant.regimen_fiscal!)}" />
-  <cfdi:Receptor Rfc="${esc(client.rfc)}" Nombre="${esc(client.razon_social)}" DomicilioFiscalReceptor="${esc(client.cp || destino.cp || "00000")}" RegimenFiscalReceptor="601" UsoCFDI="S01" />
+  <cfdi:Receptor Rfc="${esc(client.rfc)}" Nombre="${esc(client.razon_social)}" DomicilioFiscalReceptor="${esc(client.cp || destino.cp || "00000")}" RegimenFiscalReceptor="${esc(regimenReceptor)}" UsoCFDI="S01" />
   <cfdi:Conceptos>
     <cfdi:Concepto ClaveProdServ="78101800" Cantidad="1" ClaveUnidad="E48" Descripcion="Transporte de carga" ValorUnitario="0" Importe="0" ObjetoImp="01" />
   </cfdi:Conceptos>
   <cfdi:Complemento>
-    <cartaporte31:CartaPorte Version="3.1" TranspInternac="No" TotalDistRec="${destino.distancia_km}">
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="${esc(idCcp)}" TranspInternac="${transpInternac}" TotalDistRec="${destino.distancia_km}">
       <cartaporte31:Ubicaciones>
-        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="OR${esc(trip.id.slice(0, 6))}" RFCRemitenteDestinatario="${esc(origen.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(origen.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${origen.fecha_hora ? formatFecha(new Date(origen.fecha_hora)) : now}">
-          <cartaporte31:Domicilio Calle="${esc(origen.calle || trip.origen)}" Colonia="${esc(origen.colonia || "")}" Municipio="${esc(origen.municipio || "")}" Estado="${esc(origen.estado!)}" Pais="MEX" CodigoPostal="${esc(origen.cp!)}" />
+        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="${esc(idOrigen)}" RFCRemitenteDestinatario="${esc(origen.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(origen.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${origen.fecha_hora ? formatFecha(new Date(origen.fecha_hora)) : now}">
+          <cartaporte31:Domicilio ${domicilioAttrs(origen, trip, "Origen", client)} />
         </cartaporte31:Ubicacion>
-        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="DE${esc(trip.id.slice(0, 6))}" RFCRemitenteDestinatario="${esc(destino.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(destino.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${destino.fecha_hora ? formatFecha(new Date(destino.fecha_hora)) : now}" DistanciaRecorrida="${destino.distancia_km}">
-          <cartaporte31:Domicilio Calle="${esc(destino.calle || trip.destino)}" Colonia="${esc(destino.colonia || "")}" Municipio="${esc(destino.municipio || "")}" Estado="${esc(destino.estado!)}" Pais="MEX" CodigoPostal="${esc(destino.cp!)}" />
+        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="${esc(idDestino)}" RFCRemitenteDestinatario="${esc(destino.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(destino.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${destino.fecha_hora ? formatFecha(new Date(destino.fecha_hora)) : now}" DistanciaRecorrida="${destino.distancia_km}">
+          <cartaporte31:Domicilio ${domicilioAttrs(destino, trip, "Destino", client)} />
         </cartaporte31:Ubicacion>
       </cartaporte31:Ubicaciones>
       <cartaporte31:Mercancias PesoBrutoTotal="${mercancias.reduce((s, m) => s + num(m.peso_kg), 0)}" UnidadPeso="KGM" NumTotalMercancias="${mercancias.length}">
         ${mercXml}
       </cartaporte31:Mercancias>
       <cartaporte31:FiguraTransporte>
-        <cartaporte31:TiposFigura TipoFigura="01" RFCFigura="${esc(driver.rfc || "XAXX010101000")}" NumLicencia="${esc(driver.licencia_federal || driver.licencia)}" NombreFigura="${esc(driver.nombre)}" />
+        <cartaporte31:TiposFigura TipoFigura="${esc(tipoFigura)}" RFCFigura="${esc(driver.rfc || "XAXX010101000")}" NumLicencia="${esc(driver.licencia_federal || driver.licencia)}" NombreFigura="${esc(driver.nombre)}" />
       </cartaporte31:FiguraTransporte>
       <cartaporte31:AutotransporteFederal PermSCT="${esc(truck.perm_sct!)}" NumPermisoSCT="${esc(truck.num_permiso_sct!)}">
         <cartaporte31:IdentificacionVehicular ConfigVehicular="${esc(truck.config_vehicular!)}" PesoBrutoVehicular="${truck.peso_bruto_vehicular || 0}" PlacaVM="${esc(truck.placas)}" AnioModeloVM="${truck.anio}" />
@@ -156,18 +214,18 @@ export function buildCartaPorteXml(
 }
 
 export async function previewCartaPorte(tenantId: string, tripId: string) {
-  const { trip, tenant } = await loadTripContext(tenantId, tripId);
+  const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
   const ubicaciones = (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver);
-  const cp = await getOrCreateCartaPorte(tenantId, tripId);
+  const cp = cartaPorte;
   const folio = cp.folio_cfdi || trip.folio.replace(/[^0-9]/g, "").slice(-8) || "1";
   const xml =
     issues.length === 0 && truck && driver && client
-      ? buildCartaPorteXml(trip, tenant, ubicaciones, mercancias, truck, driver, client, folio)
+      ? buildCartaPorteXml(trip, tenant, cp, ubicaciones, mercancias, truck, driver, client, folio)
       : undefined;
   return { valid: issues.length === 0, issues, xml, cartaPorte: cp };
 }

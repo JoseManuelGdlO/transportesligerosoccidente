@@ -22,12 +22,15 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { downloadTripPdf } from "@/lib/tripPdf";
 import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
+import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 export default function ViajeDetalle() {
   const { id } = useParams();
   const nav = useNavigate();
   const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip } = useTlo();
-  const { tenant } = useAuth();
+  const { tenant, hasPermission } = useAuth();
+  const showCartaPorte = FEATURE_CARTA_PORTE && hasPermission("cartaporte.ver");
   const tripCtx = trips.find(t => t.id === id);
   const [tripOverride, setTripOverride] = useState<Trip | null>(null);
   const trip = tripOverride ?? tripCtx;
@@ -249,6 +252,7 @@ export default function ViajeDetalle() {
           <TabsTrigger value="diesel">Diesel ({trip.fuel.length})</TabsTrigger>
           <TabsTrigger value="gastos">Gastos ({trip.expenses.length})</TabsTrigger>
           <TabsTrigger value="comision">Comisión</TabsTrigger>
+          {showCartaPorte ? <TabsTrigger value="carta-porte">Carta Porte</TabsTrigger> : null}
         </TabsList>
 
         <TabsContent value="resumen" className="mt-4">
@@ -429,6 +433,20 @@ export default function ViajeDetalle() {
             </CardContent>
           </Card>
         </TabsContent>
+
+        {showCartaPorte ? (
+          <TabsContent value="carta-porte" className="mt-4">
+            <TripCartaPorte
+              trip={trip}
+              clientId={trip.client_id}
+              clientRfc={client?.rfc}
+              clientName={client?.razon_social}
+              driver={driver}
+              truck={truck}
+              onTripUpdated={(t) => setTripOverride(t)}
+            />
+          </TabsContent>
+        ) : null}
       </Tabs>
 
       {/* Modal agregar diesel */}

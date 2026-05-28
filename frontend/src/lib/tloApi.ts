@@ -2,6 +2,7 @@ import { apiFetch, readJson } from "@/lib/api";
 import type {
   CartaPorteRecord,
   Client,
+  ClientUbicacion,
   Driver,
   Expense,
   FuelLoad,
@@ -68,6 +69,11 @@ export function normalizeTripUbicacion(raw: Record<string, unknown>): TripUbicac
     localidad: raw.localidad != null ? String(raw.localidad) : undefined,
     estado: raw.estado != null ? String(raw.estado) : undefined,
     cp: raw.cp != null ? String(raw.cp) : undefined,
+    numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
+    numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
+    pais: raw.pais != null ? String(raw.pais) : undefined,
+    id_ubicacion_sat: raw.id_ubicacion_sat != null ? String(raw.id_ubicacion_sat) : undefined,
+    client_ubicacion_id: raw.client_ubicacion_id != null ? String(raw.client_ubicacion_id) : undefined,
     distancia_km: raw.distancia_km != null ? Number(raw.distancia_km) : undefined,
   };
 }
@@ -82,6 +88,8 @@ export function normalizeTripMercancia(raw: Record<string, unknown>): TripMercan
     clave_prod_serv: raw.clave_prod_serv != null ? String(raw.clave_prod_serv) : undefined,
     material_peligroso: Boolean(raw.material_peligroso),
     embalaje: raw.embalaje != null ? String(raw.embalaje) : undefined,
+    cantidad_transportada:
+      raw.cantidad_transportada != null ? Number(raw.cantidad_transportada) : undefined,
   };
 }
 
@@ -100,6 +108,9 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
     error_mensaje: raw.error_mensaje != null ? String(raw.error_mensaje) : undefined,
     timbrado_at: raw.timbrado_at != null ? String(raw.timbrado_at) : undefined,
     has_xml: Boolean(raw.has_xml),
+    id_ccp: raw.id_ccp != null ? String(raw.id_ccp) : undefined,
+    transporte_internacional:
+      raw.transporte_internacional != null ? Boolean(raw.transporte_internacional) : undefined,
   };
 }
 
@@ -163,6 +174,8 @@ export function normalizeTruck(raw: Record<string, unknown>): Truck {
     peso_bruto_vehicular: raw.peso_bruto_vehicular != null ? Number(raw.peso_bruto_vehicular) : undefined,
     aseguradora_resp_civil: raw.aseguradora_resp_civil != null ? String(raw.aseguradora_resp_civil) : undefined,
     poliza_resp_civil: raw.poliza_resp_civil != null ? String(raw.poliza_resp_civil) : undefined,
+    vin: raw.vin != null ? String(raw.vin) : undefined,
+    capacidad_carga_kg: raw.capacidad_carga_kg != null ? Number(raw.capacidad_carga_kg) : undefined,
   };
 }
 
@@ -181,6 +194,21 @@ export function normalizeDriver(raw: Record<string, unknown>): Driver {
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
     rfc: raw.rfc != null ? String(raw.rfc) : undefined,
     licencia_federal: raw.licencia_federal != null ? String(raw.licencia_federal) : undefined,
+    tipo_figura: raw.tipo_figura != null ? String(raw.tipo_figura) : undefined,
+    curp: raw.curp != null ? String(raw.curp) : undefined,
+    email: raw.email != null ? String(raw.email) : undefined,
+    numero_empleado: raw.numero_empleado != null ? String(raw.numero_empleado) : undefined,
+    calle: raw.calle != null ? String(raw.calle) : undefined,
+    numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
+    numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
+    colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    estado: raw.estado != null ? String(raw.estado) : undefined,
+    cp: raw.cp != null ? String(raw.cp) : undefined,
+    pais: raw.pais != null ? String(raw.pais) : undefined,
+    truck_id: raw.truck_id != null ? String(raw.truck_id) : undefined,
+    puesto: raw.puesto != null ? String(raw.puesto) : undefined,
   };
 }
 
@@ -197,6 +225,34 @@ export function normalizeClient(raw: Record<string, unknown>): Client {
     estado: raw.estado != null ? String(raw.estado) : undefined,
     cp: raw.cp != null ? String(raw.cp) : undefined,
     pais: raw.pais != null ? String(raw.pais) : undefined,
+    numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
+    numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
+    localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    email: raw.email != null ? String(raw.email) : undefined,
+    regimen_fiscal: raw.regimen_fiscal != null ? String(raw.regimen_fiscal) : undefined,
+    estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+    observaciones: raw.observaciones != null ? String(raw.observaciones) : undefined,
+  };
+}
+
+export function normalizeClientUbicacion(raw: Record<string, unknown>): ClientUbicacion {
+  const tipo =
+    raw.tipo === "Origen" || raw.tipo === "Destino" || raw.tipo === "Ambos" ? raw.tipo : "Ambos";
+  return {
+    id: String(raw.id),
+    client_id: String(raw.client_id ?? ""),
+    nombre: String(raw.nombre ?? ""),
+    tipo,
+    calle: raw.calle != null ? String(raw.calle) : undefined,
+    numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
+    numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
+    colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    estado: raw.estado != null ? String(raw.estado) : undefined,
+    cp: raw.cp != null ? String(raw.cp) : undefined,
+    pais: raw.pais != null ? String(raw.pais) : undefined,
+    estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
   };
 }
 
@@ -362,6 +418,43 @@ export async function updateDocumentType(
 
 export async function deleteDocumentType(id: string): Promise<void> {
   const res = await apiFetch(`/document-types/${id}`, { method: "DELETE" });
+  if (res.ok || res.status === 204) return;
+  await readJson(res);
+}
+
+export async function fetchClientUbicaciones(clientId: string): Promise<ClientUbicacion[]> {
+  const res = await apiFetch(`/clients/${clientId}/ubicaciones`);
+  const rows = await readJson<unknown[]>(res);
+  return Array.isArray(rows) ? rows.map((x) => normalizeClientUbicacion(x as Record<string, unknown>)) : [];
+}
+
+export async function createClientUbicacion(
+  clientId: string,
+  body: Omit<ClientUbicacion, "id" | "client_id">,
+): Promise<ClientUbicacion> {
+  const res = await apiFetch(`/clients/${clientId}/ubicaciones`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeClientUbicacion(raw);
+}
+
+export async function updateClientUbicacion(
+  clientId: string,
+  id: string,
+  body: Partial<Omit<ClientUbicacion, "id" | "client_id">>,
+): Promise<ClientUbicacion> {
+  const res = await apiFetch(`/clients/${clientId}/ubicaciones/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeClientUbicacion(raw);
+}
+
+export async function deleteClientUbicacion(clientId: string, id: string): Promise<void> {
+  const res = await apiFetch(`/clients/${clientId}/ubicaciones/${id}`, { method: "DELETE" });
   if (res.ok || res.status === 204) return;
   await readJson(res);
 }

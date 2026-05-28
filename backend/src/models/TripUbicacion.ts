@@ -26,6 +26,11 @@ export class TripUbicacion extends Model<
   declare localidad: CreationOptional<string | null>;
   declare estado: CreationOptional<string | null>;
   declare cp: CreationOptional<string | null>;
+  declare numero_exterior: CreationOptional<string | null>;
+  declare numero_interior: CreationOptional<string | null>;
+  declare pais: CreationOptional<string | null>;
+  declare id_ubicacion_sat: CreationOptional<string | null>;
+  declare client_ubicacion_id: CreationOptional<string | null>;
   declare distancia_km: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
@@ -47,6 +52,11 @@ export function initTripUbicacion(sequelize: Sequelize) {
       localidad: { type: DataTypes.STRING(128), allowNull: true },
       estado: { type: DataTypes.STRING(64), allowNull: true },
       cp: { type: DataTypes.STRING(5), allowNull: true },
+      numero_exterior: { type: DataTypes.STRING(32), allowNull: true },
+      numero_interior: { type: DataTypes.STRING(32), allowNull: true },
+      pais: { type: DataTypes.STRING(3), allowNull: true, defaultValue: "MEX" },
+      id_ubicacion_sat: { type: DataTypes.STRING(16), allowNull: true },
+      client_ubicacion_id: { type: DataTypes.CHAR(36), allowNull: true },
       distancia_km: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
     } as never,
     { sequelize, tableName: "trip_ubicaciones", underscored: true },

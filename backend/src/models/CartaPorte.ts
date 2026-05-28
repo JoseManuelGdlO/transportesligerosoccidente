@@ -23,6 +23,8 @@ export class CartaPorte extends Model<InferAttributes<CartaPorte>, InferCreation
   declare pac_response: CreationOptional<string | null>;
   declare error_mensaje: CreationOptional<string | null>;
   declare timbrado_at: CreationOptional<Date | null>;
+  declare id_ccp: CreationOptional<string | null>;
+  declare transporte_internacional: CreationOptional<boolean>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -47,6 +49,8 @@ export function initCartaPorte(sequelize: Sequelize) {
       pac_response: { type: DataTypes.TEXT, allowNull: true },
       error_mensaje: { type: DataTypes.TEXT, allowNull: true },
       timbrado_at: { type: DataTypes.DATE, allowNull: true },
+      id_ccp: { type: DataTypes.STRING(36), allowNull: true },
+      transporte_internacional: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     } as never,
     { sequelize, tableName: "cartas_porte", underscored: true },
   );

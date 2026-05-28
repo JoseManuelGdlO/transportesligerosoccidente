@@ -13,6 +13,7 @@ import type { Tenant } from "../models/Tenant";
 import type { TripUbicacion } from "../models/TripUbicacion";
 import type { TripMercancia } from "../models/TripMercancia";
 import type { CartaPorte } from "../models/CartaPorte";
+import type { ClientUbicacion } from "../models/ClientUbicacion";
 import { num, iso } from "./numbers";
 
 export function fuelTicketToJson(
@@ -84,6 +85,11 @@ export function tripUbicacionToJson(u: TripUbicacion): Record<string, unknown> {
     localidad: p.localidad ?? undefined,
     estado: p.estado ?? undefined,
     cp: p.cp ?? undefined,
+    numero_exterior: p.numero_exterior ?? undefined,
+    pais: p.pais ?? undefined,
+    id_ubicacion_sat: p.id_ubicacion_sat ?? undefined,
+    numero_interior: p.numero_interior ?? undefined,
+    client_ubicacion_id: p.client_ubicacion_id ?? undefined,
     distancia_km: p.distancia_km != null ? num(p.distancia_km) : undefined,
   };
 }
@@ -99,6 +105,8 @@ export function tripMercanciaToJson(m: TripMercancia): Record<string, unknown> {
     clave_prod_serv: p.clave_prod_serv ?? undefined,
     material_peligroso: !!p.material_peligroso,
     embalaje: p.embalaje ?? undefined,
+    cantidad_transportada:
+      p.cantidad_transportada != null ? num(p.cantidad_transportada) : undefined,
   };
 }
 
@@ -115,6 +123,8 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
     error_mensaje: p.error_mensaje ?? undefined,
     timbrado_at: p.timbrado_at ? iso(p.timbrado_at) : undefined,
     has_xml: !!p.xml_timbrado,
+    id_ccp: p.id_ccp ?? undefined,
+    transporte_internacional: p.transporte_internacional != null ? !!p.transporte_internacional : undefined,
   };
 }
 
@@ -170,6 +180,8 @@ export function truckToJson(t: Truck): Record<string, unknown> {
     peso_bruto_vehicular: p.peso_bruto_vehicular != null ? num(p.peso_bruto_vehicular) : undefined,
     aseguradora_resp_civil: p.aseguradora_resp_civil ?? undefined,
     poliza_resp_civil: p.poliza_resp_civil ?? undefined,
+    vin: p.vin ?? undefined,
+    capacidad_carga_kg: p.capacidad_carga_kg != null ? num(p.capacidad_carga_kg) : undefined,
   };
 }
 
@@ -188,6 +200,21 @@ export function driverToJson(d: Driver): Record<string, unknown> {
     estatus: p.estatus,
     rfc: p.rfc ?? undefined,
     licencia_federal: p.licencia_federal ?? undefined,
+    tipo_figura: p.tipo_figura ?? undefined,
+    curp: p.curp ?? undefined,
+    email: p.email ?? undefined,
+    numero_empleado: p.numero_empleado ?? undefined,
+    calle: p.calle ?? undefined,
+    numero_exterior: p.numero_exterior ?? undefined,
+    numero_interior: p.numero_interior ?? undefined,
+    colonia: p.colonia ?? undefined,
+    localidad: p.localidad ?? undefined,
+    municipio: p.municipio ?? undefined,
+    estado: p.estado ?? undefined,
+    cp: p.cp ?? undefined,
+    pais: p.pais ?? undefined,
+    truck_id: p.truck_id ?? undefined,
+    puesto: p.puesto ?? undefined,
   };
 }
 
@@ -205,6 +232,33 @@ export function clientToJson(c: Client): Record<string, unknown> {
     estado: p.estado ?? undefined,
     cp: p.cp ?? undefined,
     pais: p.pais ?? undefined,
+    numero_exterior: p.numero_exterior ?? undefined,
+    numero_interior: p.numero_interior ?? undefined,
+    localidad: p.localidad ?? undefined,
+    email: p.email ?? undefined,
+    regimen_fiscal: p.regimen_fiscal ?? undefined,
+    estatus: p.estatus ?? undefined,
+    observaciones: p.observaciones ?? undefined,
+  };
+}
+
+export function clientUbicacionToJson(u: ClientUbicacion): Record<string, unknown> {
+  const p = u.get({ plain: true }) as Record<string, unknown>;
+  return {
+    id: p.id,
+    client_id: p.client_id,
+    nombre: p.nombre,
+    tipo: p.tipo,
+    calle: p.calle ?? undefined,
+    numero_exterior: p.numero_exterior ?? undefined,
+    numero_interior: p.numero_interior ?? undefined,
+    colonia: p.colonia ?? undefined,
+    localidad: p.localidad ?? undefined,
+    municipio: p.municipio ?? undefined,
+    estado: p.estado ?? undefined,
+    cp: p.cp ?? undefined,
+    pais: p.pais ?? undefined,
+    estatus: p.estatus ?? undefined,
   };
 }
 

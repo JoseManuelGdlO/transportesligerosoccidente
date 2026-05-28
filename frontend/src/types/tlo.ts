@@ -65,6 +65,8 @@ export const FULL_ADMIN_PERMISSIONS: Permission[] = [
 
 export type CartaPorteEstatus = "borrador" | "timbrada" | "cancelada" | "error";
 export type UbicacionTipo = "Origen" | "Destino";
+export type ClientUbicacionTipo = "Origen" | "Destino" | "Ambos";
+export type ClientStatus = "activo" | "inactivo";
 
 export interface TripUbicacion {
   id: string;
@@ -78,6 +80,11 @@ export interface TripUbicacion {
   localidad?: string;
   estado?: string;
   cp?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
+  pais?: string;
+  id_ubicacion_sat?: string;
+  client_ubicacion_id?: string;
   distancia_km?: number;
 }
 
@@ -90,6 +97,7 @@ export interface TripMercancia {
   clave_prod_serv?: string;
   material_peligroso: boolean;
   embalaje?: string;
+  cantidad_transportada?: number;
 }
 
 export interface CartaPorteRecord {
@@ -103,6 +111,8 @@ export interface CartaPorteRecord {
   error_mensaje?: string;
   timbrado_at?: string;
   has_xml?: boolean;
+  id_ccp?: string;
+  transporte_internacional?: boolean;
 }
 
 export interface TenantFiscal {
@@ -257,6 +267,8 @@ export interface Truck {
   peso_bruto_vehicular?: number;
   aseguradora_resp_civil?: string;
   poliza_resp_civil?: string;
+  vin?: string;
+  capacidad_carga_kg?: number;
 }
 
 export interface Driver {
@@ -272,6 +284,21 @@ export interface Driver {
   estatus: DriverStatus;
   rfc?: string;
   licencia_federal?: string;
+  tipo_figura?: string;
+  curp?: string;
+  email?: string;
+  numero_empleado?: string;
+  calle?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
+  colonia?: string;
+  localidad?: string;
+  municipio?: string;
+  estado?: string;
+  cp?: string;
+  pais?: string;
+  truck_id?: string;
+  puesto?: string;
 }
 
 export type DocumentCatalogStatus = "pendiente" | "vigente" | "por_vencer" | "vencido" | "sin_vigencia";
@@ -352,6 +379,30 @@ export interface Client {
   estado?: string;
   cp?: string;
   pais?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
+  localidad?: string;
+  email?: string;
+  regimen_fiscal?: string;
+  estatus?: ClientStatus;
+  observaciones?: string;
+}
+
+export interface ClientUbicacion {
+  id: string;
+  client_id: string;
+  nombre: string;
+  tipo: ClientUbicacionTipo;
+  calle?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
+  colonia?: string;
+  localidad?: string;
+  municipio?: string;
+  estado?: string;
+  cp?: string;
+  pais?: string;
+  estatus?: ClientStatus;
 }
 
 export interface FuelLoad {

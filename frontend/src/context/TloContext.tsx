@@ -127,6 +127,11 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               config_vehicular: t.config_vehicular || undefined,
               perm_sct: t.perm_sct || undefined,
               num_permiso_sct: t.num_permiso_sct || undefined,
+              peso_bruto_vehicular: t.peso_bruto_vehicular || undefined,
+              aseguradora_resp_civil: t.aseguradora_resp_civil || undefined,
+              poliza_resp_civil: t.poliza_resp_civil || undefined,
+              vin: t.vin || undefined,
+              capacidad_carga_kg: t.capacidad_carga_kg || undefined,
             };
             if (t.id) {
               const r = await apiFetch(`/trucks/${t.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -205,6 +210,23 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               comision_valor_local: d.comision_valor_local,
               comision_valor_foraneo: d.comision_valor_foraneo,
               estatus: d.estatus,
+              rfc: d.rfc || undefined,
+              licencia_federal: d.licencia_federal || undefined,
+              tipo_figura: d.tipo_figura || "01",
+              curp: d.curp || undefined,
+              email: d.email || undefined,
+              numero_empleado: d.numero_empleado || undefined,
+              calle: d.calle || undefined,
+              numero_exterior: d.numero_exterior || undefined,
+              numero_interior: d.numero_interior || undefined,
+              colonia: d.colonia || undefined,
+              localidad: d.localidad || undefined,
+              municipio: d.municipio || undefined,
+              estado: d.estado || undefined,
+              cp: d.cp || undefined,
+              pais: d.pais || undefined,
+              truck_id: d.truck_id || null,
+              puesto: d.puesto || undefined,
             };
             if (d.id) {
               const r = await apiFetch(`/drivers/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
@@ -241,6 +263,19 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               rfc: c.rfc,
               contacto: c.contacto,
               telefono: c.telefono,
+              calle: c.calle || undefined,
+              colonia: c.colonia || undefined,
+              municipio: c.municipio || undefined,
+              estado: c.estado || undefined,
+              cp: c.cp || undefined,
+              pais: c.pais || undefined,
+              numero_exterior: c.numero_exterior || undefined,
+              numero_interior: c.numero_interior || undefined,
+              localidad: c.localidad || undefined,
+              email: c.email || undefined,
+              regimen_fiscal: c.regimen_fiscal || undefined,
+              estatus: c.estatus || "activo",
+              observaciones: c.observaciones || undefined,
             };
             if (c.id) {
               const r = await apiFetch(`/clients/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });

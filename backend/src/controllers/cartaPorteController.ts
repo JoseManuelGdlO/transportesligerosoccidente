@@ -53,7 +53,11 @@ const ubicacionSchema = z.object({
   localidad: z.string().optional(),
   estado: z.string().optional(),
   cp: z.string().optional(),
+  numero_exterior: z.string().optional(),
+  numero_interior: z.string().optional(),
+  pais: z.string().optional(),
   distancia_km: z.number().optional(),
+  client_ubicacion_id: z.string().uuid().optional().nullable(),
 });
 
 export const putUbicacionOrigen = asyncHandler(async (req: Request, res: Response) => {
@@ -89,6 +93,7 @@ const mercanciaSchema = z.object({
   clave_prod_serv: z.string().optional(),
   material_peligroso: z.boolean().optional(),
   embalaje: z.string().optional(),
+  cantidad_transportada: z.number().positive().optional(),
 });
 
 export const postMercancia = asyncHandler(async (req: Request, res: Response) => {

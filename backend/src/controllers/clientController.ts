@@ -18,6 +18,13 @@ const bodySchema = z.object({
   estado: z.string().optional(),
   cp: z.string().optional(),
   pais: z.string().optional(),
+  numero_exterior: z.string().optional(),
+  numero_interior: z.string().optional(),
+  localidad: z.string().optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  regimen_fiscal: z.string().optional(),
+  estatus: z.enum(["activo", "inactivo"]).optional(),
+  observaciones: z.string().optional(),
 });
 
 export const listClients = asyncHandler(async (req: Request, res: Response) => {

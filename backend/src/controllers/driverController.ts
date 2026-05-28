@@ -20,6 +20,21 @@ const bodySchema = z.object({
   estatus: z.enum(["activo", "inactivo"]).optional(),
   rfc: z.string().optional(),
   licencia_federal: z.string().optional(),
+  tipo_figura: z.string().optional(),
+  curp: z.string().max(18).optional(),
+  email: z.string().email().optional().or(z.literal("")),
+  numero_empleado: z.string().optional(),
+  calle: z.string().optional(),
+  numero_exterior: z.string().optional(),
+  numero_interior: z.string().optional(),
+  colonia: z.string().optional(),
+  localidad: z.string().optional(),
+  municipio: z.string().optional(),
+  estado: z.string().optional(),
+  cp: z.string().optional(),
+  pais: z.string().optional(),
+  truck_id: z.string().uuid().optional().nullable(),
+  puesto: z.string().optional(),
 });
 
 export const listDrivers = asyncHandler(async (req: Request, res: Response) => {
@@ -65,6 +80,21 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
     estatus: b.estatus ?? "activo",
     rfc: b.rfc,
     licencia_federal: b.licencia_federal,
+    tipo_figura: b.tipo_figura ?? "01",
+    curp: b.curp,
+    email: b.email || null,
+    numero_empleado: b.numero_empleado,
+    calle: b.calle,
+    numero_exterior: b.numero_exterior,
+    numero_interior: b.numero_interior,
+    colonia: b.colonia,
+    localidad: b.localidad,
+    municipio: b.municipio,
+    estado: b.estado,
+    cp: b.cp,
+    pais: b.pais,
+    truck_id: b.truck_id ?? null,
+    puesto: b.puesto,
   } as never);
   res.status(201).json(driverToJson(d));
 });

@@ -6,6 +6,7 @@ import * as tenantC from "../controllers/tenantController";
 import * as truckC from "../controllers/truckController";
 import * as driverC from "../controllers/driverController";
 import * as clientC from "../controllers/clientController";
+import * as clientUbicacionC from "../controllers/clientUbicacionController";
 import * as tripC from "../controllers/tripController";
 import * as cartaPorteC from "../controllers/cartaPorteController";
 import * as fiscalC from "../controllers/fiscalController";
@@ -84,6 +85,31 @@ r.get("/clients/:id", authenticateJwt, requirePermission("catalogos.ver"), clien
 r.post("/clients", authenticateJwt, requirePermission("catalogos.editar"), clientC.createClient);
 r.patch("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.updateClient);
 r.delete("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.deleteClient);
+
+r.get(
+  "/clients/:clientId/ubicaciones",
+  authenticateJwt,
+  requirePermission("catalogos.ver"),
+  clientUbicacionC.listClientUbicaciones,
+);
+r.post(
+  "/clients/:clientId/ubicaciones",
+  authenticateJwt,
+  requirePermission("catalogos.editar"),
+  clientUbicacionC.createClientUbicacion,
+);
+r.patch(
+  "/clients/:clientId/ubicaciones/:id",
+  authenticateJwt,
+  requirePermission("catalogos.editar"),
+  clientUbicacionC.updateClientUbicacion,
+);
+r.delete(
+  "/clients/:clientId/ubicaciones/:id",
+  authenticateJwt,
+  requirePermission("catalogos.editar"),
+  clientUbicacionC.deleteClientUbicacion,
+);
 
 r.get("/trips", authenticateJwt, requirePermission("viajes.ver"), tripC.listTrips);
 r.get("/trips/:id", authenticateJwt, requirePermission("viajes.ver"), tripC.getTrip);

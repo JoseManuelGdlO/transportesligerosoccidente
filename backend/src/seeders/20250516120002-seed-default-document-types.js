@@ -24,6 +24,7 @@ async function seedForTenant(queryInterface, tenantId, now) {
     { slug: "permiso_dimensiones", nombre: "Permiso estatal de exceso de dimensiones" },
     { slug: "poliza_seguro", nombre: "Póliza de seguro" },
     { slug: "permiso_federal", nombre: "Permiso federal / configuración de unidad" },
+    { slug: "permiso_sct", nombre: "Permiso SCT" },
   ];
 
   const unidadFotos = [

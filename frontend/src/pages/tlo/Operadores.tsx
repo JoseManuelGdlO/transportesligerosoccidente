@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { DriverStatusBadge } from "@/components/tlo/StatusBadge";
 import { DocumentManager } from "@/components/tlo/DocumentManager";
+import { DocumentVigenciaSummary } from "@/components/tlo/DocumentVigenciaSummary";
 import { fmtDate, fmtMXN } from "@/lib/format";
 import type { Driver, CommissionType, DriverStatus } from "@/types/tlo";
 import {
@@ -51,7 +52,7 @@ const empty: Driver = {
 };
 
 export default function Operadores() {
-  const { drivers, upsertDriver, deleteDriver } = useTlo();
+  const { drivers, upsertDriver, deleteDriver, trucks } = useTlo();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<Driver>(empty);
   const [tab, setTab] = useState("datos");
@@ -378,6 +379,157 @@ export default function Operadores() {
                     onChange={(e) => setForm({ ...form, fecha_ingreso: e.target.value })}
                   />
                 </div>
+              </div>
+              <div className="rounded-md border border-dashed p-3 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Carta Porte SAT</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>RFC</Label>
+                    <Input
+                      value={form.rfc ?? ""}
+                      onChange={(e) => setForm({ ...form, rfc: e.target.value })}
+                      placeholder="XAXX010101000"
+                    />
+                  </div>
+                  <div>
+                    <Label>Licencia federal</Label>
+                    <Input
+                      value={form.licencia_federal ?? ""}
+                      onChange={(e) => setForm({ ...form, licencia_federal: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Tipo de figura</Label>
+                    <Select
+                      value={form.tipo_figura ?? "01"}
+                      onValueChange={(v) => setForm({ ...form, tipo_figura: v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="01">01 — Operador</SelectItem>
+                        <SelectItem value="02">02 — Propietario</SelectItem>
+                        <SelectItem value="03">03 — Arrendador</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+              </div>
+              <div className="rounded-md border border-dashed p-3 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Control interno</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>CURP</Label>
+                    <Input
+                      value={form.curp ?? ""}
+                      onChange={(e) => setForm({ ...form, curp: e.target.value.toUpperCase() })}
+                      maxLength={18}
+                    />
+                  </div>
+                  <div>
+                    <Label>Correo electrónico</Label>
+                    <Input
+                      type="email"
+                      value={form.email ?? ""}
+                      onChange={(e) => setForm({ ...form, email: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>No. empleado</Label>
+                    <Input
+                      value={form.numero_empleado ?? ""}
+                      onChange={(e) => setForm({ ...form, numero_empleado: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Puesto / categoría</Label>
+                    <Input
+                      value={form.puesto ?? ""}
+                      onChange={(e) => setForm({ ...form, puesto: e.target.value })}
+                    />
+                  </div>
+                  <div className="col-span-2">
+                    <Label>Unidad asignada</Label>
+                    <Select
+                      value={form.truck_id ?? "none"}
+                      onValueChange={(v) => setForm({ ...form, truck_id: v === "none" ? undefined : v })}
+                    >
+                      <SelectTrigger>
+                        <SelectValue placeholder="Sin asignar" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="none">Sin asignar</SelectItem>
+                        {trucks.map((t) => (
+                          <SelectItem key={t.id} value={t.id}>
+                            {t.numero_economico} — {t.placas}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                </div>
+                <div>
+                  <Label>Calle</Label>
+                  <Input value={form.calle ?? ""} onChange={(e) => setForm({ ...form, calle: e.target.value })} />
+                </div>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>No. exterior</Label>
+                    <Input
+                      value={form.numero_exterior ?? ""}
+                      onChange={(e) => setForm({ ...form, numero_exterior: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>No. interior</Label>
+                    <Input
+                      value={form.numero_interior ?? ""}
+                      onChange={(e) => setForm({ ...form, numero_interior: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Colonia</Label>
+                    <Input value={form.colonia ?? ""} onChange={(e) => setForm({ ...form, colonia: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>Localidad</Label>
+                    <Input
+                      value={form.localidad ?? ""}
+                      onChange={(e) => setForm({ ...form, localidad: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Municipio</Label>
+                    <Input
+                      value={form.municipio ?? ""}
+                      onChange={(e) => setForm({ ...form, municipio: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Estado</Label>
+                    <Input value={form.estado ?? ""} onChange={(e) => setForm({ ...form, estado: e.target.value })} />
+                  </div>
+                  <div>
+                    <Label>C.P.</Label>
+                    <Input
+                      value={form.cp ?? ""}
+                      onChange={(e) => setForm({ ...form, cp: e.target.value })}
+                      maxLength={5}
+                    />
+                  </div>
+                  <div>
+                    <Label>País</Label>
+                    <Input
+                      value={form.pais ?? "MEX"}
+                      onChange={(e) => setForm({ ...form, pais: e.target.value })}
+                      maxLength={3}
+                    />
+                  </div>
+                </div>
+              </div>
+              {form.id ? <DocumentVigenciaSummary kind="driver" entityId={form.id} /> : null}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Tipo comisión</Label>
                   <Select

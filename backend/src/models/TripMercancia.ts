@@ -21,6 +21,7 @@ export class TripMercancia extends Model<
   declare clave_prod_serv: CreationOptional<string | null>;
   declare material_peligroso: CreationOptional<boolean>;
   declare embalaje: CreationOptional<string | null>;
+  declare cantidad_transportada: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -38,6 +39,7 @@ export function initTripMercancia(sequelize: Sequelize) {
       clave_prod_serv: { type: DataTypes.STRING(16), allowNull: true },
       material_peligroso: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       embalaje: { type: DataTypes.STRING(32), allowNull: true },
+      cantidad_transportada: { type: DataTypes.DECIMAL(14, 4), allowNull: true },
     } as never,
     { sequelize, tableName: "trip_mercancias", underscored: true },
   );

@@ -24,6 +24,8 @@ const bodySchema = z.object({
   peso_bruto_vehicular: z.number().optional(),
   aseguradora_resp_civil: z.string().optional(),
   poliza_resp_civil: z.string().optional(),
+  vin: z.string().max(17).optional(),
+  capacidad_carga_kg: z.number().optional(),
 });
 
 export const listTrucks = asyncHandler(async (req: Request, res: Response) => {

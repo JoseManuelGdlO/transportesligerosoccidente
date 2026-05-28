@@ -25,6 +25,8 @@ export class Truck extends Model<InferAttributes<Truck>, InferCreationAttributes
   declare peso_bruto_vehicular: CreationOptional<string | null>;
   declare aseguradora_resp_civil: CreationOptional<string | null>;
   declare poliza_resp_civil: CreationOptional<string | null>;
+  declare vin: CreationOptional<string | null>;
+  declare capacidad_carga_kg: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -49,6 +51,8 @@ export function initTruck(sequelize: Sequelize) {
       peso_bruto_vehicular: { type: DataTypes.DECIMAL(10, 2), allowNull: true },
       aseguradora_resp_civil: { type: DataTypes.STRING(128), allowNull: true },
       poliza_resp_civil: { type: DataTypes.STRING(64), allowNull: true },
+      vin: { type: DataTypes.STRING(17), allowNull: true },
+      capacidad_carga_kg: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
     } as never,
     { sequelize, tableName: "trucks", underscored: true },
   );

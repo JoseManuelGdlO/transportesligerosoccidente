@@ -27,6 +27,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { TruckStatusBadge } from "@/components/tlo/StatusBadge";
 import { DocumentManager } from "@/components/tlo/DocumentManager";
+import { DocumentVigenciaSummary } from "@/components/tlo/DocumentVigenciaSummary";
 import { fmtMXN, fmtNumber } from "@/lib/format";
 import type { Truck, TruckStatus } from "@/types/tlo";
 import {
@@ -366,6 +367,27 @@ export default function Camiones() {
                   />
                 </div>
                 <div>
+                  <Label>VIN / No. serie</Label>
+                  <Input
+                    value={form.vin ?? ""}
+                    onChange={(e) => setForm({ ...form, vin: e.target.value.toUpperCase() })}
+                    maxLength={17}
+                  />
+                </div>
+                <div>
+                  <Label>Capacidad de carga (kg)</Label>
+                  <Input
+                    type="number"
+                    value={form.capacidad_carga_kg ?? ""}
+                    onChange={(e) =>
+                      setForm({
+                        ...form,
+                        capacidad_carga_kg: e.target.value === "" ? undefined : +e.target.value,
+                      })
+                    }
+                  />
+                </div>
+                <div>
                   <Label>Marca</Label>
                   <Input value={form.marca} onChange={(e) => setForm({ ...form, marca: e.target.value })} />
                 </div>
@@ -399,6 +421,64 @@ export default function Camiones() {
                     onChange={(e) => setForm({ ...form, costo_km_ref: +e.target.value })}
                   />
                 </div>
+              </div>
+              <div className="rounded-md border border-dashed p-3 space-y-3">
+                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Carta Porte SAT</p>
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Permiso SCT</Label>
+                    <Input
+                      value={form.perm_sct ?? ""}
+                      onChange={(e) => setForm({ ...form, perm_sct: e.target.value })}
+                      placeholder="TPAF01"
+                    />
+                  </div>
+                  <div>
+                    <Label>No. permiso SCT</Label>
+                    <Input
+                      value={form.num_permiso_sct ?? ""}
+                      onChange={(e) => setForm({ ...form, num_permiso_sct: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Config. vehicular</Label>
+                    <Input
+                      value={form.config_vehicular ?? ""}
+                      onChange={(e) => setForm({ ...form, config_vehicular: e.target.value })}
+                      placeholder="C2"
+                    />
+                  </div>
+                  <div>
+                    <Label>Peso bruto vehicular (kg)</Label>
+                    <Input
+                      type="number"
+                      value={form.peso_bruto_vehicular ?? ""}
+                      onChange={(e) =>
+                        setForm({
+                          ...form,
+                          peso_bruto_vehicular: e.target.value === "" ? undefined : +e.target.value,
+                        })
+                      }
+                    />
+                  </div>
+                  <div>
+                    <Label>Aseguradora RC</Label>
+                    <Input
+                      value={form.aseguradora_resp_civil ?? ""}
+                      onChange={(e) => setForm({ ...form, aseguradora_resp_civil: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Póliza RC</Label>
+                    <Input
+                      value={form.poliza_resp_civil ?? ""}
+                      onChange={(e) => setForm({ ...form, poliza_resp_civil: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              {form.id ? <DocumentVigenciaSummary kind="truck" entityId={form.id} /> : null}
+              <div className="grid grid-cols-2 gap-3">
                 <div>
                   <Label>Estatus</Label>
                   <Select
