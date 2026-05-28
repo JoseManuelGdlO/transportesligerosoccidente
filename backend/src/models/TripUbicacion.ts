@@ -16,6 +16,7 @@ export class TripUbicacion extends Model<
   declare id: CreationOptional<string>;
   declare tenant_id: string;
   declare trip_id: string;
+  declare orden: number;
   declare tipo: UbicacionTipo;
   declare rfc: CreationOptional<string | null>;
   declare nombre: CreationOptional<string | null>;
@@ -42,6 +43,7 @@ export function initTripUbicacion(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), allowNull: false },
+      orden: { type: DataTypes.INTEGER, allowNull: false },
       tipo: { type: DataTypes.ENUM("Origen", "Destino"), allowNull: false },
       rfc: { type: DataTypes.STRING(13), allowNull: true },
       nombre: { type: DataTypes.STRING(255), allowNull: true },

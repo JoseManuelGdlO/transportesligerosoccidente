@@ -3,7 +3,7 @@ import { autoTable } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
 import { computeTrip } from "@/lib/calc";
-import { fmtMXN, fmtDate, fmtNumber } from "@/lib/format";
+import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
 import {
   BLOCK_CATALOG,
   isBlockType,
@@ -182,7 +182,7 @@ const renderTripHeader: BlockRenderer = (state, props) => {
   const { trip } = state.data;
   const lines = [
     `Folio: ${trip.folio}`,
-    `Ruta: ${trip.origen} → ${trip.destino}`,
+    `Ruta: ${formatTripRoute(trip)}`,
     `Tipo: ${trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"} · Estatus: ${trip.estatus}`,
   ];
   textBlock(state, lines, { align: props.align });
@@ -305,7 +305,7 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
   const leftRows: Array<[string, string]> = [
     ["Folio", `AT-${trip.folio}`],
     ["Unidad", truck?.numero_economico || truck?.placas || "—"],
-    ["Ruta", `${trip.origen} / ${trip.destino}`],
+    ["Ruta", formatTripRoute(trip)],
     ["Operador", driver?.nombre ?? "—"],
     ["Vendedor(es)", trip.tipo_viaje === "foraneo" ? "FORÁNEO" : "LOCAL"],
     ["KM Recorridos", fmtNumber(f.km_recorridos, 2)],
@@ -636,7 +636,7 @@ const renderTripsTable: BlockRenderer = (state) => {
       String(t.folio),
       t.num_factura?.trim() || "—",
       fmtDate(t.fecha_salida),
-      `${t.origen} → ${t.destino}`,
+      formatTripRoute(t),
       fmtNumber(f.km_recorridos),
       fmtMXN(f.ingreso),
       fmtMXN(f.comision),

@@ -68,8 +68,26 @@ export type UbicacionTipo = "Origen" | "Destino";
 export type ClientUbicacionTipo = "Origen" | "Destino" | "Ambos";
 export type ClientStatus = "activo" | "inactivo";
 
+export interface TripStop {
+  orden: number;
+  etiqueta: string;
+  client_ubicacion_id?: string;
+}
+
+export interface RouteCatalog {
+  id: string;
+  nombre: string;
+  client_id?: string;
+  client_nombre?: string;
+  tipo_viaje?: TripType;
+  estatus: "activo" | "inactivo";
+  paradas: TripStop[];
+  ruta_resumen: string;
+}
+
 export interface TripUbicacion {
   id: string;
+  orden?: number;
   tipo: UbicacionTipo;
   rfc?: string;
   nombre?: string;
@@ -434,6 +452,9 @@ export interface Trip {
   client_id: string;
   origen: string;
   destino: string;
+  route_id?: string;
+  paradas?: TripStop[];
+  ruta_resumen?: string;
   fecha_salida: string;
   fecha_llegada?: string;
   km_inicial: number;

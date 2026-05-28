@@ -7,6 +7,7 @@ import * as truckC from "../controllers/truckController";
 import * as driverC from "../controllers/driverController";
 import * as clientC from "../controllers/clientController";
 import * as clientUbicacionC from "../controllers/clientUbicacionController";
+import * as routeC from "../controllers/routeController";
 import * as tripC from "../controllers/tripController";
 import * as cartaPorteC from "../controllers/cartaPorteController";
 import * as fiscalC from "../controllers/fiscalController";
@@ -111,6 +112,12 @@ r.delete(
   clientUbicacionC.deleteClientUbicacion,
 );
 
+r.get("/routes", authenticateJwt, requirePermission("catalogos.ver"), routeC.listRoutes);
+r.get("/routes/:id", authenticateJwt, requirePermission("catalogos.ver"), routeC.getRoute);
+r.post("/routes", authenticateJwt, requirePermission("catalogos.editar"), routeC.createRoute);
+r.patch("/routes/:id", authenticateJwt, requirePermission("catalogos.editar"), routeC.updateRoute);
+r.delete("/routes/:id", authenticateJwt, requirePermission("catalogos.editar"), routeC.deleteRoute);
+
 r.get("/trips", authenticateJwt, requirePermission("viajes.ver"), tripC.listTrips);
 r.get("/trips/:id", authenticateJwt, requirePermission("viajes.ver"), tripC.getTrip);
 r.post("/trips", authenticateJwt, requirePermission("viajes.crear"), tripC.createTrip);
@@ -136,6 +143,7 @@ r.post("/trips/:id/carta-porte/timbrar", authenticateJwt, requirePermission("car
 r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);
 r.put("/trips/:id/carta-porte/ubicacion-origen", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionOrigen);
 r.put("/trips/:id/carta-porte/ubicacion-destino", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionDestino);
+r.put("/trips/:id/carta-porte/ubicaciones", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicaciones);
 r.get("/trips/:id/mercancias", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.listMercancias);
 r.post("/trips/:id/mercancias", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.postMercancia);
 r.delete("/trips/:id/mercancias/:mercanciaId", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.deleteMercancia);

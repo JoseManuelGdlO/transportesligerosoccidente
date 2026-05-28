@@ -55,6 +55,7 @@ const catalogos: NavItem[] = [
   { title: "Mantenimiento", url: "/mantenimiento", icon: Wrench, perm: "catalogos.ver" },
   { title: "Operadores", url: "/operadores", icon: Users, perm: "catalogos.ver" },
   { title: "Clientes", url: "/clientes", icon: Building2, perm: "catalogos.ver" },
+  { title: "Rutas", url: "/rutas", icon: Route, perm: "catalogos.ver" },
   { title: "Tipos de documento", url: "/tipos-documento", icon: FileText, perm: "catalogos.ver" },
 ];
 

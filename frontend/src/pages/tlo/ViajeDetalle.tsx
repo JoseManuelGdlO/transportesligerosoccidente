@@ -13,7 +13,13 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusBadge } from "@/components/tlo/StatusBadge";
-import { fmtMXN, fmtDate, fmtDateTime, fmtNumber } from "@/lib/format";
+import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
+import {
+  TripParadasEditor,
+  paradasToTripStops,
+  tripStopsToParadas,
+  type ParadaDraft,
+} from "@/components/tlo/TripParadasEditor";
 import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText } from "lucide-react";
 import type { ExpenseCategory, Trip } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
@@ -150,7 +156,7 @@ export default function ViajeDetalle() {
               <Badge variant="outline">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</Badge>
             </div>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
-              <MapPin className="h-3 w-3" /> {trip.origen} → {trip.destino}
+              <MapPin className="h-3 w-3" /> {formatTripRoute(trip)}
             </p>
           </div>
         </div>
@@ -271,34 +277,20 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Km inicial → final</p><p className="font-medium font-mono">{fmtNumber(trip.km_inicial)} → {trip.km_final ? fmtNumber(trip.km_final) : "—"}</p></div>
                 {!isClosed ? (
                   <>
-                    <div>
-                      <Label>Ubicación de salida</Label>
-                      <Input
-                        defaultValue={trip.origen}
-                        placeholder="Ciudad, estado — ej. Guadalajara, JAL"
-                        onBlur={e => {
-                          const v = e.target.value.trim();
-                          if (v && v !== trip.origen) {
-                            updateTrip(trip.id, { origen: v });
-                            toast.success('Ubicación de salida actualizada');
-                          }
-                        }}
-                      />
-                    </div>
-                    <div>
-                      <Label>Ubicación destino</Label>
-                      <Input
-                        defaultValue={trip.destino}
-                        placeholder="Ciudad, estado — ej. Monterrey, NL"
-                        onBlur={e => {
-                          const v = e.target.value.trim();
-                          if (v && v !== trip.destino) {
-                            updateTrip(trip.id, { destino: v });
-                            toast.success('Ubicación destino actualizada');
-                          }
-                        }}
-                      />
-                    </div>
+                    <TripParadasEditor
+                      paradas={
+                        trip.paradas && trip.paradas.length >= 2
+                          ? tripStopsToParadas(trip.paradas)
+                          : [{ etiqueta: trip.origen }, { etiqueta: trip.destino }]
+                      }
+                      onChange={(p: ParadaDraft[]) => {
+                        const valid = p.filter((x) => x.etiqueta.trim());
+                        if (valid.length < 2) return;
+                        const stops = paradasToTripStops(valid);
+                        updateTrip(trip.id, { paradas: stops });
+                        toast.success("Paradas actualizadas");
+                      }}
+                    />
                     <div>
                       <Label>Número de factura</Label>
                       <Input
@@ -316,8 +308,10 @@ export default function ViajeDetalle() {
                   </>
                 ) : (
                   <>
-                    <div><p className='text-xs uppercase text-muted-foreground'>Ubicación de salida</p><p className='font-medium'>{trip.origen}</p></div>
-                    <div><p className='text-xs uppercase text-muted-foreground'>Ubicación destino</p><p className='font-medium'>{trip.destino}</p></div>
+                    <div className="md:col-span-2">
+                      <p className="text-xs uppercase text-muted-foreground">Ruta</p>
+                      <p className="font-medium">{formatTripRoute(trip)}</p>
+                    </div>
                     <div>
                       <Label>Número de factura</Label>
                       <Input

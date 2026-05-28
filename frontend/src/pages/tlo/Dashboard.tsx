@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import { fetchDocumentDashboard } from "@/lib/tloApi";
 import type { DocumentDashboardSummary } from "@/types/tlo";
 import { computeTrip, driverById, truckById } from "@/lib/calc";
-import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
+import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay, formatTripRoute } from "@/lib/format";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -252,7 +252,7 @@ export default function Dashboard() {
                 return (
                   <TableRow key={t.id} className="cursor-pointer hover:bg-muted/30" onClick={() => nav(`/viajes/${t.id}`)}>
                     <TableCell className="font-mono font-semibold">{t.folio}</TableCell>
-                    <TableCell className="text-sm">{t.origen} → {t.destino}</TableCell>
+                    <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
                     <TableCell className="text-sm">{dr?.nombre}</TableCell>
                     <TableCell className="text-sm font-mono">{tk?.numero_economico}</TableCell>
                     <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>

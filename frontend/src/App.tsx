@@ -14,6 +14,7 @@ import ViajeDetalle from "@/pages/tlo/ViajeDetalle";
 import Camiones from "@/pages/tlo/Camiones";
 import Operadores from "@/pages/tlo/Operadores";
 import Clientes from "@/pages/tlo/Clientes";
+import Rutas from "@/pages/tlo/Rutas";
 import Liquidaciones from "@/pages/tlo/Liquidaciones";
 import Reportes from "@/pages/tlo/Reportes";
 import Combustibles from "@/pages/tlo/Combustibles";
@@ -45,6 +46,7 @@ const App = () => (
                 <Route path="/mantenimiento" element={<Mantenimiento />} />
                 <Route path="/operadores" element={<Operadores />} />
                 <Route path="/clientes" element={<Clientes />} />
+                <Route path="/rutas" element={<Rutas />} />
                 <Route path="/liquidaciones" element={<Liquidaciones />} />
                 <Route path="/reportes" element={<Reportes />} />
                 <Route path="/combustibles" element={<Combustibles />} />

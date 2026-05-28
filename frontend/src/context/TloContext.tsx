@@ -408,21 +408,31 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
     async (data: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">): Promise<Trip> => {
       if (apiLive) {
         try {
+          const body: Record<string, unknown> = {
+            truck_id: data.truck_id,
+            driver_id: data.driver_id,
+            client_id: data.client_id,
+            fecha_salida: data.fecha_salida,
+            km_inicial: data.km_inicial,
+            tarifa: data.tarifa,
+            viaticos_entregados: data.viaticos_entregados ?? 0,
+            tipo_viaje: data.tipo_viaje ?? "local",
+            ...(data.num_factura?.trim() ? { num_factura: data.num_factura.trim() } : {}),
+            ...(data.route_id ? { route_id: data.route_id } : {}),
+          };
+          if (data.paradas && data.paradas.length >= 2) {
+            body.paradas = data.paradas.map((p) =>
+              p.client_ubicacion_id
+                ? { etiqueta: p.etiqueta, client_ubicacion_id: p.client_ubicacion_id }
+                : p.etiqueta,
+            );
+          } else {
+            body.origen = data.origen;
+            body.destino = data.destino;
+          }
           const r = await apiFetch("/trips", {
             method: "POST",
-            body: JSON.stringify({
-              truck_id: data.truck_id,
-              driver_id: data.driver_id,
-              client_id: data.client_id,
-              origen: data.origen,
-              destino: data.destino,
-              fecha_salida: data.fecha_salida,
-              km_inicial: data.km_inicial,
-              tarifa: data.tarifa,
-              viaticos_entregados: data.viaticos_entregados ?? 0,
-              tipo_viaje: data.tipo_viaje ?? "local",
-              ...(data.num_factura?.trim() ? { num_factura: data.num_factura.trim() } : {}),
-            }),
+            body: JSON.stringify(body),
           });
           const j = await readJson<Record<string, unknown>>(r);
           const trip = normalizeTrip(j);
@@ -459,6 +469,15 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
           try {
             const body: Record<string, unknown> = { ...patch };
             if (patch.fecha_salida) body.fecha_salida = patch.fecha_salida;
+            if (patch.paradas && patch.paradas.length >= 2) {
+              body.paradas = patch.paradas.map((p) =>
+                p.client_ubicacion_id
+                  ? { etiqueta: p.etiqueta, client_ubicacion_id: p.client_ubicacion_id }
+                  : p.etiqueta,
+              );
+              delete body.origen;
+              delete body.destino;
+            }
             const r = await apiFetch(`/trips/${id}`, { method: "PATCH", body: JSON.stringify(body) });
             const j = await readJson<Record<string, unknown>>(r);
             const next = normalizeTrip(j);

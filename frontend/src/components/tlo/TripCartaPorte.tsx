@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -8,7 +8,12 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, readJson } from "@/lib/api";
-import { fetchClientUbicaciones, normalizeCartaPorte, normalizeTrip } from "@/lib/tloApi";
+import {
+  fetchClientUbicaciones,
+  normalizeCartaPorte,
+  normalizeTrip,
+  putTripUbicaciones,
+} from "@/lib/tloApi";
 import type { ClientUbicacion, Driver, Trip, TripMercancia, Truck } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
 import { FileCheck, Plus, Trash2, Stamp, AlertCircle, Truck as TruckIcon, User } from "lucide-react";
@@ -54,8 +59,19 @@ export function TripCartaPorte({
   const canTimbrar = hasPermission("cartaporte.timbrar");
   const canEdit = trip.estatus === "en_curso" && hasPermission("viajes.crear");
   const cp = trip.carta_porte;
-  const origen = trip.ubicaciones?.find((u) => u.tipo === "Origen");
-  const destino = trip.ubicaciones?.find((u) => u.tipo === "Destino");
+  const sortedUbics = useMemo(
+    () => [...(trip.ubicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
+    [trip.ubicaciones],
+  );
+  const stopCount = Math.max(
+    trip.paradas?.length ?? 0,
+    sortedUbics.length,
+    2,
+  );
+  const origen = sortedUbics.find((u) => u.orden === 1) ?? sortedUbics.find((u) => u.tipo === "Origen");
+  const destino =
+    sortedUbics.find((u) => u.orden === stopCount) ??
+    sortedUbics.filter((u) => u.tipo === "Destino").pop();
 
   const [origenForm, setOrigenForm] = useState({
     ...emptyUbic(),
@@ -99,8 +115,49 @@ export function TripCartaPorte({
     clave_prod_serv: "78101800",
     material_peligroso: false,
   });
+  const [middleForms, setMiddleForms] = useState<
+    Array<ReturnType<typeof emptyUbic> & { orden: number; label: string }>
+  >([]);
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
   const [loading, setLoading] = useState(false);
+
+  useEffect(() => {
+    if (stopCount <= 2) {
+      setMiddleForms([]);
+      return;
+    }
+    const paradas = trip.paradas?.length
+      ? [...trip.paradas].sort((a, b) => a.orden - b.orden)
+      : [
+          { orden: 1, etiqueta: trip.origen },
+          { orden: 2, etiqueta: trip.destino },
+        ];
+    const middles: Array<ReturnType<typeof emptyUbic> & { orden: number; label: string }> = [];
+    for (let orden = 2; orden < stopCount; orden++) {
+      const u = sortedUbics.find((x) => x.orden === orden);
+      const etiqueta = paradas.find((p) => p.orden === orden)?.etiqueta ?? "";
+      middles.push({
+        ...emptyUbic(),
+        orden,
+        label: `Parada ${orden} (entrega)`,
+        rfc: u?.rfc || clientRfc || "",
+        nombre: u?.nombre || clientName || "",
+        calle: u?.calle || etiqueta,
+        colonia: u?.colonia || "",
+        municipio: u?.municipio || "",
+        localidad: u?.localidad || "",
+        estado: u?.estado || "",
+        cp: u?.cp || "",
+        numero_exterior: u?.numero_exterior || "",
+        numero_interior: u?.numero_interior || "",
+        pais: u?.pais || "MEX",
+        client_ubicacion_id: u?.client_ubicacion_id,
+        distancia_km: u?.distancia_km ?? "",
+        fecha_hora: u?.fecha_hora?.slice(0, 16) || "",
+      });
+    }
+    setMiddleForms(middles);
+  }, [trip.id, trip.paradas, sortedUbics, stopCount, clientRfc, clientName, trip.origen, trip.destino]);
 
   useEffect(() => {
     if (!clientId) {
@@ -148,6 +205,27 @@ export function TripCartaPorte({
     onTripUpdated(normalizeTrip(j));
   };
 
+  const toPayload = (body: ReturnType<typeof emptyUbic>, orden: number) => ({
+    orden,
+    rfc: body.rfc || undefined,
+    nombre: body.nombre || undefined,
+    calle: body.calle || undefined,
+    colonia: body.colonia || undefined,
+    municipio: body.municipio || undefined,
+    localidad: body.localidad || undefined,
+    estado: body.estado || undefined,
+    cp: body.cp || undefined,
+    numero_exterior: body.numero_exterior || undefined,
+    numero_interior: body.numero_interior || undefined,
+    pais: body.pais || undefined,
+    distancia_km:
+      orden === 1 || body.distancia_km === ""
+        ? undefined
+        : Number(body.distancia_km),
+    fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
+    client_ubicacion_id: body.client_ubicacion_id || undefined,
+  });
+
   const saveUbicacion = async (tipo: "origen" | "destino") => {
     const body = tipo === "origen" ? origenForm : destinoForm;
     const path = tipo === "origen" ? "ubicacion-origen" : "ubicacion-destino";
@@ -167,6 +245,21 @@ export function TripCartaPorte({
     }
     toast.success(tipo === "origen" ? "Origen guardado" : "Entrega guardada");
     await reloadTrip();
+  };
+
+  const saveAllUbicaciones = async () => {
+    try {
+      const items = [
+        toPayload(origenForm, 1),
+        ...middleForms.map((m) => toPayload(m, m.orden)),
+        toPayload(destinoForm, stopCount),
+      ];
+      await putTripUbicaciones(trip.id, items);
+      toast.success("Ubicaciones fiscales guardadas");
+      await reloadTrip();
+    } catch {
+      toast.error("No se pudieron guardar las ubicaciones");
+    }
   };
 
   const addMercancia = async () => {
@@ -637,7 +730,7 @@ export function TripCartaPorte({
                 disabled={!canEdit}
               />
             </div>
-            {canEdit && (
+            {canEdit && stopCount <= 2 && (
               <Button size="sm" onClick={() => void saveUbicacion("destino")}>
                 Guardar entrega
               </Button>
@@ -645,6 +738,77 @@ export function TripCartaPorte({
           </CardContent>
         </Card>
       </div>
+
+      {middleForms.length > 0 && (
+        <div className="grid md:grid-cols-2 gap-4">
+          {middleForms.map((mf, idx) => (
+            <Card key={mf.orden} className="tlo-shadow-md">
+              <CardHeader>
+                <CardTitle className="text-sm">{mf.label}</CardTitle>
+              </CardHeader>
+              <CardContent className="grid gap-2">
+                <div>
+                  <Label>Calle</Label>
+                  <Input
+                    value={mf.calle}
+                    onChange={(e) => {
+                      const next = [...middleForms];
+                      next[idx] = { ...next[idx], calle: e.target.value };
+                      setMiddleForms(next);
+                    }}
+                    disabled={!canEdit}
+                  />
+                </div>
+                <div className="grid grid-cols-2 gap-2">
+                  <div>
+                    <Label>Estado</Label>
+                    <Input
+                      value={mf.estado}
+                      onChange={(e) => {
+                        const next = [...middleForms];
+                        next[idx] = { ...next[idx], estado: e.target.value };
+                        setMiddleForms(next);
+                      }}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                  <div>
+                    <Label>CP</Label>
+                    <Input
+                      value={mf.cp}
+                      onChange={(e) => {
+                        const next = [...middleForms];
+                        next[idx] = { ...next[idx], cp: e.target.value };
+                        setMiddleForms(next);
+                      }}
+                      disabled={!canEdit}
+                    />
+                  </div>
+                </div>
+                <div>
+                  <Label>Distancia del tramo (km)</Label>
+                  <Input
+                    type="number"
+                    value={mf.distancia_km}
+                    onChange={(e) => {
+                      const next = [...middleForms];
+                      next[idx] = { ...next[idx], distancia_km: e.target.value };
+                      setMiddleForms(next);
+                    }}
+                    disabled={!canEdit}
+                  />
+                </div>
+              </CardContent>
+            </Card>
+          ))}
+        </div>
+      )}
+
+      {canEdit && stopCount > 2 && (
+        <Button size="sm" onClick={() => void saveAllUbicaciones()}>
+          Guardar todas las ubicaciones fiscales
+        </Button>
+      )}
 
       <Card className="tlo-shadow-md">
         <CardHeader>

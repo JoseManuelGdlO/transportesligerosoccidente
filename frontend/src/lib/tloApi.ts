@@ -56,9 +56,35 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
   };
 }
 
+export function normalizeTripStop(raw: Record<string, unknown>): import("@/types/tlo").TripStop {
+  return {
+    orden: Number(raw.orden ?? 0),
+    etiqueta: String(raw.etiqueta ?? ""),
+    client_ubicacion_id:
+      raw.client_ubicacion_id != null ? String(raw.client_ubicacion_id) : undefined,
+  };
+}
+
+export function normalizeRoute(raw: Record<string, unknown>): import("@/types/tlo").RouteCatalog {
+  const paradas = Array.isArray(raw.paradas)
+    ? (raw.paradas as Record<string, unknown>[]).map(normalizeTripStop)
+    : [];
+  return {
+    id: String(raw.id),
+    nombre: String(raw.nombre ?? ""),
+    client_id: raw.client_id != null ? String(raw.client_id) : undefined,
+    client_nombre: raw.client_nombre != null ? String(raw.client_nombre) : undefined,
+    tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : raw.tipo_viaje === "local" ? "local" : undefined,
+    estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+    paradas,
+    ruta_resumen: String(raw.ruta_resumen ?? paradas.map((p) => p.etiqueta).join(" → ")),
+  };
+}
+
 export function normalizeTripUbicacion(raw: Record<string, unknown>): TripUbicacion {
   return {
     id: String(raw.id),
+    orden: raw.orden != null ? Number(raw.orden) : undefined,
     tipo: raw.tipo === "Destino" ? "Destino" : "Origen",
     rfc: raw.rfc != null ? String(raw.rfc) : undefined,
     nombre: raw.nombre != null ? String(raw.nombre) : undefined,
@@ -129,14 +155,20 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     raw.carta_porte && typeof raw.carta_porte === "object"
       ? normalizeCartaPorte(raw.carta_porte as Record<string, unknown>)
       : undefined;
+  const paradas = Array.isArray(raw.paradas)
+    ? (raw.paradas as Record<string, unknown>[]).map(normalizeTripStop)
+    : undefined;
   return {
     id: String(raw.id),
     folio: String(raw.folio ?? ""),
     truck_id: String(raw.truck_id ?? ""),
     driver_id: String(raw.driver_id ?? ""),
     client_id: String(raw.client_id ?? ""),
+    route_id: raw.route_id != null ? String(raw.route_id) : undefined,
     origen: String(raw.origen ?? ""),
     destino: String(raw.destino ?? ""),
+    paradas,
+    ruta_resumen: raw.ruta_resumen != null ? String(raw.ruta_resumen) : undefined,
     fecha_salida: String(raw.fecha_salida ?? ""),
     fecha_llegada: raw.fecha_llegada != null ? String(raw.fecha_llegada) : undefined,
     km_inicial: Number(raw.km_inicial ?? 0),
@@ -677,4 +709,60 @@ export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> 
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank", "noopener,noreferrer");
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function fetchRoutes(opts?: { client_id?: string; all?: boolean }): Promise<
+  import("@/types/tlo").RouteCatalog[]
+> {
+  const q = new URLSearchParams();
+  if (opts?.client_id) q.set("client_id", opts.client_id);
+  if (opts?.all) q.set("all", "1");
+  const suffix = q.toString() ? `?${q}` : "";
+  const res = await apiFetch(`/routes${suffix}`);
+  const rows = await readJson<Record<string, unknown>[]>(res);
+  return rows.map(normalizeRoute);
+}
+
+export async function createRouteApi(body: {
+  nombre: string;
+  client_id?: string | null;
+  tipo_viaje?: "local" | "foraneo" | null;
+  paradas: { etiqueta: string; client_ubicacion_id?: string | null }[];
+}): Promise<import("@/types/tlo").RouteCatalog> {
+  const res = await apiFetch("/routes", { method: "POST", body: JSON.stringify(body) });
+  const j = await readJson<Record<string, unknown>>(res);
+  return normalizeRoute(j);
+}
+
+export async function updateRouteApi(
+  id: string,
+  body: Partial<{
+    nombre: string;
+    client_id: string | null;
+    tipo_viaje: "local" | "foraneo" | null;
+    estatus: "activo" | "inactivo";
+    paradas: { etiqueta: string; client_ubicacion_id?: string | null }[];
+  }>,
+): Promise<import("@/types/tlo").RouteCatalog> {
+  const res = await apiFetch(`/routes/${id}`, { method: "PATCH", body: JSON.stringify(body) });
+  const j = await readJson<Record<string, unknown>>(res);
+  return normalizeRoute(j);
+}
+
+export async function deleteRouteApi(id: string): Promise<void> {
+  const res = await apiFetch(`/routes/${id}`, { method: "DELETE" });
+  if (res.ok || res.status === 204) return;
+  await readJson(res);
+}
+
+export async function putTripUbicaciones(
+  tripId: string,
+  ubicaciones: Array<Record<string, unknown> & { orden: number }>,
+): Promise<TripUbicacion[]> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/ubicaciones`, {
+    method: "PUT",
+    body: JSON.stringify({ ubicaciones }),
+  });
+  const rows = await readJson<Record<string, unknown>[]>(res);
+  return rows.map(normalizeTripUbicacion);
 }

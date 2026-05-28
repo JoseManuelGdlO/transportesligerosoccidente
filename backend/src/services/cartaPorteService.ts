@@ -36,18 +36,16 @@ function formatFecha(d: Date): string {
 }
 
 function idUbicacion(u: TripUbicacion, tripId: string): string {
-  return u.id_ubicacion_sat || defaultIdUbicacionSat(u.tipo, tripId);
+  return u.id_ubicacion_sat || defaultIdUbicacionSat(u.tipo, tripId, u.orden);
 }
 
 function domicilioAttrs(
   u: TripUbicacion,
-  trip: Trip,
-  tipo: "Origen" | "Destino",
+  calleFallback: string,
   client: Client,
 ): string {
-  const calleFallback = tipo === "Origen" ? trip.origen : trip.destino;
   const parts = [
-    `Calle="${esc(u.calle || calleFallback || "")}"`,
+    `Calle="${esc(u.calle || calleFallback)}"`,
     u.numero_exterior ? ` NumeroExterior="${esc(u.numero_exterior)}"` : "",
     u.numero_interior ? ` NumeroInterior="${esc(u.numero_interior)}"` : "",
     u.colonia ? ` Colonia="${esc(u.colonia)}"` : "",
@@ -88,6 +86,7 @@ async function loadTripContext(tenantId: string, tripId: string) {
   const trip = await Trip.findOne({
     where: { id: tripId, tenant_id: tenantId },
     include: [
+      { association: "paradas" },
       { association: "ubicaciones" },
       { association: "mercancias" },
       { model: Truck },
@@ -118,13 +117,20 @@ export function validateCartaPorteData(
   if (!tenant.csd_cer_path || !tenant.csd_key_path) {
     issues.push("Certificados CSD (.cer y .key) no cargados");
   }
-  const origen = ubicaciones.find((u) => u.tipo === "Origen");
-  const destino = ubicaciones.find((u) => u.tipo === "Destino");
+  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  if (sorted.length < 2) {
+    issues.push("Se requieren al menos 2 ubicaciones (origen y destino)");
+  }
+  const origen = sorted.find((u) => u.orden === 1) ?? sorted[0];
+  const destinos = sorted.filter((u) => u.orden > 1);
   if (!origen?.cp) issues.push("Ubicación origen: falta código postal");
   if (!origen?.estado) issues.push("Ubicación origen: falta estado");
-  if (!destino?.cp) issues.push("Ubicación entrega: falta código postal");
-  if (!destino?.estado) issues.push("Ubicación entrega: falta estado");
-  if (!destino?.distancia_km) issues.push("Ubicación entrega: falta distancia en km");
+  for (const d of destinos) {
+    const label = d.orden === sorted.length ? "destino final" : `parada ${d.orden}`;
+    if (!d.cp) issues.push(`Ubicación ${label}: falta código postal`);
+    if (!d.estado) issues.push(`Ubicación ${label}: falta estado`);
+    if (!d.distancia_km) issues.push(`Ubicación ${label}: falta distancia del tramo en km`);
+  }
   if (mercancias.length === 0) issues.push("Agrega al menos una mercancía");
   if (!truck?.config_vehicular) issues.push("Camión: falta configuración vehicular SAT");
   if (!truck?.perm_sct) issues.push("Camión: falta permiso SCT");
@@ -158,21 +164,45 @@ export function buildCartaPorteXml(
   client: Client,
   folio: string,
 ): string {
-  const origen = ubicaciones.find((u) => u.tipo === "Origen")!;
-  const destino = ubicaciones.find((u) => u.tipo === "Destino")!;
+  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  const origen = sorted[0];
+  const destinos = sorted.slice(1);
+  const ultimo = destinos[destinos.length - 1];
   const idOrigen = idUbicacion(origen, trip.id);
-  const idDestino = idUbicacion(destino, trip.id);
+  const idDestinoFinal = idUbicacion(ultimo, trip.id);
+  const totalDist = destinos.reduce((s, d) => s + num(d.distancia_km), 0);
   const now = formatFecha(new Date());
   const transpInternac =
     cartaPorte.transporte_internacional || trip.tipo_viaje === "foraneo" ? "Sí" : "No";
   const idCcp = cartaPorte.id_ccp || randomUUID();
+
+  const paradas = (trip as Trip & { paradas?: { orden: number; etiqueta: string }[] }).paradas ?? [];
+  const etiquetaByOrden = new Map(paradas.map((p) => [p.orden, p.etiqueta]));
+  const calleFallback = (u: TripUbicacion) =>
+    u.calle || etiquetaByOrden.get(u.orden) || (u.orden === 1 ? trip.origen : trip.destino);
+
+  const ubicXml = sorted
+    .map((u) => {
+      const idUb = idUbicacion(u, trip.id);
+      const fecha = u.fecha_hora ? formatFecha(new Date(u.fecha_hora)) : now;
+      const dom = domicilioAttrs(u, calleFallback(u), client);
+      if (u.orden === 1) {
+        return `<cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="${esc(idUb)}" RFCRemitenteDestinatario="${esc(u.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(u.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${fecha}">
+          <cartaporte31:Domicilio ${dom} />
+        </cartaporte31:Ubicacion>`;
+      }
+      return `<cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="${esc(idUb)}" RFCRemitenteDestinatario="${esc(u.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(u.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${fecha}" DistanciaRecorrida="${u.distancia_km}">
+          <cartaporte31:Domicilio ${dom} />
+        </cartaporte31:Ubicacion>`;
+    })
+    .join("");
 
   const mercXml = mercancias
     .map((m) => {
       const cantTransp = m.cantidad_transportada ?? m.cantidad;
       const bienes = m.clave_prod_serv ? ` BienesTransp="${esc(m.clave_prod_serv)}"` : "";
       return `<cartaporte31:Mercancia Descripcion="${esc(m.descripcion)}" Cantidad="${m.cantidad}" ClaveUnidad="${esc(m.unidad)}" PesoEnKg="${m.peso_kg}"${bienes}>
-        <cartaporte31:CantidadTransportada Cantidad="${cantTransp}" IDOrigen="${esc(idOrigen)}" IDDestino="${esc(idDestino)}" />
+        <cartaporte31:CantidadTransportada Cantidad="${cantTransp}" IDOrigen="${esc(idOrigen)}" IDDestino="${esc(idDestinoFinal)}" />
       </cartaporte31:Mercancia>`;
     })
     .join("");
@@ -184,19 +214,14 @@ export function buildCartaPorteXml(
   return `<?xml version="1.0" encoding="UTF-8"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Serie="${esc(tenant.cfdi_serie || "CP")}" Folio="${esc(folio)}" Fecha="${now}" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" Exportacion="01" LugarExpedicion="${esc(tenant.cp_fiscal || "00000")}" MetodoPago="PUE" FormaPago="99">
   <cfdi:Emisor Rfc="${esc(tenant.rfc!)}" Nombre="${esc(tenant.razon_social!)}" RegimenFiscal="${esc(tenant.regimen_fiscal!)}" />
-  <cfdi:Receptor Rfc="${esc(client.rfc)}" Nombre="${esc(client.razon_social)}" DomicilioFiscalReceptor="${esc(client.cp || destino.cp || "00000")}" RegimenFiscalReceptor="${esc(regimenReceptor)}" UsoCFDI="S01" />
+  <cfdi:Receptor Rfc="${esc(client.rfc)}" Nombre="${esc(client.razon_social)}" DomicilioFiscalReceptor="${esc(client.cp || ultimo.cp || "00000")}" RegimenFiscalReceptor="${esc(regimenReceptor)}" UsoCFDI="S01" />
   <cfdi:Conceptos>
     <cfdi:Concepto ClaveProdServ="78101800" Cantidad="1" ClaveUnidad="E48" Descripcion="Transporte de carga" ValorUnitario="0" Importe="0" ObjetoImp="01" />
   </cfdi:Conceptos>
   <cfdi:Complemento>
-    <cartaporte31:CartaPorte Version="3.1" IdCCP="${esc(idCcp)}" TranspInternac="${transpInternac}" TotalDistRec="${destino.distancia_km}">
+    <cartaporte31:CartaPorte Version="3.1" IdCCP="${esc(idCcp)}" TranspInternac="${transpInternac}" TotalDistRec="${totalDist}">
       <cartaporte31:Ubicaciones>
-        <cartaporte31:Ubicacion TipoUbicacion="Origen" IDUbicacion="${esc(idOrigen)}" RFCRemitenteDestinatario="${esc(origen.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(origen.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${origen.fecha_hora ? formatFecha(new Date(origen.fecha_hora)) : now}">
-          <cartaporte31:Domicilio ${domicilioAttrs(origen, trip, "Origen", client)} />
-        </cartaporte31:Ubicacion>
-        <cartaporte31:Ubicacion TipoUbicacion="Destino" IDUbicacion="${esc(idDestino)}" RFCRemitenteDestinatario="${esc(destino.rfc || client.rfc)}" NombreRemitenteDestinatario="${esc(destino.nombre || client.razon_social)}" FechaHoraSalidaLlegada="${destino.fecha_hora ? formatFecha(new Date(destino.fecha_hora)) : now}" DistanciaRecorrida="${destino.distancia_km}">
-          <cartaporte31:Domicilio ${domicilioAttrs(destino, trip, "Destino", client)} />
-        </cartaporte31:Ubicacion>
+        ${ubicXml}
       </cartaporte31:Ubicaciones>
       <cartaporte31:Mercancias PesoBrutoTotal="${mercancias.reduce((s, m) => s + num(m.peso_kg), 0)}" UnidadPeso="KGM" NumTotalMercancias="${mercancias.length}">
         ${mercXml}

@@ -32,6 +32,19 @@ export const fmtDate = (iso?: string) => {
   });
 };
 
+import type { Trip } from "@/types/tlo";
+
+export function formatTripRoute(trip: Pick<Trip, "ruta_resumen" | "paradas" | "origen" | "destino">): string {
+  if (trip.ruta_resumen?.trim()) return trip.ruta_resumen;
+  if (trip.paradas && trip.paradas.length >= 2) {
+    return [...trip.paradas]
+      .sort((a, b) => a.orden - b.orden)
+      .map((p) => p.etiqueta)
+      .join(" → ");
+  }
+  return `${trip.origen} → ${trip.destino}`;
+}
+
 export const fmtDateTime = (iso?: string) => {
   if (!iso) return "—";
   const d = new Date(iso);

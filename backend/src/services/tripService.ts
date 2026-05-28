@@ -1,6 +1,15 @@
 import { randomUUID } from "node:crypto";
 import { Op, type Transaction } from "sequelize";
 import { Trip, FuelLoad, Expense, Driver, Truck, Client, sequelize } from "../models";
+import * as routeService from "./routeService";
+import {
+  saveTripStops,
+  normalizeParadasInput,
+  deriveOrigenDestino,
+  assertParadasEditable,
+  type ParadaInput,
+} from "./tripStopService";
+import { syncUbicacionesFromTripStops } from "./tripFiscalService";
 
 export async function nextFolio(tenantId: string, t?: Transaction): Promise<string> {
   const year = new Date().getFullYear();
@@ -31,10 +40,13 @@ export async function getTripOrThrow(
   }
   if (withFiscal) {
     include.push(
+      { association: "paradas" },
       { association: "ubicaciones" },
       { association: "mercancias" },
       { association: "cartaPorte" },
     );
+  } else if (withNested) {
+    include.push({ association: "paradas" });
   }
   const trip = await Trip.findOne({
     where: { id, tenant_id: tenantId },
@@ -172,6 +184,7 @@ const PATCH_OPEN_ONLY = [
   "client_id",
   "origen",
   "destino",
+  "route_id",
   "km_inicial",
   "tarifa",
   "viaticos_entregados",
@@ -215,7 +228,23 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
   }
   if (patch.comision_override === null) data.comision_override = null;
 
+  const paradasPatch = patch.paradas as ParadaInput[] | undefined;
+  if (!isClosed && paradasPatch) {
+    await assertParadasEditable(tenantId, id);
+    const paradas = normalizeParadasInput({ paradas: paradasPatch });
+    const { origen, destino } = deriveOrigenDestino(paradas);
+    data.origen = origen;
+    data.destino = destino;
+  }
+
   await trip.update(data as never);
+
+  if (!isClosed && paradasPatch) {
+    const paradas = normalizeParadasInput({ paradas: paradasPatch });
+    await saveTripStops(tenantId, id, paradas);
+    await syncUbicacionesFromTripStops(tenantId, id);
+  }
+
   return getTripOrThrow(tenantId, id, true, undefined, true);
 }
 
@@ -241,8 +270,10 @@ export async function createTrip(
     truck_id: string;
     driver_id: string;
     client_id: string;
-    origen: string;
-    destino: string;
+    origen?: string;
+    destino?: string;
+    paradas?: ParadaInput[] | string[];
+    route_id?: string;
     fecha_salida: string | Date;
     km_inicial: number;
     tarifa: number;
@@ -256,18 +287,29 @@ export async function createTrip(
     driver_id: data.driver_id,
     client_id: data.client_id,
   });
+
+  let paradas: ParadaInput[];
+  if (data.route_id) {
+    paradas = await routeService.getRouteStopsForTrip(tenantId, data.route_id);
+  } else {
+    paradas = normalizeParadasInput(data);
+  }
+  const { origen, destino } = deriveOrigenDestino(paradas);
+
   return sequelize.transaction(async (t) => {
     const folio = await nextFolio(tenantId, t);
+    const tripId = randomUUID();
     const created = await Trip.create(
       {
-        id: randomUUID(),
+        id: tripId,
         tenant_id: tenantId,
         folio,
         truck_id: data.truck_id,
         driver_id: data.driver_id,
         client_id: data.client_id,
-        origen: data.origen,
-        destino: data.destino,
+        route_id: data.route_id ?? null,
+        origen,
+        destino,
         fecha_salida: new Date(data.fecha_salida),
         km_inicial: data.km_inicial,
         tarifa: data.tarifa,
@@ -278,7 +320,9 @@ export async function createTrip(
       } as never,
       { transaction: t },
     );
-    return getTripOrThrow(tenantId, created.id, true, t);
+    await saveTripStops(tenantId, created.id, paradas, t);
+    await syncUbicacionesFromTripStops(tenantId, created.id);
+    return getTripOrThrow(tenantId, created.id, true, t, true);
   });
 }
 

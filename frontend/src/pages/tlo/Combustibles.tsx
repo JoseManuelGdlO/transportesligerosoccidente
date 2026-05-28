@@ -36,7 +36,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
-import { fmtMXN, fmtNumber } from "@/lib/format";
+import { fmtMXN, fmtNumber, formatTripRoute } from "@/lib/format";
 import { Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
@@ -527,7 +527,7 @@ export default function Combustibles() {
                             <TableRow key={v.trip_id}>
                               <TableCell className="font-mono">{v.folio}</TableCell>
                               <TableCell>
-                                {v.origen} → {v.destino}
+                                {formatTripRoute(v)}
                               </TableCell>
                               <TableCell>{v.fecha_salida}</TableCell>
                               <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>

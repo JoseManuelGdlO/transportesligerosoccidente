@@ -66,7 +66,7 @@ export const putUbicacionOrigen = asyncHandler(async (req: Request, res: Respons
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const row = await tripFiscalService.upsertUbicacion(tid(req), req.params.id, "Origen", parsed.data);
+  const row = await tripFiscalService.upsertUbicacionByTipo(tid(req), req.params.id, "Origen", parsed.data);
   res.json(tripUbicacionToJson(row));
 });
 
@@ -76,8 +76,32 @@ export const putUbicacionDestino = asyncHandler(async (req: Request, res: Respon
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const row = await tripFiscalService.upsertUbicacion(tid(req), req.params.id, "Destino", parsed.data);
+  const row = await tripFiscalService.upsertUbicacionByTipo(tid(req), req.params.id, "Destino", parsed.data);
   res.json(tripUbicacionToJson(row));
+});
+
+const ubicacionesArraySchema = z.object({
+  ubicaciones: z
+    .array(
+      ubicacionSchema.extend({
+        orden: z.number().int().positive(),
+      }),
+    )
+    .min(2),
+});
+
+export const putUbicaciones = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = ubicacionesArraySchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const rows = await tripFiscalService.replaceUbicaciones(
+    tid(req),
+    req.params.id,
+    parsed.data.ubicaciones,
+  );
+  res.json(rows.map((row) => tripUbicacionToJson(row)));
 });
 
 export const listMercancias = asyncHandler(async (req: Request, res: Response) => {

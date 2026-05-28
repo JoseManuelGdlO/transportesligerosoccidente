@@ -16,6 +16,7 @@ export const listTrips = asyncHandler(async (req: Request, res: Response) => {
     include: [
       { association: "fuel" },
       { association: "expenses" },
+      { association: "paradas" },
     ],
   });
   res.json(rows.map((t) => tripToJson(t)));
@@ -26,19 +27,33 @@ export const getTrip = asyncHandler(async (req: Request, res: Response) => {
   res.json(tripToJson(t));
 });
 
-const createSchema = z.object({
-  truck_id: z.string().min(1),
-  driver_id: z.string().min(1),
-  client_id: z.string().min(1),
-  origen: z.string().min(1),
-  destino: z.string().min(1),
-  fecha_salida: z.string(),
-  km_inicial: z.number().int(),
-  tarifa: z.number(),
-  viaticos_entregados: z.number().optional(),
-  num_factura: z.string().optional(),
-  tipo_viaje: z.enum(["local", "foraneo"]).optional(),
-});
+const paradaSchema = z.union([
+  z.string().min(1),
+  z.object({
+    etiqueta: z.string().min(1),
+    client_ubicacion_id: z.string().uuid().optional().nullable(),
+  }),
+]);
+
+const createSchema = z
+  .object({
+    truck_id: z.string().min(1),
+    driver_id: z.string().min(1),
+    client_id: z.string().min(1),
+    origen: z.string().min(1).optional(),
+    destino: z.string().min(1).optional(),
+    paradas: z.array(paradaSchema).min(2).optional(),
+    route_id: z.string().uuid().optional(),
+    fecha_salida: z.string(),
+    km_inicial: z.number().int(),
+    tarifa: z.number(),
+    viaticos_entregados: z.number().optional(),
+    num_factura: z.string().optional(),
+    tipo_viaje: z.enum(["local", "foraneo"]).optional(),
+  })
+  .refine((d) => d.route_id || d.paradas || (d.origen && d.destino), {
+    message: "Indica route_id, paradas (mín. 2) u origen y destino",
+  });
 
 export const createTrip = asyncHandler(async (req: Request, res: Response) => {
   const parsed = createSchema.safeParse(req.body);
@@ -46,7 +61,7 @@ export const createTrip = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const t = await tripService.createTrip(tid(req), parsed.data);
+  const t = await tripService.createTrip(tid(req), parsed.data as Parameters<typeof tripService.createTrip>[1]);
   res.status(201).json(tripToJson(t));
 });
 
@@ -57,6 +72,8 @@ const patchSchema = z
     client_id: z.string().min(1).optional(),
     origen: z.string().min(1).optional(),
     destino: z.string().min(1).optional(),
+    paradas: z.array(paradaSchema).min(2).optional(),
+    route_id: z.string().uuid().nullable().optional(),
     fecha_salida: z.string().optional(),
     km_inicial: z.number().int().optional(),
     tarifa: z.number().optional(),

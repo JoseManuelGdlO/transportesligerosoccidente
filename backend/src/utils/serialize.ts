@@ -14,7 +14,11 @@ import type { TripUbicacion } from "../models/TripUbicacion";
 import type { TripMercancia } from "../models/TripMercancia";
 import type { CartaPorte } from "../models/CartaPorte";
 import type { ClientUbicacion } from "../models/ClientUbicacion";
+import type { Route } from "../models/Route";
+import type { RouteStop } from "../models/RouteStop";
+import type { TripStop } from "../models/TripStop";
 import { num, iso } from "./numbers";
+import { formatRutaResumen } from "../services/tripStopService";
 
 export function fuelTicketToJson(
   ft: FuelTicket,
@@ -71,10 +75,46 @@ export function expenseToJson(e: Expense): Record<string, unknown> {
   };
 }
 
+export function tripStopToJson(s: TripStop): Record<string, unknown> {
+  const p = s.get({ plain: true }) as Record<string, unknown>;
+  return {
+    orden: p.orden,
+    etiqueta: p.etiqueta,
+    client_ubicacion_id: p.client_ubicacion_id ?? undefined,
+  };
+}
+
+export function routeStopToJson(s: RouteStop): Record<string, unknown> {
+  const p = s.get({ plain: true }) as Record<string, unknown>;
+  return {
+    orden: p.orden,
+    etiqueta: p.etiqueta,
+    client_ubicacion_id: p.client_ubicacion_id ?? undefined,
+  };
+}
+
+export function routeToJson(r: Route): Record<string, unknown> {
+  const stops = (r as Route & { stops?: RouteStop[] }).stops ?? [];
+  const sorted = [...stops].sort((a, b) => a.orden - b.orden);
+  const paradas = sorted.map((s) => routeStopToJson(s));
+  const client = (r as Route & { Client?: Client }).Client;
+  return {
+    id: r.id,
+    nombre: r.nombre,
+    client_id: r.client_id ?? undefined,
+    client_nombre: client?.razon_social,
+    tipo_viaje: r.tipo_viaje ?? undefined,
+    estatus: r.estatus,
+    paradas,
+    ruta_resumen: formatRutaResumen(sorted),
+  };
+}
+
 export function tripUbicacionToJson(u: TripUbicacion): Record<string, unknown> {
   const p = u.get({ plain: true }) as Record<string, unknown>;
   return {
     id: p.id,
+    orden: p.orden,
     tipo: p.tipo,
     rfc: p.rfc ?? undefined,
     nombre: p.nombre ?? undefined,
@@ -131,7 +171,15 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
 export function tripToJson(t: Trip): Record<string, unknown> {
   const fuel = (t as Trip & { fuel?: FuelLoad[] }).fuel ?? [];
   const expenses = (t as Trip & { expenses?: Expense[] }).expenses ?? [];
-  const ubicaciones = (t as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
+  const paradasRows = (t as Trip & { paradas?: TripStop[] }).paradas ?? [];
+  const paradasSorted = [...paradasRows].sort((a, b) => a.orden - b.orden);
+  const paradas = paradasSorted.map((row) => tripStopToJson(row));
+  const rutaResumen =
+    paradasSorted.length > 0 ? formatRutaResumen(paradasSorted) : `${t.origen} → ${t.destino}`;
+  const ubicacionesRaw = (t as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
+  const ubicaciones = [...ubicacionesRaw]
+    .sort((a, b) => a.orden - b.orden)
+    .map((row) => tripUbicacionToJson(row));
   const mercancias = (t as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const cartaPorte = (t as Trip & { cartaPorte?: CartaPorte | null }).cartaPorte;
   return {
@@ -140,8 +188,11 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     truck_id: String(t.truck_id),
     driver_id: String(t.driver_id),
     client_id: String(t.client_id),
+    route_id: t.route_id ?? undefined,
     origen: t.origen,
     destino: t.destino,
+    paradas,
+    ruta_resumen: rutaResumen,
     fecha_salida: iso(t.fecha_salida),
     fecha_llegada: t.fecha_llegada ? iso(t.fecha_llegada) : undefined,
     km_inicial: t.km_inicial,
@@ -155,7 +206,7 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     estatus: t.estatus,
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),
-    ubicaciones: ubicaciones.map((row) => tripUbicacionToJson(row)),
+    ubicaciones,
     mercancias: mercancias.map((row) => tripMercanciaToJson(row)),
     carta_porte: cartaPorte ? cartaPorteToJson(cartaPorte) : undefined,
   };

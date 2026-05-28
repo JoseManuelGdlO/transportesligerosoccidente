@@ -2,10 +2,16 @@ import { randomUUID } from "node:crypto";
 import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia } from "../models";
 import type { UbicacionTipo } from "../models/TripUbicacion";
 import { getTripOrThrow, assertTripOpen } from "./tripService";
+import { listTripStops, type ParadaInput } from "./tripStopService";
 
-export function defaultIdUbicacionSat(tipo: UbicacionTipo, tripId: string): string {
-  const prefix = tipo === "Origen" ? "OR" : "DE";
-  return `${prefix}${tripId.replace(/-/g, "").slice(0, 6).toUpperCase()}`;
+export function defaultIdUbicacionSat(tipo: UbicacionTipo, tripId: string, orden = 1): string {
+  const base = tripId.replace(/-/g, "").slice(0, 6).toUpperCase();
+  if (tipo === "Origen") return `OR${base}`;
+  return `DE${orden}${base.slice(0, 4)}`;
+}
+
+function tipoFromOrden(orden: number): UbicacionTipo {
+  return orden === 1 ? "Origen" : "Destino";
 }
 
 function addressFromClient(client: Client) {
@@ -38,11 +44,20 @@ function addressFromClientUbicacion(u: ClientUbicacion) {
 
 export async function listUbicaciones(tenantId: string, tripId: string) {
   await getTripOrThrow(tenantId, tripId, false);
-  return TripUbicacion.findAll({ where: { tenant_id: tenantId, trip_id: tripId } });
+  return TripUbicacion.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["orden", "ASC"]],
+  });
 }
 
 /** Prefill trip ubicaciones from client fiscal address when missing. */
 export async function ensureUbicacionesFromClient(tenantId: string, tripId: string) {
+  const stops = await listTripStops(tenantId, tripId);
+  if (stops.length >= 2) {
+    await syncUbicacionesFromTripStops(tenantId, tripId);
+    return;
+  }
+
   const trip = await Trip.findOne({
     where: { id: tripId, tenant_id: tenantId },
     include: [{ model: Client }],
@@ -52,8 +67,8 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
   if (!client) return;
 
   const existing = await TripUbicacion.findAll({ where: { tenant_id: tenantId, trip_id: tripId } });
-  const hasOrigen = existing.some((u) => u.tipo === "Origen");
-  const hasDestino = existing.some((u) => u.tipo === "Destino");
+  const hasOrigen = existing.some((u) => u.orden === 1);
+  const hasDestino = existing.some((u) => u.orden === 2);
 
   const clientDefaults = {
     rfc: client.rfc,
@@ -66,8 +81,9 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
+      orden: 1,
       tipo: "Origen",
-      id_ubicacion_sat: defaultIdUbicacionSat("Origen", tripId),
+      id_ubicacion_sat: defaultIdUbicacionSat("Origen", tripId, 1),
       rfc: clientDefaults.rfc,
       nombre: clientDefaults.nombre,
       calle: trip.origen || clientDefaults.calle,
@@ -88,8 +104,9 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
+      orden: 2,
       tipo: "Destino",
-      id_ubicacion_sat: defaultIdUbicacionSat("Destino", tripId),
+      id_ubicacion_sat: defaultIdUbicacionSat("Destino", tripId, 2),
       rfc: clientDefaults.rfc,
       nombre: clientDefaults.nombre,
       calle: trip.destino || clientDefaults.calle,
@@ -102,6 +119,75 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
       cp: clientDefaults.cp,
       pais: clientDefaults.pais,
     } as never);
+  }
+}
+
+export async function syncUbicacionesFromTripStops(tenantId: string, tripId: string) {
+  const trip = await Trip.findOne({
+    where: { id: tripId, tenant_id: tenantId },
+    include: [{ model: Client }],
+  });
+  if (!trip) return;
+
+  const client = (trip as Trip & { Client?: Client }).Client;
+  const stops = await listTripStops(tenantId, tripId);
+  if (stops.length < 2) return;
+
+  const existing = await TripUbicacion.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["orden", "ASC"]],
+  });
+  const byOrden = new Map(existing.map((u) => [u.orden, u]));
+
+  for (const stop of stops) {
+    const tipo = tipoFromOrden(stop.orden);
+    let catalog: ClientUbicacion | null = null;
+    if (stop.client_ubicacion_id) {
+      catalog = await ClientUbicacion.findOne({
+        where: { id: stop.client_ubicacion_id, tenant_id: tenantId, estatus: "activo" },
+      });
+    }
+
+    const clientDefaults = client
+      ? { rfc: client.rfc, nombre: client.razon_social, ...addressFromClient(client) }
+      : null;
+    const addr = catalog ? addressFromClientUbicacion(catalog) : clientDefaults;
+
+    const row = byOrden.get(stop.orden);
+    const payload = {
+      orden: stop.orden,
+      tipo,
+      rfc: row?.rfc ?? clientDefaults?.rfc ?? null,
+      nombre: row?.nombre ?? clientDefaults?.nombre ?? null,
+      calle: row?.calle ?? addr?.calle ?? stop.etiqueta,
+      numero_exterior: row?.numero_exterior ?? addr?.numero_exterior ?? null,
+      numero_interior: row?.numero_interior ?? addr?.numero_interior ?? null,
+      colonia: row?.colonia ?? addr?.colonia ?? null,
+      localidad: row?.localidad ?? addr?.localidad ?? null,
+      municipio: row?.municipio ?? addr?.municipio ?? null,
+      estado: row?.estado ?? addr?.estado ?? null,
+      cp: row?.cp ?? addr?.cp ?? null,
+      pais: row?.pais ?? addr?.pais ?? "MEX",
+      client_ubicacion_id: stop.client_ubicacion_id ?? row?.client_ubicacion_id ?? null,
+      fecha_hora: row?.fecha_hora ?? (stop.orden === 1 ? trip.fecha_salida : null),
+      id_ubicacion_sat: row?.id_ubicacion_sat ?? defaultIdUbicacionSat(tipo, tripId, stop.orden),
+    };
+
+    if (row) {
+      await row.update(payload as never);
+    } else {
+      await TripUbicacion.create({
+        id: randomUUID(),
+        tenant_id: tenantId,
+        trip_id: tripId,
+        ...payload,
+      } as never);
+    }
+  }
+
+  const maxOrden = stops.length;
+  for (const u of existing) {
+    if (u.orden > maxOrden) await u.destroy();
   }
 }
 
@@ -154,7 +240,7 @@ async function resolveUbicacionPayload(
 export async function upsertUbicacion(
   tenantId: string,
   tripId: string,
-  tipo: UbicacionTipo,
+  orden: number,
   data: {
     rfc?: string;
     nombre?: string;
@@ -174,9 +260,14 @@ export async function upsertUbicacion(
 ) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripOpen(trip);
+  const tipo = tipoFromOrden(orden);
   const resolved = await resolveUbicacionPayload(tenantId, data);
-  const existing = await TripUbicacion.findOne({ where: { tenant_id: tenantId, trip_id: tripId, tipo } });
+  const existing = await TripUbicacion.findOne({
+    where: { tenant_id: tenantId, trip_id: tripId, orden },
+  });
   const payload = {
+    orden,
+    tipo,
     rfc: resolved.rfc ?? null,
     nombre: resolved.nombre ?? null,
     fecha_hora: resolved.fecha_hora ? new Date(resolved.fecha_hora) : null,
@@ -194,7 +285,7 @@ export async function upsertUbicacion(
   };
   if (existing) {
     if (!existing.id_ubicacion_sat) {
-      (payload as Record<string, unknown>).id_ubicacion_sat = defaultIdUbicacionSat(tipo, tripId);
+      (payload as Record<string, unknown>).id_ubicacion_sat = defaultIdUbicacionSat(tipo, tripId, orden);
     }
     await existing.update(payload as never);
     return existing;
@@ -203,10 +294,67 @@ export async function upsertUbicacion(
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
-    tipo,
-    id_ubicacion_sat: defaultIdUbicacionSat(tipo, tripId),
+    id_ubicacion_sat: defaultIdUbicacionSat(tipo, tripId, orden),
     ...payload,
   } as never);
+}
+
+/** Legacy: upsert by tipo (first Origen or first Destino by orden). */
+export async function upsertUbicacionByTipo(
+  tenantId: string,
+  tripId: string,
+  tipo: UbicacionTipo,
+  data: Parameters<typeof upsertUbicacion>[3],
+) {
+  const orden = tipo === "Origen" ? 1 : 2;
+  const existing = await TripUbicacion.findOne({
+    where: { tenant_id: tenantId, trip_id: tripId, tipo },
+    order: [["orden", "ASC"]],
+  });
+  return upsertUbicacion(tenantId, tripId, existing?.orden ?? orden, data);
+}
+
+export async function replaceUbicaciones(
+  tenantId: string,
+  tripId: string,
+  items: Array<{
+    orden: number;
+    rfc?: string;
+    nombre?: string;
+    fecha_hora?: string;
+    calle?: string;
+    colonia?: string;
+    municipio?: string;
+    localidad?: string;
+    estado?: string;
+    cp?: string;
+    numero_exterior?: string;
+    numero_interior?: string;
+    pais?: string;
+    distancia_km?: number;
+    client_ubicacion_id?: string | null;
+  }>,
+) {
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  await assertTripOpen(trip);
+  if (items.length < 2) {
+    const err = new Error("Se requieren al menos 2 ubicaciones");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
+  const sorted = [...items].sort((a, b) => a.orden - b.orden);
+  for (let i = 0; i < sorted.length; i++) {
+    const item = { ...sorted[i], orden: i + 1 };
+    await upsertUbicacion(tenantId, tripId, item.orden, item);
+  }
+  const maxOrden = sorted.length;
+  const extras = await TripUbicacion.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+  });
+  for (const u of extras) {
+    if (u.orden > maxOrden) await u.destroy();
+  }
+  return listUbicaciones(tenantId, tripId);
 }
 
 export async function listMercancias(tenantId: string, tripId: string) {
