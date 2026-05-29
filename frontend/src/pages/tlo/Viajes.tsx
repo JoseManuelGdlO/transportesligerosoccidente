@@ -16,13 +16,37 @@ import {
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
 import { fmtMXN, fmtDate, formatTripRoute } from "@/lib/format";
-import { fetchRoutes } from "@/lib/tloApi";
+import { fetchRoutes, fetchTruckLastKm, lastClosedKmFromTrips } from "@/lib/tloApi";
 import { hasApiConfigured } from "@/lib/api";
-import type { RouteCatalog } from "@/types/tlo";
+import type { RouteCatalog, TripType } from "@/types/tlo";
 import { Plus, Search, ArrowRight } from "lucide-react";
 import { toast } from "sonner";
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
+
+type NewTripForm = {
+  truck_id: string;
+  driver_id: string;
+  client_id: string;
+  num_factura: string;
+  fecha_salida: string;
+  km_inicial: number;
+  tarifa: number;
+  viaticos_entregados: number;
+  tipo_viaje: TripType;
+};
+
+const defaultForm = (): NewTripForm => ({
+  truck_id: "",
+  driver_id: "",
+  client_id: "",
+  num_factura: "",
+  fecha_salida: new Date().toISOString().slice(0, 16),
+  km_inicial: 0,
+  tarifa: 0,
+  viaticos_entregados: 0,
+  tipo_viaje: "local",
+});
 
 export default function Viajes() {
   const { trips, drivers, trucks, clients, createTrip } = useTlo();
@@ -39,17 +63,8 @@ export default function Viajes() {
   const [catalogRoutes, setCatalogRoutes] = useState<RouteCatalog[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>("__custom__");
   const [paradas, setParadas] = useState<ParadaDraft[]>(emptyParadas);
-  const [form, setForm] = useState({
-    truck_id: "",
-    driver_id: "",
-    client_id: "",
-    num_factura: "",
-    fecha_salida: new Date().toISOString().slice(0, 16),
-    km_inicial: 0,
-    tarifa: 0,
-    viaticos_entregados: 0,
-    tipo_viaje: "local" as const,
-  });
+  const [form, setForm] = useState<NewTripForm>(defaultForm);
+  const [kmLoading, setKmLoading] = useState(false);
 
   const loadRoutes = useCallback(async (clientId: string) => {
     if (!apiMode || !clientId) {
@@ -64,18 +79,49 @@ export default function Viajes() {
     }
   }, [apiMode]);
 
+  const openNewTripDialog = useCallback(() => {
+    setParadas(emptyParadas());
+    setSelectedRouteId("__custom__");
+    setForm(defaultForm());
+    setOpen(true);
+  }, []);
+
   useEffect(() => {
     if (params.get("nuevo")) {
-      setOpen(true);
+      openNewTripDialog();
       params.delete("nuevo");
       setParams(params, { replace: true });
     }
-  }, [params, setParams]);
+  }, [params, setParams, openNewTripDialog]);
 
   useEffect(() => {
     if (form.client_id) void loadRoutes(form.client_id);
     else setCatalogRoutes([]);
   }, [form.client_id, loadRoutes]);
+
+  useEffect(() => {
+    if (!form.truck_id) {
+      setForm((f) => (f.km_inicial === 0 ? f : { ...f, km_inicial: 0 }));
+      return;
+    }
+    let cancelled = false;
+    setKmLoading(true);
+    void (async () => {
+      try {
+        const km = apiMode
+          ? await fetchTruckLastKm(form.truck_id)
+          : lastClosedKmFromTrips(trips, form.truck_id);
+        if (!cancelled) {
+          setForm((f) => ({ ...f, km_inicial: km ?? 0 }));
+        }
+      } finally {
+        if (!cancelled) setKmLoading(false);
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [form.truck_id, apiMode, trips]);
 
   const applyRoute = (routeId: string) => {
     setSelectedRouteId(routeId);
@@ -136,8 +182,6 @@ export default function Viajes() {
         tarifa: +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
-        fuel: [],
-        expenses: [],
       });
       toast.success(`Viaje ${t.folio} abierto`);
       setOpen(false);
@@ -209,11 +253,7 @@ export default function Viajes() {
             </Select>
           </div>
           <Button
-            onClick={() => {
-              setParadas(emptyParadas());
-              setSelectedRouteId("__custom__");
-              setOpen(true);
-            }}
+            onClick={openNewTripDialog}
             className="bg-primary text-primary-foreground hover:bg-primary-glow"
           >
             <Plus className="h-4 w-4 mr-2" /> Abrir viaje
@@ -398,6 +438,7 @@ export default function Viajes() {
               <Input
                 type="number"
                 value={form.km_inicial}
+                disabled={kmLoading}
                 onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
               />
             </div>
@@ -413,7 +454,7 @@ export default function Viajes() {
               <Label>Tipo de viaje</Label>
               <Select
                 value={form.tipo_viaje}
-                onValueChange={(v) => setForm({ ...form, tipo_viaje: v as "local" | "foraneo" })}
+                onValueChange={(v) => setForm({ ...form, tipo_viaje: v as TripType })}
               >
                 <SelectTrigger>
                   <SelectValue />

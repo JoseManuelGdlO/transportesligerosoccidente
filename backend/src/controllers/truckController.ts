@@ -3,6 +3,7 @@ import { z } from "zod";
 import type { Request, Response } from "express";
 import { Op } from "sequelize";
 import { Truck } from "../models";
+import * as tripService from "../services/tripService";
 import { asyncHandler } from "../utils/asyncHandler";
 import { truckToJson } from "../utils/serialize";
 
@@ -46,6 +47,18 @@ export const getTruck = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   res.json(truckToJson(t));
+});
+
+export const getTruckLastKm = asyncHandler(async (req: Request, res: Response) => {
+  const t = await Truck.findOne({ where: { id: req.params.id, tenant_id: tid(req) } });
+  if (!t) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  const excludeTripId =
+    typeof req.query.exclude_trip_id === "string" ? req.query.exclude_trip_id : undefined;
+  const km_final = await tripService.getLastClosedKmFinal(tid(req), req.params.id, excludeTripId);
+  res.json({ km_final });
 });
 
 export const createTruck = asyncHandler(async (req: Request, res: Response) => {

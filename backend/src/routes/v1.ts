@@ -70,6 +70,7 @@ r.post(
 );
 
 r.get("/trucks", authenticateJwt, requirePermission("catalogos.ver"), truckC.listTrucks);
+r.get("/trucks/:id/last-km", authenticateJwt, requirePermission("viajes.ver"), truckC.getTruckLastKm);
 r.get("/trucks/:id", authenticateJwt, requirePermission("catalogos.ver"), truckC.getTruck);
 r.post("/trucks", authenticateJwt, requirePermission("catalogos.editar"), truckC.createTruck);
 r.patch("/trucks/:id", authenticateJwt, requirePermission("catalogos.editar"), truckC.updateTruck);

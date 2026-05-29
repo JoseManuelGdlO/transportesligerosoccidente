@@ -336,3 +336,24 @@ export async function listTripsForReports(tenantId: string) {
     ],
   });
 }
+
+export async function getLastClosedKmFinal(
+  tenantId: string,
+  truckId: string,
+  excludeTripId?: string,
+): Promise<number | null> {
+  const where: Record<string, unknown> = {
+    tenant_id: tenantId,
+    truck_id: truckId,
+    estatus: "cerrado",
+    km_final: { [Op.ne]: null },
+  };
+  if (excludeTripId) where.id = { [Op.ne]: excludeTripId };
+
+  const lastTrip = await Trip.findOne({
+    where,
+    order: [["fecha_llegada", "DESC"]],
+    attributes: ["km_final"],
+  });
+  return lastTrip?.km_final ?? null;
+}

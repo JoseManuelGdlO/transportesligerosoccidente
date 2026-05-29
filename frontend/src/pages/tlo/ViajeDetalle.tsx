@@ -496,7 +496,16 @@ export default function ViajeDetalle() {
         <DialogContent>
           <DialogHeader><DialogTitle>Cerrar viaje {trip.folio}</DialogTitle></DialogHeader>
           <div className="space-y-3">
-            <div><Label>Kilometraje final</Label><Input type="number" value={closeData.km_final} onChange={e => setCloseData({ ...closeData, km_final: +e.target.value })} /><p className="text-xs text-muted-foreground mt-1">Inicial: {fmtNumber(trip.km_inicial)} km</p></div>
+            <div>
+              <Label>Kilometraje anterior</Label>
+              <Input
+                type="number"
+                readOnly
+                value={trip.km_inicial}
+                className="bg-muted"
+              />
+            </div>
+            <div><Label>Kilometraje final</Label><Input type="number" value={closeData.km_final} onChange={e => setCloseData({ ...closeData, km_final: +e.target.value })} /></div>
             <div><Label>Fecha y hora de llegada</Label><Input type="datetime-local" value={closeData.fecha_llegada} onChange={e => setCloseData({ ...closeData, fecha_llegada: e.target.value })} /></div>
             <div><Label>Número de factura</Label><Input value={closeData.num_factura} onChange={e => setCloseData({ ...closeData, num_factura: e.target.value })} placeholder="F-8826" /></div>
           </div>

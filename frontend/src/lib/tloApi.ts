@@ -335,6 +335,37 @@ export async function fetchTloCatalog(): Promise<{
   };
 }
 
+export function lastClosedKmFromTrips(
+  trips: Trip[],
+  truckId: string,
+  excludeTripId?: string,
+): number | null {
+  const closed = trips
+    .filter(
+      (t) =>
+        t.truck_id === truckId &&
+        t.estatus === "cerrado" &&
+        t.km_final != null &&
+        t.id !== excludeTripId,
+    )
+    .sort(
+      (a, b) =>
+        new Date(b.fecha_llegada ?? 0).getTime() - new Date(a.fecha_llegada ?? 0).getTime(),
+    );
+  return closed[0]?.km_final ?? null;
+}
+
+export async function fetchTruckLastKm(
+  truckId: string,
+  excludeTripId?: string,
+): Promise<number | null> {
+  const qs = excludeTripId ? `?exclude_trip_id=${encodeURIComponent(excludeTripId)}` : "";
+  const r = await apiFetch(`/trucks/${truckId}/last-km${qs}`);
+  if (!r.ok) return null;
+  const j = await readJson<{ km_final: number | null }>(r);
+  return j.km_final;
+}
+
 export async function fetchUsersAndRoles(): Promise<{ systemUsers: SystemUser[]; roles: RoleDefinition[] }> {
   const [uRes, rRes] = await Promise.all([apiFetch("/users"), apiFetch("/roles")]);
   const usersJson = await readJson<unknown[]>(uRes);
