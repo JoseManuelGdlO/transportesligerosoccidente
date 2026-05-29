@@ -1,4 +1,5 @@
 import type { Client, Driver, Trip, Truck } from "@/types/tlo";
+import { SYSTEM_STATUS_CERRADO } from "@/lib/tripStatus";
 
 export const SAMPLE_TRIP_DRIVER: Driver = {
   id: "sample-driver",
@@ -49,7 +50,7 @@ export const SAMPLE_TRIP: Trip = {
   viaticos_entregados: 2500,
   num_factura: "F-2025-042",
   tipo_viaje: "foraneo",
-  estatus: "cerrado",
+  statuses: [SYSTEM_STATUS_CERRADO],
   fuel: [
     {
       id: "f1",

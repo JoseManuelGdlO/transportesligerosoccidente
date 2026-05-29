@@ -9,6 +9,7 @@ import * as clientC from "../controllers/clientController";
 import * as clientUbicacionC from "../controllers/clientUbicacionController";
 import * as routeC from "../controllers/routeController";
 import * as tripC from "../controllers/tripController";
+import * as tripStatusC from "../controllers/tripStatusController";
 import * as cartaPorteC from "../controllers/cartaPorteController";
 import * as fiscalC from "../controllers/fiscalController";
 import { uploadCsd } from "../middlewares/uploadCsd";
@@ -119,10 +120,16 @@ r.post("/routes", authenticateJwt, requirePermission("catalogos.editar"), routeC
 r.patch("/routes/:id", authenticateJwt, requirePermission("catalogos.editar"), routeC.updateRoute);
 r.delete("/routes/:id", authenticateJwt, requirePermission("catalogos.editar"), routeC.deleteRoute);
 
+r.get("/trip-statuses", authenticateJwt, requirePermission("viajes.ver"), tripStatusC.listTripStatuses);
+r.post("/trip-statuses", authenticateJwt, requirePermission("catalogos.editar"), tripStatusC.createTripStatus);
+r.patch("/trip-statuses/:id", authenticateJwt, requirePermission("catalogos.editar"), tripStatusC.updateTripStatus);
+r.delete("/trip-statuses/:id", authenticateJwt, requirePermission("catalogos.editar"), tripStatusC.deleteTripStatus);
+
 r.get("/trips", authenticateJwt, requirePermission("viajes.ver"), tripC.listTrips);
 r.get("/trips/:id", authenticateJwt, requirePermission("viajes.ver"), tripC.getTrip);
 r.post("/trips", authenticateJwt, requirePermission("viajes.crear"), tripC.createTrip);
 r.patch("/trips/:id", authenticateJwt, requirePermission("viajes.crear"), tripC.patchTrip);
+r.put("/trips/:id/statuses", authenticateJwt, requirePermission("viajes.crear"), tripStatusC.putTripStatuses);
 r.post("/trips/:id/close", authenticateJwt, requirePermission("viajes.cerrar"), tripC.postCloseTrip);
 r.delete("/trips/:id", authenticateJwt, requirePermission("viajes.eliminar"), tripC.deleteTrip);
 

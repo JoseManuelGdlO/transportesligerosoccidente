@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { Trip, Truck, Driver, Client } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { computeTrip } from "../services/calc";
+import { tripIsClosed } from "../services/tripStatusService";
 
 const querySchema = z.object({
   desde: z.string().optional(),
@@ -30,6 +31,7 @@ export const getAggregates = asyncHandler(async (req: Request, res: Response) =>
     Trip.findAll({
       where: { tenant_id: tenantId },
       include: [
+        { association: "statuses", through: { attributes: [] } },
         { association: "fuel" },
         { association: "expenses" },
         { model: Driver, attributes: ["id", "nombre", "comision_tipo", "comision_valor"] },
@@ -41,7 +43,7 @@ export const getAggregates = asyncHandler(async (req: Request, res: Response) =>
   ]);
 
   const closed = trips.filter((t) => {
-    if (t.estatus !== "cerrado") return false;
+    if (!tripIsClosed(t)) return false;
     const fs = t.fecha_salida instanceof Date ? t.fecha_salida.toISOString() : String(t.fecha_salida);
     return inRange(fs, desde, hasta);
   });

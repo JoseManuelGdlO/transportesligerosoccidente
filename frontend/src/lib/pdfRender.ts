@@ -4,6 +4,7 @@ import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo
 import type { SettlementSummary } from "@/lib/calc";
 import { computeTrip } from "@/lib/calc";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
+import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
   BLOCK_CATALOG,
   isBlockType,
@@ -183,7 +184,7 @@ const renderTripHeader: BlockRenderer = (state, props) => {
   const lines = [
     `Folio: ${trip.folio}`,
     `Ruta: ${formatTripRoute(trip)}`,
-    `Tipo: ${trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"} · Estatus: ${trip.estatus}`,
+    `Tipo: ${trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"} · Estatus: ${statusLabelForPdf(trip)}`,
   ];
   textBlock(state, lines, { align: props.align });
 };

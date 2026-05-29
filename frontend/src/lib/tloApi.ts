@@ -25,7 +25,13 @@ import type {
   NotificationItem,
   DocumentDashboardSummary,
   DocTypeRow,
+  TripStatusRef,
 } from "@/types/tlo";
+import {
+  SYSTEM_STATUS_CERRADO,
+  SYSTEM_STATUS_EN_CURSO,
+  tripIsClosed,
+} from "@/lib/tripStatus";
 
 const EXPENSE_CATS: ExpenseCategory[] = ["casetas", "refacciones", "hospedaje", "comidas", "otros"];
 
@@ -140,6 +146,18 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
   };
 }
 
+export function normalizeTripStatusRef(raw: Record<string, unknown>): TripStatusRef {
+  const slug = raw.slug;
+  return {
+    id: String(raw.id),
+    nombre: String(raw.nombre ?? ""),
+    color: String(raw.color ?? "#6366f1"),
+    slug: slug === "cerrado" || slug === "en_curso" ? slug : undefined,
+    is_system: Boolean(raw.is_system),
+    activo: raw.activo !== false,
+  };
+}
+
 export function normalizeTrip(raw: Record<string, unknown>): Trip {
   const fuel = Array.isArray(raw.fuel) ? (raw.fuel as Record<string, unknown>[]).map(normalizeFuel) : [];
   const expenses = Array.isArray(raw.expenses)
@@ -158,6 +176,11 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
   const paradas = Array.isArray(raw.paradas)
     ? (raw.paradas as Record<string, unknown>[]).map(normalizeTripStop)
     : undefined;
+  const statuses = Array.isArray(raw.statuses)
+    ? (raw.statuses as Record<string, unknown>[]).map(normalizeTripStatusRef)
+    : raw.estatus === "cerrado"
+      ? [SYSTEM_STATUS_CERRADO]
+      : [SYSTEM_STATUS_EN_CURSO];
   return {
     id: String(raw.id),
     folio: String(raw.folio ?? ""),
@@ -179,7 +202,7 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     comision_override: raw.comision_override != null ? Number(raw.comision_override) : undefined,
     tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : "local",
     settlement_id: raw.settlement_id != null ? String(raw.settlement_id) : undefined,
-    estatus: raw.estatus === "cerrado" ? "cerrado" : "en_curso",
+    statuses,
     fuel,
     expenses,
     ubicaciones,
@@ -344,7 +367,7 @@ export function lastClosedKmFromTrips(
     .filter(
       (t) =>
         t.truck_id === truckId &&
-        t.estatus === "cerrado" &&
+        tripIsClosed(t) &&
         t.km_final != null &&
         t.id !== excludeTripId,
     )
@@ -483,6 +506,52 @@ export async function deleteDocumentType(id: string): Promise<void> {
   const res = await apiFetch(`/document-types/${id}`, { method: "DELETE" });
   if (res.ok || res.status === 204) return;
   await readJson(res);
+}
+
+export async function fetchTripStatuses(): Promise<TripStatusRef[]> {
+  const res = await apiFetch("/trip-statuses");
+  const j = await readJson<unknown[]>(res);
+  return j.map((x) => normalizeTripStatusRef(x as Record<string, unknown>));
+}
+
+export async function createTripStatus(body: {
+  nombre: string;
+  color?: string;
+  activo?: boolean;
+}): Promise<TripStatusRef> {
+  const res = await apiFetch("/trip-statuses", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeTripStatusRef(raw);
+}
+
+export async function updateTripStatus(
+  id: string,
+  body: Partial<{ nombre: string; color: string; activo: boolean }>,
+): Promise<TripStatusRef> {
+  const res = await apiFetch(`/trip-statuses/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeTripStatusRef(raw);
+}
+
+export async function deleteTripStatus(id: string): Promise<void> {
+  const res = await apiFetch(`/trip-statuses/${id}`, { method: "DELETE" });
+  if (res.ok || res.status === 204) return;
+  await readJson(res);
+}
+
+export async function setTripStatuses(tripId: string, statusIds: string[]): Promise<Trip> {
+  const res = await apiFetch(`/trips/${tripId}/statuses`, {
+    method: "PUT",
+    body: JSON.stringify({ status_ids: statusIds }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeTrip(raw);
 }
 
 export async function fetchClient(id: string): Promise<Client> {

@@ -17,6 +17,7 @@ import type { ClientUbicacion } from "../models/ClientUbicacion";
 import type { Route } from "../models/Route";
 import type { RouteStop } from "../models/RouteStop";
 import type { TripStop } from "../models/TripStop";
+import type { TripStatus } from "../models/TripStatus";
 import { num, iso } from "./numbers";
 import { formatRutaResumen } from "../services/tripStopService";
 
@@ -168,6 +169,18 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
   };
 }
 
+export function tripStatusToJson(s: TripStatus): Record<string, unknown> {
+  const p = s.get({ plain: true }) as Record<string, unknown>;
+  return {
+    id: String(p.id),
+    nombre: p.nombre,
+    color: p.color,
+    slug: p.slug ?? undefined,
+    is_system: !!p.is_system,
+    activo: p.activo !== false,
+  };
+}
+
 export function tripToJson(t: Trip): Record<string, unknown> {
   const fuel = (t as Trip & { fuel?: FuelLoad[] }).fuel ?? [];
   const expenses = (t as Trip & { expenses?: Expense[] }).expenses ?? [];
@@ -182,6 +195,8 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     .map((row) => tripUbicacionToJson(row));
   const mercancias = (t as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const cartaPorte = (t as Trip & { cartaPorte?: CartaPorte | null }).cartaPorte;
+  const statusesRaw = (t as Trip & { statuses?: TripStatus[] }).statuses ?? [];
+  const statuses = statusesRaw.map((row) => tripStatusToJson(row));
   return {
     id: String(t.id),
     folio: t.folio,
@@ -203,7 +218,7 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     comision_override: t.comision_override != null ? num(t.comision_override) : undefined,
     tipo_viaje: t.tipo_viaje ?? "local",
     settlement_id: t.settlement_id ?? undefined,
-    estatus: t.estatus,
+    statuses,
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),
     ubicaciones,

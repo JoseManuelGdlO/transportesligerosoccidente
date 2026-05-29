@@ -27,6 +27,8 @@ import { ClientUbicacion, initClientUbicacion } from "./ClientUbicacion";
 import { Route, initRoute } from "./Route";
 import { RouteStop, initRouteStop } from "./RouteStop";
 import { TripStop, initTripStop } from "./TripStop";
+import { TripStatus, initTripStatus } from "./TripStatus";
+import { TripStatusAssignment, initTripStatusAssignment } from "./TripStatusAssignment";
 
 export function initModels() {
   initTenant(sequelize);
@@ -41,6 +43,8 @@ export function initModels() {
   initRoute(sequelize);
   initRouteStop(sequelize);
   initTripStop(sequelize);
+  initTripStatus(sequelize);
+  initTripStatusAssignment(sequelize);
   initTrip(sequelize);
   initFuelLoad(sequelize);
   initFuelTicket(sequelize);
@@ -134,6 +138,23 @@ export function initModels() {
   Trip.hasOne(CartaPorte, { foreignKey: "trip_id", as: "cartaPorte" });
   CartaPorte.belongsTo(Trip, { foreignKey: "trip_id" });
 
+  Tenant.hasMany(TripStatus, { foreignKey: "tenant_id" });
+  TripStatus.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Trip.belongsToMany(TripStatus, {
+    through: TripStatusAssignment,
+    foreignKey: "trip_id",
+    otherKey: "trip_status_id",
+    as: "statuses",
+  });
+  TripStatus.belongsToMany(Trip, {
+    through: TripStatusAssignment,
+    foreignKey: "trip_status_id",
+    otherKey: "trip_id",
+    as: "trips",
+  });
+  TripStatusAssignment.belongsTo(Trip, { foreignKey: "trip_id" });
+  TripStatusAssignment.belongsTo(TripStatus, { foreignKey: "trip_status_id" });
+
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });
 
@@ -200,6 +221,8 @@ export {
   DriverDiscount,
   MaintenanceSchedule,
   MaintenanceRecord,
+  TripStatus,
+  TripStatusAssignment,
 };
 
 initModels();

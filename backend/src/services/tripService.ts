@@ -10,6 +10,13 @@ import {
   type ParadaInput,
 } from "./tripStopService";
 import { syncUbicacionesFromTripStops } from "./tripFiscalService";
+import {
+  STATUSES_INCLUDE,
+  tripIsClosed,
+  assignEnCursoOnCreate,
+  swapSystemStatus,
+  getClosedStatusIds,
+} from "./tripStatusService";
 
 export async function nextFolio(tenantId: string, t?: Transaction): Promise<string> {
   const year = new Date().getFullYear();
@@ -34,7 +41,7 @@ export async function getTripOrThrow(
   t?: Transaction,
   withFiscal = false,
 ) {
-  const include: object[] = [];
+  const include: object[] = [{ ...STATUSES_INCLUDE }];
   if (withNested) {
     include.push({ association: "fuel" }, { association: "expenses" });
   }
@@ -62,7 +69,7 @@ export async function getTripOrThrow(
 }
 
 export async function assertTripOpen(trip: Trip) {
-  if (trip.estatus !== "en_curso") {
+  if (tripIsClosed(trip)) {
     const err = new Error("El viaje ya está cerrado");
     (err as Error & { status?: number }).status = 400;
     throw err;
@@ -91,8 +98,8 @@ export async function closeTrip(
     km_final: data.km_final,
     fecha_llegada: new Date(data.fecha_llegada),
     num_factura: factura,
-    estatus: "cerrado",
   });
+  await swapSystemStatus(tenantId, id, "en_curso", "cerrado");
   return getTripOrThrow(tenantId, id, true, undefined, true);
 }
 
@@ -196,7 +203,7 @@ const PATCH_WHEN_CLOSED = ["num_factura", "comision_override"] as const;
 
 export async function patchTrip(tenantId: string, id: string, patch: Partial<Record<string, unknown>>) {
   const trip = await getTripOrThrow(tenantId, id, false);
-  const isClosed = trip.estatus === "cerrado";
+  const isClosed = tripIsClosed(trip);
 
   if (isClosed) {
     for (const k of PATCH_OPEN_ONLY) {
@@ -316,10 +323,10 @@ export async function createTrip(
         viaticos_entregados: data.viaticos_entregados ?? 0,
         num_factura: data.num_factura?.trim() || null,
         tipo_viaje: data.tipo_viaje ?? "local",
-        estatus: "en_curso",
       } as never,
       { transaction: t },
     );
+    await assignEnCursoOnCreate(tenantId, created.id, t);
     await saveTripStops(tenantId, created.id, paradas, t);
     await syncUbicacionesFromTripStops(tenantId, created.id);
     return getTripOrThrow(tenantId, created.id, true, t, true);
@@ -330,6 +337,7 @@ export async function listTripsForReports(tenantId: string) {
   return Trip.findAll({
     where: { tenant_id: tenantId },
     include: [
+      STATUSES_INCLUDE,
       { association: "fuel" },
       { association: "expenses" },
       { model: Driver, attributes: ["id", "comision_tipo", "comision_valor", "tenant_id"] },
@@ -342,16 +350,25 @@ export async function getLastClosedKmFinal(
   truckId: string,
   excludeTripId?: string,
 ): Promise<number | null> {
+  const closedIds = await getClosedStatusIds(tenantId);
+  if (closedIds.length === 0) return null;
+
   const where: Record<string, unknown> = {
     tenant_id: tenantId,
     truck_id: truckId,
-    estatus: "cerrado",
     km_final: { [Op.ne]: null },
   };
   if (excludeTripId) where.id = { [Op.ne]: excludeTripId };
 
   const lastTrip = await Trip.findOne({
     where,
+    include: [
+      {
+        ...STATUSES_INCLUDE,
+        where: { id: closedIds },
+        required: true,
+      },
+    ],
     order: [["fecha_llegada", "DESC"]],
     attributes: ["km_final"],
   });

@@ -17,6 +17,7 @@ export const listTrips = asyncHandler(async (req: Request, res: Response) => {
       { association: "fuel" },
       { association: "expenses" },
       { association: "paradas" },
+      { association: "statuses", through: { attributes: [] } },
     ],
   });
   res.json(rows.map((t) => tripToJson(t)));

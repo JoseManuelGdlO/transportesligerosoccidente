@@ -1,5 +1,6 @@
 import type { Truck, Driver, Client, Trip, SystemUser, RoleDefinition, Permission } from "@/types/tlo";
 import { FULL_ADMIN_PERMISSIONS } from "@/types/tlo";
+import { SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 
 export const mockTrucks: Truck[] = [
   { id: "t1", numero_economico: "T-101", placas: "JAL-4521-A", marca: "Kenworth", modelo: "T680", anio: 2021, rendimiento_esperado: 3.2, costo_km_ref: 18, estatus: "activo" },
@@ -62,7 +63,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(6), fecha_llegada: daysAgo(5),
     km_inicial: 145320, km_final: 146120,
     tarifa: 38000, viaticos_entregados: 3500,
-    num_factura: "F-8821", tipo_viaje: "foraneo", estatus: "cerrado",
+    num_factura: "F-8821", tipo_viaje: "foraneo", statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [
       { id: "f1", litros: 180, precio_litro: 25.8, ubicacion: "Pemex GDL Norte", fecha: daysAgo(6) },
       { id: "f2", litros: 80, precio_litro: 26.1, ubicacion: "Pemex Saltillo", fecha: daysAgo(5) },
@@ -80,7 +81,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(5), fecha_llegada: daysAgo(4),
     km_inicial: 98220, km_final: 98780,
     tarifa: 28500, viaticos_entregados: 2800,
-    num_factura: "F-8822", tipo_viaje: "local", estatus: "cerrado",
+    num_factura: "F-8822", tipo_viaje: "local", statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [
       { id: "f3", litros: 165, precio_litro: 25.9, ubicacion: "Pemex Tlaquepaque", fecha: daysAgo(5) },
     ],
@@ -97,7 +98,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(4), fecha_llegada: daysAgo(3),
     km_inicial: 210450, km_final: 210860,
     tarifa: 18500, viaticos_entregados: 1800,
-    num_factura: "F-8823", tipo_viaje: "local", estatus: "cerrado",
+    num_factura: "F-8823", tipo_viaje: "local", statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [
       { id: "f4", litros: 130, precio_litro: 26.0, ubicacion: "Pemex La Piedad", fecha: daysAgo(4) },
     ],
@@ -113,7 +114,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(3), fecha_llegada: daysAgo(2),
     km_inicial: 146120, km_final: 146650,
     tarifa: 22000, viaticos_entregados: 2200,
-    num_factura: "F-8824", tipo_viaje: "foraneo", estatus: "cerrado",
+    num_factura: "F-8824", tipo_viaje: "foraneo", statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [
       { id: "f5", litros: 150, precio_litro: 26.2, ubicacion: "Pemex Tepic", fecha: daysAgo(3) },
     ],
@@ -129,7 +130,7 @@ export const mockTrips: Trip[] = [
     fecha_salida: daysAgo(2), fecha_llegada: daysAgo(1),
     km_inicial: 320110, km_final: 320390,
     tarifa: 14500, viaticos_entregados: 1500,
-    num_factura: "F-8825", tipo_viaje: "local", estatus: "cerrado",
+    num_factura: "F-8825", tipo_viaje: "local", statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [
       { id: "f6", litros: 95, precio_litro: 26.3, ubicacion: "Pemex Zapotlanejo", fecha: daysAgo(2) },
     ],
@@ -146,7 +147,7 @@ export const mockTrips: Trip[] = [
     km_inicial: 98780,
     tarifa: 16800, viaticos_entregados: 1600,
     tipo_viaje: "local",
-    estatus: "en_curso",
+    statuses: [SYSTEM_STATUS_EN_CURSO],
     fuel: [
       { id: "f7", litros: 100, precio_litro: 26.4, ubicacion: "Pemex Ameca", fecha: daysAgo(1) },
     ],
@@ -162,7 +163,7 @@ export const mockTrips: Trip[] = [
     km_inicial: 210860,
     tarifa: 13200, viaticos_entregados: 1300,
     tipo_viaje: "local",
-    estatus: "en_curso",
+    statuses: [SYSTEM_STATUS_EN_CURSO],
     fuel: [],
     expenses: [],
   },

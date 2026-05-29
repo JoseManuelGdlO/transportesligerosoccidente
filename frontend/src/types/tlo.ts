@@ -1,6 +1,8 @@
 export type TruckStatus = "activo" | "taller" | "baja";
 export type DriverStatus = "activo" | "inactivo";
-export type TripStatus = "en_curso" | "cerrado";
+export type TripLifecycleSlug = "en_curso" | "cerrado";
+/** @deprecated Use TripStatusRef for catalog entries */
+export type TripStatus = TripLifecycleSlug;
 export type TripType = "local" | "foraneo";
 export type CommissionType = "porcentaje" | "fijo";
 export type MaintenanceType = "menor" | "intermedio" | "correctivo";
@@ -444,6 +446,15 @@ export interface Expense {
   fecha: string;
 }
 
+export interface TripStatusRef {
+  id: string;
+  nombre: string;
+  color: string;
+  slug?: TripLifecycleSlug;
+  is_system?: boolean;
+  activo?: boolean;
+}
+
 export interface Trip {
   id: string;
   folio: string;
@@ -465,7 +476,7 @@ export interface Trip {
   comision_override?: number | null; // si admin lo edita
   tipo_viaje: TripType;
   settlement_id?: string;
-  estatus: TripStatus;
+  statuses: TripStatusRef[];
   fuel: FuelLoad[];
   expenses: Expense[];
   ubicaciones?: TripUbicacion[];

@@ -10,6 +10,7 @@ import {
 } from "../models";
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
 import { usersWithPermission } from "../utils/notifyUsers";
+import { getClosedStatusIds } from "./tripStatusService";
 
 const tipoLabel: Record<MaintenanceType, string> = {
   menor: "Menor",
@@ -22,17 +23,29 @@ function maintenancePendingKey(userId: string, truckId: string, tipo: string): s
 }
 
 export async function getTruckOdometer(tenantId: string, truckId: string): Promise<number> {
-  const lastTrip = await Trip.findOne({
-    where: { tenant_id: tenantId, truck_id: truckId, estatus: "cerrado", km_final: { [Op.ne]: null } },
-    order: [["fecha_llegada", "DESC"]],
-    attributes: ["km_final"],
-  });
+  const closedIds = await getClosedStatusIds(tenantId);
+  let kmTrip = 0;
+  if (closedIds.length > 0) {
+    const lastTrip = await Trip.findOne({
+      where: { tenant_id: tenantId, truck_id: truckId, km_final: { [Op.ne]: null } },
+      include: [
+        {
+          association: "statuses",
+          where: { id: closedIds },
+          required: true,
+          through: { attributes: [] },
+        },
+      ],
+      order: [["fecha_llegada", "DESC"]],
+      attributes: ["km_final"],
+    });
+    kmTrip = lastTrip?.km_final ?? 0;
+  }
   const lastFuel = await FuelTicket.findOne({
     where: { tenant_id: tenantId, truck_id: truckId },
     order: [["fecha", "DESC"], ["hora", "DESC"]],
     attributes: ["odometro"],
   });
-  const kmTrip = lastTrip?.km_final ?? 0;
   const kmFuel = lastFuel?.odometro ?? 0;
   return Math.max(kmTrip, kmFuel);
 }

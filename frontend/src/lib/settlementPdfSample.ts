@@ -1,5 +1,6 @@
 import type { Driver, Trip } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
+import { SYSTEM_STATUS_CERRADO } from "@/lib/tripStatus";
 
 export const SAMPLE_DRIVER: Driver = {
   id: "sample-driver",
@@ -28,7 +29,7 @@ const sampleTrips: Trip[] = [
     km_inicial: 12000,
     km_final: 12450,
     tipo_viaje: "foraneo",
-    estatus: "cerrado",
+    statuses: [SYSTEM_STATUS_CERRADO],
     fuel: [],
     expenses: [],
     viaticos_entregados: 2000,
@@ -46,7 +47,7 @@ const sampleTrips: Trip[] = [
     km_inicial: 12450,
     km_final: 12680,
     tipo_viaje: "local",
-    estatus: "cerrado",
+    statuses: [SYSTEM_STATUS_CERRADO],
     num_factura: "F-2025-042",
     fuel: [],
     expenses: [],

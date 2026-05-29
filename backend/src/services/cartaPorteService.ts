@@ -12,6 +12,7 @@ import {
   TripMercancia,
 } from "../models";
 import { getTripOrThrow } from "./tripService";
+import { tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { ensureUbicacionesFromClient, defaultIdUbicacionSat } from "./tripFiscalService";
 import { num } from "../utils/numbers";
@@ -147,7 +148,7 @@ export function validateCartaPorteData(
   if (!driver?.licencia_federal && !driver?.licencia) {
     issues.push("Operador: falta licencia federal");
   }
-  if (trip.estatus !== "en_curso" && trip.estatus !== "cerrado") {
+  if (!tripHasStatusSlug(trip, "en_curso") && !tripHasStatusSlug(trip, "cerrado")) {
     issues.push("Estado de viaje no válido para carta porte");
   }
   return issues;

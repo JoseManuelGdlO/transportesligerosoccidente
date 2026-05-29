@@ -12,6 +12,7 @@ import type { Driver } from "./Driver";
 import type { Client } from "./Client";
 import type { FuelLoad } from "./FuelLoad";
 import type { Expense } from "./Expense";
+import type { TripStatus } from "./TripStatus";
 
 export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<Trip>> {
   declare id: CreationOptional<string>;
@@ -33,7 +34,6 @@ export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<T
   declare tipo_viaje: CreationOptional<"local" | "foraneo">;
   declare route_id: CreationOptional<string | null>;
   declare settlement_id: CreationOptional<string | null>;
-  declare estatus: "en_curso" | "cerrado";
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -42,6 +42,7 @@ export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<T
   declare Client?: NonAttribute<Client>;
   declare fuel?: NonAttribute<FuelLoad[]>;
   declare expenses?: NonAttribute<Expense[]>;
+  declare statuses?: NonAttribute<TripStatus[]>;
 }
 
 export function initTrip(sequelize: Sequelize) {
@@ -66,7 +67,6 @@ export function initTrip(sequelize: Sequelize) {
       tipo_viaje: { type: DataTypes.ENUM("local", "foraneo"), allowNull: false, defaultValue: "local" },
       route_id: { type: DataTypes.CHAR(36), allowNull: true },
       settlement_id: { type: DataTypes.CHAR(36), allowNull: true },
-      estatus: { type: DataTypes.ENUM("en_curso", "cerrado"), allowNull: false, defaultValue: "en_curso" },
     } as never,
     { sequelize, tableName: "trips", underscored: true },
   );
