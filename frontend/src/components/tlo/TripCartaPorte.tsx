@@ -18,6 +18,7 @@ import type { ClientUbicacion, Driver, Trip, TripMercancia, Truck } from "@/type
 import { useAuth } from "@/context/AuthContext";
 import { FileCheck, Plus, Trash2, Stamp, AlertCircle, Truck as TruckIcon, User } from "lucide-react";
 import { toast } from "sonner";
+import { tripIsOpen } from "@/lib/tripStatus";
 
 type Props = {
   trip: Trip;
@@ -57,7 +58,7 @@ export function TripCartaPorte({
 }: Props) {
   const { hasPermission } = useAuth();
   const canTimbrar = hasPermission("cartaporte.timbrar");
-  const canEdit = trip.estatus === "en_curso" && hasPermission("viajes.crear");
+  const canEdit = tripIsOpen(trip) && hasPermission("viajes.crear");
   const cp = trip.carta_porte;
   const sortedUbics = useMemo(
     () => [...(trip.ubicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),

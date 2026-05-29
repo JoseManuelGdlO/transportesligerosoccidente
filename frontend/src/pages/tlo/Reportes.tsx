@@ -10,11 +10,12 @@ import { MarginBadge } from "@/components/tlo/StatusBadge";
 import { Download } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
 import { toast } from "sonner";
+import { tripIsClosed } from "@/lib/tripStatus";
 
 export default function Reportes() {
   const { trips, drivers, trucks, clients } = useTlo();
 
-  const closed = trips.filter(t => t.estatus === "cerrado");
+  const closed = trips.filter((t) => tripIsClosed(t));
 
   const byTruck = useMemo(() => trucks.map(tk => {
     const ts = closed.filter(t => t.truck_id === tk.id);

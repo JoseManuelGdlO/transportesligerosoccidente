@@ -9,17 +9,35 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { TripStatusBadge, MarginBadge } from "@/components/tlo/StatusBadge";
+import { TripStatusesPicker, MarginBadge } from "@/components/tlo/StatusBadge";
 import {
   TripParadasEditor,
   paradasToTripStops,
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
 import { fmtMXN, fmtDate, formatTripRoute } from "@/lib/format";
-import { fetchRoutes, fetchTruckLastKm, lastClosedKmFromTrips } from "@/lib/tloApi";
+import {
+  fetchRoutes,
+  fetchTruckLastKm,
+  lastClosedKmFromTrips,
+  fetchTripStatuses,
+  createTripStatus,
+  updateTripStatus,
+  deleteTripStatus,
+} from "@/lib/tloApi";
 import { hasApiConfigured } from "@/lib/api";
-import type { RouteCatalog, TripType } from "@/types/tlo";
-import { Plus, Search, ArrowRight } from "lucide-react";
+import type { RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
+import {
+  findStatusIdBySlug,
+  tripHasStatusId,
+  tripIsClosed,
+  TRIP_STATUS_COLOR_OPTIONS,
+  SYSTEM_STATUS_CERRADO,
+  SYSTEM_STATUS_EN_CURSO,
+} from "@/lib/tripStatus";
+import { useAuth } from "@/context/AuthContext";
+import { Switch } from "@/components/ui/switch";
+import { Plus, Search, ArrowRight, Tags, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
@@ -48,23 +66,80 @@ const defaultForm = (): NewTripForm => ({
   tipo_viaje: "local",
 });
 
+const emptyStatusForm = (): TripStatusRef => ({
+  id: "",
+  nombre: "",
+  color: TRIP_STATUS_COLOR_OPTIONS[0].value,
+  activo: true,
+});
+
+const MOCK_TRIP_STATUSES: TripStatusRef[] = [SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO];
+
 export default function Viajes() {
-  const { trips, drivers, trucks, clients, createTrip } = useTlo();
+  const { trips, drivers, trucks, clients, createTrip, updateTrip, replaceTrip } = useTlo();
+  const { hasPermission } = useAuth();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
   const apiMode = hasApiConfigured();
+  const canManageStatuses = hasPermission("catalogos.editar");
 
-  const [filterStatus, setFilterStatus] = useState<string>("todos");
+  const [tripStatuses, setTripStatuses] = useState<TripStatusRef[]>(MOCK_TRIP_STATUSES);
+  const [filterStatus, setFilterStatus] = useState<string>(
+    () => findStatusIdBySlug(MOCK_TRIP_STATUSES, "en_curso") ?? "",
+  );
   const [filterDriver, setFilterDriver] = useState<string>("todos");
   const [filterTruck, setFilterTruck] = useState<string>("todos");
   const [search, setSearch] = useState("");
 
   const [open, setOpen] = useState(false);
+  const [statusesOpen, setStatusesOpen] = useState(false);
+  const [manageStatusesOpen, setManageStatusesOpen] = useState(false);
+  const [statusForm, setStatusForm] = useState<TripStatusRef>(emptyStatusForm);
+  const [statusesLoading, setStatusesLoading] = useState(false);
   const [catalogRoutes, setCatalogRoutes] = useState<RouteCatalog[]>([]);
   const [selectedRouteId, setSelectedRouteId] = useState<string>("__custom__");
   const [paradas, setParadas] = useState<ParadaDraft[]>(emptyParadas);
   const [form, setForm] = useState<NewTripForm>(defaultForm);
   const [kmLoading, setKmLoading] = useState(false);
+
+  const loadTripStatuses = useCallback(async () => {
+    if (apiMode) {
+      setStatusesLoading(true);
+      try {
+        const rows = await fetchTripStatuses();
+        setTripStatuses(rows);
+      } catch {
+        setTripStatuses(MOCK_TRIP_STATUSES);
+      } finally {
+        setStatusesLoading(false);
+      }
+    } else {
+      setTripStatuses(MOCK_TRIP_STATUSES);
+    }
+  }, [apiMode]);
+
+  useEffect(() => {
+    void loadTripStatuses();
+  }, [loadTripStatuses]);
+
+  useEffect(() => {
+    if (tripStatuses.length === 0) return;
+    const enCursoId = findStatusIdBySlug(tripStatuses, "en_curso");
+    if (!enCursoId) return;
+
+    const validIds = new Set(tripStatuses.map((s) => s.id));
+    const needsEnCursoDefault =
+      !filterStatus ||
+      filterStatus === "en_curso" ||
+      (filterStatus !== "todos" && !validIds.has(filterStatus));
+
+    if (needsEnCursoDefault) setFilterStatus(enCursoId);
+  }, [tripStatuses, filterStatus]);
+
+  const activeStatuses = useMemo(
+    () => tripStatuses.filter((s) => s.activo !== false),
+    [tripStatuses],
+  );
 
   const loadRoutes = useCallback(async (clientId: string) => {
     if (!apiMode || !clientId) {
@@ -137,9 +212,24 @@ export default function Viajes() {
     if (r.tipo_viaje) setForm((f) => ({ ...f, tipo_viaje: r.tipo_viaje! }));
   };
 
+  const handleTripStatusesUpdated = useCallback(
+    (updated: Trip) => {
+      if (apiMode) {
+        replaceTrip(updated);
+      } else {
+        updateTrip(updated.id, { statuses: updated.statuses });
+      }
+    },
+    [apiMode, updateTrip, replaceTrip],
+  );
+
   const rows = useMemo(() => {
     return trips
-      .filter((t) => filterStatus === "todos" || t.estatus === filterStatus)
+      .filter(
+        (t) =>
+          filterStatus === "todos" ||
+          (!!filterStatus && tripHasStatusId(t, filterStatus)),
+      )
       .filter((t) => filterDriver === "todos" || t.driver_id === filterDriver)
       .filter((t) => filterTruck === "todos" || t.truck_id === filterTruck)
       .filter((t) => {
@@ -191,6 +281,77 @@ export default function Viajes() {
     }
   };
 
+  const openNewStatus = () => {
+    setStatusForm(emptyStatusForm());
+    setStatusesOpen(true);
+  };
+
+  const openEditStatus = (row: TripStatusRef) => {
+    setStatusForm({ ...row });
+    setStatusesOpen(true);
+  };
+
+  const saveStatus = async () => {
+    if (!statusForm.nombre.trim()) {
+      toast.error("El nombre es obligatorio");
+      return;
+    }
+    try {
+      if (apiMode && canManageStatuses) {
+        if (statusForm.id) {
+          await updateTripStatus(statusForm.id, {
+            nombre: statusForm.nombre,
+            color: statusForm.color,
+            activo: statusForm.activo,
+          });
+          toast.success("Estado actualizado");
+        } else {
+          await createTripStatus({
+            nombre: statusForm.nombre.trim(),
+            color: statusForm.color,
+            activo: statusForm.activo,
+          });
+          toast.success("Estado creado");
+        }
+        setStatusesOpen(false);
+        await loadTripStatuses();
+        return;
+      }
+      if (!statusForm.id) {
+        const id = `custom-${Date.now()}`;
+        setTripStatuses((prev) => [
+          ...prev,
+          { ...statusForm, id, is_system: false, activo: statusForm.activo !== false },
+        ]);
+        toast.success("Estado creado (demo)");
+      } else {
+        setTripStatuses((prev) =>
+          prev.map((s) => (s.id === statusForm.id ? { ...statusForm } : s)),
+        );
+        toast.success("Estado actualizado (demo)");
+      }
+      setStatusesOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar estado");
+    }
+  };
+
+  const removeStatus = async (row: TripStatusRef) => {
+    if (row.is_system) return;
+    try {
+      if (apiMode && canManageStatuses) {
+        await deleteTripStatus(row.id);
+        toast.success("Estado eliminado");
+        await loadTripStatuses();
+        return;
+      }
+      setTripStatuses((prev) => prev.filter((s) => s.id !== row.id));
+      toast.success("Estado eliminado (demo)");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  };
+
   return (
     <div className="space-y-4">
       <Card className="p-4 tlo-shadow-md">
@@ -210,13 +371,16 @@ export default function Viajes() {
           <div>
             <Label className="text-xs">Estado</Label>
             <Select value={filterStatus} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
+              <SelectTrigger className="w-[160px]">
+                <SelectValue placeholder="Estado" />
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="todos">Todos</SelectItem>
-                <SelectItem value="en_curso">En curso</SelectItem>
-                <SelectItem value="cerrado">Cerrados</SelectItem>
+                {activeStatuses.map((s) => (
+                  <SelectItem key={s.id} value={s.id}>
+                    {s.nombre}
+                  </SelectItem>
+                ))}
               </SelectContent>
             </Select>
           </div>
@@ -252,6 +416,9 @@ export default function Viajes() {
               </SelectContent>
             </Select>
           </div>
+          <Button variant="outline" onClick={() => setManageStatusesOpen(true)}>
+            <Tags className="h-4 w-4 mr-2" /> Estados
+          </Button>
           <Button
             onClick={openNewTripDialog}
             className="bg-primary text-primary-foreground hover:bg-primary-glow"
@@ -305,17 +472,21 @@ export default function Viajes() {
                   <TableCell
                     className={`text-right font-semibold ${fin.utilidad >= 0 ? "text-success" : "text-destructive"}`}
                   >
-                    {t.estatus === "cerrado" ? fmtMXN(fin.utilidad) : "—"}
+                    {tripIsClosed(t) ? fmtMXN(fin.utilidad) : "—"}
                   </TableCell>
                   <TableCell className="text-right">
-                    {t.estatus === "cerrado" ? (
+                    {tripIsClosed(t) ? (
                       <MarginBadge pct={fin.margen_pct} />
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
                     )}
                   </TableCell>
-                  <TableCell>
-                    <TripStatusBadge status={t.estatus} />
+                  <TableCell onClick={(e) => e.stopPropagation()}>
+                    <TripStatusesPicker
+                      trip={t}
+                      catalog={tripStatuses}
+                      onUpdated={handleTripStatusesUpdated}
+                    />
                   </TableCell>
                   <TableCell>
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
@@ -480,6 +651,122 @@ export default function Viajes() {
             </Button>
             <Button onClick={submit} className="bg-primary text-primary-foreground hover:bg-primary-glow">
               Abrir viaje
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={manageStatusesOpen} onOpenChange={setManageStatusesOpen}>
+        <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Estados de viaje</DialogTitle>
+          </DialogHeader>
+          <div className="flex justify-end mb-2">
+            <Button size="sm" onClick={openNewStatus}>
+              <Plus className="h-4 w-4 mr-1" /> Nuevo estado
+            </Button>
+          </div>
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Nombre</TableHead>
+                <TableHead>Color</TableHead>
+                <TableHead>Tipo</TableHead>
+                <TableHead className="w-[90px]"></TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {tripStatuses.map((s) => (
+                <TableRow key={s.id}>
+                  <TableCell>{s.nombre}</TableCell>
+                  <TableCell>
+                    <span
+                      className="inline-block h-4 w-4 rounded-full border"
+                      style={{ backgroundColor: s.color }}
+                    />
+                  </TableCell>
+                  <TableCell className="text-xs text-muted-foreground">
+                    {s.is_system ? "Sistema" : s.activo === false ? "Inactivo" : "Personalizado"}
+                  </TableCell>
+                  <TableCell>
+                    <div className="flex gap-1 justify-end">
+                      <Button variant="ghost" size="icon" onClick={() => openEditStatus(s)}>
+                        <Pencil className="h-4 w-4" />
+                      </Button>
+                      {!s.is_system && (
+                        <Button variant="ghost" size="icon" onClick={() => void removeStatus(s)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      )}
+                    </div>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={statusesOpen} onOpenChange={setStatusesOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>{statusForm.id ? "Editar estado" : "Nuevo estado"}</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Nombre</Label>
+              <Input
+                value={statusForm.nombre}
+                onChange={(e) => setStatusForm({ ...statusForm, nombre: e.target.value })}
+                placeholder="Pendiente factura"
+                disabled={!!statusForm.is_system}
+              />
+            </div>
+            <div>
+              <Label>Color</Label>
+              <Select
+                value={statusForm.color}
+                onValueChange={(v) => setStatusForm({ ...statusForm, color: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {TRIP_STATUS_COLOR_OPTIONS.map((c) => (
+                    <SelectItem key={c.value} value={c.value}>
+                      <span className="inline-flex items-center gap-2">
+                        <span
+                          className="h-3 w-3 rounded-full border"
+                          style={{ backgroundColor: c.value }}
+                        />
+                        {c.label}
+                      </span>
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            {!statusForm.is_system && (
+              <div className="flex items-center gap-2">
+                <Switch
+                  checked={statusForm.activo !== false}
+                  onCheckedChange={(v) => setStatusForm({ ...statusForm, activo: v })}
+                />
+                <Label>Activo</Label>
+              </div>
+            )}
+            {statusForm.is_system && (
+              <p className="text-xs text-muted-foreground">
+                Estado de sistema: no se puede eliminar ni renombrar.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStatusesOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void saveStatus()} disabled={statusesLoading}>
+              Guardar
             </Button>
           </DialogFooter>
         </DialogContent>

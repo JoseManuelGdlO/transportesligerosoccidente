@@ -10,6 +10,7 @@ import {
   normalizeFuel,
   normalizeExpense,
 } from "@/lib/tloApi";
+import { SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 
 interface TloState {
   trucks: Truck[];
@@ -27,8 +28,9 @@ interface TloState {
   upsertSystemUser: (u: SystemUser, password?: string) => Promise<void>;
   toggleSystemUserStatus: (id: string) => void;
   updateRolePermissions: (role: UserRole, permisos: Permission[]) => void;
-  createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">) => Promise<Trip>;
+  createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "statuses">) => Promise<Trip>;
   updateTrip: (id: string, patch: Partial<Trip>) => void;
+  replaceTrip: (trip: Trip) => void;
   addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => void;
   removeFuel: (tripId: string, fuelId: string) => void;
   addExpense: (tripId: string, e: Omit<Expense, "id">) => void;
@@ -405,7 +407,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const createTrip = useCallback(
-    async (data: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "estatus">): Promise<Trip> => {
+    async (data: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "statuses">): Promise<Trip> => {
       if (apiLive) {
         try {
           const body: Record<string, unknown> = {
@@ -454,7 +456,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         fuel: [],
         expenses: [],
         tipo_viaje: data.tipo_viaje ?? "local",
-        estatus: "en_curso",
+        statuses: [SYSTEM_STATUS_EN_CURSO],
       };
       setTrips((prev) => [trip, ...prev]);
       return trip;
@@ -492,6 +494,10 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
     },
     [apiLive],
   );
+
+  const replaceTrip = useCallback((trip: Trip) => {
+    setTrips((prev) => prev.map((t) => (t.id === trip.id ? trip : t)));
+  }, []);
 
   const addFuel = useCallback(
     (tripId: string, fuel: Omit<FuelLoad, "id">) => {
@@ -635,7 +641,17 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         return;
       }
       setTrips((prev) =>
-        prev.map((t) => (t.id === id ? { ...t, ...data, estatus: "cerrado" as const } : t)),
+        prev.map((t) =>
+          t.id === id
+            ? {
+                ...t,
+                ...data,
+                statuses: t.statuses
+                  .filter((s) => s.slug !== "en_curso")
+                  .concat(SYSTEM_STATUS_CERRADO),
+              }
+            : t,
+        ),
       );
     },
     [apiLive],
@@ -660,6 +676,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       updateRolePermissions,
       createTrip,
       updateTrip,
+      replaceTrip,
       addFuel,
       removeFuel,
       addExpense,
@@ -686,6 +703,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       updateRolePermissions,
       createTrip,
       updateTrip,
+      replaceTrip,
       addFuel,
       removeFuel,
       addExpense,

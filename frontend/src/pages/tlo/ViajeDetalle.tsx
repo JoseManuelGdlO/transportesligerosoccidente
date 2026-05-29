@@ -12,7 +12,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { TripStatusBadge } from "@/components/tlo/StatusBadge";
+import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
 import {
   TripParadasEditor,
@@ -21,9 +21,10 @@ import {
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
 import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText } from "lucide-react";
-import type { ExpenseCategory, Trip } from "@/types/tlo";
+import type { ExpenseCategory, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
-import { normalizeTrip } from "@/lib/tloApi";
+import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
+import { customStatusesFromTrip, tripIsClosed, tripIsOpen, SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { downloadTripPdf } from "@/lib/tripPdf";
@@ -72,6 +73,27 @@ export default function ViajeDetalle() {
   const [fuelReceipt, setFuelReceipt] = useState<File | null>(null);
   const [exp, setExp] = useState<{ categoria: ExpenseCategory; descripcion: string; monto: number; comprobado: boolean }>({ categoria: "casetas", descripcion: "", monto: 0, comprobado: true });
   const [closeData, setCloseData] = useState({ km_final: 0, fecha_llegada: new Date().toISOString().slice(0, 16), num_factura: "" });
+  const [allStatuses, setAllStatuses] = useState<TripStatusRef[]>([SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO]);
+  const [selectedCustomIds, setSelectedCustomIds] = useState<string[]>([]);
+  const [savingStatuses, setSavingStatuses] = useState(false);
+
+  useEffect(() => {
+    void (async () => {
+      if (hasApiConfigured()) {
+        try {
+          setAllStatuses(await fetchTripStatuses());
+        } catch {
+          /* keep defaults */
+        }
+      }
+    })();
+  }, []);
+
+  useEffect(() => {
+    if (trip) {
+      setSelectedCustomIds(customStatusesFromTrip(trip).map((s) => s.id));
+    }
+  }, [trip?.id, trip?.statuses]);
 
   if (!trip) {
     return (
@@ -86,8 +108,35 @@ export default function ViajeDetalle() {
   const truck = truckById(trucks, trip.truck_id);
   const client = clients.find(c => c.id === trip.client_id);
   const fin = computeTrip(trip, driver);
-  const isClosed = trip.estatus === "cerrado";
-  const canFacturar = trip.estatus === "en_curso" || trip.estatus === "cerrado";
+  const isClosed = tripIsClosed(trip);
+  const canFacturar = tripIsOpen(trip) || tripIsClosed(trip);
+  const customStatusOptions = allStatuses.filter((s) => !s.is_system && s.activo !== false);
+
+  const saveCustomStatuses = async () => {
+    setSavingStatuses(true);
+    try {
+      if (hasApiConfigured()) {
+        const updated = await setTripStatuses(trip.id, selectedCustomIds);
+        setTripOverride(updated);
+        toast.success("Estados actualizados");
+      } else {
+        const custom = allStatuses.filter((s) => selectedCustomIds.includes(s.id));
+        const system = trip.statuses.filter((s) => s.is_system);
+        setTripOverride({ ...trip, statuses: [...system, ...custom] });
+        toast.success("Estados actualizados (demo)");
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar estados");
+    } finally {
+      setSavingStatuses(false);
+    }
+  };
+
+  const toggleCustomStatus = (statusId: string, checked: boolean) => {
+    setSelectedCustomIds((prev) =>
+      checked ? [...prev, statusId] : prev.filter((id) => id !== statusId),
+    );
+  };
 
   const onAddFuel = async () => {
     if (fuel.litros <= 0 || fuel.precio_litro <= 0) { toast.error("Captura litros y precio"); return; }
@@ -155,7 +204,7 @@ export default function ViajeDetalle() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold font-mono">{trip.folio}</h2>
-              <TripStatusBadge status={trip.estatus} />
+              <TripStatusesBadges statuses={trip.statuses ?? []} />
               <Badge variant="outline">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</Badge>
             </div>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -278,6 +327,32 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>
+                {customStatusOptions.length > 0 && (
+                  <div className="space-y-2 pt-2 border-t">
+                    <p className="text-xs uppercase text-muted-foreground">Estados adicionales</p>
+                    {customStatusOptions.map((s) => (
+                      <label key={s.id} className="flex items-center gap-2 text-sm">
+                        <Checkbox
+                          checked={selectedCustomIds.includes(s.id)}
+                          onCheckedChange={(v) => toggleCustomStatus(s.id, v === true)}
+                        />
+                        <span
+                          className="inline-block h-2.5 w-2.5 rounded-full"
+                          style={{ backgroundColor: s.color }}
+                        />
+                        {s.nombre}
+                      </label>
+                    ))}
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      disabled={savingStatuses}
+                      onClick={() => void saveCustomStatuses()}
+                    >
+                      Guardar estados
+                    </Button>
+                  </div>
+                )}
               </div>
               <div className="space-y-3">
                 <div className="flex items-start gap-2"><Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" /><div><p className="text-xs uppercase text-muted-foreground">Salida</p><p className="font-medium">{fmtDateTime(trip.fecha_salida)}</p></div></div>

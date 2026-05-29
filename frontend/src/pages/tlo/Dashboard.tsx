@@ -10,7 +10,8 @@ import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TripStatusBadge } from "@/components/tlo/StatusBadge";
+import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
+import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 import {
   Truck,
   Users,
@@ -64,13 +65,13 @@ export default function Dashboard() {
   });
 
   const enriched = weekTrips.map(t => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
-  const enCurso = enriched.filter(e => e.trip.estatus === "en_curso").length;
-  const cerrados = enriched.filter(e => e.trip.estatus === "cerrado").length;
+  const enCurso = enriched.filter((e) => tripIsOpen(e.trip)).length;
+  const cerrados = enriched.filter((e) => tripIsClosed(e.trip)).length;
   const ingresos = enriched.reduce((a, e) => a + e.fin.ingreso, 0);
   const costos = enriched.reduce((a, e) => a + e.fin.costo_total, 0);
   const utilidad = ingresos - costos;
   const margen = ingresos > 0 ? (utilidad / ingresos) * 100 : 0;
-  const negativos = enriched.filter(e => e.trip.estatus === "cerrado" && e.fin.utilidad < 0).length;
+  const negativos = enriched.filter((e) => tripIsClosed(e.trip) && e.fin.utilidad < 0).length;
 
   // mini gráfico utilidad por día de la semana
   const days: { day: string; utilidad: number }[] = [];
@@ -83,7 +84,7 @@ export default function Dashboard() {
     days.push({ day: d.toLocaleDateString("es-MX", { weekday: "short" }), utilidad: Math.round(u) });
   }
 
-  const activos = trips.filter(t => t.estatus === "en_curso").slice(0, 5);
+  const activos = trips.filter((t) => tripIsOpen(t)).slice(0, 5);
 
   return (
     <div className="space-y-6">
@@ -256,7 +257,7 @@ export default function Dashboard() {
                     <TableCell className="text-sm">{dr?.nombre}</TableCell>
                     <TableCell className="text-sm font-mono">{tk?.numero_economico}</TableCell>
                     <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
-                    <TableCell><TripStatusBadge status={t.estatus} /></TableCell>
+                    <TableCell><TripStatusesBadges statuses={t.statuses ?? []} /></TableCell>
                   </TableRow>
                 );
               })}

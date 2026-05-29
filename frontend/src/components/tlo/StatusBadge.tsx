@@ -1,5 +1,20 @@
+import { useMemo, useState } from "react";
 import { Badge } from "@/components/ui/badge";
+import {
+  DropdownMenu,
+  DropdownMenuCheckboxItem,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
+import { hasApiConfigured } from "@/lib/api";
+import { setTripStatuses } from "@/lib/tloApi";
+import { customStatusesFromTrip } from "@/lib/tripStatus";
+import type { Trip, TripStatusRef } from "@/types/tlo";
+import { toast } from "sonner";
 
 export const TripStatusBadge = ({ status }: { status: "en_curso" | "cerrado" }) => (
   <Badge
@@ -14,6 +29,134 @@ export const TripStatusBadge = ({ status }: { status: "en_curso" | "cerrado" }) 
     {status === "en_curso" ? "En curso" : "Cerrado"}
   </Badge>
 );
+
+export const TripStatusChip = ({ status }: { status: TripStatusRef }) => (
+  <Badge
+    variant="outline"
+    className="font-medium border-transparent"
+    style={{
+      backgroundColor: `${status.color}20`,
+      color: status.color,
+      borderColor: `${status.color}50`,
+    }}
+  >
+    {status.nombre}
+  </Badge>
+);
+
+export const TripStatusesBadges = ({ statuses }: { statuses: TripStatusRef[] }) => {
+  if (!statuses.length) return <span className="text-muted-foreground text-xs">—</span>;
+  return (
+    <div className="flex flex-wrap gap-1">
+      {statuses.map((s) => (
+        <TripStatusChip key={s.id} status={s} />
+      ))}
+    </div>
+  );
+};
+
+const StatusMenuRow = ({ status }: { status: TripStatusRef }) => (
+  <span className="inline-flex items-center gap-2">
+    <span
+      className="inline-block h-2.5 w-2.5 shrink-0 rounded-full border"
+      style={{ backgroundColor: status.color }}
+    />
+    {status.nombre}
+  </span>
+);
+
+export const TripStatusesPicker = ({
+  trip,
+  catalog,
+  onUpdated,
+}: {
+  trip: Trip;
+  catalog: TripStatusRef[];
+  onUpdated: (trip: Trip) => void;
+}) => {
+  const customOptions = useMemo(
+    () => catalog.filter((s) => !s.is_system && s.activo !== false),
+    [catalog],
+  );
+  const systemStatuses = useMemo(
+    () => (trip.statuses ?? []).filter((s) => s.is_system),
+    [trip.statuses],
+  );
+  const selectedCustomIds = useMemo(
+    () => customStatusesFromTrip(trip).map((s) => s.id),
+    [trip],
+  );
+  const [saving, setSaving] = useState(false);
+
+  const applyStatuses = async (nextCustomIds: string[]) => {
+    setSaving(true);
+    try {
+      if (hasApiConfigured()) {
+        const updated = await setTripStatuses(trip.id, nextCustomIds);
+        onUpdated(updated);
+      } else {
+        const custom = catalog.filter((s) => nextCustomIds.includes(s.id));
+        onUpdated({ ...trip, statuses: [...systemStatuses, ...custom] });
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar estados");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const toggleCustomStatus = (statusId: string, checked: boolean) => {
+    const nextIds = checked
+      ? [...selectedCustomIds, statusId]
+      : selectedCustomIds.filter((id) => id !== statusId);
+    void applyStatuses(nextIds);
+  };
+
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <button
+          type="button"
+          className="inline-flex rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
+          onClick={(e) => e.stopPropagation()}
+        >
+          <TripStatusesBadges statuses={trip.statuses ?? []} />
+        </button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent
+        align="start"
+        className="w-56"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <DropdownMenuLabel>Estados del viaje</DropdownMenuLabel>
+        <DropdownMenuSeparator />
+        {systemStatuses.map((s) => (
+          <DropdownMenuCheckboxItem key={s.id} checked disabled>
+            <StatusMenuRow status={s} />
+          </DropdownMenuCheckboxItem>
+        ))}
+        {customOptions.length > 0 && <DropdownMenuSeparator />}
+        {customOptions.length === 0 ? (
+          <DropdownMenuItem disabled className="text-xs text-muted-foreground">
+            Crea estados personalizados con «Estados»
+          </DropdownMenuItem>
+        ) : (
+          customOptions.map((s) => (
+            <DropdownMenuCheckboxItem
+              key={s.id}
+              checked={selectedCustomIds.includes(s.id)}
+              disabled={saving}
+              onCheckedChange={(v) => toggleCustomStatus(s.id, v === true)}
+              onSelect={(e) => e.preventDefault()}
+            >
+              <StatusMenuRow status={s} />
+            </DropdownMenuCheckboxItem>
+          ))
+        )}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+};
 
 export const TruckStatusBadge = ({ status }: { status: "activo" | "taller" | "baja" }) => {
   const map: Record<string, string> = {
