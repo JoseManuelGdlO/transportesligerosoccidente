@@ -485,6 +485,12 @@ export async function deleteDocumentType(id: string): Promise<void> {
   await readJson(res);
 }
 
+export async function fetchClient(id: string): Promise<Client> {
+  const res = await apiFetch(`/clients/${id}`);
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeClient(raw);
+}
+
 export async function fetchClientUbicaciones(clientId: string): Promise<ClientUbicacion[]> {
   const res = await apiFetch(`/clients/${clientId}/ubicaciones`);
   const rows = await readJson<unknown[]>(res);

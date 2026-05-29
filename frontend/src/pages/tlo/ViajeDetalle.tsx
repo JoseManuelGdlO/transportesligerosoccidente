@@ -30,6 +30,7 @@ import { downloadTripPdf } from "@/lib/tripPdf";
 import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
+import { ModalFacturas } from "@/components/modal/ModalFacturas";
 
 export default function ViajeDetalle() {
   const { id } = useParams();
@@ -60,6 +61,7 @@ export default function ViajeDetalle() {
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
+  const [facturasOpen, setFacturasOpen] = useState(false);
   const [fuel, setFuel] = useState({
     litros: 0,
     precio_litro: 26,
@@ -85,6 +87,7 @@ export default function ViajeDetalle() {
   const client = clients.find(c => c.id === trip.client_id);
   const fin = computeTrip(trip, driver);
   const isClosed = trip.estatus === "cerrado";
+  const canFacturar = trip.estatus === "en_curso" || trip.estatus === "cerrado";
 
   const onAddFuel = async () => {
     if (fuel.litros <= 0 || fuel.precio_litro <= 0) { toast.error("Captura litros y precio"); return; }
@@ -181,6 +184,11 @@ export default function ViajeDetalle() {
           >
             <FileText className="h-4 w-4 mr-2" /> PDF
           </Button>
+          {canFacturar && (
+            <Button variant="outline" onClick={() => setFacturasOpen(true)}>
+              <Receipt className="h-4 w-4 mr-2" /> Facturar
+            </Button>
+          )}
           {!isClosed && (
             <Button
               onClick={() => {
@@ -512,6 +520,12 @@ export default function ViajeDetalle() {
           <DialogFooter><Button variant="outline" onClick={() => setCloseOpen(false)}>Cancelar</Button><Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90"><Lock className="h-4 w-4 mr-2" />Cerrar viaje</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <ModalFacturas
+        open={facturasOpen}
+        onOpenChange={setFacturasOpen}
+        clientId={trip.client_id}
+      />
     </div>
   );
 }
