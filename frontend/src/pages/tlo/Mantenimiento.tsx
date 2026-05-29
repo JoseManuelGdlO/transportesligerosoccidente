@@ -9,7 +9,7 @@ import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Wrench, AlertTriangle } from "lucide-react";
+import { Wrench, AlertTriangle, X } from "lucide-react";
 import { fmtNumber, fmtMXN, fmtDate } from "@/lib/format";
 import { toast } from "sonner";
 
@@ -74,6 +74,18 @@ export default function Mantenimiento() {
     }
   };
 
+  const removeSchedule = async (truckId: string, tipo: MaintenanceType) => {
+    try {
+      const params = new URLSearchParams({ truck_id: truckId, tipo });
+      const res = await apiFetch(`/maintenance/schedules?${params}`, { method: "DELETE" });
+      if (!res.ok) await readJson(res);
+      toast.success("Programación eliminada");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    }
+  };
+
   const saveRecord = async () => {
     if (!form.truck_id || !form.descripcion.trim()) return;
     try {
@@ -127,18 +139,27 @@ export default function Mantenimiento() {
                 u.proximos.map((p) => (
                   <div
                     key={p.tipo}
-                    className={`flex justify-between items-center rounded border px-3 py-2 ${p.vencido ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    className={`flex items-center gap-2 rounded border px-3 py-2 ${p.vencido ? "border-destructive/50 bg-destructive/5" : ""}`}
                   >
-                    <span>
+                    <span className="flex-1 min-w-0">
                       {tipoLabel[p.tipo]} — próximo a {fmtNumber(p.km_proximo)} km
                     </span>
                     {p.vencido ? (
-                      <Badge variant="destructive" className="gap-1">
+                      <Badge variant="destructive" className="gap-1 shrink-0">
                         <AlertTriangle className="h-3 w-3" /> Vencido
                       </Badge>
                     ) : (
-                      <span className="text-muted-foreground">{fmtNumber(p.km_restantes)} km rest.</span>
+                      <span className="text-muted-foreground shrink-0">{fmtNumber(p.km_restantes)} km rest.</span>
                     )}
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                      aria-label={`Eliminar programación ${tipoLabel[p.tipo]}`}
+                      onClick={() => void removeSchedule(u.truck_id, p.tipo)}
+                    >
+                      <X className="h-4 w-4" />
+                    </Button>
                   </div>
                 ))
               )}

@@ -62,6 +62,19 @@ export const upsertSchedule = asyncHandler(async (req: Request, res: Response) =
   });
 });
 
+const scheduleTipoSchema = z.enum(["menor", "intermedio", "correctivo"]);
+
+export const deleteSchedule = asyncHandler(async (req: Request, res: Response) => {
+  const truckId = typeof req.query.truck_id === "string" ? req.query.truck_id : "";
+  const tipoParsed = scheduleTipoSchema.safeParse(req.query.tipo);
+  if (!truckId || !tipoParsed.success) {
+    res.status(400).json({ error: "truck_id y tipo son requeridos" });
+    return;
+  }
+  await maintenanceService.deleteSchedule(tid(req), truckId, tipoParsed.data);
+  res.status(204).send();
+});
+
 export const listRecords = asyncHandler(async (req: Request, res: Response) => {
   const truckId = typeof req.query.truck_id === "string" ? req.query.truck_id : undefined;
   const rows = await maintenanceService.listRecords(tid(req), truckId);

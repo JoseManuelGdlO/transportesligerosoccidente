@@ -67,6 +67,7 @@ export async function upsertSchedule(
       intervalo_km: data.intervalo_km ?? null,
       ultimo_km: data.ultimo_km ?? existing.ultimo_km,
       ultima_fecha: data.ultima_fecha ?? existing.ultima_fecha,
+      activo: true,
     } as never);
     return existing;
   }
@@ -80,6 +81,18 @@ export async function upsertSchedule(
     ultima_fecha: data.ultima_fecha ?? null,
     activo: true,
   } as never);
+}
+
+export async function deleteSchedule(tenantId: string, truckId: string, tipo: MaintenanceType) {
+  const schedule = await MaintenanceSchedule.findOne({
+    where: { tenant_id: tenantId, truck_id: truckId, tipo, activo: true },
+  });
+  if (!schedule) {
+    const err = new Error("Programación no encontrada");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  await schedule.update({ activo: false } as never);
 }
 
 export async function listRecords(tenantId: string, truckId?: string) {

@@ -200,6 +200,7 @@ r.delete(
 r.get("/maintenance/overview", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.getOverview);
 r.get("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listSchedules);
 r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.upsertSchedule);
+r.delete("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.deleteSchedule);
 r.get("/maintenance/records", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listRecords);
 r.post("/maintenance/records", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.createRecord);
 
