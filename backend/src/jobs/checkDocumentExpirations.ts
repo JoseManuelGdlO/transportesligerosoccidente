@@ -7,12 +7,11 @@ import {
   DocumentType,
   Driver,
   Notification,
-  Permission,
   PushSubscription,
-  Role,
   Truck,
   User,
 } from "../models";
+import { usersWithPermission } from "../utils/notifyUsers";
 
 let vapidConfigured = false;
 
@@ -33,27 +32,6 @@ function localDateStr(): string {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const d = String(now.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
-}
-
-async function usersWithPermission(tenantId: string, permissionSlug: string): Promise<User[]> {
-  return User.findAll({
-    where: { tenant_id: tenantId, estatus: "activo" },
-    include: [
-      {
-        model: Role,
-        required: true,
-        include: [
-          {
-            model: Permission,
-            required: true,
-            attributes: [],
-            through: { attributes: [] },
-            where: { slug: permissionSlug },
-          },
-        ],
-      },
-    ],
-  });
 }
 
 async function entityLabel(

@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
-import { Notification, Permission, Role, Tenant, User } from "../models";
+import { Notification, Tenant } from "../models";
+import { usersWithPermission } from "../utils/notifyUsers";
 import type { Tenant as TenantModel } from "../models/Tenant";
 import type { FuelImportResult } from "./fuelImportService";
 import { importFuelTicketsFromBuffer } from "./fuelImportService";
@@ -42,27 +43,6 @@ export function defaultSyncDateRange(): { inicio: string; fin: string } {
   const monthStart = localMonthStartStr();
   const inicio = fromLookback < monthStart ? fromLookback : monthStart;
   return { inicio, fin };
-}
-
-async function usersWithPermission(tenantId: string, permissionSlug: string): Promise<User[]> {
-  return User.findAll({
-    where: { tenant_id: tenantId, estatus: "activo" },
-    include: [
-      {
-        model: Role,
-        required: true,
-        include: [
-          {
-            model: Permission,
-            required: true,
-            attributes: [],
-            through: { attributes: [] },
-            where: { slug: permissionSlug },
-          },
-        ],
-      },
-    ],
-  });
 }
 
 async function notifyFuelSync(

@@ -46,10 +46,15 @@ export function NotificationBell() {
     try {
       if (!n.leida) await markNotificationRead(n.id);
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, leida: true } : x)));
-      const dt = n.payload.documentable_type === "truck" ? "truck" : "driver";
-      const id = String(n.payload.documentable_id ?? "");
-      if (id) {
-        nav(dt === "truck" ? `/camiones?open=${id}` : `/operadores?open=${id}`);
+      const url = typeof n.payload.url === "string" ? n.payload.url : "";
+      if (url) {
+        nav(url);
+      } else {
+        const dt = n.payload.documentable_type === "truck" ? "truck" : "driver";
+        const id = String(n.payload.documentable_id ?? "");
+        if (id) {
+          nav(dt === "truck" ? `/camiones?open=${id}` : `/operadores?open=${id}`);
+        }
       }
       setOpen(false);
     } catch (e) {

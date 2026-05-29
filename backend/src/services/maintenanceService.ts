@@ -9,6 +9,17 @@ import {
   Notification,
 } from "../models";
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
+import { usersWithPermission } from "../utils/notifyUsers";
+
+const tipoLabel: Record<MaintenanceType, string> = {
+  menor: "Menor",
+  intermedio: "Intermedio",
+  correctivo: "Correctivo",
+};
+
+function maintenancePendingKey(userId: string, truckId: string, tipo: string): string {
+  return `${userId}:${truckId}:${tipo}`;
+}
 
 export async function getTruckOdometer(tenantId: string, truckId: string): Promise<number> {
   const lastTrip = await Trip.findOne({
@@ -120,29 +131,64 @@ export async function checkMaintenanceAlerts(tenantId: string) {
   });
   const alerts: { truck_id: string; tipo: MaintenanceType; km_actual: number; km_proximo: number }[] = [];
 
+  const [pending, users, trucks] = await Promise.all([
+    Notification.findAll({
+      where: { tenant_id: tenantId, tipo: "mantenimiento_km", leida: false },
+    }),
+    usersWithPermission(tenantId, "notificaciones.ver"),
+    Truck.findAll({
+      where: { tenant_id: tenantId },
+      attributes: ["id", "numero_economico"],
+    }),
+  ]);
+
+  const truckLabel = new Map(trucks.map((t) => [t.id, t.numero_economico]));
+  const pendingKeys = new Set<string>();
+  for (const n of pending) {
+    const p = n.payload as { truck_id?: unknown; tipo?: unknown };
+    if (typeof p.truck_id === "string" && typeof p.tipo === "string") {
+      pendingKeys.add(maintenancePendingKey(n.user_id, p.truck_id, p.tipo));
+    }
+  }
+
+  const alertDate = new Date().toISOString().slice(0, 10);
+
   for (const s of schedules) {
     if (!s.intervalo_km || s.intervalo_km <= 0) continue;
     const kmActual = await getTruckOdometer(tenantId, s.truck_id);
     const kmProximo = s.ultimo_km + s.intervalo_km;
     if (kmActual >= kmProximo) {
       alerts.push({ truck_id: s.truck_id, tipo: s.tipo, km_actual: kmActual, km_proximo: kmProximo });
-      const existing = await Notification.findOne({
-        where: {
-          tenant_id: tenantId,
-          tipo: "mantenimiento_km",
-          leida: false,
-        },
-      });
-      if (!existing) {
+      if (users.length === 0) continue;
+
+      const unitLabel = truckLabel.get(s.truck_id) ?? s.truck_id;
+      const servicio = tipoLabel[s.tipo];
+      const title = `Mantenimiento vencido: ${servicio}`;
+      const body = `${unitLabel} — odómetro ${kmActual} km (programado a ${kmProximo} km)`;
+
+      for (const u of users) {
+        const key = maintenancePendingKey(u.id, s.truck_id, s.tipo);
+        if (pendingKeys.has(key)) continue;
+
         await Notification.create({
           id: randomUUID(),
           tenant_id: tenantId,
-          user_id: null,
+          user_id: u.id,
           tipo: "mantenimiento_km",
-          payload: { truck_id: s.truck_id, tipo: s.tipo, km_actual: kmActual, km_proximo: kmProximo },
-          alert_date: new Date().toISOString().slice(0, 10),
+          document_id: null,
+          payload: {
+            truck_id: s.truck_id,
+            tipo: s.tipo,
+            km_actual: kmActual,
+            km_proximo: kmProximo,
+            title,
+            body,
+            url: "/mantenimiento",
+          },
+          alert_date: alertDate,
           leida: false,
         } as never);
+        pendingKeys.add(key);
       }
     }
   }
