@@ -12,6 +12,7 @@ import {
   User,
 } from "../models";
 import { usersWithPermission } from "../utils/notifyUsers";
+import { logger } from "../utils/logger";
 
 let vapidConfigured = false;
 
@@ -55,10 +56,12 @@ export function startDocumentExpirationJob(): void {
   configureVapid();
 
   cron.schedule(expr, () => {
-    void runDocumentExpirationCheck().catch((e) => console.error("[cron documents]", e));
+    void runDocumentExpirationCheck().catch((e) =>
+      logger.error(`[cron documents] ${e instanceof Error ? e.message : String(e)}`),
+    );
   });
 
-  console.log(`[cron] Documentos: planificación "${expr}" (${process.env.TZ || "default TZ"})`);
+  logger.info(`[cron] Documentos: planificación "${expr}" (${process.env.TZ || "default TZ"})`);
 }
 
 export async function runDocumentExpirationCheck(): Promise<void> {
@@ -163,7 +166,7 @@ export async function runDocumentExpirationCheck(): Promise<void> {
           if (sc === 404 || sc === 410) {
             await s.destroy();
           } else {
-            console.warn("[webpush]", err);
+            logger.warn(`[webpush] ${err instanceof Error ? err.message : String(err)}`);
           }
         }
       }

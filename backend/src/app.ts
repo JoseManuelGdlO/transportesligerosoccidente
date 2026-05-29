@@ -1,9 +1,10 @@
 import express from "express";
 import helmet from "helmet";
 import cors from "cors";
-import morgan from "morgan";
 import v1 from "./routes/v1";
 import { errorHandler } from "./middlewares/errorHandler";
+import { requestLogger } from "./middlewares/requestLogger";
+import { logger } from "./utils/logger";
 
 function normalizeOrigin(o: string): string {
   return o.trim().replace(/\/+$/, "");
@@ -37,7 +38,7 @@ export function createApp() {
   app.use(helmet());
   const allowedOrigins = parseCorsOrigins();
   if (process.env.NODE_ENV === "production" && allowedOrigins.length === 0) {
-    console.warn(
+    logger.warn(
       "[cors] Producción sin orígenes: define CORS_ORIGIN o PUBLIC_WEB_ORIGIN (coma si son varios).",
     );
   }
@@ -59,14 +60,19 @@ export function createApp() {
       credentials: true,
     }),
   );
-  app.use(morgan("dev"));
   app.use(express.json());
+  app.use(requestLogger);
 
   app.get("/health", (_req, res) => {
     res.json({ ok: true });
   });
 
   app.use("/api/v1", v1);
+
+  app.use((req, res) => {
+    logger.warn(`${req.method} ${req.originalUrl} 404`);
+    res.status(404).json({ error: "Ruta no encontrada" });
+  });
 
   app.use(errorHandler);
   return app;

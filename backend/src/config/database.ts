@@ -12,7 +12,7 @@ const sequelize = new Sequelize(
     host: process.env.DB_HOST || "localhost",
     port: Number(process.env.DB_PORT) || 3306,
     dialect: (process.env.DB_DIALECT as "mysql") || "mysql",
-    logging: process.env.NODE_ENV === "development" ? console.log : false,
+    logging: false,
     define: {
       underscored: true,
       timestamps: true,

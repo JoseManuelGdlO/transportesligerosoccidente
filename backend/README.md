@@ -45,6 +45,20 @@ La API queda en `http://localhost:4000`. Rutas:
 - `POST /api/v1/auth/refresh` — body `{ "refresh_token": "<jwt>" }`; devuelve nuevo `token` y `refresh_token` (rotación)
 - Resto de rutas: header `Authorization: Bearer <token>` y permisos según la operación
 
+## Logging
+
+| Variable | Valores | Default |
+|----------|---------|---------|
+| `LOG_LEVEL` | `error`, `warn`, `info`, `debug` | `info` |
+
+Cada petición HTTP genera una línea con timestamp, método (negrita), ruta, código de estado (color por clase HTTP) y duración. Con `LOG_LEVEL=debug` se incluyen además query params y body (campos sensibles enmascarados).
+
+```bash
+LOG_LEVEL=debug npm run dev
+```
+
+En terminales interactivas las peticiones usan color ANSI (estilo Morgan). En logs agregados de Docker o con `NO_COLOR` definido, la salida es texto plano.
+
 ## Producción
 
 ```bash

@@ -5,6 +5,7 @@
 import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
 import { sheetToFuelDataRows } from "../services/fuelImportService";
+import { logger } from "../utils/logger";
 
 function normHeader(h: string): string {
   return h
@@ -66,14 +67,14 @@ const files = process.argv.slice(2).length
     ];
 
 for (const f of files) {
-  console.log("\n===", f, "===");
+  logger.info(`\n=== ${f} ===`);
   const buf = readFileSync(f);
   const wb = XLSX.read(buf, { type: "buffer" });
   const sheet = wb.Sheets[wb.SheetNames[0]!]!;
   const rows = sheetToFuelDataRows(sheet);
   const headerMap = mapHeaders(rows[0] ?? {});
-  console.log("Filas datos:", rows.length);
-  console.log("Columnas mapeadas:", headerMap);
+  logger.info(`Filas datos: ${rows.length}`);
+  logger.info(`Columnas mapeadas: ${JSON.stringify(headerMap)}`);
 
   let ok = 0;
   let bad = 0;
@@ -85,16 +86,18 @@ for (const f of files) {
     if (litros && odometro != null && precio && fecha) ok++;
     else bad++;
   }
-  console.log("Filas parseables:", ok, "con error:", bad);
+  logger.info(`Filas parseables: ${ok} con error: ${bad}`);
   if (rows[0]) {
     const r = rows[0];
-    console.log("Ejemplo:", {
-      economico: cellStr(r, headerMap.numero_economico),
-      tag: cellStr(r, headerMap.folio_tag),
-      placas: cellStr(r, headerMap.placas),
-      fecha: cellStr(r, headerMap.fecha),
-      odometro: cellNum(r, headerMap.odometro),
-      litros: cellNum(r, headerMap.litros),
-    });
+    logger.info(
+      `Ejemplo: ${JSON.stringify({
+        economico: cellStr(r, headerMap.numero_economico),
+        tag: cellStr(r, headerMap.folio_tag),
+        placas: cellStr(r, headerMap.placas),
+        fecha: cellStr(r, headerMap.fecha),
+        odometro: cellNum(r, headerMap.odometro),
+        litros: cellNum(r, headerMap.litros),
+      })}`,
+    );
   }
 }

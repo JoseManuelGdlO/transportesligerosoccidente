@@ -8,6 +8,7 @@ import { importFuelTicketsFromBuffer } from "./fuelImportService";
 import { createFuelProvider, resolveFuelCredentials, tenantFuelSyncEnabled } from "./fuelProvider";
 import { prorateRangeAll } from "./fuelProrationService";
 import { addDaysToDateStr, localDateStr, localMonthStartStr } from "../utils/localDates";
+import { logger } from "../utils/logger";
 
 export type FuelSyncResult = {
   tenant_id: string;
@@ -24,16 +25,16 @@ export function logFuelSyncResult(r: FuelSyncResult): void {
   const tag = `[fuel-sync] tenant=${r.tenant_id} "${r.tenant_nombre}"`;
   if (r.status === "ok") {
     const imp = r.import;
-    console.log(
+    logger.info(
       `${tag} ok rango=${r.inicio}..${r.fin} creados=${imp?.creados ?? 0} duplicados=${imp?.duplicados ?? 0} errores_fila=${imp?.errores.length ?? 0} unidades=${r.unidades_con_tickets ?? 0}`,
     );
     return;
   }
   if (r.status === "error") {
-    console.log(`${tag} error rango=${r.inicio}..${r.fin} msg=${r.error ?? "desconocido"}`);
+    logger.info(`${tag} error rango=${r.inicio}..${r.fin} msg=${r.error ?? "desconocido"}`);
     return;
   }
-  console.log(`${tag} skipped rango=${r.inicio}..${r.fin} motivo=${r.error ?? "sin detalle"}`);
+  logger.info(`${tag} skipped rango=${r.inicio}..${r.fin} motivo=${r.error ?? "sin detalle"}`);
 }
 
 export function defaultSyncDateRange(): { inicio: string; fin: string } {
@@ -103,10 +104,10 @@ export async function runFuelSyncForTenant(
   }
 
   try {
-    console.log(`[fuel-sync] tenant=${tenant.id} "${tenant.nombre}" descargando ${inicio}..${fin}`);
+    logger.info(`[fuel-sync] tenant=${tenant.id} "${tenant.nombre}" descargando ${inicio}..${fin}`);
     const provider = createFuelProvider(creds);
     const buffer = await provider.downloadReport({ inicio, fin });
-    console.log(`[fuel-sync] tenant=${tenant.id} descarga ok bytes=${buffer.length}`);
+    logger.info(`[fuel-sync] tenant=${tenant.id} descarga ok bytes=${buffer.length}`);
     const importResult = await importFuelTicketsFromBuffer(String(tenant.id), buffer, "api");
     const proration = await prorateRangeAll(String(tenant.id), inicio, fin);
 
@@ -126,7 +127,7 @@ export async function runFuelSyncForTenant(
     return result;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error desconocido al sincronizar combustible";
-    console.error(`[fuel-sync] tenant=${tenant.id}`, e);
+    logger.error(`[fuel-sync] tenant=${tenant.id} ${msg}`);
     await notifyFuelSync(
       String(tenant.id),
       false,
@@ -156,12 +157,12 @@ export async function runFuelSyncAll(
     }
   }
 
-  console.log(
+  logger.info(
     `[fuel-sync] inicio sync rango=${inicio}..${fin} empresas=${toRun.size} (FUEL_SYNC_ENABLED=${process.env.FUEL_SYNC_ENABLED === "true"})`,
   );
 
   if (toRun.size === 0) {
-    console.log(
+    logger.info(
       "[fuel-sync] sin empresas que sincronizar (activa FUEL_SYNC_ENABLED + credenciales, o fuel_sync_habilitado por tenant)",
     );
     return [];
@@ -177,7 +178,7 @@ export async function runFuelSyncAll(
   const ok = results.filter((r) => r.status === "ok").length;
   const err = results.filter((r) => r.status === "error").length;
   const skipped = results.filter((r) => r.status === "skipped").length;
-  console.log(`[fuel-sync] fin sync ok=${ok} error=${err} skipped=${skipped} total=${results.length}`);
+  logger.info(`[fuel-sync] fin sync ok=${ok} error=${err} skipped=${skipped} total=${results.length}`);
 
   return results;
 }
