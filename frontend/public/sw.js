@@ -1,4 +1,4 @@
-/* eslint-disable no-restricted-globals */
+ 
 self.addEventListener("push", (event) => {
   let data = { title: "TLO", body: "", url: "/" };
   try {
