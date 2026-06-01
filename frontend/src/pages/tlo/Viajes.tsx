@@ -30,6 +30,7 @@ import type { RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
 import {
   findStatusIdBySlug,
   tripHasStatusId,
+  tripHasStatusSlug,
   tripIsClosed,
   TRIP_STATUS_COLOR_OPTIONS,
   SYSTEM_STATUS_CERRADO,
@@ -75,6 +76,16 @@ const emptyStatusForm = (): TripStatusRef => ({
 
 const MOCK_TRIP_STATUSES: TripStatusRef[] = [SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO];
 
+const FILTER_TODOS = "todos";
+/** Filtro por defecto: viajes en curso (slug hasta resolver el id del catálogo). */
+const FILTER_EN_CURSO = "en_curso";
+
+function tripMatchesStatusFilter(trip: Trip, filter: string): boolean {
+  if (filter === FILTER_TODOS) return true;
+  if (!filter || filter === FILTER_EN_CURSO) return tripHasStatusSlug(trip, "en_curso");
+  return tripHasStatusId(trip, filter);
+}
+
 export default function Viajes() {
   const { trips, drivers, trucks, clients, createTrip, updateTrip, replaceTrip } = useTlo();
   const { hasPermission } = useAuth();
@@ -84,9 +95,7 @@ export default function Viajes() {
   const canManageStatuses = hasPermission("catalogos.editar");
 
   const [tripStatuses, setTripStatuses] = useState<TripStatusRef[]>(MOCK_TRIP_STATUSES);
-  const [filterStatus, setFilterStatus] = useState<string>(
-    () => findStatusIdBySlug(MOCK_TRIP_STATUSES, "en_curso") ?? "",
-  );
+  const [filterStatus, setFilterStatus] = useState<string>(FILTER_EN_CURSO);
   const [filterDriver, setFilterDriver] = useState<string>("todos");
   const [filterTruck, setFilterTruck] = useState<string>("todos");
   const [search, setSearch] = useState("");
@@ -122,24 +131,37 @@ export default function Viajes() {
     void loadTripStatuses();
   }, [loadTripStatuses]);
 
-  useEffect(() => {
-    if (tripStatuses.length === 0) return;
-    const enCursoId = findStatusIdBySlug(tripStatuses, "en_curso");
-    if (!enCursoId) return;
-
-    const validIds = new Set(tripStatuses.map((s) => s.id));
-    const needsEnCursoDefault =
-      !filterStatus ||
-      filterStatus === "en_curso" ||
-      (filterStatus !== "todos" && !validIds.has(filterStatus));
-
-    if (needsEnCursoDefault) setFilterStatus(enCursoId);
-  }, [tripStatuses, filterStatus]);
-
   const activeStatuses = useMemo(
     () => tripStatuses.filter((s) => s.activo !== false),
     [tripStatuses],
   );
+
+  const enCursoStatusId = useMemo(
+    () => findStatusIdBySlug(activeStatuses, "en_curso"),
+    [activeStatuses],
+  );
+
+  useEffect(() => {
+    if (!enCursoStatusId) return;
+    const validIds = new Set(tripStatuses.map((s) => s.id));
+    const needsSync =
+      filterStatus === FILTER_EN_CURSO ||
+      filterStatus === SYSTEM_STATUS_EN_CURSO.id ||
+      !filterStatus ||
+      (filterStatus !== FILTER_TODOS && !validIds.has(filterStatus));
+    if (needsSync) setFilterStatus(enCursoStatusId);
+  }, [enCursoStatusId, filterStatus, tripStatuses]);
+
+  const statusFilterSelectValue = useMemo(() => {
+    if (filterStatus === FILTER_TODOS) return FILTER_TODOS;
+    if (filterStatus === FILTER_EN_CURSO || !filterStatus) {
+      return enCursoStatusId ?? FILTER_EN_CURSO;
+    }
+    if (!activeStatuses.some((s) => s.id === filterStatus)) {
+      return enCursoStatusId ?? FILTER_EN_CURSO;
+    }
+    return filterStatus;
+  }, [filterStatus, activeStatuses, enCursoStatusId]);
 
   const loadRoutes = useCallback(async (clientId: string) => {
     if (!apiMode || !clientId) {
@@ -225,11 +247,7 @@ export default function Viajes() {
 
   const rows = useMemo(() => {
     return trips
-      .filter(
-        (t) =>
-          filterStatus === "todos" ||
-          (!!filterStatus && tripHasStatusId(t, filterStatus)),
-      )
+      .filter((t) => tripMatchesStatusFilter(t, filterStatus))
       .filter((t) => filterDriver === "todos" || t.driver_id === filterDriver)
       .filter((t) => filterTruck === "todos" || t.truck_id === filterTruck)
       .filter((t) => {
@@ -370,7 +388,7 @@ export default function Viajes() {
           </div>
           <div>
             <Label className="text-xs">Estado</Label>
-            <Select value={filterStatus} onValueChange={setFilterStatus}>
+            <Select value={statusFilterSelectValue} onValueChange={setFilterStatus}>
               <SelectTrigger className="w-[160px]">
                 <SelectValue placeholder="Estado" />
               </SelectTrigger>
