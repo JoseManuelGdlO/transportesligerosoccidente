@@ -18,20 +18,37 @@ import {
   getClosedStatusIds,
 } from "./tripStatusService";
 
-export async function nextFolio(tenantId: string, t?: Transaction): Promise<string> {
-  const year = new Date().getFullYear();
-  const prefix = `V-${year}-`;
-  const last = await Trip.findOne({
-    where: { tenant_id: tenantId, folio: { [Op.like]: `${prefix}%` } },
-    order: [["folio", "DESC"]],
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+export async function nextFolio(
+  tenantId: string,
+  truckId: string,
+  t?: Transaction,
+): Promise<string> {
+  const truck = await Truck.findOne({
+    where: { id: truckId, tenant_id: tenantId },
     transaction: t,
   });
-  let seq = 1;
-  if (last?.folio) {
-    const m = last.folio.match(new RegExp(`^V-${year}-(\\d+)$`));
-    if (m) seq = parseInt(m[1], 10) + 1;
+  if (!truck) {
+    const err = new Error("Camión no válido para esta empresa");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
   }
-  return `${prefix}${String(seq).padStart(4, "0")}`;
+  const eco = truck.numero_economico.trim();
+  const existing = await Trip.findAll({
+    where: { tenant_id: tenantId, truck_id: truckId },
+    attributes: ["folio"],
+    transaction: t,
+  });
+  const re = new RegExp(`^${escapeRegex(eco)}-(\\d+)$`);
+  let maxSeq = 0;
+  for (const row of existing) {
+    const m = row.folio.match(re);
+    if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+  }
+  return `${eco}-${maxSeq + 1}`;
 }
 
 export async function getTripOrThrow(
@@ -304,7 +321,7 @@ export async function createTrip(
   const { origen, destino } = deriveOrigenDestino(paradas);
 
   return sequelize.transaction(async (t) => {
-    const folio = await nextFolio(tenantId, t);
+    const folio = await nextFolio(tenantId, data.truck_id, t);
     const tripId = randomUUID();
     const created = await Trip.create(
       {

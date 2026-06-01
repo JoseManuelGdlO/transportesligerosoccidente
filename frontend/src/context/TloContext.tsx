@@ -46,6 +46,23 @@ const TloCtx = createContext<TloState | null>(null);
 
 const uid = (p: string) => `${p}_${Math.random().toString(36).slice(2, 9)}`;
 
+function escapeRegex(s: string): string {
+  return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function mockNextFolio(truckId: string, trucks: Truck[], trips: Trip[]): string {
+  const truck = trucks.find((x) => x.id === truckId);
+  const eco = truck?.numero_economico.trim() || "VIAJE";
+  const re = new RegExp(`^${escapeRegex(eco)}-(\\d+)$`);
+  let maxSeq = 0;
+  for (const trip of trips) {
+    if (trip.truck_id !== truckId) continue;
+    const m = trip.folio.match(re);
+    if (m) maxSeq = Math.max(maxSeq, parseInt(m[1], 10));
+  }
+  return `${eco}-${maxSeq + 1}`;
+}
+
 export const TloProvider = ({ children }: { children: ReactNode }) => {
   const { user, permissions, hasApiSession } = useAuth();
   const apiLive = hasApiConfigured() && hasApiSession && !!user;
@@ -447,8 +464,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         }
       }
       const id = uid("v");
-      const year = new Date().getFullYear();
-      const folio = `V-${year}-${String(Date.now()).slice(-4)}`;
+      const folio = mockNextFolio(data.truck_id, trucks, trips);
       const trip: Trip = {
         ...data,
         id,
@@ -461,7 +477,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       setTrips((prev) => [trip, ...prev]);
       return trip;
     },
-    [apiLive],
+    [apiLive, trucks, trips],
   );
 
   const updateTrip = useCallback(
