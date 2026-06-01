@@ -370,7 +370,7 @@ export async function getLastClosedKmFinal(
       },
     ],
     order: [["fecha_llegada", "DESC"]],
-    attributes: ["km_final"],
+    attributes: ["km_final", "fecha_llegada"],
   });
   return lastTrip?.km_final ?? null;
 }

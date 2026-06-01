@@ -37,7 +37,7 @@ export async function getTruckOdometer(tenantId: string, truckId: string): Promi
         },
       ],
       order: [["fecha_llegada", "DESC"]],
-      attributes: ["km_final"],
+      attributes: ["km_final", "fecha_llegada"],
     });
     kmTrip = lastTrip?.km_final ?? 0;
   }
