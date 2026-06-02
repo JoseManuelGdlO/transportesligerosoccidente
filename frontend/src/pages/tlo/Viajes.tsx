@@ -15,7 +15,7 @@ import {
   paradasToTripStops,
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
-import { fmtMXN, fmtDate, formatTripRoute } from "@/lib/format";
+import { fmtMXN, fmtDate, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import {
   fetchRoutes,
   fetchTruckLastKm,
@@ -38,7 +38,9 @@ import {
 } from "@/lib/tripStatus";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, ArrowRight, Tags, Pencil, Trash2 } from "lucide-react";
+import { Plus, Search, ArrowRight, Tags, Pencil, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
+import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
+import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
@@ -96,8 +98,12 @@ export default function Viajes() {
 
   const [tripStatuses, setTripStatuses] = useState<TripStatusRef[]>(MOCK_TRIP_STATUSES);
   const [filterStatus, setFilterStatus] = useState<string>(FILTER_EN_CURSO);
-  const [filterDriver, setFilterDriver] = useState<string>("todos");
-  const [filterTruck, setFilterTruck] = useState<string>("todos");
+  const [filterDriver, setFilterDriver] = useState<string>(FILTER_TODOS);
+  const [filterTruck, setFilterTruck] = useState<string>(FILTER_TODOS);
+  const [filterClient, setFilterClient] = useState<string>(FILTER_TODOS);
+  const [filterTipoViaje, setFilterTipoViaje] = useState<string>(FILTER_TODOS);
+  const [filterFechaDesde, setFilterFechaDesde] = useState("");
+  const [filterFechaHasta, setFilterFechaHasta] = useState("");
   const [search, setSearch] = useState("");
 
   const [open, setOpen] = useState(false);
@@ -245,11 +251,56 @@ export default function Viajes() {
     [apiMode, updateTrip, replaceTrip],
   );
 
+  const [filtersOpen, setFiltersOpen] = useState(false);
+
+  const applyFiltroHoy = useCallback(() => {
+    const d = isoDay(new Date());
+    setFilterFechaDesde(d);
+    setFilterFechaHasta(d);
+  }, []);
+
+  const applyFiltroSemanaActual = useCallback(() => {
+    const today = new Date();
+    setFilterFechaDesde(isoDay(startOfWeek(today)));
+    setFilterFechaHasta(isoDay(endOfWeek(today)));
+  }, []);
+
+  const hasActiveFilters = useMemo(() => {
+    const defaultStatus = enCursoStatusId ?? FILTER_EN_CURSO;
+    if (filterStatus !== FILTER_TODOS && filterStatus !== defaultStatus) return true;
+    if (filterClient !== FILTER_TODOS) return true;
+    if (filterTipoViaje !== FILTER_TODOS) return true;
+    if (filterFechaDesde || filterFechaHasta) return true;
+    if (filterDriver !== FILTER_TODOS) return true;
+    if (filterTruck !== FILTER_TODOS) return true;
+    return false;
+  }, [
+    filterStatus,
+    filterClient,
+    filterTipoViaje,
+    filterFechaDesde,
+    filterFechaHasta,
+    filterDriver,
+    filterTruck,
+    enCursoStatusId,
+  ]);
+
   const rows = useMemo(() => {
     return trips
       .filter((t) => tripMatchesStatusFilter(t, filterStatus))
-      .filter((t) => filterDriver === "todos" || t.driver_id === filterDriver)
-      .filter((t) => filterTruck === "todos" || t.truck_id === filterTruck)
+      .filter((t) => filterClient === FILTER_TODOS || t.client_id === filterClient)
+      .filter(
+        (t) => filterTipoViaje === FILTER_TODOS || t.tipo_viaje === filterTipoViaje,
+      )
+      .filter((t) => {
+        if (!filterFechaDesde && !filterFechaHasta) return true;
+        const day = isoDay(new Date(t.fecha_salida));
+        if (filterFechaDesde && day < filterFechaDesde) return false;
+        if (filterFechaHasta && day > filterFechaHasta) return false;
+        return true;
+      })
+      .filter((t) => filterDriver === FILTER_TODOS || t.driver_id === filterDriver)
+      .filter((t) => filterTruck === FILTER_TODOS || t.truck_id === filterTruck)
       .filter((t) => {
         if (!search.trim()) return true;
         const s = search.toLowerCase();
@@ -262,7 +313,18 @@ export default function Viajes() {
         );
       })
       .map((t) => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
-  }, [trips, drivers, filterStatus, filterDriver, filterTruck, search]);
+  }, [
+    trips,
+    drivers,
+    filterStatus,
+    filterClient,
+    filterTipoViaje,
+    filterFechaDesde,
+    filterFechaHasta,
+    filterDriver,
+    filterTruck,
+    search,
+  ]);
 
   const submit = async () => {
     if (!form.truck_id || !form.driver_id || !form.client_id) {
@@ -373,77 +435,152 @@ export default function Viajes() {
   return (
     <div className="space-y-4">
       <Card className="p-4 tlo-shadow-md">
-        <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[200px]">
-            <Label className="text-xs">Buscar folio o ruta</Label>
-            <div className="relative">
-              <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="pl-9"
-                placeholder="V-2026-0142, Gdl → Mty..."
-              />
+        <Collapsible open={filtersOpen} onOpenChange={setFiltersOpen}>
+          <div className="flex flex-wrap items-end gap-3">
+            <div className="flex-1 min-w-[200px]">
+              <Label className="text-xs">Buscar folio o ruta</Label>
+              <div className="relative">
+                <Search className="h-4 w-4 absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="pl-9"
+                  placeholder="V-2026-0142, Gdl → Mty..."
+                />
+              </div>
             </div>
+            <CollapsibleTrigger asChild>
+              <Button type="button" variant="outline" className="gap-2">
+                <SlidersHorizontal className="h-4 w-4" />
+                Filtros
+                {hasActiveFilters && (
+                  <Badge variant="secondary" className="ml-0.5 h-5 min-w-5 px-1.5 text-[10px]">
+                    ·
+                  </Badge>
+                )}
+                <ChevronDown
+                  className={`h-4 w-4 transition-transform ${filtersOpen ? "rotate-180" : ""}`}
+                />
+              </Button>
+            </CollapsibleTrigger>
+            <Button variant="outline" onClick={() => setManageStatusesOpen(true)}>
+              <Tags className="h-4 w-4 mr-2" /> Estados
+            </Button>
+            <Button
+              onClick={openNewTripDialog}
+              className="bg-primary text-primary-foreground hover:bg-primary-glow"
+            >
+              <Plus className="h-4 w-4 mr-2" /> Abrir viaje
+            </Button>
           </div>
-          <div>
-            <Label className="text-xs">Estado</Label>
-            <Select value={statusFilterSelectValue} onValueChange={setFilterStatus}>
-              <SelectTrigger className="w-[160px]">
-                <SelectValue placeholder="Estado" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                {activeStatuses.map((s) => (
-                  <SelectItem key={s.id} value={s.id}>
-                    {s.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Operador</Label>
-            <Select value={filterDriver} onValueChange={setFilterDriver}>
-              <SelectTrigger className="w-[180px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                {drivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>
-                    {d.nombre}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label className="text-xs">Camión</Label>
-            <Select value={filterTruck} onValueChange={setFilterTruck}>
-              <SelectTrigger className="w-[140px]">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="todos">Todos</SelectItem>
-                {trucks.map((t) => (
-                  <SelectItem key={t.id} value={t.id}>
-                    {t.numero_economico}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          <Button variant="outline" onClick={() => setManageStatusesOpen(true)}>
-            <Tags className="h-4 w-4 mr-2" /> Estados
-          </Button>
-          <Button
-            onClick={openNewTripDialog}
-            className="bg-primary text-primary-foreground hover:bg-primary-glow"
-          >
-            <Plus className="h-4 w-4 mr-2" /> Abrir viaje
-          </Button>
-        </div>
+          <CollapsibleContent>
+            <div className="flex flex-wrap items-end gap-3 pt-4 mt-4 border-t border-border">
+              <div>
+                <Label className="text-xs">Estado</Label>
+                <Select value={statusFilterSelectValue} onValueChange={setFilterStatus}>
+                  <SelectTrigger className="w-[160px]">
+                    <SelectValue placeholder="Estado" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    {activeStatuses.map((s) => (
+                      <SelectItem key={s.id} value={s.id}>
+                        {s.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Cliente</Label>
+                <Select value={filterClient} onValueChange={setFilterClient}>
+                  <SelectTrigger className="w-[200px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                    {clients.map((c) => (
+                      <SelectItem key={c.id} value={c.id}>
+                        {c.razon_social}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Desde</Label>
+                <Input
+                  type="date"
+                  value={filterFechaDesde}
+                  onChange={(e) => setFilterFechaDesde(e.target.value)}
+                  className="w-[140px]"
+                />
+              </div>
+              <div>
+                <Label className="text-xs">Hasta</Label>
+                <Input
+                  type="date"
+                  value={filterFechaHasta}
+                  onChange={(e) => setFilterFechaHasta(e.target.value)}
+                  className="w-[140px]"
+                />
+              </div>
+              <div className="flex gap-2 items-end">
+                <Button type="button" variant="outline" className="h-10" onClick={applyFiltroHoy}>
+                  Hoy
+                </Button>
+                <Button type="button" variant="outline" className="h-10" onClick={applyFiltroSemanaActual}>
+                  Semana actual
+                </Button>
+              </div>
+              <div>
+                <Label className="text-xs">Tipo de viaje</Label>
+                <Select value={filterTipoViaje} onValueChange={setFilterTipoViaje}>
+                  <SelectTrigger className="w-[130px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                    <SelectItem value="local">Local</SelectItem>
+                    <SelectItem value="foraneo">Foráneo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Operador</Label>
+                <Select value={filterDriver} onValueChange={setFilterDriver}>
+                  <SelectTrigger className="w-[180px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                    {drivers.map((d) => (
+                      <SelectItem key={d.id} value={d.id}>
+                        {d.nombre}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label className="text-xs">Camión</Label>
+                <Select value={filterTruck} onValueChange={setFilterTruck}>
+                  <SelectTrigger className="w-[140px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                    {trucks.map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.numero_economico}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+          </CollapsibleContent>
+        </Collapsible>
       </Card>
 
       <Card className="tlo-shadow-md overflow-hidden">

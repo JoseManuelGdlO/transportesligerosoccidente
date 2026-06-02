@@ -15,7 +15,7 @@ export default function Login() {
   const { user, apiMode, bootstrapping, signInWithApi, signInDemo } = useAuth();
   const nav = useNavigate();
   const [email, setEmail] = useState("admin@tlo.mx");
-  const [pw, setPw] = useState("demo1234");
+  const [pw, setPw] = useState("");
   const [role, setRole] = useState<UserRole>("admin");
   const [loading, setLoading] = useState(false);
 
