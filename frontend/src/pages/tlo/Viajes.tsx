@@ -38,7 +38,20 @@ import {
 } from "@/lib/tripStatus";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
-import { Plus, Search, ArrowRight, Tags, Pencil, Trash2, SlidersHorizontal, ChevronDown } from "lucide-react";
+import {
+  Plus,
+  Search,
+  ArrowRight,
+  Tags,
+  Pencil,
+  Trash2,
+  SlidersHorizontal,
+  ChevronDown,
+  ArrowUpDown,
+  ArrowUp,
+  ArrowDown,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -88,6 +101,120 @@ function tripMatchesStatusFilter(trip: Trip, filter: string): boolean {
   return tripHasStatusId(trip, filter);
 }
 
+type SortColumn =
+  | "folio"
+  | "fecha"
+  | "ruta"
+  | "factura"
+  | "operador"
+  | "camion"
+  | "tarifa"
+  | "utilidad"
+  | "margen"
+  | "estado";
+
+type SortDirection = "asc" | "desc";
+
+type TripRow = { trip: Trip; fin: ReturnType<typeof computeTrip> };
+
+function tripStatusSortLabel(trip: Trip): string {
+  return (trip.statuses ?? [])
+    .map((s) => s.nombre)
+    .sort((a, b) => a.localeCompare(b, "es", { sensitivity: "base" }))
+    .join(", ");
+}
+
+function compareSortValues(
+  a: string | number | null,
+  b: string | number | null,
+  direction: SortDirection,
+): number {
+  const aNull = a === null;
+  const bNull = b === null;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+
+  let cmp: number;
+  if (typeof a === "number" && typeof b === "number") {
+    cmp = a - b;
+  } else {
+    cmp = String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" });
+  }
+  return direction === "asc" ? cmp : -cmp;
+}
+
+function getTripRowSortValue(
+  row: TripRow,
+  column: SortColumn,
+  drivers: Parameters<typeof driverById>[0],
+  trucks: Parameters<typeof truckById>[0],
+): string | number | null {
+  const { trip, fin } = row;
+  switch (column) {
+    case "folio":
+      return trip.folio;
+    case "fecha":
+      return new Date(trip.fecha_salida).getTime();
+    case "ruta":
+      return formatTripRoute(trip);
+    case "factura":
+      return trip.num_factura ?? "";
+    case "operador":
+      return driverById(drivers, trip.driver_id)?.nombre ?? "";
+    case "camion":
+      return truckById(trucks, trip.truck_id)?.numero_economico ?? "";
+    case "tarifa":
+      return trip.tarifa;
+    case "utilidad":
+      return tripIsClosed(trip) ? fin.utilidad : null;
+    case "margen":
+      return tripIsClosed(trip) ? fin.margen_pct : null;
+    case "estado":
+      return tripStatusSortLabel(trip);
+    default:
+      return "";
+  }
+}
+
+function SortableTableHead({
+  label,
+  column,
+  activeColumn,
+  direction,
+  onSort,
+  className,
+}: {
+  label: string;
+  column: SortColumn;
+  activeColumn: SortColumn | null;
+  direction: SortDirection;
+  onSort: (column: SortColumn) => void;
+  className?: string;
+}) {
+  const active = activeColumn === column;
+  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const alignRight = className?.includes("text-right");
+
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "inline-flex items-center gap-1 font-medium hover:text-foreground",
+          alignRight && "w-full justify-end",
+        )}
+      >
+        {label}
+        <Icon
+          className={cn("h-3.5 w-3.5 shrink-0", !active && "text-muted-foreground opacity-60")}
+        />
+      </button>
+    </TableHead>
+  );
+}
+
 export default function Viajes() {
   const { trips, drivers, trucks, clients, createTrip, updateTrip, replaceTrip } = useTlo();
   const { hasPermission } = useAuth();
@@ -105,6 +232,19 @@ export default function Viajes() {
   const [filterFechaDesde, setFilterFechaDesde] = useState("");
   const [filterFechaHasta, setFilterFechaHasta] = useState("");
   const [search, setSearch] = useState("");
+  const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  const toggleSort = useCallback((column: SortColumn) => {
+    setSortColumn((prev) => {
+      if (prev === column) {
+        setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+        return column;
+      }
+      setSortDirection("asc");
+      return column;
+    });
+  }, []);
 
   const [open, setOpen] = useState(false);
   const [statusesOpen, setStatusesOpen] = useState(false);
@@ -325,6 +465,15 @@ export default function Viajes() {
     filterTruck,
     search,
   ]);
+
+  const sortedRows = useMemo(() => {
+    if (!sortColumn) return rows;
+    return [...rows].sort((a, b) => {
+      const va = getTripRowSortValue(a, sortColumn, drivers, trucks);
+      const vb = getTripRowSortValue(b, sortColumn, drivers, trucks);
+      return compareSortValues(va, vb, sortDirection);
+    });
+  }, [rows, sortColumn, sortDirection, drivers, trucks]);
 
   const submit = async () => {
     if (!form.truck_id || !form.driver_id || !form.client_id) {
@@ -587,28 +736,91 @@ export default function Viajes() {
         <Table>
           <TableHeader>
             <TableRow className="bg-secondary/50">
-              <TableHead>Folio</TableHead>
-              <TableHead>Fecha</TableHead>
-              <TableHead>Ruta</TableHead>
-              <TableHead>Factura</TableHead>
-              <TableHead>Operador</TableHead>
-              <TableHead>Camión</TableHead>
-              <TableHead className="text-right">Tarifa</TableHead>
-              <TableHead className="text-right">Utilidad</TableHead>
-              <TableHead className="text-right">Margen</TableHead>
-              <TableHead>Estado</TableHead>
+              <SortableTableHead
+                label="Folio"
+                column="folio"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Fecha"
+                column="fecha"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Ruta"
+                column="ruta"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Factura"
+                column="factura"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Operador"
+                column="operador"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Camión"
+                column="camion"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
+              <SortableTableHead
+                label="Tarifa"
+                column="tarifa"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableTableHead
+                label="Utilidad"
+                column="utilidad"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableTableHead
+                label="Margen"
+                column="margen"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+                className="text-right"
+              />
+              <SortableTableHead
+                label="Estado"
+                column="estado"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+              />
               <TableHead></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.length === 0 && (
+            {sortedRows.length === 0 && (
               <TableRow>
                 <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                   Sin resultados
                 </TableCell>
               </TableRow>
             )}
-            {rows.map(({ trip: t, fin }) => {
+            {sortedRows.map(({ trip: t, fin }) => {
               const dr = driverById(drivers, t.driver_id);
               const tk = truckById(trucks, t.truck_id);
               return (
