@@ -554,6 +554,31 @@ export async function setTripStatuses(tripId: string, statusIds: string[]): Prom
   return normalizeTrip(raw);
 }
 
+function buildPatchTripBody(patch: Record<string, unknown>): Record<string, unknown> {
+  const body: Record<string, unknown> = { ...patch };
+  const paradas = patch.paradas;
+  if (Array.isArray(paradas) && paradas.length >= 2) {
+    body.paradas = paradas.map((p) => {
+      const row = p as { etiqueta: string; client_ubicacion_id?: string };
+      return row.client_ubicacion_id
+        ? { etiqueta: row.etiqueta, client_ubicacion_id: row.client_ubicacion_id }
+        : row.etiqueta;
+    });
+    delete body.origen;
+    delete body.destino;
+  }
+  return body;
+}
+
+export async function patchTrip(tripId: string, patch: Record<string, unknown>): Promise<Trip> {
+  const res = await apiFetch(`/trips/${tripId}`, {
+    method: "PATCH",
+    body: JSON.stringify(buildPatchTripBody(patch)),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeTrip(raw);
+}
+
 export async function fetchClient(id: string): Promise<Client> {
   const res = await apiFetch(`/clients/${id}`);
   const raw = await readJson<Record<string, unknown>>(res);

@@ -14,13 +14,8 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import {
-  TripParadasEditor,
-  paradasToTripStops,
-  tripStopsToParadas,
-  type ParadaDraft,
-} from "@/components/tlo/TripParadasEditor";
-import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText } from "lucide-react";
+import { EditTripDialog } from "@/components/tlo/EditTripDialog";
+import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil } from "lucide-react";
 import type { ExpenseCategory, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
 import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
@@ -36,7 +31,7 @@ import { ModalFacturas } from "@/components/modal/ModalFacturas";
 export default function ViajeDetalle() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip } = useTlo();
+  const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip, replaceTrip } = useTlo();
   const { tenant, hasPermission } = useAuth();
   const showCartaPorte = FEATURE_CARTA_PORTE && hasPermission("cartaporte.ver");
   const tripCtx = trips.find(t => t.id === id);
@@ -63,6 +58,7 @@ export default function ViajeDetalle() {
   const [expOpen, setExpOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
   const [facturasOpen, setFacturasOpen] = useState(false);
+  const [editOpen, setEditOpen] = useState(false);
   const [fuel, setFuel] = useState({
     litros: 0,
     precio_litro: 26,
@@ -111,6 +107,12 @@ export default function ViajeDetalle() {
   const isClosed = tripIsClosed(trip);
   const canFacturar = tripIsOpen(trip) || tripIsClosed(trip);
   const customStatusOptions = allStatuses.filter((s) => !s.is_system && s.activo !== false);
+  const canEditTrip = !isClosed && hasPermission("viajes.crear");
+
+  const onTripSaved = (updated: Trip) => {
+    replaceTrip(updated);
+    setTripOverride(updated);
+  };
 
   const saveCustomStatuses = async () => {
     setSavingStatuses(true);
@@ -238,6 +240,11 @@ export default function ViajeDetalle() {
               <Receipt className="h-4 w-4 mr-2" /> Facturar
             </Button>
           )}
+          {canEditTrip && (
+            <Button variant="outline" onClick={() => setEditOpen(true)}>
+              <Pencil className="h-4 w-4 mr-2" /> Editar
+            </Button>
+          )}
           {!isClosed && (
             <Button
               onClick={() => {
@@ -327,6 +334,13 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>
+                <div><p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p><p className="font-medium">{fmtMXN(trip.tarifa)}</p></div>
+                {!isClosed && (
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">Número de factura</p>
+                    <p className="font-medium font-mono">{trip.num_factura || "—"}</p>
+                  </div>
+                )}
                 {customStatusOptions.length > 0 && (
                   <div className="space-y-2 pt-2 border-t">
                     <p className="text-xs uppercase text-muted-foreground">Estados adicionales</p>
@@ -358,59 +372,26 @@ export default function ViajeDetalle() {
                 <div className="flex items-start gap-2"><Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" /><div><p className="text-xs uppercase text-muted-foreground">Salida</p><p className="font-medium">{fmtDateTime(trip.fecha_salida)}</p></div></div>
                 <div className="flex items-start gap-2"><Calendar className="h-4 w-4 mt-0.5 text-muted-foreground" /><div><p className="text-xs uppercase text-muted-foreground">Llegada</p><p className="font-medium">{fmtDateTime(trip.fecha_llegada)}</p></div></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Km inicial → final</p><p className="font-medium font-mono">{fmtNumber(trip.km_inicial)} → {trip.km_final ? fmtNumber(trip.km_final) : "—"}</p></div>
-                {!isClosed ? (
-                  <>
-                    <TripParadasEditor
-                      paradas={
-                        trip.paradas && trip.paradas.length >= 2
-                          ? tripStopsToParadas(trip.paradas)
-                          : [{ etiqueta: trip.origen }, { etiqueta: trip.destino }]
-                      }
-                      onChange={(p: ParadaDraft[]) => {
-                        const valid = p.filter((x) => x.etiqueta.trim());
-                        if (valid.length < 2) return;
-                        const stops = paradasToTripStops(valid);
-                        updateTrip(trip.id, { paradas: stops });
-                        toast.success("Paradas actualizadas");
+                <div className="md:col-span-2">
+                  <p className="text-xs uppercase text-muted-foreground">Ruta</p>
+                  <p className="font-medium">{formatTripRoute(trip)}</p>
+                </div>
+                {isClosed && (
+                  <div>
+                    <Label>Número de factura</Label>
+                    <Input
+                      defaultValue={trip.num_factura || ""}
+                      placeholder="F-8826"
+                      onBlur={async (e) => {
+                        const v = e.target.value.trim();
+                        if (v !== (trip.num_factura || "")) {
+                          updateTrip(trip.id, { num_factura: v || undefined });
+                          toast.success("Número de factura guardado");
+                          await reloadTrip();
+                        }
                       }}
                     />
-                    <div>
-                      <Label>Número de factura</Label>
-                      <Input
-                        defaultValue={trip.num_factura || ''}
-                        placeholder='F-8826'
-                        onBlur={e => {
-                          const v = e.target.value.trim();
-                          if (v !== (trip.num_factura || '')) {
-                            updateTrip(trip.id, { num_factura: v || undefined });
-                            toast.success('Número de factura guardado');
-                          }
-                        }}
-                      />
-                    </div>
-                  </>
-                ) : (
-                  <>
-                    <div className="md:col-span-2">
-                      <p className="text-xs uppercase text-muted-foreground">Ruta</p>
-                      <p className="font-medium">{formatTripRoute(trip)}</p>
-                    </div>
-                    <div>
-                      <Label>Número de factura</Label>
-                      <Input
-                        defaultValue={trip.num_factura || ""}
-                        placeholder="F-8826"
-                        onBlur={async (e) => {
-                          const v = e.target.value.trim();
-                          if (v !== (trip.num_factura || "")) {
-                            updateTrip(trip.id, { num_factura: v || undefined });
-                            toast.success("Número de factura guardado");
-                            await reloadTrip();
-                          }
-                        }}
-                      />
-                    </div>
-                  </>
+                  </div>
                 )}
               </div>
             </CardContent>
@@ -601,6 +582,15 @@ export default function ViajeDetalle() {
         onOpenChange={setFacturasOpen}
         clientId={trip.client_id}
       />
+
+      {canEditTrip && (
+        <EditTripDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          trip={trip}
+          onSaved={onTripSaved}
+        />
+      )}
     </div>
   );
 }
