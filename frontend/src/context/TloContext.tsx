@@ -24,7 +24,7 @@ interface TloState {
   reloadCatalog: () => Promise<void>;
   upsertTruck: (t: Truck) => void;
   upsertDriver: (d: Driver) => void;
-  upsertClient: (c: Client) => void;
+  upsertClient: (c: Client) => Promise<void>;
   upsertSystemUser: (u: SystemUser, password?: string) => Promise<void>;
   toggleSystemUserStatus: (id: string) => void;
   updateRolePermissions: (role: UserRole, permisos: Permission[]) => void;
@@ -273,41 +273,41 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const upsertClient = useCallback(
-    (c: Client) => {
+    async (c: Client) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const body = {
-              razon_social: c.razon_social,
-              rfc: c.rfc,
-              contacto: c.contacto,
-              telefono: c.telefono,
-              calle: c.calle || undefined,
-              colonia: c.colonia || undefined,
-              municipio: c.municipio || undefined,
-              estado: c.estado || undefined,
-              cp: c.cp || undefined,
-              pais: c.pais || undefined,
-              numero_exterior: c.numero_exterior || undefined,
-              numero_interior: c.numero_interior || undefined,
-              localidad: c.localidad || undefined,
-              email: c.email || undefined,
-              regimen_fiscal: c.regimen_fiscal || undefined,
-              estatus: c.estatus || "activo",
-              observaciones: c.observaciones || undefined,
-            };
-            if (c.id) {
-              const r = await apiFetch(`/clients/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });
-              await readJson(r);
-            } else {
-              const r = await apiFetch("/clients", { method: "POST", body: JSON.stringify(body) });
-              await readJson(r);
-            }
-            await reloadCatalog();
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al guardar cliente");
+        try {
+          const body = {
+            razon_social: c.razon_social,
+            rfc: c.rfc,
+            contacto: c.contacto,
+            telefono: c.telefono,
+            calle: c.calle || undefined,
+            colonia: c.colonia || undefined,
+            municipio: c.municipio || undefined,
+            estado: c.estado || undefined,
+            cp: c.cp || undefined,
+            pais: c.pais || undefined,
+            numero_exterior: c.numero_exterior || undefined,
+            numero_interior: c.numero_interior || undefined,
+            localidad: c.localidad || undefined,
+            email: c.email || undefined,
+            regimen_fiscal: c.regimen_fiscal || undefined,
+            estatus: c.estatus || "activo",
+            observaciones: c.observaciones || undefined,
+          };
+          if (c.id) {
+            const r = await apiFetch(`/clients/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });
+            await readJson(r);
+          } else {
+            const r = await apiFetch("/clients", { method: "POST", body: JSON.stringify(body) });
+            await readJson(r);
           }
-        })();
+          await reloadCatalog();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al guardar cliente";
+          setCatalogError(msg);
+          throw e;
+        }
         return;
       }
       setClients((prev) => {

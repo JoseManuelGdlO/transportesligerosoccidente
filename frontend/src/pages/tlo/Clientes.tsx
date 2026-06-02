@@ -1,10 +1,10 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTlo } from "@/context/TloContext";
+import { ClientFormFields } from "@/components/tlo/ClientFormFields";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -17,6 +17,18 @@ import {
   fetchClientUbicaciones,
   updateClientUbicacion,
 } from "@/lib/tloApi";
+import {
+  CLIENT_FORM_REQUIRED_TOAST,
+  hasFormErrors,
+  validateClientForm,
+  type ClientFormErrors,
+} from "@/lib/validateClientForm";
+import {
+  UBICACION_FORM_REQUIRED_TOAST,
+  validateClientUbicacionForm,
+  type ClientUbicacionFormErrors,
+} from "@/lib/validateClientUbicacionForm";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const empty: Client = {
@@ -40,9 +52,13 @@ export default function Clientes() {
   const { clients, upsertClient } = useTlo();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Client>(empty);
+  const [fieldErrors, setFieldErrors] = useState<ClientFormErrors>({});
+  const [saving, setSaving] = useState(false);
   const [ubicaciones, setUbicaciones] = useState<ClientUbicacion[]>([]);
   const [ubicOpen, setUbicOpen] = useState(false);
   const [ubicForm, setUbicForm] = useState<Omit<ClientUbicacion, "id" | "client_id">>(emptyUbic);
+  const [ubicFieldErrors, setUbicFieldErrors] = useState<ClientUbicacionFormErrors>({});
+  const [ubicSaving, setUbicSaving] = useState(false);
   const [editingUbicId, setEditingUbicId] = useState<string | null>(null);
 
   const loadUbicaciones = useCallback(async (clientId: string) => {
@@ -59,13 +75,61 @@ export default function Clientes() {
     else setUbicaciones([]);
   }, [form.id, loadUbicaciones]);
 
-  const save = () => {
-    upsertClient(form);
-    toast.success(form.id ? "Cliente actualizado" : "Cliente registrado");
-    setOpen(false);
+  const clearClientFieldError = (field: keyof ClientFormErrors) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const clearUbicFieldError = (field: keyof ClientUbicacionFormErrors) => {
+    setUbicFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleClientDialogOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (!next) setFieldErrors({});
+  };
+
+  const handleUbicDialogOpenChange = (next: boolean) => {
+    setUbicOpen(next);
+    if (!next) setUbicFieldErrors({});
+  };
+
+  const openClientDialog = (client?: Client) => {
+    setFieldErrors({});
+    if (client) setForm(client);
+    else setForm({ ...empty, id: "" });
+    setOpen(true);
+  };
+
+  const save = async () => {
+    const errors = validateClientForm(form);
+    setFieldErrors(errors);
+    if (hasFormErrors(errors)) {
+      toast.error(CLIENT_FORM_REQUIRED_TOAST);
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertClient(form);
+      toast.success(form.id ? "Cliente actualizado" : "Cliente registrado");
+      setOpen(false);
+      setFieldErrors({});
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar cliente");
+    } finally {
+      setSaving(false);
+    }
   };
 
   const openUbicDialog = (row?: ClientUbicacion) => {
+    setUbicFieldErrors({});
     if (row) {
       setEditingUbicId(row.id);
       setUbicForm({
@@ -90,11 +154,17 @@ export default function Clientes() {
   };
 
   const saveUbicacion = async () => {
-    if (!form.id) return;
-    if (!ubicForm.nombre.trim()) {
-      toast.error("Captura el nombre de la ubicación");
+    if (!form.id) {
+      toast.error("Guarda el cliente antes de agregar ubicaciones");
       return;
     }
+    const errors = validateClientUbicacionForm(ubicForm);
+    setUbicFieldErrors(errors);
+    if (hasFormErrors(errors)) {
+      toast.error(errors.nombre ? UBICACION_FORM_REQUIRED_TOAST : "Revisa los datos de la ubicación");
+      return;
+    }
+    setUbicSaving(true);
     try {
       if (editingUbicId) {
         await updateClientUbicacion(form.id, editingUbicId, ubicForm);
@@ -104,9 +174,12 @@ export default function Clientes() {
         toast.success("Ubicación registrada");
       }
       setUbicOpen(false);
+      setUbicFieldErrors({});
       await loadUbicaciones(form.id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al guardar ubicación");
+    } finally {
+      setUbicSaving(false);
     }
   };
 
@@ -126,10 +199,7 @@ export default function Clientes() {
       <div className="flex items-center justify-between">
         <p className="text-sm text-muted-foreground">{clients.length} clientes registrados</p>
         <Button
-          onClick={() => {
-            setForm({ ...empty, id: "" });
-            setOpen(true);
-          }}
+          onClick={() => openClientDialog()}
           className="bg-primary text-primary-foreground hover:bg-primary-glow"
         >
           <Plus className="h-4 w-4 mr-2" /> Nuevo cliente
@@ -156,14 +226,7 @@ export default function Clientes() {
                 <TableCell className="capitalize">{c.estatus ?? "activo"}</TableCell>
                 <TableCell>{c.contacto}</TableCell>
                 <TableCell className="text-right">
-                  <Button
-                    variant="ghost"
-                    size="sm"
-                    onClick={() => {
-                      setForm(c);
-                      setOpen(true);
-                    }}
-                  >
+                  <Button variant="ghost" size="sm" onClick={() => openClientDialog(c)}>
                     <Pencil className="h-4 w-4" />
                   </Button>
                 </TableCell>
@@ -173,7 +236,7 @@ export default function Clientes() {
         </Table>
       </Card>
 
-      <Dialog open={open} onOpenChange={setOpen}>
+      <Dialog open={open} onOpenChange={handleClientDialogOpenChange}>
         <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{form.id ? "Editar cliente" : "Nuevo cliente"}</DialogTitle>
@@ -185,130 +248,13 @@ export default function Clientes() {
                 Ubicaciones
               </TabsTrigger>
             </TabsList>
-            <TabsContent value="datos" className="space-y-3 pt-4">
-              <div>
-                <Label>Razón social</Label>
-                <Input
-                  value={form.razon_social}
-                  onChange={(e) => setForm({ ...form, razon_social: e.target.value })}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>RFC</Label>
-                  <Input value={form.rfc} onChange={(e) => setForm({ ...form, rfc: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Teléfono</Label>
-                  <Input value={form.telefono} onChange={(e) => setForm({ ...form, telefono: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Contacto</Label>
-                  <Input value={form.contacto} onChange={(e) => setForm({ ...form, contacto: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Correo electrónico</Label>
-                  <Input
-                    type="email"
-                    value={form.email ?? ""}
-                    onChange={(e) => setForm({ ...form, email: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Régimen fiscal</Label>
-                  <Input
-                    value={form.regimen_fiscal ?? ""}
-                    onChange={(e) => setForm({ ...form, regimen_fiscal: e.target.value })}
-                    placeholder="601"
-                  />
-                </div>
-                <div>
-                  <Label>Estatus</Label>
-                  <Select
-                    value={form.estatus ?? "activo"}
-                    onValueChange={(v: ClientStatus) => setForm({ ...form, estatus: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="activo">Activo</SelectItem>
-                      <SelectItem value="inactivo">Inactivo</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
-              <div className="rounded-md border border-dashed p-3 space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
-                  Domicilio fiscal (Carta Porte)
-                </p>
-                <div>
-                  <Label>Calle</Label>
-                  <Input value={form.calle ?? ""} onChange={(e) => setForm({ ...form, calle: e.target.value })} />
-                </div>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>No. exterior</Label>
-                    <Input
-                      value={form.numero_exterior ?? ""}
-                      onChange={(e) => setForm({ ...form, numero_exterior: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>No. interior</Label>
-                    <Input
-                      value={form.numero_interior ?? ""}
-                      onChange={(e) => setForm({ ...form, numero_interior: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Colonia</Label>
-                    <Input value={form.colonia ?? ""} onChange={(e) => setForm({ ...form, colonia: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>Localidad</Label>
-                    <Input
-                      value={form.localidad ?? ""}
-                      onChange={(e) => setForm({ ...form, localidad: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Municipio</Label>
-                    <Input
-                      value={form.municipio ?? ""}
-                      onChange={(e) => setForm({ ...form, municipio: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Estado</Label>
-                    <Input value={form.estado ?? ""} onChange={(e) => setForm({ ...form, estado: e.target.value })} />
-                  </div>
-                  <div>
-                    <Label>C.P.</Label>
-                    <Input
-                      value={form.cp ?? ""}
-                      onChange={(e) => setForm({ ...form, cp: e.target.value })}
-                      maxLength={5}
-                    />
-                  </div>
-                  <div>
-                    <Label>País</Label>
-                    <Input
-                      value={form.pais ?? "MEX"}
-                      onChange={(e) => setForm({ ...form, pais: e.target.value })}
-                      maxLength={3}
-                    />
-                  </div>
-                </div>
-              </div>
-              <div>
-                <Label>Observaciones</Label>
-                <Textarea
-                  value={form.observaciones ?? ""}
-                  onChange={(e) => setForm({ ...form, observaciones: e.target.value })}
-                  rows={3}
-                />
-              </div>
+            <TabsContent value="datos" className="pt-4">
+              <ClientFormFields
+                form={form}
+                onChange={(patch) => setForm({ ...form, ...patch })}
+                fieldErrors={fieldErrors}
+                onClearError={clearClientFieldError}
+              />
             </TabsContent>
             <TabsContent value="ubicaciones" className="space-y-3 pt-4">
               {!form.id ? (
@@ -352,25 +298,44 @@ export default function Clientes() {
             </TabsContent>
           </Tabs>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setOpen(false)}>
+            <Button variant="outline" onClick={() => handleClientDialogOpenChange(false)} disabled={saving}>
               Cancelar
             </Button>
-            <Button onClick={save} className="bg-primary text-primary-foreground hover:bg-primary-glow">
-              Guardar
+            <Button
+              onClick={() => void save()}
+              disabled={saving}
+              className="bg-primary text-primary-foreground hover:bg-primary-glow"
+            >
+              {saving ? "Guardando…" : "Guardar"}
             </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={ubicOpen} onOpenChange={setUbicOpen}>
+      <Dialog open={ubicOpen} onOpenChange={handleUbicDialogOpenChange}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{editingUbicId ? "Editar ubicación" : "Nueva ubicación"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
-              <Label>Nombre</Label>
-              <Input value={ubicForm.nombre} onChange={(e) => setUbicForm({ ...ubicForm, nombre: e.target.value })} />
+              <Label htmlFor="ubic_nombre">
+                Nombre<span className="text-destructive ml-0.5">*</span>
+              </Label>
+              <Input
+                id="ubic_nombre"
+                required
+                value={ubicForm.nombre}
+                aria-invalid={!!ubicFieldErrors.nombre}
+                className={cn(ubicFieldErrors.nombre && "border-destructive")}
+                onChange={(e) => {
+                  setUbicForm({ ...ubicForm, nombre: e.target.value });
+                  clearUbicFieldError("nombre");
+                }}
+              />
+              {ubicFieldErrors.nombre && (
+                <p className="text-sm text-destructive mt-1">{ubicFieldErrors.nombre}</p>
+              )}
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
@@ -406,75 +371,101 @@ export default function Clientes() {
               </div>
             </div>
             <div>
-              <Label>Calle</Label>
-              <Input value={ubicForm.calle ?? ""} onChange={(e) => setUbicForm({ ...ubicForm, calle: e.target.value })} />
+              <Label htmlFor="ubic_calle">Calle</Label>
+              <Input
+                id="ubic_calle"
+                value={ubicForm.calle ?? ""}
+                onChange={(e) => setUbicForm({ ...ubicForm, calle: e.target.value })}
+              />
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>No. exterior</Label>
+                <Label htmlFor="ubic_numero_exterior">No. exterior</Label>
                 <Input
+                  id="ubic_numero_exterior"
                   value={ubicForm.numero_exterior ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, numero_exterior: e.target.value })}
                 />
               </div>
               <div>
-                <Label>No. interior</Label>
+                <Label htmlFor="ubic_numero_interior">No. interior</Label>
                 <Input
+                  id="ubic_numero_interior"
                   value={ubicForm.numero_interior ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, numero_interior: e.target.value })}
                 />
               </div>
               <div>
-                <Label>Colonia</Label>
+                <Label htmlFor="ubic_colonia">Colonia</Label>
                 <Input
+                  id="ubic_colonia"
                   value={ubicForm.colonia ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, colonia: e.target.value })}
                 />
               </div>
               <div>
-                <Label>Localidad</Label>
+                <Label htmlFor="ubic_localidad">Localidad</Label>
                 <Input
+                  id="ubic_localidad"
                   value={ubicForm.localidad ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, localidad: e.target.value })}
                 />
               </div>
               <div>
-                <Label>Municipio</Label>
+                <Label htmlFor="ubic_municipio">Municipio</Label>
                 <Input
+                  id="ubic_municipio"
                   value={ubicForm.municipio ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, municipio: e.target.value })}
                 />
               </div>
               <div>
-                <Label>Estado</Label>
+                <Label htmlFor="ubic_estado">Estado</Label>
                 <Input
+                  id="ubic_estado"
                   value={ubicForm.estado ?? ""}
                   onChange={(e) => setUbicForm({ ...ubicForm, estado: e.target.value })}
                 />
               </div>
               <div>
-                <Label>C.P.</Label>
+                <Label htmlFor="ubic_cp">C.P.</Label>
                 <Input
+                  id="ubic_cp"
                   value={ubicForm.cp ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, cp: e.target.value })}
                   maxLength={5}
+                  aria-invalid={!!ubicFieldErrors.cp}
+                  className={cn(ubicFieldErrors.cp && "border-destructive")}
+                  onChange={(e) => {
+                    setUbicForm({ ...ubicForm, cp: e.target.value });
+                    clearUbicFieldError("cp");
+                  }}
                 />
+                {ubicFieldErrors.cp && <p className="text-sm text-destructive mt-1">{ubicFieldErrors.cp}</p>}
               </div>
               <div>
-                <Label>País</Label>
+                <Label htmlFor="ubic_pais">País</Label>
                 <Input
+                  id="ubic_pais"
                   value={ubicForm.pais ?? "MEX"}
-                  onChange={(e) => setUbicForm({ ...ubicForm, pais: e.target.value })}
                   maxLength={3}
+                  aria-invalid={!!ubicFieldErrors.pais}
+                  className={cn(ubicFieldErrors.pais && "border-destructive")}
+                  onChange={(e) => {
+                    setUbicForm({ ...ubicForm, pais: e.target.value });
+                    clearUbicFieldError("pais");
+                  }}
                 />
+                {ubicFieldErrors.pais && <p className="text-sm text-destructive mt-1">{ubicFieldErrors.pais}</p>}
               </div>
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setUbicOpen(false)}>
+            <Button variant="outline" onClick={() => handleUbicDialogOpenChange(false)} disabled={ubicSaving}>
               Cancelar
             </Button>
-            <Button onClick={() => void saveUbicacion()}>Guardar ubicación</Button>
+            <Button onClick={() => void saveUbicacion()} disabled={ubicSaving}>
+              {ubicSaving ? "Guardando…" : "Guardar ubicación"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
