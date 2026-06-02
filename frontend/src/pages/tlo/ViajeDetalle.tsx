@@ -234,12 +234,12 @@ export default function ViajeDetalle() {
             }}
           >
             <FileText className="h-4 w-4 mr-2" /> PDF
-          </Button>
+          </Button>{/*
           {canFacturar && (
             <Button variant="outline" onClick={() => setFacturasOpen(true)}>
               <Receipt className="h-4 w-4 mr-2" /> Facturar
             </Button>
-          )}
+          )}*/}
           {canEditTrip && (
             <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="h-4 w-4 mr-2" /> Editar
