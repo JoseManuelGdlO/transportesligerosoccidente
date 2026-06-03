@@ -10,7 +10,11 @@ import {
   normalizeFuel,
   normalizeExpense,
 } from "@/lib/tloApi";
-import { SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
+import {
+  SYSTEM_STATUS_CERRADO,
+  SYSTEM_STATUS_EN_CURSO,
+  assertNoOpenTripConflictLocal,
+} from "@/lib/tripStatus";
 
 interface TloState {
   trucks: Truck[];
@@ -463,6 +467,11 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
           throw e;
         }
       }
+      assertNoOpenTripConflictLocal(
+        trips,
+        { truck_id: data.truck_id, driver_id: data.driver_id },
+        { trucks, drivers },
+      );
       const id = uid("v");
       const folio = mockNextFolio(data.truck_id, trucks, trips);
       const trip: Trip = {
@@ -477,7 +486,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       setTrips((prev) => [trip, ...prev]);
       return trip;
     },
-    [apiLive, trucks, trips],
+    [apiLive, trucks, drivers, trips],
   );
 
   const updateTrip = useCallback(
@@ -506,9 +515,24 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         })();
         return;
       }
-      setTrips((prev) => prev.map((t) => (t.id === id ? { ...t, ...patch } : t)));
+      setTrips((prev) => {
+        const current = prev.find((t) => t.id === id);
+        if (!current) return prev;
+        if (patch.truck_id !== undefined || patch.driver_id !== undefined) {
+          assertNoOpenTripConflictLocal(
+            prev,
+            {
+              truck_id: patch.truck_id ?? current.truck_id,
+              driver_id: patch.driver_id ?? current.driver_id,
+              excludeTripId: id,
+            },
+            { trucks, drivers },
+          );
+        }
+        return prev.map((t) => (t.id === id ? { ...t, ...patch } : t));
+      });
     },
-    [apiLive],
+    [apiLive, trucks, drivers],
   );
 
   const replaceTrip = useCallback((trip: Trip) => {

@@ -16,6 +16,7 @@ import {
   assignEnCursoOnCreate,
   swapSystemStatus,
   getClosedStatusIds,
+  assertNoOpenTripConflict,
 } from "./tripStatusService";
 
 function escapeRegex(s: string): string {
@@ -261,6 +262,19 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     data.destino = destino;
   }
 
+  if (
+    !isClosed &&
+    (patch.truck_id !== undefined || patch.driver_id !== undefined)
+  ) {
+    const truckId = String(patch.truck_id ?? trip.truck_id);
+    const driverId = String(patch.driver_id ?? trip.driver_id);
+    await assertNoOpenTripConflict(tenantId, {
+      truck_id: truckId,
+      driver_id: driverId,
+      excludeTripId: id,
+    });
+  }
+
   await trip.update(data as never);
 
   if (!isClosed && paradasPatch) {
@@ -321,6 +335,11 @@ export async function createTrip(
   const { origen, destino } = deriveOrigenDestino(paradas);
 
   return sequelize.transaction(async (t) => {
+    await assertNoOpenTripConflict(
+      tenantId,
+      { truck_id: data.truck_id, driver_id: data.driver_id },
+      t,
+    );
     const folio = await nextFolio(tenantId, data.truck_id, t);
     const tripId = randomUUID();
     const created = await Trip.create(

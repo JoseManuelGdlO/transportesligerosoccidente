@@ -1,4 +1,4 @@
-import type { Trip, TripStatusRef, TripLifecycleSlug } from "@/types/tlo";
+import type { Driver, Trip, TripStatusRef, TripLifecycleSlug, Truck } from "@/types/tlo";
 
 export const SYSTEM_STATUS_EN_CURSO: TripStatusRef = {
   id: "sys-en-curso",
@@ -54,4 +54,70 @@ export function statusLabelForPdf(trip: Trip): string {
 
 export function findStatusIdBySlug(statuses: TripStatusRef[], slug: TripLifecycleSlug): string | undefined {
   return statuses.find((s) => s.slug === slug)?.id;
+}
+
+export function findOpenTripByTruck(
+  trips: Trip[],
+  truckId: string,
+  excludeTripId?: string,
+): Trip | undefined {
+  return trips.find(
+    (t) => t.truck_id === truckId && tripIsOpen(t) && t.id !== excludeTripId,
+  );
+}
+
+export function findOpenTripByDriver(
+  trips: Trip[],
+  driverId: string,
+  excludeTripId?: string,
+): Trip | undefined {
+  return trips.find(
+    (t) => t.driver_id === driverId && tripIsOpen(t) && t.id !== excludeTripId,
+  );
+}
+
+export type OpenTripConflictLabels = {
+  trucks?: Truck[];
+  drivers?: Driver[];
+};
+
+export function assertNoOpenTripConflictLocal(
+  trips: Trip[],
+  opts: { truck_id: string; driver_id: string; excludeTripId?: string },
+  labels?: OpenTripConflictLabels,
+): void {
+  const truckConflict = findOpenTripByTruck(trips, opts.truck_id, opts.excludeTripId);
+  if (truckConflict) {
+    const eco =
+      labels?.trucks?.find((t) => t.id === opts.truck_id)?.numero_economico?.trim() ||
+      opts.truck_id;
+    throw new Error(`La unidad ${eco} ya tiene el viaje ${truckConflict.folio} en curso`);
+  }
+  const driverConflict = findOpenTripByDriver(trips, opts.driver_id, opts.excludeTripId);
+  if (driverConflict) {
+    const nombre =
+      labels?.drivers?.find((d) => d.id === opts.driver_id)?.nombre?.trim() ||
+      opts.driver_id;
+    throw new Error(`El operador ${nombre} ya tiene el viaje ${driverConflict.folio} en curso`);
+  }
+}
+
+export function openTripByTruckId(trips: Trip[], excludeTripId?: string): Map<string, Trip> {
+  const map = new Map<string, Trip>();
+  for (const t of trips) {
+    if (tripIsOpen(t) && t.id !== excludeTripId && !map.has(t.truck_id)) {
+      map.set(t.truck_id, t);
+    }
+  }
+  return map;
+}
+
+export function openTripByDriverId(trips: Trip[], excludeTripId?: string): Map<string, Trip> {
+  const map = new Map<string, Trip>();
+  for (const t of trips) {
+    if (tripIsOpen(t) && t.id !== excludeTripId && !map.has(t.driver_id)) {
+      map.set(t.driver_id, t);
+    }
+  }
+  return map;
 }

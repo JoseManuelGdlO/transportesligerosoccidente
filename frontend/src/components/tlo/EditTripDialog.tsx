@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -14,6 +14,11 @@ import {
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, patchTrip } from "@/lib/tloApi";
 import type { RouteCatalog, Trip, TripType } from "@/types/tlo";
+import {
+  assertNoOpenTripConflictLocal,
+  openTripByDriverId,
+  openTripByTruckId,
+} from "@/lib/tripStatus";
 import { toast } from "sonner";
 
 type TripForm = {
@@ -62,7 +67,7 @@ type Props = {
 };
 
 export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
-  const { trucks, drivers, clients } = useTlo();
+  const { trucks, drivers, clients, trips } = useTlo();
   const apiMode = hasApiConfigured();
   const paradasLocked = trip.carta_porte?.estatus === "timbrada";
 
@@ -71,6 +76,9 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const [selectedRouteId, setSelectedRouteId] = useState<string>("__custom__");
   const [catalogRoutes, setCatalogRoutes] = useState<RouteCatalog[]>([]);
   const [saving, setSaving] = useState(false);
+
+  const openByTruck = useMemo(() => openTripByTruckId(trips, trip.id), [trips, trip.id]);
+  const openByDriver = useMemo(() => openTripByDriverId(trips, trip.id), [trips, trip.id]);
 
   const loadRoutes = useCallback(async (clientId: string) => {
     if (!apiMode || !clientId) {
@@ -141,6 +149,13 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
 
     setSaving(true);
     try {
+      if (!apiMode) {
+        assertNoOpenTripConflictLocal(
+          trips,
+          { truck_id: form.truck_id, driver_id: form.driver_id, excludeTripId: trip.id },
+          { trucks, drivers },
+        );
+      }
       if (apiMode) {
         const updated = await patchTrip(trip.id, patch);
         onSaved(updated);
@@ -191,11 +206,15 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
               <SelectContent>
                 {trucks
                   .filter((t) => t.estatus === "activo")
-                  .map((t) => (
-                    <SelectItem key={t.id} value={t.id}>
-                      {t.numero_economico} · {t.placas}
-                    </SelectItem>
-                  ))}
+                  .map((t) => {
+                    const busy = openByTruck.get(t.id);
+                    return (
+                      <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
+                        {t.numero_economico} · {t.placas}
+                        {busy ? ` (en curso — ${busy.folio})` : ""}
+                      </SelectItem>
+                    );
+                  })}
               </SelectContent>
             </Select>
           </div>
@@ -208,11 +227,15 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
               <SelectContent>
                 {drivers
                   .filter((d) => d.estatus === "activo")
-                  .map((d) => (
-                    <SelectItem key={d.id} value={d.id}>
-                      {d.nombre}
-                    </SelectItem>
-                  ))}
+                  .map((d) => {
+                    const busy = openByDriver.get(d.id);
+                    return (
+                      <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
+                        {d.nombre}
+                        {busy ? ` (en curso — ${busy.folio})` : ""}
+                      </SelectItem>
+                    );
+                  })}
               </SelectContent>
             </Select>
           </div>

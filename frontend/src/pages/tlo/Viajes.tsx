@@ -35,6 +35,9 @@ import {
   TRIP_STATUS_COLOR_OPTIONS,
   SYSTEM_STATUS_CERRADO,
   SYSTEM_STATUS_EN_CURSO,
+  assertNoOpenTripConflictLocal,
+  openTripByTruckId,
+  openTripByDriverId,
 } from "@/lib/tripStatus";
 import { useAuth } from "@/context/AuthContext";
 import { Switch } from "@/components/ui/switch";
@@ -256,6 +259,9 @@ export default function Viajes() {
   const [paradas, setParadas] = useState<ParadaDraft[]>(emptyParadas);
   const [form, setForm] = useState<NewTripForm>(defaultForm);
   const [kmLoading, setKmLoading] = useState(false);
+
+  const openByTruck = useMemo(() => openTripByTruckId(trips), [trips]);
+  const openByDriver = useMemo(() => openTripByDriverId(trips), [trips]);
 
   const loadTripStatuses = useCallback(async () => {
     if (apiMode) {
@@ -487,6 +493,11 @@ export default function Viajes() {
     }
     const stops = paradasToTripStops(validParadas);
     try {
+      assertNoOpenTripConflictLocal(
+        trips,
+        { truck_id: form.truck_id, driver_id: form.driver_id },
+        { trucks, drivers },
+      );
       const t = await createTrip({
         truck_id: form.truck_id,
         driver_id: form.driver_id,
@@ -505,8 +516,8 @@ export default function Viajes() {
       toast.success(`Viaje ${t.folio} abierto`);
       setOpen(false);
       nav(`/viajes/${t.id}`);
-    } catch {
-      toast.error("No se pudo crear el viaje");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo crear el viaje");
     }
   };
 
@@ -866,7 +877,7 @@ export default function Viajes() {
       </Card>
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Abrir nuevo viaje</DialogTitle>
           </DialogHeader>
@@ -880,11 +891,15 @@ export default function Viajes() {
                 <SelectContent>
                   {trucks
                     .filter((t) => t.estatus === "activo")
-                    .map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.numero_economico} · {t.placas}
-                      </SelectItem>
-                    ))}
+                    .map((t) => {
+                      const busy = openByTruck.get(t.id);
+                      return (
+                        <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
+                          {t.numero_economico} · {t.placas}
+                          {busy ? ` (en curso — ${busy.folio})` : ""}
+                        </SelectItem>
+                      );
+                    })}
                 </SelectContent>
               </Select>
             </div>
@@ -897,11 +912,15 @@ export default function Viajes() {
                 <SelectContent>
                   {drivers
                     .filter((d) => d.estatus === "activo")
-                    .map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.nombre}
-                      </SelectItem>
-                    ))}
+                    .map((d) => {
+                      const busy = openByDriver.get(d.id);
+                      return (
+                        <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
+                          {d.nombre}
+                          {busy ? ` (en curso — ${busy.folio})` : ""}
+                        </SelectItem>
+                      );
+                    })}
                 </SelectContent>
               </Select>
             </div>

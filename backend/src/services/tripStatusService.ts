@@ -1,7 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Op, type Transaction } from "sequelize";
-import { Trip, TripStatus, TripStatusAssignment, sequelize } from "../models";
+import { Trip, TripStatus, TripStatusAssignment, Truck, Driver, sequelize } from "../models";
 import type { Trip as TripModel } from "../models/Trip";
+import { logger } from "../utils/logger";
+
+export type OpenTripResourceField = "truck_id" | "driver_id";
 
 export type SystemStatusSlug = "en_curso" | "cerrado";
 
@@ -204,4 +207,97 @@ export async function getClosedStatusIds(tenantId: string): Promise<string[]> {
     attributes: ["id"],
   });
   return rows.map((r) => r.id);
+}
+
+export async function findOpenTripByResource(
+  tenantId: string,
+  field: OpenTripResourceField,
+  resourceId: string,
+  excludeTripId?: string,
+  t?: Transaction,
+): Promise<TripModel | null> {
+  const where: Record<string, unknown> = {
+    tenant_id: tenantId,
+    [field]: resourceId,
+  };
+  if (excludeTripId) {
+    where.id = { [Op.ne]: excludeTripId };
+  }
+  return Trip.findOne({
+    where,
+    include: [
+      {
+        ...STATUSES_INCLUDE,
+        where: { slug: "en_curso" },
+        required: true,
+      },
+    ],
+    transaction: t,
+  });
+}
+
+export async function assertNoOpenTripConflict(
+  tenantId: string,
+  opts: { truck_id: string; driver_id: string; excludeTripId?: string },
+  t?: Transaction,
+): Promise<void> {
+  const truckConflict = await findOpenTripByResource(
+    tenantId,
+    "truck_id",
+    opts.truck_id,
+    opts.excludeTripId,
+    t,
+  );
+  if (truckConflict) {
+    logger.warn(
+      JSON.stringify({
+        event: "trip_open_conflict",
+        tenant_id: tenantId,
+        resource: "truck_id",
+        resource_id: opts.truck_id,
+        conflicting_trip_id: truckConflict.id,
+        conflicting_folio: truckConflict.folio,
+        exclude_trip_id: opts.excludeTripId ?? null,
+      }),
+    );
+    const truck = await Truck.findOne({
+      where: { id: opts.truck_id, tenant_id: tenantId },
+      attributes: ["numero_economico"],
+      transaction: t,
+    });
+    const eco = truck?.numero_economico?.trim() || opts.truck_id;
+    const err = new Error(`La unidad ${eco} ya tiene el viaje ${truckConflict.folio} en curso`);
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+
+  const driverConflict = await findOpenTripByResource(
+    tenantId,
+    "driver_id",
+    opts.driver_id,
+    opts.excludeTripId,
+    t,
+  );
+  if (driverConflict) {
+    logger.warn(
+      JSON.stringify({
+        event: "trip_open_conflict",
+        tenant_id: tenantId,
+        resource: "driver_id",
+        resource_id: opts.driver_id,
+        conflicting_trip_id: driverConflict.id,
+        conflicting_folio: driverConflict.folio,
+        exclude_trip_id: opts.excludeTripId ?? null,
+      }),
+    );
+    const driver = await Driver.findOne({
+      where: { id: opts.driver_id, tenant_id: tenantId },
+      attributes: ["nombre"],
+      transaction: t,
+    });
+    const nombre = driver?.nombre?.trim() || opts.driver_id;
+    const err = new Error(`El operador ${nombre} ya tiene el viaje ${driverConflict.folio} en curso`);
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
 }
