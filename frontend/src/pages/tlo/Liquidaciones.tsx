@@ -25,7 +25,7 @@ const clampDate = (day: string, inicio: string, fin: string) => {
 };
 
 export default function Liquidaciones() {
-  const { drivers } = useTlo();
+  const { drivers, trucks } = useTlo();
   const { tenant, hasApiSession, permissions } = useAuth();
   const canClose = permissions.includes("liquidaciones.cerrar");
   const activeDrivers = drivers.filter((d) => d.estatus === "activo");
@@ -401,6 +401,7 @@ export default function Liquidaciones() {
                         inicio,
                         fin,
                         summary: summaryForPdf,
+                        trucks,
                         template: tenant?.pdf_config?.settlement,
                         logoDataUrl,
                       });

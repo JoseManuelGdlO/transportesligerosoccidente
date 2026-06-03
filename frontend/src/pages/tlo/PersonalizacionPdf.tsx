@@ -7,7 +7,12 @@ import { useAuth } from "@/context/AuthContext";
 import { apiFetch, apiBaseUrl, getStoredToken, hasApiConfigured, readJson } from "@/lib/api";
 import { previewSettlementPdfBlobUrl } from "@/lib/settlementPdf";
 import { previewTripPdfBlobUrl } from "@/lib/tripPdf";
-import { SAMPLE_DRIVER, SAMPLE_PERIOD, SAMPLE_SETTLEMENT_SUMMARY } from "@/lib/settlementPdfSample";
+import {
+  SAMPLE_DRIVER,
+  SAMPLE_PERIOD,
+  SAMPLE_SETTLEMENT_SUMMARY,
+  SAMPLE_TRUCKS,
+} from "@/lib/settlementPdfSample";
 import { SAMPLE_TRIP, SAMPLE_TRIP_CLIENT, SAMPLE_TRIP_DRIVER, SAMPLE_TRIP_TRUCK } from "@/lib/tripPdfSample";
 import {
   DEFAULT_PDF_TEMPLATES,
@@ -119,6 +124,7 @@ export default function PersonalizacionPdf() {
         inicio: SAMPLE_PERIOD.inicio,
         fin: SAMPLE_PERIOD.fin,
         summary: SAMPLE_SETTLEMENT_SUMMARY,
+        trucks: SAMPLE_TRUCKS,
         template: settlement.template,
         logoDataUrl: settlement.logoPreview,
       });
