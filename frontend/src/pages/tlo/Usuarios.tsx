@@ -14,7 +14,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, ShieldCheck, ShieldAlert, Lock, Mail, UserCog } from "lucide-react";
 import { fmtDate } from "@/lib/format";
-import type { SystemUser, UserRole, Permission } from "@/types/tlo";
+import { FULL_ADMIN_PERMISSIONS, type SystemUser, type UserRole, type Permission } from "@/types/tlo";
 import { toast } from "sonner";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 
@@ -33,6 +33,15 @@ const ALL_PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: st
     perms: [
       { id: "liquidaciones.ver", label: "Ver liquidaciones" },
       { id: "liquidaciones.cerrar", label: "Cerrar liquidaciones semanales" },
+    ],
+  },
+  {
+    label: "Combustibles",
+    perms: [
+      { id: "combustibles.ver", label: "Ver tickets y reportes de combustible" },
+      { id: "combustibles.crear", label: "Registrar y editar tickets de combustible" },
+      { id: "combustibles.importar", label: "Importar tickets desde Excel o sincronización" },
+      { id: "combustibles.eliminar", label: "Eliminar tickets de combustible" },
     ],
   },
   {
@@ -83,6 +92,15 @@ const PERMISSION_GROUPS = ALL_PERMISSION_GROUPS.filter(
     ? { ...g, perms: g.perms.filter((p) => p.id !== "fiscal.configurar") }
     : g,
 );
+
+const roleHasPerm = (role: UserRole, rolePerms: Permission[], perm: Permission) =>
+  role === "admin" ? FULL_ADMIN_PERMISSIONS.includes(perm) : rolePerms.includes(perm);
+
+const rolePermCount = (role: UserRole, rolePerms: Permission[]) =>
+  PERMISSION_GROUPS.reduce(
+    (n, g) => n + g.perms.filter((p) => roleHasPerm(role, rolePerms, p.id)).length,
+    0,
+  );
 
 const emptyUser: SystemUser = {
   id: "",
@@ -269,7 +287,7 @@ export default function Usuarios() {
                     </div>
                     <p className="text-sm text-muted-foreground mt-1">{r.descripcion}</p>
                   </div>
-                  <Badge variant="outline">{r.permisos.length} permisos</Badge>
+                  <Badge variant="outline">{rolePermCount(r.role, r.permisos)} permisos</Badge>
                 </div>
 
                 <div className="space-y-4 pt-2 border-t">
@@ -280,7 +298,7 @@ export default function Usuarios() {
                       </div>
                       <div className="space-y-2">
                         {g.perms.map(p => {
-                          const checked = r.permisos.includes(p.id);
+                          const checked = roleHasPerm(r.role, r.permisos, p.id);
                           return (
                             <label key={p.id} className="flex items-start gap-2.5 text-sm cursor-pointer">
                               <Checkbox
