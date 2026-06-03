@@ -618,22 +618,6 @@ const renderPageCounter: BlockRenderer = (state, props) => {
   state.y += 4;
 };
 
-const renderKpisSummary: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const { summary } = state.data;
-  const { doc, margin } = state;
-  ensureSpace(state, 16);
-  doc.setFont("helvetica", "normal");
-  doc.setFontSize(10);
-  doc.text(`Viajes: ${summary.trips.length}`, margin, state.y);
-  doc.text(`Ingresos: ${fmtMXN(summary.total_ingresos)}`, margin + 55, state.y);
-  doc.text(`Km totales: ${fmtNumber(summary.total_km)}`, margin + 115, state.y);
-  state.y += 6;
-  doc.text(`Comisiones: ${fmtMXN(summary.total_comisiones)}`, margin, state.y);
-  doc.text(`Neto a pagar: ${fmtMXN(summary.neto_pagar)}`, margin + 55, state.y);
-  state.y += 8;
-};
-
 const renderProfitabilityKpis: BlockRenderer = (state) => {
   if (state.data.kind !== "trip") return;
   const f = computeTrip(state.data.trip, state.data.driver ?? undefined);
@@ -912,14 +896,6 @@ const renderViaticosSummary: BlockRenderer = (state) => {
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
 
-const renderAdvancesTable: BlockRenderer = () => {
-  /* Consolidado en viaticos_summary */
-};
-
-const renderDiscountsTable: BlockRenderer = () => {
-  /* Consolidado en viaticos_summary */
-};
-
 const renderUbicacionesList: BlockRenderer = (state) => {
   if (state.data.kind !== "trip") return;
   const ubicaciones = state.data.trip.ubicaciones ?? [];
@@ -1036,7 +1012,6 @@ const BLOCK_RENDERERS: Record<BlockType, BlockRenderer> = {
   trip_total_box: renderTripTotalBox,
   generated_at: renderGeneratedAt,
   page_counter: renderPageCounter,
-  kpis_summary: renderKpisSummary,
   profitability_kpis: renderProfitabilityKpis,
   performance_kpis: renderPerformanceKpis,
   trips_table: renderTripsTable,
@@ -1044,8 +1019,6 @@ const BLOCK_RENDERERS: Record<BlockType, BlockRenderer> = {
   expenses_table: renderExpensesTable,
   commission_block: renderCommissionBlock,
   viaticos_summary: renderViaticosSummary,
-  advances_table: renderAdvancesTable,
-  discounts_table: renderDiscountsTable,
   ubicaciones_list: renderUbicacionesList,
   mercancias_list: renderMercanciasList,
   net_box: renderNetBox,

@@ -455,11 +455,8 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplateJson = {
       { id: "settlement_meta", enabled: true },
     ],
     body: [
-      { id: "kpis_summary", enabled: true },
       { id: "trips_table", enabled: true },
       { id: "viaticos_summary", enabled: true },
-      { id: "advances_table", enabled: true },
-      { id: "discounts_table", enabled: true },
       { id: "net_box", enabled: true },
     ],
     footer: [

@@ -16,7 +16,6 @@ export type BlockType =
   | "trip_total_box"
   | "generated_at"
   | "page_counter"
-  | "kpis_summary"
   | "profitability_kpis"
   | "performance_kpis"
   | "trips_table"
@@ -24,8 +23,6 @@ export type BlockType =
   | "expenses_table"
   | "commission_block"
   | "viaticos_summary"
-  | "advances_table"
-  | "discounts_table"
   | "ubicaciones_list"
   | "mercancias_list"
   | "net_box"
@@ -234,12 +231,6 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     defaultProps: { align: "right" },
     propSchema: COMMON_PROPS,
   },
-  kpis_summary: {
-    label: "KPIs resumen",
-    description: "Viajes, ingresos, km, comisiones, neto (duplica el pie de la tabla de viajes)",
-    zones: ["body"],
-    kinds: ["settlement"],
-  },
   profitability_kpis: {
     label: "KPIs de rentabilidad",
     description: "Ingreso, diesel, gastos, comisión, utilidad, margen",
@@ -277,18 +268,6 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   viaticos_summary: {
     label: "Viáticos, anticipos y descuentos",
     description: "Resumen de viáticos, detalle de anticipos/descuentos y totales del periodo",
-    zones: ["body"],
-    kinds: ["settlement"],
-  },
-  advances_table: {
-    label: "Anticipos pendientes",
-    description: "Obsoleto: incluido en «Viáticos, anticipos y descuentos»",
-    zones: ["body"],
-    kinds: ["settlement"],
-  },
-  discounts_table: {
-    label: "Descuentos pendientes",
-    description: "Obsoleto: incluido en «Viáticos, anticipos y descuentos»",
     zones: ["body"],
     kinds: ["settlement"],
   },
@@ -387,11 +366,8 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
       { id: "settlement_meta", enabled: true },
     ],
     body: [
-      { id: "kpis_summary", enabled: false },
       { id: "trips_table", enabled: true },
       { id: "viaticos_summary", enabled: true },
-      { id: "advances_table", enabled: false },
-      { id: "discounts_table", enabled: false },
       { id: "net_box", enabled: true },
     ],
     footer: [
