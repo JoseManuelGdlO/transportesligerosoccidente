@@ -197,12 +197,14 @@ export function tripToJson(t: Trip): Record<string, unknown> {
   const cartaPorte = (t as Trip & { cartaPorte?: CartaPorte | null }).cartaPorte;
   const statusesRaw = (t as Trip & { statuses?: TripStatus[] }).statuses ?? [];
   const statuses = statusesRaw.map((row) => tripStatusToJson(row));
+  const client = (t as Trip & { Client?: Client }).Client;
   return {
     id: String(t.id),
     folio: t.folio,
     truck_id: String(t.truck_id),
     driver_id: String(t.driver_id),
     client_id: String(t.client_id),
+    client_nombre: client?.razon_social ?? undefined,
     route_id: t.route_id ?? undefined,
     origen: t.origen,
     destino: t.destino,

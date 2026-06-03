@@ -185,7 +185,7 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   },
   settlement_meta: {
     label: "Datos de liquidación",
-    description: "Operador y periodo",
+    description: "Operador y unidad",
     zones: ["header", "body"],
     kinds: ["settlement"],
   },
@@ -236,7 +236,7 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   },
   kpis_summary: {
     label: "KPIs resumen",
-    description: "Viajes, ingresos, km, comisiones, neto",
+    description: "Viajes, ingresos, km, comisiones, neto (duplica el pie de la tabla de viajes)",
     zones: ["body"],
     kinds: ["settlement"],
   },
@@ -254,6 +254,7 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   },
   trips_table: {
     label: "Tabla de viajes",
+    description: "Viajes del periodo (viajes, ingresos, km, comisiones, neto)",
     zones: ["body"],
     kinds: ["settlement"],
   },
@@ -274,17 +275,20 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     kinds: ["trip"],
   },
   viaticos_summary: {
-    label: "Resumen de viáticos",
+    label: "Viáticos, anticipos y descuentos",
+    description: "Resumen de viáticos, detalle de anticipos/descuentos y totales del periodo",
     zones: ["body"],
     kinds: ["settlement"],
   },
   advances_table: {
     label: "Anticipos pendientes",
+    description: "Obsoleto: incluido en «Viáticos, anticipos y descuentos»",
     zones: ["body"],
     kinds: ["settlement"],
   },
   discounts_table: {
     label: "Descuentos pendientes",
+    description: "Obsoleto: incluido en «Viáticos, anticipos y descuentos»",
     zones: ["body"],
     kinds: ["settlement"],
   },
@@ -383,11 +387,11 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
       { id: "settlement_meta", enabled: true },
     ],
     body: [
-      { id: "kpis_summary", enabled: true },
+      { id: "kpis_summary", enabled: false },
       { id: "trips_table", enabled: true },
       { id: "viaticos_summary", enabled: true },
-      { id: "advances_table", enabled: true },
-      { id: "discounts_table", enabled: true },
+      { id: "advances_table", enabled: false },
+      { id: "discounts_table", enabled: false },
       { id: "net_box", enabled: true },
     ],
     footer: [

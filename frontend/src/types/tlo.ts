@@ -461,6 +461,7 @@ export interface Trip {
   truck_id: string;
   driver_id: string;
   client_id: string;
+  client_nombre?: string;
   origen: string;
   destino: string;
   route_id?: string;

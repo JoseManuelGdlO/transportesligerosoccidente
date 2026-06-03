@@ -83,7 +83,7 @@ export function normalizeRoute(raw: Record<string, unknown>): import("@/types/tl
     tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : raw.tipo_viaje === "local" ? "local" : undefined,
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
     paradas,
-    ruta_resumen: String(raw.ruta_resumen ?? paradas.map((p) => p.etiqueta).join(" → ")),
+    ruta_resumen: String(raw.ruta_resumen ?? paradas.map((p) => p.etiqueta).join(" -> ")),
   };
 }
 
@@ -187,6 +187,7 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     truck_id: String(raw.truck_id ?? ""),
     driver_id: String(raw.driver_id ?? ""),
     client_id: String(raw.client_id ?? ""),
+    client_nombre: raw.client_nombre != null ? String(raw.client_nombre) : undefined,
     route_id: raw.route_id != null ? String(raw.route_id) : undefined,
     origen: String(raw.origen ?? ""),
     destino: String(raw.destino ?? ""),

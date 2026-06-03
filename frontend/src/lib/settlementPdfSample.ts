@@ -1,6 +1,22 @@
-import type { Driver, Trip } from "@/types/tlo";
+import type { Driver, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
+import { formatSettlementUnitLabel } from "@/lib/settlementPdf";
 import { SYSTEM_STATUS_CERRADO } from "@/lib/tripStatus";
+
+/** Unidad de ejemplo (id alineado con `truck_id` de los viajes de muestra). */
+export const SAMPLE_TRUCK: Truck = {
+  id: "tr1",
+  numero_economico: "T-101",
+  placas: "JAL-4521-A",
+  marca: "Kenworth",
+  modelo: "T680",
+  anio: 2021,
+  rendimiento_esperado: 3.2,
+  costo_km_ref: 18,
+  estatus: "activo",
+};
+
+export const SAMPLE_TRUCKS: Truck[] = [SAMPLE_TRUCK];
 
 export const SAMPLE_DRIVER: Driver = {
   id: "sample-driver",
@@ -88,3 +104,8 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
 };
 
 export const SAMPLE_PERIOD = { inicio: "2025-05-12", fin: "2025-05-18" };
+
+export const SAMPLE_UNIT_LABEL = formatSettlementUnitLabel(
+  SAMPLE_SETTLEMENT_SUMMARY.trips,
+  SAMPLE_TRUCKS,
+);

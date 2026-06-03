@@ -1,4 +1,4 @@
-import type { Driver } from "@/types/tlo";
+import type { Driver, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
 import { apiBaseUrl, getStoredToken } from "@/lib/api";
 import {
@@ -40,11 +40,20 @@ export interface SettlementPdfOpts {
   summary: SettlementSummary;
   template?: PdfTemplate | null;
   logoDataUrl?: string | null;
+  /** Si no se envía y hay `trucks`, se calcula desde los viajes del summary. */
+  unitLabel?: string;
+  trucks?: Truck[];
 }
 
 function resolveTemplate(template?: PdfTemplate | null): PdfTemplate {
   if (!template) return DEFAULT_TEMPLATE_SETTLEMENT;
   return template;
+}
+
+function resolveUnitLabel(opts: SettlementPdfOpts): string | undefined {
+  if (opts.unitLabel != null && opts.unitLabel !== "") return opts.unitLabel;
+  if (opts.trucks?.length) return formatSettlementUnitLabel(opts.summary.trips, opts.trucks);
+  return undefined;
 }
 
 export function buildSettlementPdf(opts: SettlementPdfOpts) {
@@ -58,6 +67,7 @@ export function buildSettlementPdf(opts: SettlementPdfOpts) {
       inicio: opts.inicio,
       fin: opts.fin,
       summary: opts.summary,
+      unitLabel: resolveUnitLabel(opts),
     },
   });
 }
@@ -72,4 +82,21 @@ export async function downloadSettlementPdf(opts: SettlementPdfOpts): Promise<vo
   const doc = buildSettlementPdf(opts);
   const name = safeFileSegment(opts.driver.nombre);
   doc.save(`liquidacion_${name}_${opts.inicio}_${opts.fin}.pdf`);
+}
+
+/** Etiqueta de unidad(es) para el PDF de liquidación a partir de viajes y catálogo. */
+export function formatSettlementUnitLabel(trips: Trip[], trucks: Truck[]): string {
+  const ids = [...new Set(trips.map((t) => t.truck_id).filter(Boolean))];
+  if (ids.length === 0) return "—";
+
+  const labels = ids.map((id) => {
+    const t = trucks.find((x) => x.id === id);
+    if (!t) return "—";
+    const eco = t.numero_economico?.trim();
+    const placas = t.placas?.trim();
+    if (eco && placas) return `${eco} · ${placas}`;
+    return eco || placas || "—";
+  });
+
+  return [...new Set(labels)].join(" -- ");
 }

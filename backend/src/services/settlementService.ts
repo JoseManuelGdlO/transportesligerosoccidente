@@ -55,7 +55,7 @@ export async function settlementSummary(
   const fin = new Date(`${finStr}T23:59:59`);
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
-    include: [{ association: "fuel" }, { association: "expenses" }],
+    include: [{ association: "fuel" }, { association: "expenses" }, { association: "Client", attributes: ["id", "razon_social"] }],
   });
   const { advances, discounts, total_anticipos, total_descuentos } =
     await pendingAdvancesAndDiscounts(tenantId, driverId, inicioStr, finStr);

@@ -1,5 +1,5 @@
 import { jsPDF } from "jspdf";
-import { autoTable } from "jspdf-autotable";
+import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
 import { computeTrip } from "@/lib/calc";
@@ -19,6 +19,31 @@ import {
 
 type DocWithAutoTable = jsPDF & { lastAutoTable?: { finalY: number } };
 
+/** Helvetica (WinAnsi) no soporta →, —, etc.; un solo carácter rompe el kerning de toda la celda. */
+function pdfSafeText(text: string): string {
+  return text
+    .replace(/\u2192/g, " > ")
+    .replace(/\u2014/g, "-")
+    .replace(/\u2013/g, "-")
+    .replace(/\u2212/g, "-")
+    .replace(/\u00B7/g, " - ")
+    .replace(/\u2022/g, "-")
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/\u00A0/g, " ");
+}
+
+function pdfAutoTable(doc: jsPDF, options: UserOptions): void {
+  const userDidParseCell = options.didParseCell;
+  autoTable(doc, {
+    ...options,
+    didParseCell: (hookData) => {
+      hookData.cell.text = hookData.cell.text.map((line) => pdfSafeText(String(line)));
+      userDidParseCell?.(hookData);
+    },
+  });
+}
+
 export function hexToRgb(hex: string): [number, number, number] {
   const h = hex.replace("#", "");
   const n = parseInt(h, 16);
@@ -33,6 +58,7 @@ export interface SettlementRenderData {
   inicio: string;
   fin: string;
   summary: SettlementSummary;
+  unitLabel?: string;
 }
 
 export interface TripRenderData {
@@ -85,6 +111,29 @@ function fmtDateShort(iso?: string): string {
   return `${dd}/${mm}/${yyyy}`;
 }
 
+function fmtDatePdf(iso?: string): string {
+  if (!iso) return "-";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "-";
+  const dd = String(d.getDate()).padStart(2, "0");
+  const mm = String(d.getMonth() + 1).padStart(2, "0");
+  const yy = String(d.getFullYear()).slice(-2);
+  return `${dd}/${mm}/${yy}`;
+}
+
+function sortSettlementTrips(trips: Trip[]): Trip[] {
+  return [...trips].sort((a, b) => {
+    const ta = Date.parse(a.fecha_salida);
+    const tb = Date.parse(b.fecha_salida);
+    if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta - tb;
+    return a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" });
+  });
+}
+
+function tripClientLabel(t: Trip): string {
+  return t.client_nombre?.trim() || "-";
+}
+
 function setHeaderColors(state: RenderState): {
   fill: [number, number, number];
   text: [number, number, number];
@@ -105,7 +154,7 @@ function textBlock(state: RenderState, lines: string[], opts?: { bold?: boolean;
   const x = align === "right" ? pageW - margin : align === "center" ? pageW / 2 : margin;
   for (const line of lines) {
     ensureSpace(state, size * 0.45 + 2);
-    doc.text(line, x, state.y, { align });
+    doc.text(pdfSafeText(line), x, state.y, { align });
     state.y += size * 0.45 + 1.5;
   }
   if (opts?.gray) doc.setTextColor(0, 0, 0);
@@ -167,12 +216,12 @@ const renderTenantName: BlockRenderer = (state, props) => {
 
 const renderSettlementMeta: BlockRenderer = (state, props) => {
   if (state.data.kind !== "settlement") return;
-  const { driver, inicio, fin } = state.data;
+  const { driver, unitLabel } = state.data;
   textBlock(
     state,
     [
       `Operador: ${driver.nombre}`,
-      `Periodo: ${fmtDate(`${inicio}T12:00:00`)} — ${fmtDate(`${fin}T12:00:00`)}`,
+      `Unidad: ${unitLabel ?? "-"}`,
     ],
     { align: props.align },
   );
@@ -198,7 +247,7 @@ const renderTripMeta: BlockRenderer = (state, props) => {
     `Camión: ${truck ? `${truck.marca} ${truck.modelo} (${truck.placas})` : "—"}`,
     `Salida: ${trip.fecha_salida ? fmtDate(trip.fecha_salida) : "—"}` +
       (trip.fecha_llegada ? ` · Llegada: ${fmtDate(trip.fecha_llegada)}` : ""),
-    `Km: ${fmtNumber(trip.km_inicial)} → ${trip.km_final != null ? fmtNumber(trip.km_final) : "—"}`,
+    `Km: ${fmtNumber(trip.km_inicial)} > ${trip.km_final != null ? fmtNumber(trip.km_final) : "—"}`,
     `Factura: ${trip.num_factura?.trim() || "—"}`,
     `Viáticos entregados: ${fmtMXN(trip.viaticos_entregados)}`,
   ];
@@ -360,8 +409,9 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
     doc.text(`${k} :`, col1X + padX, y1);
     doc.setFont("helvetica", "normal");
     doc.setTextColor(20, 20, 20);
-    const vw = doc.splitTextToSize(v, colWidth - padX - 32) as string[];
-    doc.text(vw[0] ?? v, col1X + colWidth - padX, y1, { align: "right" });
+    const safeV = pdfSafeText(v);
+    const vw = doc.splitTextToSize(safeV, colWidth - padX - 32) as string[];
+    doc.text(vw[0] ?? safeV, col1X + colWidth - padX, y1, { align: "right" });
     y1 += rowH;
   }
 
@@ -377,7 +427,7 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
     doc.text(`${k} :`, col2X + padX, y2);
     doc.setFont("helvetica", bold ? "bold" : "normal");
     doc.setTextColor(20, 20, 20);
-    doc.text(v, col2X + colWidth - padX, y2, { align: "right" });
+    doc.text(pdfSafeText(v), col2X + colWidth - padX, y2, { align: "right" });
     y2 += rowH;
   }
 
@@ -472,7 +522,7 @@ const renderProvidersBreakdownTable: BlockRenderer = (state) => {
     doc.setTextColor(0, 0, 0);
     state.y += 6;
 
-    autoTable(doc, {
+    pdfAutoTable(doc, {
       startY: state.y,
       head: [["Artículo", "Fecha", "Cantidad", "Importe", "Folio", "Detalle"]],
       body: g.rows.map((r) => [
@@ -630,35 +680,53 @@ const renderTripsTable: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary, driver } = state.data;
   const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Ruta", "Km", "Ingreso", "Comisión"]];
-  const body: string[][] = summary.trips.map((t: Trip) => {
+  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Km", "Ingreso", "Comisión"]];
+  const sortedTrips = sortSettlementTrips(summary.trips);
+  const body: string[][] = sortedTrips.map((t: Trip) => {
     const f = computeTrip(t, driver);
     return [
       String(t.folio),
-      t.num_factura?.trim() || "—",
-      fmtDate(t.fecha_salida),
+      t.num_factura?.trim() || "-",
+      fmtDatePdf(t.fecha_salida),
+      tripClientLabel(t),
       formatTripRoute(t),
       fmtNumber(f.km_recorridos),
       fmtMXN(f.ingreso),
       fmtMXN(f.comision),
     ];
   });
+  const footRight = { halign: "right" as const };
   ensureSpace(state, 20);
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
     head,
-    body: body.length > 0 ? body : [["—", "—", "—", "Sin viajes en el periodo", "", "", ""]],
+    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
+    foot: [
+      [
+        { content: `Total:`,colSpan: 2, styles: { halign: "left" } },
+        { content: `${summary.trips.length} Viajes`, colSpan: 3 },
+        { content: fmtNumber(summary.total_km), styles: { ...footRight, fontStyle: "bold" } },
+        { content: fmtMXN(summary.total_ingresos), styles: { ...footRight, fontStyle: "bold" } },
+        { content: fmtMXN(summary.total_comisiones), styles: footRight },
+      ],
+      [
+        { content: "Neto a pagar", colSpan: 7, styles: { halign: "left", fontStyle: "bold" } },
+        { content: fmtMXN(summary.neto_pagar), styles: { ...footRight, fontStyle: "bold" } },
+      ],
+    ],
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
+    footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
     margin: { left: state.margin, right: state.margin },
     columnStyles: {
-      0: { cellWidth: 20 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 22 },
-      3: { cellWidth: 48 },
-      4: { halign: "right", cellWidth: 16 },
-      5: { halign: "right", cellWidth: 26 },
-      6: { halign: "right", cellWidth: 26 },
+      0: { cellWidth: 18 },
+      1: { cellWidth: 20 },
+      2: { cellWidth: 16 },
+      3: { cellWidth: 24 },
+      4: { cellWidth: 34 },
+      5: { halign: "right", cellWidth: 14 },
+      6: { halign: "right", cellWidth: 22 },
+      7: { halign: "right", cellWidth: 22 },
     },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
@@ -682,7 +750,7 @@ const renderFuelTable: BlockRenderer = (state) => {
     state.y += 8;
     return;
   }
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
     head: [["Fecha", "Estación", "Tipo", "Litros", "$/L", "Total"]],
     body: fuel.map((f: FuelLoad) => [
@@ -723,7 +791,7 @@ const renderExpensesTable: BlockRenderer = (state) => {
     state.y += 8;
     return;
   }
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
     head: [["Fecha", "Categoría", "Descripción", "Comprobado", "Monto"]],
     body: expenses.map((e: Expense) => [
@@ -774,77 +842,82 @@ const renderCommissionBlock: BlockRenderer = (state) => {
 const renderViaticosSummary: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary } = state.data;
-  ensureSpace(state, 36);
-  state.doc.setFont("helvetica", "bold");
-  state.doc.setFontSize(11);
-  state.doc.text("Resumen de viáticos", state.margin, state.y);
-  state.y += 7;
-  state.doc.setFont("helvetica", "normal");
-  state.doc.setFontSize(10);
-  state.doc.text(`Entregados: ${fmtMXN(summary.viaticos_entregados)}`, state.margin, state.y);
-  state.y += 6;
-  state.doc.text(`Comprobados: ${fmtMXN(summary.viaticos_comprobados)}`, state.margin, state.y);
-  state.y += 6;
-  const saldoLabel = summary.saldo_viaticos >= 0 ? "A favor del operador" : "Saldo viáticos (no comprobado)";
-  state.doc.text(`${saldoLabel}: ${fmtMXN(Math.abs(summary.saldo_viaticos))}`, state.margin, state.y);
-  state.y += 6;
-  state.doc.text(
-    `Viáticos no comprobados (deducción): ${fmtMXN(Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados))}`,
-    state.margin,
-    state.y,
-  );
-  state.y += 6;
+  const colors = setHeaderColors(state);
+  const advances = summary.advances ?? [];
+  const discounts = summary.discounts ?? [];
+  const viaticosDeduccion = Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados);
+  const saldoLabel =
+    summary.saldo_viaticos >= 0 ? "A favor del operador" : "Saldo viáticos (no comprobado)";
+  const footRight = { halign: "right" as const };
+
+  const body: string[][] = [
+    ["Viáticos", "", "Entregados", fmtMXN(summary.viaticos_entregados), ""],
+    ["Viáticos", "", "Comprobados", fmtMXN(summary.viaticos_comprobados), ""],
+    ["Viáticos", "", saldoLabel, fmtMXN(Math.abs(summary.saldo_viaticos)), ""],
+    ["Viáticos", "", "No comprobados (deducción)", fmtMXN(viaticosDeduccion), ""],
+    ...advances.map((a) => [
+      "Anticipo",
+      fmtDatePdf(a.fecha),
+      a.descripcion,
+      fmtMXN(a.monto),
+      a.en_periodo === false ? "No" : "Sí",
+    ]),
+    ...discounts.map((d) => [
+      d.tipo,
+      fmtDatePdf(d.fecha),
+      d.descripcion,
+      fmtMXN(d.monto),
+      d.en_periodo === false ? "No" : "Sí",
+    ]),
+  ];
+
+  const foot: UserOptions["foot"] = [];
   if (summary.total_descuentos > 0) {
-    state.doc.text(`Descuentos (periodo): −${fmtMXN(summary.total_descuentos)}`, state.margin, state.y);
-    state.y += 6;
+    foot.push([
+      { content: "Descuentos (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: fmtMXN(summary.total_descuentos), styles: { ...footRight, fontStyle: "bold" } },
+      "",
+    ]);
   }
   if (summary.total_anticipos > 0) {
-    state.doc.text(`Anticipos (periodo): −${fmtMXN(summary.total_anticipos)}`, state.margin, state.y);
-    state.y += 6;
+    foot.push([
+      { content: "Anticipos (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: fmtMXN(summary.total_anticipos), styles: { ...footRight, fontStyle: "bold" } },
+      "",
+    ]);
   }
-  state.y += 2;
-};
 
-const renderAdvancesTable: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const advances = state.data.summary.advances ?? [];
-  if (advances.length === 0) return;
-  const colors = setHeaderColors(state);
-  ensureSpace(state, 20);
+  ensureSpace(state, 24);
   state.doc.setFont("helvetica", "bold");
   state.doc.setFontSize(11);
-  state.doc.text("Anticipos pendientes", state.margin, state.y);
+  state.doc.text("Viáticos, anticipos y descuentos", state.margin, state.y);
   state.y += 4;
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
-    head: [["Fecha", "Descripción", "Monto", "En periodo"]],
-    body: advances.map((a) => [fmtDate(a.fecha), a.descripcion, fmtMXN(a.monto), a.en_periodo === false ? "No" : "Sí"]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
+    head: [["Concepto", "Fecha", "Descripción", "Monto", "En periodo"]],
+    body,
+    foot: foot.length > 0 ? foot : undefined,
+    styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
+    footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
     margin: { left: state.margin, right: state.margin },
+    columnStyles: {
+      0: { cellWidth: 28 },
+      1: { cellWidth: 22 },
+      2: { cellWidth: 68 },
+      3: { halign: "right", cellWidth: 28 },
+      4: { cellWidth: 22 },
+    },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
 
-const renderDiscountsTable: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const discounts = state.data.summary.discounts ?? [];
-  if (discounts.length === 0) return;
-  const colors = setHeaderColors(state);
-  ensureSpace(state, 20);
-  state.doc.setFont("helvetica", "bold");
-  state.doc.setFontSize(11);
-  state.doc.text("Descuentos pendientes", state.margin, state.y);
-  state.y += 4;
-  autoTable(state.doc, {
-    startY: state.y,
-    head: [["Tipo", "Fecha", "Descripción", "Monto", "En periodo"]],
-    body: discounts.map((d) => [d.tipo, fmtDate(d.fecha), d.descripcion, fmtMXN(d.monto), d.en_periodo === false ? "No" : "Sí"]),
-    styles: { fontSize: 8, cellPadding: 1.5 },
-    headStyles: { fillColor: colors.fill, textColor: colors.text },
-    margin: { left: state.margin, right: state.margin },
-  });
-  state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
+const renderAdvancesTable: BlockRenderer = () => {
+  /* Consolidado en viaticos_summary */
+};
+
+const renderDiscountsTable: BlockRenderer = () => {
+  /* Consolidado en viaticos_summary */
 };
 
 const renderUbicacionesList: BlockRenderer = (state) => {
@@ -857,7 +930,7 @@ const renderUbicacionesList: BlockRenderer = (state) => {
   state.doc.setFontSize(11);
   state.doc.text("Ubicaciones (carta porte)", state.margin, state.y);
   state.y += 4;
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
     head: [["Tipo", "Nombre/RFC", "Municipio", "Estado", "Fecha"]],
     body: ubicaciones.map((u) => [
@@ -884,7 +957,7 @@ const renderMercanciasList: BlockRenderer = (state) => {
   state.doc.setFontSize(11);
   state.doc.text("Mercancías", state.margin, state.y);
   state.y += 4;
-  autoTable(state.doc, {
+  pdfAutoTable(state.doc, {
     startY: state.y,
     head: [["Descripción", "Cantidad", "Unidad", "Peso (kg)"]],
     body: mercancias.map((m) => [

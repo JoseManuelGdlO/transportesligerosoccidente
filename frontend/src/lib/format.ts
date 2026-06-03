@@ -40,9 +40,9 @@ export function formatTripRoute(trip: Pick<Trip, "ruta_resumen" | "paradas" | "o
     return [...trip.paradas]
       .sort((a, b) => a.orden - b.orden)
       .map((p) => p.etiqueta)
-      .join(" → ");
+      .join(" -> ");
   }
-  return `${trip.origen} → ${trip.destino}`;
+  return `${trip.origen} > ${trip.destino}`;
 }
 
 export const fmtDateTime = (iso?: string) => {
