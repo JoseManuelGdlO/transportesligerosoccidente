@@ -26,7 +26,7 @@ interface TloState {
   catalogLoading: boolean;
   catalogError: string | null;
   reloadCatalog: () => Promise<void>;
-  upsertTruck: (t: Truck) => void;
+  upsertTruck: (t: Truck) => Promise<void>;
   upsertDriver: (d: Driver) => void;
   upsertClient: (c: Client) => Promise<void>;
   upsertSystemUser: (u: SystemUser, password?: string) => Promise<void>;
@@ -133,41 +133,41 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   }, [user?.id, hasApiSession, reloadCatalog]);
 
   const upsertTruck = useCallback(
-    (t: Truck) => {
+    async (t: Truck) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const body = {
-              numero_economico: t.numero_economico,
-              placas: t.placas,
-              folio_tag: t.folio_tag || undefined,
-              marca: t.marca,
-              modelo: t.modelo,
-              anio: t.anio,
-              rendimiento_esperado: t.rendimiento_esperado,
-              costo_km_ref: t.costo_km_ref,
-              estatus: t.estatus,
-              config_vehicular: t.config_vehicular || undefined,
-              perm_sct: t.perm_sct || undefined,
-              num_permiso_sct: t.num_permiso_sct || undefined,
-              peso_bruto_vehicular: t.peso_bruto_vehicular || undefined,
-              aseguradora_resp_civil: t.aseguradora_resp_civil || undefined,
-              poliza_resp_civil: t.poliza_resp_civil || undefined,
-              vin: t.vin || undefined,
-              capacidad_carga_kg: t.capacidad_carga_kg || undefined,
-            };
-            if (t.id) {
-              const r = await apiFetch(`/trucks/${t.id}`, { method: "PATCH", body: JSON.stringify(body) });
-              await readJson(r);
-            } else {
-              const r = await apiFetch("/trucks", { method: "POST", body: JSON.stringify(body) });
-              await readJson(r);
-            }
-            await reloadCatalog();
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al guardar camión");
+        try {
+          const body = {
+            numero_economico: t.numero_economico,
+            placas: t.placas,
+            folio_tag: t.folio_tag || undefined,
+            marca: t.marca,
+            modelo: t.modelo,
+            anio: t.anio,
+            rendimiento_esperado: t.rendimiento_esperado,
+            costo_km_ref: t.costo_km_ref,
+            estatus: t.estatus,
+            config_vehicular: t.config_vehicular || undefined,
+            perm_sct: t.perm_sct || undefined,
+            num_permiso_sct: t.num_permiso_sct || undefined,
+            peso_bruto_vehicular: t.peso_bruto_vehicular || undefined,
+            aseguradora_resp_civil: t.aseguradora_resp_civil || undefined,
+            poliza_resp_civil: t.poliza_resp_civil || undefined,
+            vin: t.vin || undefined,
+            capacidad_carga_kg: t.capacidad_carga_kg || undefined,
+          };
+          if (t.id) {
+            const r = await apiFetch(`/trucks/${t.id}`, { method: "PATCH", body: JSON.stringify(body) });
+            await readJson(r);
+          } else {
+            const r = await apiFetch("/trucks", { method: "POST", body: JSON.stringify(body) });
+            await readJson(r);
           }
-        })();
+          await reloadCatalog();
+        } catch (e) {
+          const msg = e instanceof Error ? e.message : "Error al guardar camión";
+          setCatalogError(msg);
+          throw e;
+        }
         return;
       }
       setTrucks((prev) => {

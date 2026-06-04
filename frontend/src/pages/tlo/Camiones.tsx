@@ -5,6 +5,7 @@ import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { TruckFormFields } from "@/components/tlo/TruckFormFields";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -29,7 +30,13 @@ import { TruckStatusBadge } from "@/components/tlo/StatusBadge";
 import { DocumentManager } from "@/components/tlo/DocumentManager";
 import { DocumentVigenciaSummary } from "@/components/tlo/DocumentVigenciaSummary";
 import { fmtMXN, fmtNumber } from "@/lib/format";
-import type { Truck, TruckStatus } from "@/types/tlo";
+import type { Truck } from "@/types/tlo";
+import {
+  TRUCK_FORM_REQUIRED_TOAST,
+  hasFormErrors,
+  validateTruckForm,
+  type TruckFormErrors,
+} from "@/lib/validateTruckForm";
 import {
   slicePage,
   truckMatchesEstatusFilter,
@@ -62,6 +69,8 @@ export default function Camiones() {
   const [estatusFilter, setEstatusFilter] = useState<TruckEstatusFilter>("todos");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [fieldErrors, setFieldErrors] = useState<TruckFormErrors>({});
+  const [saving, setSaving] = useState(false);
 
   useEffect(() => {
     setPage(1);
@@ -81,22 +90,51 @@ export default function Camiones() {
     if (pageData.safePage !== page) setPage(pageData.safePage);
   }, [pageData.safePage, page]);
 
+  const clearTruckFieldError = (field: keyof TruckFormErrors) => {
+    setFieldErrors((prev) => {
+      const next = { ...prev };
+      delete next[field];
+      return next;
+    });
+  };
+
+  const handleSheetOpenChange = (next: boolean) => {
+    setSheetOpen(next);
+    if (!next) setFieldErrors({});
+  };
+
   const openNew = () => {
+    setFieldErrors({});
     setForm({ ...empty, id: "" });
     setTab("datos");
     setSheetOpen(true);
   };
 
   const openEdit = (t: Truck) => {
+    setFieldErrors({});
     setForm(t);
     setTab("datos");
     setSheetOpen(true);
   };
 
-  const save = () => {
-    upsertTruck(form);
-    toast.success(form.id ? "Camión actualizado" : "Camión registrado");
-    setSheetOpen(false);
+  const save = async () => {
+    const errors = validateTruckForm(form);
+    setFieldErrors(errors);
+    if (hasFormErrors(errors)) {
+      toast.error(TRUCK_FORM_REQUIRED_TOAST);
+      return;
+    }
+    setSaving(true);
+    try {
+      await upsertTruck(form);
+      toast.success(form.id ? "Camión actualizado" : "Camión registrado");
+      setSheetOpen(false);
+      setFieldErrors({});
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al guardar camión");
+    } finally {
+      setSaving(false);
+    }
   };
 
   useEffect(() => {
@@ -306,7 +344,7 @@ export default function Camiones() {
         </div>
       ) : null}
 
-      <Sheet open={sheetOpen} onOpenChange={setSheetOpen}>
+      <Sheet open={sheetOpen} onOpenChange={handleSheetOpenChange}>
         <SheetContent className="w-full sm:max-w-lg overflow-y-auto">
           <SheetHeader>
             <SheetTitle>{form.id ? "Editar camión" : "Nuevo camión"}</SheetTitle>
@@ -346,161 +384,19 @@ export default function Camiones() {
               </p>
             ) : null}
             <TabsContent value="datos" className="space-y-3 pt-4">
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>No. económico</Label>
-                  <Input
-                    value={form.numero_economico}
-                    onChange={(e) => setForm({ ...form, numero_economico: e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Placas</Label>
-                  <Input value={form.placas} onChange={(e) => setForm({ ...form, placas: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Folio TAG</Label>
-                  <Input
-                    value={form.folio_tag ?? ""}
-                    onChange={(e) => setForm({ ...form, folio_tag: e.target.value })}
-                    placeholder="ID proveedor combustible"
-                  />
-                </div>
-                <div>
-                  <Label>VIN / No. serie</Label>
-                  <Input
-                    value={form.vin ?? ""}
-                    onChange={(e) => setForm({ ...form, vin: e.target.value.toUpperCase() })}
-                    maxLength={17}
-                  />
-                </div>
-                <div>
-                  <Label>Capacidad de carga (kg)</Label>
-                  <Input
-                    type="number"
-                    value={form.capacidad_carga_kg ?? ""}
-                    onChange={(e) =>
-                      setForm({
-                        ...form,
-                        capacidad_carga_kg: e.target.value === "" ? undefined : +e.target.value,
-                      })
-                    }
-                  />
-                </div>
-                <div>
-                  <Label>Marca</Label>
-                  <Input value={form.marca} onChange={(e) => setForm({ ...form, marca: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Modelo</Label>
-                  <Input value={form.modelo} onChange={(e) => setForm({ ...form, modelo: e.target.value })} />
-                </div>
-                <div>
-                  <Label>Año</Label>
-                  <Input
-                    type="number"
-                    value={form.anio}
-                    onChange={(e) => setForm({ ...form, anio: +e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Rendimiento (km/l)</Label>
-                  <Input
-                    type="number"
-                    step="0.1"
-                    value={form.rendimiento_esperado}
-                    onChange={(e) => setForm({ ...form, rendimiento_esperado: +e.target.value })}
-                  />
-                </div>
-                <div>
-                  <Label>Costo/km referencia</Label>
-                  <Input
-                    type="number"
-                    step="0.5"
-                    value={form.costo_km_ref}
-                    onChange={(e) => setForm({ ...form, costo_km_ref: +e.target.value })}
-                  />
-                </div>
-              </div>
-              <div className="rounded-md border border-dashed p-3 space-y-3">
-                <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">Carta Porte SAT</p>
-                <div className="grid grid-cols-2 gap-3">
-                  <div>
-                    <Label>Permiso SCT</Label>
-                    <Input
-                      value={form.perm_sct ?? ""}
-                      onChange={(e) => setForm({ ...form, perm_sct: e.target.value })}
-                      placeholder="TPAF01"
-                    />
-                  </div>
-                  <div>
-                    <Label>No. permiso SCT</Label>
-                    <Input
-                      value={form.num_permiso_sct ?? ""}
-                      onChange={(e) => setForm({ ...form, num_permiso_sct: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Config. vehicular</Label>
-                    <Input
-                      value={form.config_vehicular ?? ""}
-                      onChange={(e) => setForm({ ...form, config_vehicular: e.target.value })}
-                      placeholder="C2"
-                    />
-                  </div>
-                  <div>
-                    <Label>Peso bruto vehicular (kg)</Label>
-                    <Input
-                      type="number"
-                      value={form.peso_bruto_vehicular ?? ""}
-                      onChange={(e) =>
-                        setForm({
-                          ...form,
-                          peso_bruto_vehicular: e.target.value === "" ? undefined : +e.target.value,
-                        })
-                      }
-                    />
-                  </div>
-                  <div>
-                    <Label>Aseguradora RC</Label>
-                    <Input
-                      value={form.aseguradora_resp_civil ?? ""}
-                      onChange={(e) => setForm({ ...form, aseguradora_resp_civil: e.target.value })}
-                    />
-                  </div>
-                  <div>
-                    <Label>Póliza RC</Label>
-                    <Input
-                      value={form.poliza_resp_civil ?? ""}
-                      onChange={(e) => setForm({ ...form, poliza_resp_civil: e.target.value })}
-                    />
-                  </div>
-                </div>
-              </div>
+              <TruckFormFields
+                form={form}
+                onChange={(patch) => setForm({ ...form, ...patch })}
+                fieldErrors={fieldErrors}
+                onClearError={clearTruckFieldError}
+              />
               {form.id ? <DocumentVigenciaSummary kind="truck" entityId={form.id} /> : null}
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <Label>Estatus</Label>
-                  <Select
-                    value={form.estatus}
-                    onValueChange={(v: TruckStatus) => setForm({ ...form, estatus: v })}
-                  >
-                    <SelectTrigger>
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="activo">Activo</SelectItem>
-                      <SelectItem value="taller">En taller</SelectItem>
-                      <SelectItem value="baja">Baja</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-              </div>
               <Button
-                onClick={save}
+                onClick={() => void save()}
+                disabled={saving}
                 className="w-full bg-primary text-primary-foreground hover:bg-primary-glow"
               >
-                Guardar datos
+                {saving ? "Guardando…" : "Guardar datos"}
               </Button>
             </TabsContent>
             <TabsContent value="documentacion" className="pt-4">
