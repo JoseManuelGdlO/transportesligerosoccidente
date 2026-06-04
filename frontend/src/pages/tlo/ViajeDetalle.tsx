@@ -15,7 +15,6 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil } from "lucide-react";
 import type { Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
@@ -76,7 +75,6 @@ export default function ViajeDetalle() {
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
   const [closeOpen, setCloseOpen] = useState(false);
-  const [facturasOpen, setFacturasOpen] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [fuel, setFuel] = useState({
     litros: 0,
@@ -286,12 +284,7 @@ export default function ViajeDetalle() {
             }}
           >
             <FileText className="h-4 w-4 mr-2" /> PDF
-          </Button>{/*
-          {canFacturar && (
-            <Button variant="outline" onClick={() => setFacturasOpen(true)}>
-              <Receipt className="h-4 w-4 mr-2" /> Facturar
-            </Button>
-          )}*/}
+          </Button>
           {canEditTrip && (
             <Button variant="outline" onClick={() => setEditOpen(true)}>
               <Pencil className="h-4 w-4 mr-2" /> Editar
@@ -720,21 +713,6 @@ export default function ViajeDetalle() {
           <DialogFooter><Button variant="outline" onClick={() => setCloseOpen(false)}>Cancelar</Button><Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90"><Lock className="h-4 w-4 mr-2" />Cerrar viaje</Button></DialogFooter>
         </DialogContent>
       </Dialog>
-
-      <ModalFacturas
-        open={facturasOpen}
-        onOpenChange={setFacturasOpen}
-        clientId={trip.client_id}
-      />
-
-      {canEditTrip && (
-        <EditTripDialog
-          open={editOpen}
-          onOpenChange={setEditOpen}
-          trip={trip}
-          onSaved={onTripSaved}
-        />
-      )}
     </div>
   );
 }
