@@ -20,6 +20,7 @@ import {
   openTripByTruckId,
   tripIsClosed,
 } from "@/lib/tripStatus";
+import { isoToDatetimeLocalValue } from "@/lib/format";
 import { toast } from "sonner";
 
 type TripForm = {
@@ -36,11 +37,6 @@ type TripForm = {
   fecha_llegada: string;
 };
 
-function toDatetimeLocal(iso?: string): string {
-  if (!iso) return new Date().toISOString().slice(0, 16);
-  return iso.length >= 16 ? iso.slice(0, 16) : new Date(iso).toISOString().slice(0, 16);
-}
-
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
 
 function tripToForm(trip: Trip): TripForm {
@@ -49,13 +45,13 @@ function tripToForm(trip: Trip): TripForm {
     driver_id: trip.driver_id,
     client_id: trip.client_id,
     num_factura: trip.num_factura ?? "",
-    fecha_salida: toDatetimeLocal(trip.fecha_salida),
+    fecha_salida: isoToDatetimeLocalValue(trip.fecha_salida),
     km_inicial: trip.km_inicial,
     tarifa: trip.tarifa,
     viaticos_entregados: trip.viaticos_entregados,
     tipo_viaje: trip.tipo_viaje ?? "local",
     km_final: trip.km_final ?? trip.km_inicial,
-    fecha_llegada: toDatetimeLocal(trip.fecha_llegada),
+    fecha_llegada: isoToDatetimeLocalValue(trip.fecha_llegada),
   };
 }
 

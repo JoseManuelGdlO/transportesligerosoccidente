@@ -57,6 +57,15 @@ export const fmtDateTime = (iso?: string) => {
   });
 };
 
+/** Valor para `<input type="datetime-local">` en hora local del navegador. */
+export function isoToDatetimeLocalValue(iso?: string | null): string {
+  if (iso == null || String(iso).trim() === "") return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}`;
+}
+
 export const startOfWeek = (date: Date) => {
   const d = new Date(date);
   const day = d.getDay(); // 0 dom .. 6 sab
