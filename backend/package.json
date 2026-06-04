@@ -12,7 +12,8 @@
     "db:seed:undo": "sequelize-cli db:seed:undo:all",
     "job:fuel-sync": "tsx src/scripts/runFuelSync.ts",
     "lint": "eslint .",
-    "lint:fix": "eslint . --fix"
+    "lint:fix": "eslint . --fix",
+    "test": "tsx --test src/**/*.test.ts"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
