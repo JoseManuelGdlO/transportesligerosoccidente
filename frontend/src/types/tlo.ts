@@ -270,6 +270,8 @@ export interface FuelImportResult {
   creados: number;
   duplicados: number;
   errores: { fila: number; mensaje: string; datos?: Record<string, unknown> }[];
+  inicio?: string;
+  fin?: string;
 }
 
 export interface Truck {

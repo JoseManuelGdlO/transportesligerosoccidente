@@ -5,6 +5,8 @@ export function normalizeEconomicoExact(raw: string): string {
 
 /**
  * Clave flexible para cruce Tothem ↔ sistema (TLO04, TN04, T04 → "4"; T10 → "10").
+ * Si coexisten unidades con la misma clave (p. ej. TLO04 y TN04), el import debe fallar:
+ * corregir catálogo o cruzar por TAG RFID en el Excel.
  */
 export function economicoMatchKey(raw: string): string | null {
   const u = raw.trim().toUpperCase().replace(/\s+/g, "");

@@ -48,6 +48,12 @@ function monthRange(): { inicio: string; fin: string } {
   return { inicio: `${y}-${m}-01`, fin: `${y}-${m}-${String(last).padStart(2, "0")}` };
 }
 
+function formatIsoDateEs(iso: string): string {
+  const [y, m, d] = iso.split("-");
+  if (!y || !m || !d) return iso;
+  return `${d}/${m}/${y}`;
+}
+
 const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> => ({
   truck_id: "",
   fecha: new Date().toISOString().slice(0, 10),
@@ -131,21 +137,26 @@ export default function Combustibles() {
 
   const activeTrucks = useMemo(() => trucks.filter((t) => t.estatus !== "baja"), [trucks]);
 
-  const loadTickets = useCallback(async () => {
-    setLoadingTickets(true);
-    try {
-      const rows = await fetchFuelTickets({
-        truck_id: truckFilter === "all" ? undefined : truckFilter,
-        inicio,
-        fin,
-      });
-      setTickets(rows);
-    } catch {
-      toast.error("No se pudieron cargar los tickets");
-    } finally {
-      setLoadingTickets(false);
-    }
-  }, [truckFilter, inicio, fin]);
+  const loadTickets = useCallback(
+    async (range?: { inicio: string; fin: string }) => {
+      const from = range?.inicio ?? inicio;
+      const to = range?.fin ?? fin;
+      setLoadingTickets(true);
+      try {
+        const rows = await fetchFuelTickets({
+          truck_id: truckFilter === "all" ? undefined : truckFilter,
+          inicio: from,
+          fin: to,
+        });
+        setTickets(rows);
+      } catch {
+        toast.error("No se pudieron cargar los tickets");
+      } finally {
+        setLoadingTickets(false);
+      }
+    },
+    [truckFilter, inicio, fin],
+  );
 
   useEffect(() => {
     void loadTickets();
@@ -227,8 +238,8 @@ export default function Combustibles() {
       await loadTickets();
       void loadSummary();
       void loadProration();
-    } catch {
-      toast.error("No se pudo guardar el ticket");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar el ticket");
     }
   };
 
@@ -275,12 +286,38 @@ export default function Combustibles() {
     try {
       const result = await importFuelTickets(file);
       setImportResult(result);
-      toast.success(`Importación: ${result.creados} creados, ${result.duplicados} duplicados`);
-      await loadTickets();
-      void loadSummary();
-      void loadProration();
-    } catch {
-      toast.error("Error al importar archivo");
+
+      const catalogError = result.errores.find(
+        (e) => e.fila === 0 && e.mensaje.startsWith("Catálogo de camiones ambiguo"),
+      );
+      if (catalogError) {
+        toast.error(catalogError.mensaje);
+      } else if (result.creados > 0 || result.duplicados > 0) {
+        toast.success(`Importación: ${result.creados} creados, ${result.duplicados} duplicados`);
+      } else if (result.errores.length > 0) {
+        toast.warning("Importación sin registros nuevos; revisa los errores.");
+      }
+
+      const range =
+        result.inicio && result.fin ? { inicio: result.inicio, fin: result.fin } : undefined;
+      if (range) {
+        setInicio(range.inicio);
+        setFin(range.fin);
+        toast.info(
+          `Filtro ajustado al periodo del reporte (${formatIsoDateEs(range.inicio)} – ${formatIsoDateEs(range.fin)})`,
+        );
+      }
+
+      await loadTickets(range);
+      if (range) {
+        void fetchFuelSummary(range.inicio, range.fin).then((data) => setSummary(data.unidades));
+        void fetchFuelProration(range.inicio, range.fin).then(setProration);
+      } else {
+        void loadSummary();
+        void loadProration();
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al importar archivo");
     } finally {
       setImporting(false);
     }
@@ -723,14 +760,31 @@ export default function Combustibles() {
                 <p>
                   <strong>{importResult.creados}</strong> creados · <strong>{importResult.duplicados}</strong>{" "}
                   duplicados
+                  {importResult.inicio && importResult.fin && (
+                    <>
+                      {" "}
+                      · periodo {formatIsoDateEs(importResult.inicio)} – {formatIsoDateEs(importResult.fin)}
+                    </>
+                  )}
                 </p>
-                {importResult.errores.length > 0 && (
+                {importResult.errores.some((e) => e.fila === 0) && (
+                  <div className="rounded border border-destructive/50 bg-destructive/10 p-2 text-destructive text-xs">
+                    {importResult.errores
+                      .filter((e) => e.fila === 0)
+                      .map((err, i) => (
+                        <p key={i}>{err.mensaje}</p>
+                      ))}
+                  </div>
+                )}
+                {importResult.errores.some((e) => e.fila > 0) && (
                   <ul className="max-h-32 overflow-auto text-destructive text-xs list-disc pl-4">
-                    {importResult.errores.map((err, i) => (
-                      <li key={i}>
-                        Fila {err.fila}: {err.mensaje}
-                      </li>
-                    ))}
+                    {importResult.errores
+                      .filter((e) => e.fila > 0)
+                      .map((err, i) => (
+                        <li key={i}>
+                          Fila {err.fila}: {err.mensaje}
+                        </li>
+                      ))}
                   </ul>
                 )}
               </div>

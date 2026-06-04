@@ -7,6 +7,7 @@ import * as XLSX from "xlsx";
 import {
   HEADER_ALIASES,
   normHeader,
+  parseReportDateRangeFromSheet,
   sheetToFuelDataRows,
 } from "../services/fuelImportService";
 import { economicoMatchKey } from "../utils/economicoMatch";
@@ -41,12 +42,11 @@ function cellNum(row: Record<string, unknown>, col?: string) {
   return Number.isFinite(n) ? n : null;
 }
 
-const files = process.argv.slice(2).length
-  ? process.argv.slice(2)
-  : [
-      "c:/Users/Joczm/Downloads/Combustible TLO (1).xlsx",
-      "c:/Users/Joczm/Downloads/reporte_del_01_05_2026_al_19_05_2026.xlsx",
-    ];
+const files = process.argv.slice(2);
+if (files.length === 0) {
+  logger.info("Uso: npx tsx src/scripts/verifyFuelImport.ts <archivo.xlsx> [más archivos…]");
+  process.exit(1);
+}
 
 for (const f of files) {
   logger.info(`\n=== ${f} ===`);
@@ -54,6 +54,12 @@ for (const f of files) {
     const buf = readFileSync(f);
     const wb = XLSX.read(buf, { type: "buffer" });
     const sheet = wb.Sheets[wb.SheetNames[0]!]!;
+    const reportRange = parseReportDateRangeFromSheet(sheet);
+    if (reportRange) {
+      logger.info(`Rango del reporte: ${reportRange.inicio} – ${reportRange.fin}`);
+    } else {
+      logger.info("Rango del reporte: (no detectado en título)");
+    }
     const rows = sheetToFuelDataRows(sheet);
     const headerMap = mapHeaders(rows[0] ?? {});
     logger.info(`Filas datos: ${rows.length}`);
