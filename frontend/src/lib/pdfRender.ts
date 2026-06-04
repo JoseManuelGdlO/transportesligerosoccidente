@@ -456,7 +456,8 @@ const renderProvidersBreakdownTable: BlockRenderer = (state) => {
   }
 
   const fuel = trip.fuel ?? [];
-  const expenses = trip.expenses ?? [];
+  const gastoExpenses = (trip.expenses ?? []).filter((e) => e.tipo !== "ingreso");
+  const ingresoExpenses = (trip.expenses ?? []).filter((e) => e.tipo === "ingreso");
 
   const fuelGroups = new Map<string, BreakdownGroup>();
   for (const f of fuel) {
@@ -476,7 +477,7 @@ const renderProvidersBreakdownTable: BlockRenderer = (state) => {
   }
 
   const expGroups = new Map<string, BreakdownGroup>();
-  for (const e of expenses) {
+  for (const e of gastoExpenses) {
     const prov = (e.categoria || "GASTOS").toUpperCase();
     if (!expGroups.has(prov)) {
       expGroups.set(prov, { proveedor: prov, rows: [], isFuel: false });
@@ -491,9 +492,26 @@ const renderProvidersBreakdownTable: BlockRenderer = (state) => {
     });
   }
 
+  const ingresoGroups = new Map<string, BreakdownGroup>();
+  for (const e of ingresoExpenses) {
+    const prov = `INGRESO · ${(e.categoria || "OTROS").toUpperCase()}`;
+    if (!ingresoGroups.has(prov)) {
+      ingresoGroups.set(prov, { proveedor: prov, rows: [], isFuel: false });
+    }
+    ingresoGroups.get(prov)!.rows.push({
+      articulo: e.categoria || "",
+      fecha: fmtDateShort(e.fecha),
+      cantidad: "1.00",
+      importe: e.monto || 0,
+      folio: (e.id || "").slice(0, 8).toUpperCase(),
+      detalle: e.descripcion || "",
+    });
+  }
+
   const groups: BreakdownGroup[] = [
     ...Array.from(fuelGroups.values()),
     ...Array.from(expGroups.values()),
+    ...Array.from(ingresoGroups.values()),
   ];
 
   if (groups.length === 0) {
@@ -757,40 +775,59 @@ const renderFuelTable: BlockRenderer = (state) => {
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
 
-const renderExpensesTable: BlockRenderer = (state) => {
-  if (state.data.kind !== "trip") return;
+const renderExpenseSectionTable = (
+  state: Parameters<BlockRenderer>[0],
+  title: string,
+  rows: Expense[],
+  extraHead?: string,
+) => {
   const colors = setHeaderColors(state);
-  const expenses = state.data.trip.expenses ?? [];
   ensureSpace(state, 20);
   state.doc.setFont("helvetica", "bold");
   state.doc.setFontSize(11);
-  state.doc.text("Gastos", state.margin, state.y);
+  state.doc.text(title, state.margin, state.y);
   state.y += 4;
-  if (expenses.length === 0) {
+  if (rows.length === 0) {
     state.doc.setFont("helvetica", "normal");
     state.doc.setFontSize(9);
     state.doc.setTextColor(120, 120, 120);
-    state.doc.text("Sin gastos registrados.", state.margin, state.y + 4);
+    state.doc.text(`Sin ${title.toLowerCase()} registrados.`, state.margin, state.y + 4);
     state.doc.setTextColor(0, 0, 0);
     state.y += 8;
     return;
   }
+  const head = ["Fecha", "Categoría", "Descripción", "Comprobado"];
+  if (extraHead) head.push(extraHead);
+  head.push("Monto");
+  const montoCol = head.length - 1;
   pdfAutoTable(state.doc, {
     startY: state.y,
-    head: [["Fecha", "Categoría", "Descripción", "Comprobado", "Monto"]],
-    body: expenses.map((e: Expense) => [
-      e.fecha ? fmtDate(e.fecha) : "—",
-      e.categoria,
-      e.descripcion || "—",
-      e.comprobado ? "Sí" : "No",
-      fmtMXN(e.monto),
-    ]),
+    head: [head],
+    body: rows.map((e: Expense) => {
+      const row = [
+        e.fecha ? fmtDate(e.fecha) : "—",
+        e.categoria,
+        e.descripcion || "—",
+        e.comprobado ? "Sí" : "No",
+      ];
+      if (extraHead) row.push(e.visible_en_liquidacion ? "Sí" : "No");
+      row.push(fmtMXN(e.monto));
+      return row;
+    }),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
     margin: { left: state.margin, right: state.margin },
-    columnStyles: { 4: { halign: "right" } },
+    columnStyles: { [montoCol]: { halign: "right" } },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
+};
+
+const renderExpensesTable: BlockRenderer = (state) => {
+  if (state.data.kind !== "trip") return;
+  const gastos = (state.data.trip.expenses ?? []).filter((e) => e.tipo !== "ingreso");
+  const ingresos = (state.data.trip.expenses ?? []).filter((e) => e.tipo === "ingreso");
+  renderExpenseSectionTable(state, "Gastos", gastos);
+  renderExpenseSectionTable(state, "Ingresos", ingresos, "Liquidación");
 };
 
 const renderCommissionBlock: BlockRenderer = (state) => {

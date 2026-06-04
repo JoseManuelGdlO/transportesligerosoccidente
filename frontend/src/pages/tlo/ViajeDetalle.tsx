@@ -10,13 +10,14 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
 import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil } from "lucide-react";
-import type { ExpenseCategory, Trip, TripStatusRef } from "@/types/tlo";
+import type { Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
 import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
 import { customStatusesFromTrip, tripIsClosed, tripIsOpen, SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
@@ -27,6 +28,24 @@ import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
+
+type ExpForm = {
+  tipo: ExpenseTipo;
+  categoria: ExpenseCategory;
+  descripcion: string;
+  monto: number;
+  comprobado: boolean;
+  visible_en_liquidacion: boolean;
+};
+
+const defaultExpForm = (): ExpForm => ({
+  tipo: "gasto",
+  categoria: "casetas",
+  descripcion: "",
+  monto: 0,
+  comprobado: true,
+  visible_en_liquidacion: false,
+});
 
 export default function ViajeDetalle() {
   const { id } = useParams();
@@ -67,7 +86,7 @@ export default function ViajeDetalle() {
     estacion_nombre: "",
   });
   const [fuelReceipt, setFuelReceipt] = useState<File | null>(null);
-  const [exp, setExp] = useState<{ categoria: ExpenseCategory; descripcion: string; monto: number; comprobado: boolean }>({ categoria: "casetas", descripcion: "", monto: 0, comprobado: true });
+  const [exp, setExp] = useState<ExpForm>(defaultExpForm);
   const [closeData, setCloseData] = useState({ km_final: 0, fecha_llegada: new Date().toISOString().slice(0, 16), num_factura: "" });
   const [allStatuses, setAllStatuses] = useState<TripStatusRef[]>([SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO]);
   const [selectedCustomIds, setSelectedCustomIds] = useState<string[]>([]);
@@ -171,12 +190,22 @@ export default function ViajeDetalle() {
     toast.success(fuel.es_foraneo ? "Ticket foráneo registrado" : "Carga de diesel registrada");
     await reloadTrip();
   };
+  const openExpModal = () => {
+    setExp(defaultExpForm());
+    setExpOpen(true);
+  };
+
   const onAddExp = async () => {
     if (exp.monto <= 0) { toast.error("Captura el monto"); return; }
-    addExpense(trip.id, { ...exp, fecha: new Date().toISOString() });
-    setExp({ categoria: "casetas", descripcion: "", monto: 0, comprobado: true });
+    const payload: Omit<Expense, "id"> = {
+      ...exp,
+      visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
+      fecha: new Date().toISOString(),
+    };
+    addExpense(trip.id, payload);
+    setExp(defaultExpForm());
     setExpOpen(false);
-    toast.success("Gasto registrado");
+    toast.success(exp.tipo === "ingreso" ? "Ingreso registrado" : "Gasto registrado");
     await reloadTrip();
   };
   const onClose = () => {
@@ -194,6 +223,29 @@ export default function ViajeDetalle() {
   const catLabel: Record<ExpenseCategory, string> = {
     casetas: "Casetas", refacciones: "Refacciones", hospedaje: "Hospedaje", comidas: "Comidas", otros: "Otros",
   };
+
+  const gastosList = trip.expenses.filter((e) => e.tipo !== "ingreso");
+  const ingresosList = trip.expenses.filter((e) => e.tipo === "ingreso");
+
+  const renderExpenseRows = (rows: Expense[], montoClassName: string) =>
+    rows.map((e) => (
+      <TableRow key={e.id}>
+        <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
+        <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
+        <TableCell className="text-sm">{e.descripcion}</TableCell>
+        <TableCell>
+          {e.comprobado
+            ? <Badge className="bg-success/15 text-success border-success/30" variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />Sí</Badge>
+            : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
+        </TableCell>
+        <TableCell className={`text-right font-semibold ${montoClassName}`}>{fmtMXN(e.monto)}</TableCell>
+        <TableCell className="text-right">
+          <Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}>
+            <Trash2 className="h-4 w-4 text-destructive" />
+          </Button>
+        </TableCell>
+      </TableRow>
+    ));
 
   return (
     <div className="space-y-4">
@@ -265,7 +317,7 @@ export default function ViajeDetalle() {
 
       {isClosed && (
         <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground">
-          Viaje cerrado: puedes <strong>editar</strong> los datos del viaje (botón Editar), registrar <strong>gastos</strong> y <strong>diesel</strong> (incluye tickets foráneos de estaciones externas).
+          Viaje cerrado: puedes <strong>editar</strong> los datos del viaje (botón Editar), registrar <strong>gastos</strong>, <strong>ingresos</strong> y <strong>diesel</strong> (incluye tickets foráneos de estaciones externas).
         </div>
       )}
 
@@ -320,7 +372,7 @@ export default function ViajeDetalle() {
         <TabsList>
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
           <TabsTrigger value="diesel">Diesel ({trip.fuel.length})</TabsTrigger>
-          <TabsTrigger value="gastos">Gastos ({trip.expenses.length})</TabsTrigger>
+          <TabsTrigger value="gastos">Gastos/Ingresos ({trip.expenses.length})</TabsTrigger>
           <TabsTrigger value="comision">Comisión</TabsTrigger>
           {showCartaPorte ? <TabsTrigger value="carta-porte">Carta Porte</TabsTrigger> : null}
         </TabsList>
@@ -426,33 +478,86 @@ export default function ViajeDetalle() {
           </Card>
         </TabsContent>
 
-        <TabsContent value="gastos" className="mt-4">
+        <TabsContent value="gastos" className="mt-4 space-y-4">
           <Card className="tlo-shadow-md">
             <CardHeader className="flex flex-row items-center justify-between">
-              <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Gastos del viaje</CardTitle>
-              <Button size="sm" onClick={() => setExpOpen(true)}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
+              <CardTitle className="text-base flex items-center gap-2"><Receipt className="h-4 w-4" /> Gastos e ingresos del viaje</CardTitle>
+              <Button size="sm" onClick={openExpModal}><Plus className="h-4 w-4 mr-1" /> Agregar</Button>
             </CardHeader>
-            <CardContent className="p-0">
-              <Table>
-                <TableHeader><TableRow className="bg-secondary/50"><TableHead>Fecha</TableHead><TableHead>Categoría</TableHead><TableHead>Descripción</TableHead><TableHead>Comprobado</TableHead><TableHead className="text-right">Monto</TableHead><TableHead></TableHead></TableRow></TableHeader>
-                <TableBody>
-                  {trip.expenses.length === 0 && <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-6">Sin gastos registrados</TableCell></TableRow>}
-                  {trip.expenses.map(e => (
-                    <TableRow key={e.id}>
-                      <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
-                      <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
-                      <TableCell className="text-sm">{e.descripcion}</TableCell>
-                      <TableCell>
-                        {e.comprobado
-                          ? <Badge className="bg-success/15 text-success border-success/30" variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />Sí</Badge>
-                          : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
-                      </TableCell>
-                      <TableCell className="text-right font-semibold">{fmtMXN(e.monto)}</TableCell>
-                      <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+            <CardContent className="space-y-6 p-4 pt-0">
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Gastos ({gastosList.length})</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-secondary/50">
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Comprobado</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead />
                     </TableRow>
-                  ))}
-                </TableBody>
-              </Table>
+                  </TableHeader>
+                  <TableBody>
+                    {gastosList.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                          Sin gastos registrados
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {renderExpenseRows(gastosList, "")}
+                  </TableBody>
+                </Table>
+              </div>
+              <div>
+                <h3 className="text-sm font-semibold mb-2">Ingresos ({ingresosList.length})</h3>
+                <Table>
+                  <TableHeader>
+                    <TableRow className="bg-secondary/50">
+                      <TableHead>Fecha</TableHead>
+                      <TableHead>Categoría</TableHead>
+                      <TableHead>Descripción</TableHead>
+                      <TableHead>Comprobado</TableHead>
+                      <TableHead>Liquidación</TableHead>
+                      <TableHead className="text-right">Monto</TableHead>
+                      <TableHead />
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {ingresosList.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                          Sin ingresos registrados
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {ingresosList.map((e) => (
+                      <TableRow key={e.id}>
+                        <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
+                        <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
+                        <TableCell className="text-sm">{e.descripcion}</TableCell>
+                        <TableCell>
+                          {e.comprobado
+                            ? <Badge className="bg-success/15 text-success border-success/30" variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />Sí</Badge>
+                            : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
+                        </TableCell>
+                        <TableCell>
+                          {e.visible_en_liquidacion
+                            ? <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">Visible</Badge>
+                            : <Badge variant="outline" className="text-muted-foreground">Oculto</Badge>}
+                        </TableCell>
+                        <TableCell className="text-right font-semibold text-success">{fmtMXN(e.monto)}</TableCell>
+                        <TableCell className="text-right">
+                          <Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                </Table>
+              </div>
             </CardContent>
           </Card>
         </TabsContent>
@@ -526,11 +631,38 @@ export default function ViajeDetalle() {
         </DialogContent>
       </Dialog>
 
-      {/* Modal agregar gasto */}
-      <Dialog open={expOpen} onOpenChange={setExpOpen}>
+      {/* Modal agregar gasto o ingreso */}
+      <Dialog
+        open={expOpen}
+        onOpenChange={(open) => {
+          setExpOpen(open);
+          if (!open) setExp(defaultExpForm());
+        }}
+      >
         <DialogContent>
-          <DialogHeader><DialogTitle>Agregar gasto</DialogTitle></DialogHeader>
+          <DialogHeader>
+            <DialogTitle>{exp.tipo === "ingreso" ? "Agregar ingreso" : "Agregar gasto"}</DialogTitle>
+          </DialogHeader>
           <div className="space-y-3">
+            <div>
+              <Label>Tipo</Label>
+              <ToggleGroup
+                type="single"
+                value={exp.tipo}
+                onValueChange={(v) => {
+                  if (v !== "gasto" && v !== "ingreso") return;
+                  setExp({
+                    ...exp,
+                    tipo: v,
+                    visible_en_liquidacion: v === "ingreso" ? exp.visible_en_liquidacion : false,
+                  });
+                }}
+                className="justify-start"
+              >
+                <ToggleGroupItem value="gasto" className="px-4">Gasto</ToggleGroupItem>
+                <ToggleGroupItem value="ingreso" className="px-4">Ingreso</ToggleGroupItem>
+              </ToggleGroup>
+            </div>
             <div>
               <Label>Categoría</Label>
               <Select value={exp.categoria} onValueChange={(v: ExpenseCategory) => setExp({ ...exp, categoria: v })}>
@@ -550,8 +682,20 @@ export default function ViajeDetalle() {
               <Checkbox checked={exp.comprobado} onCheckedChange={c => setExp({ ...exp, comprobado: !!c })} />
               Comprobado con ticket / factura
             </label>
+            {exp.tipo === "ingreso" && (
+              <label className="flex items-center gap-2 text-sm cursor-pointer">
+                <Checkbox
+                  checked={exp.visible_en_liquidacion}
+                  onCheckedChange={c => setExp({ ...exp, visible_en_liquidacion: !!c })}
+                />
+                Visible en liquidación
+              </label>
+            )}
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setExpOpen(false)}>Cancelar</Button><Button onClick={onAddExp}>Registrar</Button></DialogFooter>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => { setExpOpen(false); setExp(defaultExpForm()); }}>Cancelar</Button>
+            <Button onClick={onAddExp}>Registrar</Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

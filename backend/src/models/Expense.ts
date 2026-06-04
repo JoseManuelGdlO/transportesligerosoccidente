@@ -12,9 +12,11 @@ export class Expense extends Model<InferAttributes<Expense>, InferCreationAttrib
   declare tenant_id: string;
   declare trip_id: string;
   declare categoria: "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
+  declare tipo: "gasto" | "ingreso";
   declare descripcion: string;
   declare monto: string;
   declare comprobado: boolean;
+  declare visible_en_liquidacion: boolean;
   declare fecha: Date;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
@@ -30,9 +32,15 @@ export function initExpense(sequelize: Sequelize) {
         type: DataTypes.ENUM("casetas", "refacciones", "hospedaje", "comidas", "otros"),
         allowNull: false,
       },
+      tipo: {
+        type: DataTypes.ENUM("gasto", "ingreso"),
+        allowNull: false,
+        defaultValue: "gasto",
+      },
       descripcion: { type: DataTypes.STRING(512), allowNull: false },
       monto: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
       comprobado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      visible_en_liquidacion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       fecha: { type: DataTypes.DATE, allowNull: false },
     } as never,
     { sequelize, tableName: "expenses", underscored: true },

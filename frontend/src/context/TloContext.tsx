@@ -609,9 +609,11 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               method: "POST",
               body: JSON.stringify({
                 categoria: e.categoria,
+                tipo: e.tipo ?? "gasto",
                 descripcion: e.descripcion,
                 monto: e.monto,
                 comprobado: e.comprobado,
+                visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
                 fecha: e.fecha,
               }),
             });

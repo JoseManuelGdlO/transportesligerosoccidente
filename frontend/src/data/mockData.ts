@@ -69,9 +69,9 @@ export const mockTrips: Trip[] = [
       { id: "f2", litros: 80, precio_litro: 26.1, ubicacion: "Pemex Saltillo", fecha: daysAgo(5) },
     ],
     expenses: [
-      { id: "e1", categoria: "casetas", descripcion: "Casetas GDL-MTY", monto: 2200, comprobado: true, fecha: daysAgo(6) },
-      { id: "e2", categoria: "comidas", descripcion: "Alimentos operador", monto: 650, comprobado: true, fecha: daysAgo(6) },
-      { id: "e3", categoria: "hospedaje", descripcion: "Hotel Saltillo", monto: 850, comprobado: false, fecha: daysAgo(5) },
+      { id: "e1", categoria: "casetas", descripcion: "Casetas GDL-MTY", monto: 2200, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(6) },
+      { id: "e2", categoria: "comidas", descripcion: "Alimentos operador", monto: 650, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(6) },
+      { id: "e3", categoria: "hospedaje", descripcion: "Hotel Saltillo", monto: 850, tipo: "gasto", visible_en_liquidacion: false, comprobado: false, fecha: daysAgo(5) },
     ],
   },
   {
@@ -86,9 +86,9 @@ export const mockTrips: Trip[] = [
       { id: "f3", litros: 165, precio_litro: 25.9, ubicacion: "Pemex Tlaquepaque", fecha: daysAgo(5) },
     ],
     expenses: [
-      { id: "e4", categoria: "casetas", descripcion: "Casetas Maravatío", monto: 1450, comprobado: true, fecha: daysAgo(5) },
-      { id: "e5", categoria: "comidas", descripcion: "Comidas en ruta", monto: 480, comprobado: true, fecha: daysAgo(5) },
-      { id: "e6", categoria: "otros", descripcion: "Lavado de unidad", monto: 250, comprobado: false, fecha: daysAgo(4) },
+      { id: "e4", categoria: "casetas", descripcion: "Casetas Maravatío", monto: 1450, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(5) },
+      { id: "e5", categoria: "comidas", descripcion: "Comidas en ruta", monto: 480, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(5) },
+      { id: "e6", categoria: "otros", descripcion: "Lavado de unidad", monto: 250, tipo: "gasto", visible_en_liquidacion: false, comprobado: false, fecha: daysAgo(4) },
     ],
   },
   {
@@ -103,8 +103,8 @@ export const mockTrips: Trip[] = [
       { id: "f4", litros: 130, precio_litro: 26.0, ubicacion: "Pemex La Piedad", fecha: daysAgo(4) },
     ],
     expenses: [
-      { id: "e7", categoria: "casetas", descripcion: "Casetas GDL-QRO", monto: 980, comprobado: true, fecha: daysAgo(4) },
-      { id: "e8", categoria: "refacciones", descripcion: "Cambio de filtro", monto: 1200, comprobado: false, fecha: daysAgo(3) },
+      { id: "e7", categoria: "casetas", descripcion: "Casetas GDL-QRO", monto: 980, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(4) },
+      { id: "e8", categoria: "refacciones", descripcion: "Cambio de filtro", monto: 1200, tipo: "gasto", visible_en_liquidacion: false, comprobado: false, fecha: daysAgo(3) },
     ],
   },
   {
@@ -119,8 +119,9 @@ export const mockTrips: Trip[] = [
       { id: "f5", litros: 150, precio_litro: 26.2, ubicacion: "Pemex Tepic", fecha: daysAgo(3) },
     ],
     expenses: [
-      { id: "e9", categoria: "casetas", descripcion: "Casetas GDL-Maz", monto: 780, comprobado: true, fecha: daysAgo(3) },
-      { id: "e10", categoria: "comidas", descripcion: "Mariscos en ruta", monto: 520, comprobado: true, fecha: daysAgo(3) },
+      { id: "e9", categoria: "casetas", descripcion: "Casetas GDL-Maz", monto: 780, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(3) },
+      { id: "e10", categoria: "comidas", descripcion: "Mariscos en ruta", monto: 520, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(3) },
+      { id: "e10b", categoria: "otros", descripcion: "Flete adicional", monto: 1500, tipo: "ingreso", visible_en_liquidacion: true, comprobado: true, fecha: daysAgo(3) },
     ],
   },
   {
@@ -135,8 +136,8 @@ export const mockTrips: Trip[] = [
       { id: "f6", litros: 95, precio_litro: 26.3, ubicacion: "Pemex Zapotlanejo", fecha: daysAgo(2) },
     ],
     expenses: [
-      { id: "e11", categoria: "casetas", descripcion: "Casetas GDL-León", monto: 540, comprobado: true, fecha: daysAgo(2) },
-      { id: "e12", categoria: "comidas", descripcion: "Comidas", monto: 380, comprobado: false, fecha: daysAgo(2) },
+      { id: "e11", categoria: "casetas", descripcion: "Casetas GDL-León", monto: 540, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(2) },
+      { id: "e12", categoria: "comidas", descripcion: "Comidas", monto: 380, tipo: "gasto", visible_en_liquidacion: false, comprobado: false, fecha: daysAgo(2) },
     ],
   },
   {
@@ -152,7 +153,7 @@ export const mockTrips: Trip[] = [
       { id: "f7", litros: 100, precio_litro: 26.4, ubicacion: "Pemex Ameca", fecha: daysAgo(1) },
     ],
     expenses: [
-      { id: "e13", categoria: "casetas", descripcion: "Casetas GDL-PV", monto: 620, comprobado: true, fecha: daysAgo(1) },
+      { id: "e13", categoria: "casetas", descripcion: "Casetas GDL-PV", monto: 620, tipo: "gasto", visible_en_liquidacion: false, comprobado: true, fecha: daysAgo(1) },
     ],
   },
   {

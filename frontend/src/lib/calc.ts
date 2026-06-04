@@ -35,12 +35,21 @@ export const computeCommission = (trip: Trip, driver?: Driver): number => {
   return rate;
 };
 
+export function ingresosComprobadosLiquidacion(trip: Trip): number {
+  return trip.expenses
+    .filter((e) => e.tipo === "ingreso" && e.comprobado && e.visible_en_liquidacion)
+    .reduce((a, e) => a + e.monto, 0);
+}
+
 export const computeTrip = (trip: Trip, driver?: Driver): TripFinancials => {
-  const ingreso = trip.tarifa || 0;
+  const gastoRows = trip.expenses.filter((e) => e.tipo !== "ingreso");
+  const ingresoRows = trip.expenses.filter((e) => e.tipo === "ingreso");
+  const ingresos_extra = ingresoRows.reduce((a, e) => a + e.monto, 0);
+  const ingreso = (trip.tarifa || 0) + ingresos_extra;
   const diesel_litros = trip.fuel.reduce((a, f) => a + f.litros, 0);
   const diesel_total = trip.fuel.reduce((a, f) => a + f.litros * f.precio_litro, 0);
-  const gastos_comprobados = trip.expenses.filter(e => e.comprobado).reduce((a, e) => a + e.monto, 0);
-  const gastos_no_comprobados = trip.expenses.filter(e => !e.comprobado).reduce((a, e) => a + e.monto, 0);
+  const gastos_comprobados = gastoRows.filter((e) => e.comprobado).reduce((a, e) => a + e.monto, 0);
+  const gastos_no_comprobados = gastoRows.filter((e) => !e.comprobado).reduce((a, e) => a + e.monto, 0);
   const gastos_total = gastos_comprobados + gastos_no_comprobados;
   const comision = computeCommission(trip, driver);
   const costo_total = diesel_total + gastos_total + comision;
@@ -110,7 +119,7 @@ export const computeSettlement = (
     total_comisiones += f.comision;
     total_km += f.km_recorridos;
     viaticos_entregados += t.viaticos_entregados || 0;
-    viaticos_comprobados += f.gastos_comprobados;
+    viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);

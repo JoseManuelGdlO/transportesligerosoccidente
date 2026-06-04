@@ -173,21 +173,28 @@ export async function addExpense(
   tripId: string,
   body: {
     categoria: "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
+    tipo?: "gasto" | "ingreso";
     descripcion: string;
     monto: number;
     comprobado: boolean;
+    visible_en_liquidacion?: boolean;
     fecha?: string;
   },
 ) {
   await getTripOrThrow(tenantId, tripId, false);
+  const tipo = body.tipo ?? "gasto";
+  const visible_en_liquidacion =
+    tipo === "ingreso" ? Boolean(body.visible_en_liquidacion) : false;
   return Expense.create({
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
     categoria: body.categoria,
+    tipo,
     descripcion: body.descripcion,
     monto: body.monto,
     comprobado: body.comprobado,
+    visible_en_liquidacion,
     fecha: body.fecha ? new Date(body.fecha) : new Date(),
   } as never);
 }

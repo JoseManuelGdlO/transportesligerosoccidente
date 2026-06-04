@@ -8,6 +8,7 @@ export type CommissionType = "porcentaje" | "fijo";
 export type MaintenanceType = "menor" | "intermedio" | "correctivo";
 export type DiscountType = "prestamo" | "dano" | "multa" | "otro";
 export type ExpenseCategory = "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
+export type ExpenseTipo = "gasto" | "ingreso";
 export type UserRole = "admin" | "capturista";
 export type UserStatus = "activo" | "inactivo";
 
@@ -440,9 +441,11 @@ export interface FuelLoad {
 export interface Expense {
   id: string;
   categoria: ExpenseCategory;
+  tipo: ExpenseTipo;
   descripcion: string;
   monto: number;
   comprobado: boolean;
+  visible_en_liquidacion: boolean;
   fecha: string;
 }
 

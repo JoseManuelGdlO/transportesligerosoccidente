@@ -19,6 +19,7 @@ import type {
   UserRole,
   Permission,
   ExpenseCategory,
+  ExpenseTipo,
   TenantDocumentType,
   DocumentCatalogItem,
   CatalogDocument,
@@ -52,12 +53,15 @@ export function normalizeFuel(raw: Record<string, unknown>): FuelLoad {
 export function normalizeExpense(raw: Record<string, unknown>): Expense {
   const cat = raw.categoria;
   const categoria = EXPENSE_CATS.includes(cat as ExpenseCategory) ? (cat as ExpenseCategory) : "otros";
+  const tipo: ExpenseTipo = raw.tipo === "ingreso" ? "ingreso" : "gasto";
   return {
     id: String(raw.id),
     categoria,
+    tipo,
     descripcion: String(raw.descripcion ?? ""),
     monto: Number(raw.monto ?? 0),
     comprobado: Boolean(raw.comprobado),
+    visible_en_liquidacion: tipo === "ingreso" ? Boolean(raw.visible_en_liquidacion) : false,
     fecha: String(raw.fecha ?? new Date().toISOString()),
   };
 }

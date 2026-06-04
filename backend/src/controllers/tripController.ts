@@ -158,9 +158,11 @@ export const deleteFuel = asyncHandler(async (req: Request, res: Response) => {
 
 const expenseSchema = z.object({
   categoria: z.enum(["casetas", "refacciones", "hospedaje", "comidas", "otros"]),
+  tipo: z.enum(["gasto", "ingreso"]).optional().default("gasto"),
   descripcion: z.string().min(1),
   monto: z.number().positive(),
   comprobado: z.boolean(),
+  visible_en_liquidacion: z.boolean().optional().default(false),
   fecha: z.string().optional(),
 });
 

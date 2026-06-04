@@ -39,14 +39,33 @@ export function computeCommission(trip: Trip, driver?: Driver | null): number {
   return rate;
 }
 
-export function computeTrip(trip: Trip & { fuel?: { litros: unknown; precio_litro: unknown }[]; expenses?: { comprobado: boolean; monto: unknown }[] }, driver?: Driver | null): TripFinancials {
-  const ingreso = num(trip.tarifa);
+type ExpenseRow = {
+  tipo?: string;
+  comprobado: boolean;
+  visible_en_liquidacion?: boolean;
+  monto: unknown;
+};
+
+function ingresosComprobadosLiquidacion(expRows: ExpenseRow[]): number {
+  return expRows
+    .filter((e) => e.tipo === "ingreso" && e.comprobado && e.visible_en_liquidacion)
+    .reduce((a, e) => a + num(e.monto), 0);
+}
+
+export function computeTrip(
+  trip: Trip & { fuel?: { litros: unknown; precio_litro: unknown }[]; expenses?: ExpenseRow[] },
+  driver?: Driver | null,
+): TripFinancials {
   const fuelRows = trip.fuel ?? [];
   const diesel_litros = fuelRows.reduce((a, f) => a + num(f.litros), 0);
   const diesel_total = fuelRows.reduce((a, f) => a + num(f.litros) * num(f.precio_litro), 0);
   const expRows = trip.expenses ?? [];
-  const gastos_comprobados = expRows.filter((e) => e.comprobado).reduce((a, e) => a + num(e.monto), 0);
-  const gastos_no_comprobados = expRows.filter((e) => !e.comprobado).reduce((a, e) => a + num(e.monto), 0);
+  const gastoRows = expRows.filter((e) => e.tipo !== "ingreso");
+  const ingresoRows = expRows.filter((e) => e.tipo === "ingreso");
+  const ingresos_extra = ingresoRows.reduce((a, e) => a + num(e.monto), 0);
+  const ingreso = num(trip.tarifa) + ingresos_extra;
+  const gastos_comprobados = gastoRows.filter((e) => e.comprobado).reduce((a, e) => a + num(e.monto), 0);
+  const gastos_no_comprobados = gastoRows.filter((e) => !e.comprobado).reduce((a, e) => a + num(e.monto), 0);
   const gastos_total = gastos_comprobados + gastos_no_comprobados;
   const comision = computeCommission(trip, driver);
   const costo_total = diesel_total + gastos_total + comision;
@@ -113,7 +132,7 @@ export function computeSettlement(
     total_comisiones += f.comision;
     total_km += f.km_recorridos;
     viaticos_entregados += num(t.viaticos_entregados);
-    viaticos_comprobados += f.gastos_comprobados;
+    viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t.expenses ?? []);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);

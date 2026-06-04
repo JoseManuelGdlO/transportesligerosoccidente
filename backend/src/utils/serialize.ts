@@ -66,12 +66,15 @@ export function fuelToJson(f: FuelLoad): Record<string, unknown> {
 
 export function expenseToJson(e: Expense): Record<string, unknown> {
   const p = e.get({ plain: true }) as Record<string, unknown>;
+  const tipo = p.tipo === "ingreso" ? "ingreso" : "gasto";
   return {
     id: p.id,
     categoria: p.categoria,
+    tipo,
     descripcion: p.descripcion,
     monto: num(p.monto),
     comprobado: p.comprobado,
+    visible_en_liquidacion: tipo === "ingreso" ? Boolean(p.visible_en_liquidacion) : false,
     fecha: iso(p.fecha),
   };
 }
