@@ -195,7 +195,8 @@ export interface FuelTicket {
   truck_id: string;
   fecha: string;
   hora?: string;
-  folio_tag?: string;
+  folio?: string;
+  tag?: string;
   numero_economico_raw?: string;
   placas_raw?: string;
   odometro: number;

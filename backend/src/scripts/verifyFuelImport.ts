@@ -4,31 +4,13 @@
  */
 import { readFileSync } from "node:fs";
 import * as XLSX from "xlsx";
-import { sheetToFuelDataRows } from "../services/fuelImportService";
+import {
+  HEADER_ALIASES,
+  normHeader,
+  sheetToFuelDataRows,
+} from "../services/fuelImportService";
+import { economicoMatchKey } from "../utils/economicoMatch";
 import { logger } from "../utils/logger";
-
-function normHeader(h: string): string {
-  return h
-    .trim()
-    .toLowerCase()
-    .normalize("NFD")
-    .replace(/\p{M}/gu, "")
-    .replace(/\s+/g, "_");
-}
-
-const HEADER_ALIASES: Record<string, string[]> = {
-  folio_tag: ["folio_tag", "tag", "id_token", "folio_del_tag"],
-  folio_proveedor: ["folio"],
-  id_tothem: ["id_tothem", "id_tothems"],
-  numero_economico: ["numero_economico", "no_economico", "economico", "unidad", "numero_de_unidad", "referencia"],
-  placas: ["placas", "placa", "descripcion_corta"],
-  fecha: ["fecha", "date"],
-  hora: ["hora", "time"],
-  odometro: ["odometro", "kilometraje", "km"],
-  litros: ["litros", "litro", "volumen"],
-  precio_litro: ["precio_litro", "precio", "precio_por_litro", "precio/l"],
-  importe_total: ["importe_total", "importe", "total", "monto"],
-};
 
 function mapHeaders(row: Record<string, unknown>) {
   const out: Record<string, string> = {};
@@ -68,36 +50,44 @@ const files = process.argv.slice(2).length
 
 for (const f of files) {
   logger.info(`\n=== ${f} ===`);
-  const buf = readFileSync(f);
-  const wb = XLSX.read(buf, { type: "buffer" });
-  const sheet = wb.Sheets[wb.SheetNames[0]!]!;
-  const rows = sheetToFuelDataRows(sheet);
-  const headerMap = mapHeaders(rows[0] ?? {});
-  logger.info(`Filas datos: ${rows.length}`);
-  logger.info(`Columnas mapeadas: ${JSON.stringify(headerMap)}`);
+  try {
+    const buf = readFileSync(f);
+    const wb = XLSX.read(buf, { type: "buffer" });
+    const sheet = wb.Sheets[wb.SheetNames[0]!]!;
+    const rows = sheetToFuelDataRows(sheet);
+    const headerMap = mapHeaders(rows[0] ?? {});
+    logger.info(`Filas datos: ${rows.length}`);
+    logger.info(`Columnas mapeadas: ${JSON.stringify(headerMap)}`);
 
-  let ok = 0;
-  let bad = 0;
-  for (const row of rows) {
-    const fecha = cellStr(row, headerMap.fecha);
-    const litros = cellNum(row, headerMap.litros);
-    const odometro = cellNum(row, headerMap.odometro);
-    const precio = cellNum(row, headerMap.precio_litro);
-    if (litros && odometro != null && precio && fecha) ok++;
-    else bad++;
-  }
-  logger.info(`Filas parseables: ${ok} con error: ${bad}`);
-  if (rows[0]) {
-    const r = rows[0];
-    logger.info(
-      `Ejemplo: ${JSON.stringify({
-        economico: cellStr(r, headerMap.numero_economico),
-        tag: cellStr(r, headerMap.folio_tag),
-        placas: cellStr(r, headerMap.placas),
-        fecha: cellStr(r, headerMap.fecha),
-        odometro: cellNum(r, headerMap.odometro),
-        litros: cellNum(r, headerMap.litros),
-      })}`,
-    );
+    let ok = 0;
+    let bad = 0;
+    for (const row of rows) {
+      const folio = cellStr(row, headerMap.folio);
+      const fecha = cellStr(row, headerMap.fecha);
+      const litros = cellNum(row, headerMap.litros);
+      const odometro = cellNum(row, headerMap.odometro);
+      const precio = cellNum(row, headerMap.precio_litro);
+      const economico = cellStr(row, headerMap.numero_economico);
+      const ubicacion = cellStr(row, headerMap.ubicacion);
+      if (folio && litros && odometro != null && precio && fecha) ok++;
+      else bad++;
+      if (rows.indexOf(row) === 0) {
+        logger.info(
+          `Ejemplo: ${JSON.stringify({
+            folio,
+            tag: cellStr(row, headerMap.tag),
+            economico,
+            economicoKey: economico ? economicoMatchKey(economico) : null,
+            ubicacion: ubicacion || "(Gasolinera)",
+            fecha,
+            odometro,
+            litros,
+          })}`,
+        );
+      }
+    }
+    logger.info(`Filas parseables: ${ok} con error: ${bad}`);
+  } catch (e) {
+    logger.error(`No se pudo leer ${f}: ${e instanceof Error ? e.message : e}`);
   }
 }

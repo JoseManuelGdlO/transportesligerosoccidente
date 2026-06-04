@@ -2,6 +2,11 @@ import { randomUUID } from "node:crypto";
 import * as XLSX from "xlsx";
 import { FuelTicket, Truck } from "../models";
 import type { FuelTicketOrigen } from "../models/FuelTicket";
+import {
+  economicoMatchKey,
+  normalizeEconomicoExact,
+  normalizeTruckTag,
+} from "../utils/economicoMatch";
 
 export type FuelImportError = {
   fila: number;
@@ -15,7 +20,7 @@ export type FuelImportResult = {
   errores: FuelImportError[];
 };
 
-function normHeader(h: string): string {
+export function normHeader(h: string): string {
   return h
     .trim()
     .toLowerCase()
@@ -24,25 +29,31 @@ function normHeader(h: string): string {
     .replace(/\s+/g, "_");
 }
 
-const HEADER_ALIASES: Record<string, string[]> = {
-  /** TAG RFID del camión (columna "Tag" en Tothem). No confundir con "Folio" del dispensario. */
-  folio_tag: ["folio_tag", "tag", "id_token", "folio_del_tag"],
-  folio_proveedor: ["folio"],
-  id_tothem: ["id_tothem", "id_tothems"],
+/** Columnas Tothem: Id Tothem, Descripcion C y Tag despachado no se mapean. */
+export const HEADER_ALIASES: Record<string, string[]> = {
+  folio: ["folio"],
+  tag: ["tag", "folio_tag"],
   numero_economico: [
     "numero_economico",
     "no_economico",
     "economico",
     "unidad",
     "numero_de_unidad",
+    "numero_econ",
+    "numero_eco",
     "referencia",
   ],
-  placas: ["placas", "placa", "descripcion_corta"],
   fecha: ["fecha", "date"],
   hora: ["hora", "time"],
   odometro: ["odometro", "kilometraje", "km"],
   litros: ["litros", "litro", "volumen"],
-  precio_litro: ["precio_litro", "precio", "precio_por_litro", "precio/l"],
+  precio_litro: [
+    "precio_litro",
+    "precio",
+    "precio_por_litro",
+    "precio_por_litr",
+    "precio/l",
+  ],
   importe_total: ["importe_total", "importe", "total", "monto"],
   ubicacion: ["ubicacion", "estacion", "gasolinera", "ruta"],
 };
@@ -141,12 +152,52 @@ function parseExcelTime(v: unknown): string | null {
   return null;
 }
 
-function normalizePlacas(p: string): string {
-  return p.replace(/\s+/g, "").toUpperCase();
+function buildTruckIndexes(trucks: Truck[]) {
+  const byEconomicoExact = new Map<string, Truck>();
+  const byEconomicoKey = new Map<string, Truck[]>();
+  const byTag = new Map<string, Truck>();
+
+  for (const t of trucks) {
+    byEconomicoExact.set(normalizeEconomicoExact(t.numero_economico), t);
+    const key = economicoMatchKey(t.numero_economico);
+    if (key) {
+      const list = byEconomicoKey.get(key) ?? [];
+      list.push(t);
+      byEconomicoKey.set(key, list);
+    }
+    if (t.folio_tag) {
+      byTag.set(normalizeTruckTag(String(t.folio_tag)), t);
+    }
+  }
+
+  return { byEconomicoExact, byEconomicoKey, byTag };
 }
 
-function normalizeEconomico(e: string): string {
-  return e.trim();
+function resolveTruck(
+  economico: string,
+  tag: string,
+  indexes: ReturnType<typeof buildTruckIndexes>,
+): { truck: Truck | null; ambiguous: boolean } {
+  const { byEconomicoExact, byEconomicoKey, byTag } = indexes;
+
+  if (economico) {
+    const exact = byEconomicoExact.get(normalizeEconomicoExact(economico));
+    if (exact) return { truck: exact, ambiguous: false };
+
+    const key = economicoMatchKey(economico);
+    if (key) {
+      const hits = byEconomicoKey.get(key);
+      if (hits?.length === 1) return { truck: hits[0]!, ambiguous: false };
+      if (hits && hits.length > 1) return { truck: null, ambiguous: true };
+    }
+  }
+
+  if (tag) {
+    const hit = byTag.get(normalizeTruckTag(tag));
+    if (hit) return { truck: hit, ambiguous: false };
+  }
+
+  return { truck: null, ambiguous: false };
 }
 
 export async function importFuelTicketsFromBuffer(
@@ -167,35 +218,10 @@ export async function importFuelTicketsFromBuffer(
 
   const headerMap = mapHeaders(rows[0]!);
   const trucks = await Truck.findAll({ where: { tenant_id: tenantId } });
-
-  const byEconomico = new Map<string, Truck>();
-  const byPlacas = new Map<string, Truck>();
-  const byTag = new Map<string, Truck>();
-  for (const t of trucks) {
-    byEconomico.set(normalizeEconomico(t.numero_economico), t);
-    byPlacas.set(normalizePlacas(t.placas), t);
-    if (t.folio_tag) byTag.set(String(t.folio_tag).trim(), t);
-  }
-
-  const resolveTruck = (economico: string, placas: string, tag: string): Truck | null => {
-    if (economico) {
-      const hit = byEconomico.get(normalizeEconomico(economico));
-      if (hit) return hit;
-    }
-    if (placas) {
-      const hit = byPlacas.get(normalizePlacas(placas));
-      if (hit) return hit;
-    }
-    if (tag) {
-      const hit = byTag.get(tag.trim());
-      if (hit) return hit;
-    }
-    return null;
-  };
+  const indexes = buildTruckIndexes(trucks);
 
   const toInsert: Array<Record<string, unknown>> = [];
   const errores: FuelImportError[] = [];
-  let duplicados = 0;
 
   const dataStartRow =
     (() => {
@@ -214,18 +240,20 @@ export async function importFuelTicketsFromBuffer(
   rows.forEach((row, idx) => {
     const fila = dataStartRow + idx;
     const economico = cellStr(row, headerMap.numero_economico);
-    const placas = cellStr(row, headerMap.placas);
-    const tag = cellStr(row, headerMap.folio_tag);
-    const idTothem = cellStr(row, headerMap.id_tothem);
-    const folioProveedor = cellStr(row, headerMap.folio_proveedor);
+    const tagVal = cellStr(row, headerMap.tag);
+    const folio = cellStr(row, headerMap.folio);
     const fecha = parseExcelDate(row[headerMap.fecha ?? ""]);
     const litros = cellNum(row, headerMap.litros);
     const precio = cellNum(row, headerMap.precio_litro);
     const odometro = cellNum(row, headerMap.odometro);
     const importe = cellNum(row, headerMap.importe_total);
 
-    if (!economico && !placas && !tag) {
-      errores.push({ fila, mensaje: "Fila sin número económico, placas ni folio TAG", datos: row });
+    if (!folio) {
+      errores.push({ fila, mensaje: "Folio faltante", datos: row });
+      return;
+    }
+    if (!economico && !tagVal) {
+      errores.push({ fila, mensaje: "Fila sin número económico ni TAG", datos: row });
       return;
     }
     if (!fecha) {
@@ -245,11 +273,19 @@ export async function importFuelTicketsFromBuffer(
       return;
     }
 
-    const truck = resolveTruck(economico, placas, tag);
+    const { truck, ambiguous } = resolveTruck(economico, tagVal, indexes);
+    if (ambiguous) {
+      errores.push({
+        fila,
+        mensaje: `Número económico ambiguo (${economico || "—"}): varias unidades coinciden`,
+        datos: row,
+      });
+      return;
+    }
     if (!truck) {
       errores.push({
         fila,
-        mensaje: `No se encontró camión (económico: ${economico || "—"}, placas: ${placas || "—"}, TAG: ${tag || "—"})`,
+        mensaje: `No se encontró camión (económico: ${economico || "—"}, TAG: ${tagVal || "—"})`,
         datos: row,
       });
       return;
@@ -265,18 +301,17 @@ export async function importFuelTicketsFromBuffer(
       truck_id: truck.id,
       fecha,
       hora,
-      folio_tag: tag || null,
+      folio,
+      tag: tagVal || null,
       numero_economico_raw: economico || truck.numero_economico,
-      placas_raw: placas || truck.placas,
+      placas_raw: truck.placas,
       odometro: Math.round(odometro),
       litros: String(litros),
       precio_litro: String(precio),
       importe_total: String(total),
       ubicacion,
       origen,
-      external_id:
-        [idTothem, folioProveedor, fecha, String(Math.round(odometro))].filter(Boolean).join("|") ||
-        (tag ? `${tag}-${fecha}-${odometro}` : null),
+      external_id: `${folio}|${fecha}|${Math.round(odometro)}`,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -289,7 +324,7 @@ export async function importFuelTicketsFromBuffer(
   try {
     const created = await FuelTicket.bulkCreate(toInsert as never[], { ignoreDuplicates: true });
     const creados = created.length;
-    duplicados = toInsert.length - creados;
+    const duplicados = toInsert.length - creados;
     return { creados, duplicados, errores };
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error al importar";

@@ -7,7 +7,8 @@ export type FuelTicketInput = {
   truck_id: string;
   fecha: string;
   hora?: string | null;
-  folio_tag?: string | null;
+  folio?: string | null;
+  tag?: string | null;
   numero_economico_raw?: string | null;
   placas_raw?: string | null;
   odometro: number;
@@ -22,6 +23,21 @@ export type FuelTicketInput = {
 function calcImporte(litros: number, precio: number, importe?: number): number {
   if (importe != null && importe > 0) return importe;
   return Math.round(litros * precio * 100) / 100;
+}
+
+async function assertFolioUnique(
+  tenantId: string,
+  folio: string | null | undefined,
+  excludeId?: string,
+): Promise<void> {
+  const f = folio?.trim();
+  if (!f) return;
+  const where: Record<string, unknown> = { tenant_id: tenantId, folio: f };
+  if (excludeId) where.id = { [Op.ne]: excludeId };
+  const existing = await FuelTicket.findOne({ where: where as never });
+  if (existing) {
+    throw Object.assign(new Error("Ya existe un ticket con ese folio en este tenant"), { status: 409 });
+  }
 }
 
 export async function listFuelTickets(
@@ -61,6 +77,8 @@ export async function createFuelTicket(tenantId: string, input: FuelTicketInput)
   const truck = await Truck.findOne({ where: { id: input.truck_id, tenant_id: tenantId } });
   if (!truck) throw Object.assign(new Error("Camión no encontrado"), { status: 400 });
 
+  await assertFolioUnique(tenantId, input.folio);
+
   const litros = input.litros;
   const precio = input.precio_litro;
   return FuelTicket.create({
@@ -69,7 +87,8 @@ export async function createFuelTicket(tenantId: string, input: FuelTicketInput)
     truck_id: input.truck_id,
     fecha: input.fecha,
     hora: input.hora ?? null,
-    folio_tag: input.folio_tag ?? null,
+    folio: input.folio?.trim() || null,
+    tag: input.tag?.trim() || null,
     numero_economico_raw: input.numero_economico_raw ?? truck.numero_economico,
     placas_raw: input.placas_raw ?? truck.placas,
     odometro: input.odometro,
@@ -89,6 +108,10 @@ export async function updateFuelTicket(tenantId: string, id: string, patch: Part
     if (!truck) throw Object.assign(new Error("Camión no encontrado"), { status: 400 });
   }
 
+  if (patch.folio !== undefined) {
+    await assertFolioUnique(tenantId, patch.folio, id);
+  }
+
   const litros = patch.litros != null ? patch.litros : Number(row.litros);
   const precio = patch.precio_litro != null ? patch.precio_litro : Number(row.precio_litro);
   const importe =
@@ -100,7 +123,8 @@ export async function updateFuelTicket(tenantId: string, id: string, patch: Part
     ...(patch.truck_id != null ? { truck_id: patch.truck_id } : {}),
     ...(patch.fecha != null ? { fecha: patch.fecha } : {}),
     ...(patch.hora !== undefined ? { hora: patch.hora } : {}),
-    ...(patch.folio_tag !== undefined ? { folio_tag: patch.folio_tag } : {}),
+    ...(patch.folio !== undefined ? { folio: patch.folio?.trim() || null } : {}),
+    ...(patch.tag !== undefined ? { tag: patch.tag?.trim() || null } : {}),
     ...(patch.numero_economico_raw !== undefined ? { numero_economico_raw: patch.numero_economico_raw } : {}),
     ...(patch.placas_raw !== undefined ? { placas_raw: patch.placas_raw } : {}),
     ...(patch.odometro != null ? { odometro: patch.odometro } : {}),

@@ -34,7 +34,8 @@ export function fuelTicketToJson(
         ? p.fecha
         : (iso(p.fecha) ?? "").slice(0, 10),
     hora: p.hora != null ? String(p.hora).slice(0, 8) : undefined,
-    folio_tag: p.folio_tag ?? undefined,
+    folio: p.folio ?? undefined,
+    tag: p.tag ?? undefined,
     numero_economico_raw: p.numero_economico_raw ?? undefined,
     placas_raw: p.placas_raw ?? undefined,
     odometro: p.odometro,

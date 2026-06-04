@@ -20,7 +20,8 @@ export class FuelTicket extends Model<
   declare truck_id: string;
   declare fecha: string;
   declare hora: CreationOptional<string | null>;
-  declare folio_tag: CreationOptional<string | null>;
+  declare folio: CreationOptional<string | null>;
+  declare tag: CreationOptional<string | null>;
   declare numero_economico_raw: CreationOptional<string | null>;
   declare placas_raw: CreationOptional<string | null>;
   declare odometro: number;
@@ -44,7 +45,8 @@ export function initFuelTicket(sequelize: Sequelize) {
       truck_id: { type: DataTypes.CHAR(36), allowNull: false },
       fecha: { type: DataTypes.DATEONLY, allowNull: false },
       hora: { type: DataTypes.TIME, allowNull: true },
-      folio_tag: { type: DataTypes.STRING(64), allowNull: true },
+      folio: { type: DataTypes.STRING(32), allowNull: true },
+      tag: { type: DataTypes.STRING(64), allowNull: true },
       numero_economico_raw: { type: DataTypes.STRING(64), allowNull: true },
       placas_raw: { type: DataTypes.STRING(32), allowNull: true },
       odometro: { type: DataTypes.INTEGER, allowNull: false },
@@ -64,6 +66,11 @@ export function initFuelTicket(sequelize: Sequelize) {
       tableName: "fuel_tickets",
       underscored: true,
       indexes: [
+        {
+          name: "fuel_tickets_tenant_folio_unique",
+          unique: true,
+          fields: ["tenant_id", "folio"],
+        },
         {
           name: "fuel_tickets_dedup_idx",
           unique: true,

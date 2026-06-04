@@ -52,7 +52,8 @@ const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> =
   truck_id: "",
   fecha: new Date().toISOString().slice(0, 10),
   hora: "",
-  folio_tag: "",
+  folio: "",
+  tag: "",
   odometro: 0,
   litros: 0,
   precio_litro: 0,
@@ -63,28 +64,28 @@ const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> =
 
 function downloadImportTemplate() {
   const headers = [
-    "folio_tag",
+    "folio",
+    "tag",
     "numero_economico",
-    "placas",
     "fecha",
     "hora",
+    "ruta",
     "odometro",
     "litros",
     "precio_litro",
     "importe_total",
-    "ubicacion",
   ];
   const sample = [
-    "TAG-001",
-    "7",
-    "ABC1234",
-    "2025-03-24",
-    "14:30:00",
-    "886510",
-    "158.00",
-    "29.87",
-    "4719.46",
-    "Base aceros",
+    "2758",
+    "00B1E80D",
+    "TN04",
+    "2025-05-27",
+    "08:09:19",
+    "TLO",
+    "589912",
+    "259.101",
+    "29.46",
+    "7633.12",
   ];
   const csv = [headers.join(","), sample.join(",")].join("\n");
   const blob = new Blob([csv], { type: "text/csv;charset=utf-8" });
@@ -194,7 +195,8 @@ export default function Combustibles() {
       truck_id: t.truck_id,
       fecha: t.fecha,
       hora: t.hora ?? "",
-      folio_tag: t.folio_tag ?? "",
+      folio: t.folio ?? "",
+      tag: t.tag ?? "",
       odometro: t.odometro,
       litros: t.litros,
       precio_litro: t.precio_litro,
@@ -214,7 +216,8 @@ export default function Combustibles() {
       const body = {
         ...form,
         hora: form.hora || null,
-        folio_tag: form.folio_tag || null,
+        folio: form.folio || null,
+        tag: form.tag || null,
         importe_total: form.importe_total || form.litros * form.precio_litro,
       };
       if (editId) await updateFuelTicket(editId, body);
@@ -368,6 +371,7 @@ export default function Combustibles() {
               <TableHeader>
                 <TableRow className="bg-secondary/50">
                   <TableHead>Fecha</TableHead>
+                  <TableHead>Folio/Tag</TableHead>
                   <TableHead>Unidad</TableHead>
                   <TableHead className="text-right">Odómetro</TableHead>
                   <TableHead className="text-right">Litros</TableHead>
@@ -380,13 +384,13 @@ export default function Combustibles() {
               <TableBody>
                 {loadingTickets ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                       Cargando…
                     </TableCell>
                   </TableRow>
                 ) : tickets.length === 0 ? (
                   <TableRow>
-                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
                       Sin tickets en el período
                     </TableCell>
                   </TableRow>
@@ -396,6 +400,12 @@ export default function Combustibles() {
                       <TableCell>
                         {t.fecha}
                         {t.hora ? ` ${t.hora.slice(0, 5)}` : ""}
+                      </TableCell>
+                      <TableCell className="font-mono text-sm">
+                        {t.folio ?? "—"}
+                        {t.tag ? (
+                          <span className="text-muted-foreground text-xs block">{t.tag}</span>
+                        ) : null}
                       </TableCell>
                       <TableCell className="font-mono font-medium">
                         {t.numero_economico ?? "—"}
@@ -635,8 +645,12 @@ export default function Combustibles() {
               />
             </div>
             <div className="space-y-1">
-              <Label>Folio TAG</Label>
-              <Input value={form.folio_tag ?? ""} onChange={(e) => setForm({ ...form, folio_tag: e.target.value })} />
+              <Label>Folio</Label>
+              <Input value={form.folio ?? ""} onChange={(e) => setForm({ ...form, folio: e.target.value })} />
+            </div>
+            <div className="space-y-1">
+              <Label>TAG</Label>
+              <Input value={form.tag ?? ""} onChange={(e) => setForm({ ...form, tag: e.target.value })} />
             </div>
             <div className="space-y-1">
               <Label>Litros</Label>
@@ -677,8 +691,8 @@ export default function Combustibles() {
           </DialogHeader>
           <div className="space-y-4 py-2">
             <p className="text-sm text-muted-foreground">
-              Usa la plantilla con columnas: folio TAG, número económico, placas, fecha, hora, odómetro, litros,
-              precio, importe.
+              Compatible con reporte Tothem: Folio, Tag, Numero Econ, Fecha, Hora, Ruta (ubicación), Odometro,
+              Litros, Precio por litro, Importe. Se omiten Id Tothem, descripción corta y tag despachado.
             </p>
             <input
               ref={fileRef}
