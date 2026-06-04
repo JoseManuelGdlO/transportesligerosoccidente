@@ -18,6 +18,7 @@ import {
   assertNoOpenTripConflictLocal,
   openTripByDriverId,
   openTripByTruckId,
+  tripIsClosed,
 } from "@/lib/tripStatus";
 import { toast } from "sonner";
 
@@ -31,24 +32,30 @@ type TripForm = {
   tarifa: number;
   viaticos_entregados: number;
   tipo_viaje: TripType;
+  km_final: number;
+  fecha_llegada: string;
 };
+
+function toDatetimeLocal(iso?: string): string {
+  if (!iso) return new Date().toISOString().slice(0, 16);
+  return iso.length >= 16 ? iso.slice(0, 16) : new Date(iso).toISOString().slice(0, 16);
+}
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
 
 function tripToForm(trip: Trip): TripForm {
-  const fecha = trip.fecha_salida;
-  const fechaLocal =
-    fecha.length >= 16 ? fecha.slice(0, 16) : new Date(fecha).toISOString().slice(0, 16);
   return {
     truck_id: trip.truck_id,
     driver_id: trip.driver_id,
     client_id: trip.client_id,
     num_factura: trip.num_factura ?? "",
-    fecha_salida: fechaLocal,
+    fecha_salida: toDatetimeLocal(trip.fecha_salida),
     km_inicial: trip.km_inicial,
     tarifa: trip.tarifa,
     viaticos_entregados: trip.viaticos_entregados,
     tipo_viaje: trip.tipo_viaje ?? "local",
+    km_final: trip.km_final ?? trip.km_inicial,
+    fecha_llegada: toDatetimeLocal(trip.fecha_llegada),
   };
 }
 
@@ -69,6 +76,7 @@ type Props = {
 export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const { trucks, drivers, clients, trips } = useTlo();
   const apiMode = hasApiConfigured();
+  const isClosed = tripIsClosed(trip);
   const paradasLocked = trip.carta_porte?.estatus === "timbrada";
 
   const [form, setForm] = useState<TripForm>(() => tripToForm(trip));
@@ -129,6 +137,16 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       toast.error("Indica al menos 2 paradas en la ruta");
       return;
     }
+    if (isClosed) {
+      if (!form.fecha_llegada.trim()) {
+        toast.error("Captura la fecha y hora de llegada");
+        return;
+      }
+      if (+form.km_final <= +form.km_inicial) {
+        toast.error("El km final debe ser mayor al inicial");
+        return;
+      }
+    }
 
     const stops = paradasLocked ? undefined : paradasToTripStops(validParadas);
     const patch: Record<string, unknown> = {
@@ -145,6 +163,10 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     };
     if (stops) {
       patch.paradas = stops;
+    }
+    if (isClosed) {
+      patch.km_final = +form.km_final;
+      patch.fecha_llegada = new Date(form.fecha_llegada).toISOString();
     }
 
     setSaving(true);
@@ -179,6 +201,12 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
         num_factura: form.num_factura.trim() || undefined,
+        ...(isClosed
+          ? {
+              km_final: +form.km_final,
+              fecha_llegada: new Date(form.fecha_llegada).toISOString(),
+            }
+          : {}),
       };
       onSaved(updated);
       toast.success("Viaje actualizado (demo)");
@@ -350,6 +378,29 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
               onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
             />
           </div>
+          {isClosed && (
+            <>
+              <div className="col-span-2 pt-2 border-t">
+                <p className="text-sm font-medium">Datos de cierre</p>
+              </div>
+              <div>
+                <Label>Kilometraje final</Label>
+                <Input
+                  type="number"
+                  value={form.km_final}
+                  onChange={(e) => setForm({ ...form, km_final: +e.target.value })}
+                />
+              </div>
+              <div>
+                <Label>Fecha y hora de llegada</Label>
+                <Input
+                  type="datetime-local"
+                  value={form.fecha_llegada}
+                  onChange={(e) => setForm({ ...form, fecha_llegada: e.target.value })}
+                />
+              </div>
+            </>
+          )}
         </div>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>

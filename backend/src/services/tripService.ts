@@ -203,7 +203,7 @@ export async function removeExpense(tenantId: string, tripId: string, expenseId:
   await e.destroy();
 }
 
-const PATCH_OPEN_ONLY = [
+const PATCH_TRIP_FIELDS = [
   "truck_id",
   "driver_id",
   "client_id",
@@ -215,46 +215,57 @@ const PATCH_OPEN_ONLY = [
   "viaticos_entregados",
   "fecha_salida",
   "tipo_viaje",
+  "num_factura",
+  "comision_override",
 ] as const;
-
-const PATCH_WHEN_CLOSED = ["num_factura", "comision_override"] as const;
 
 export async function patchTrip(tenantId: string, id: string, patch: Partial<Record<string, unknown>>) {
   const trip = await getTripOrThrow(tenantId, id, false);
   const isClosed = tripIsClosed(trip);
 
-  if (isClosed) {
-    for (const k of PATCH_OPEN_ONLY) {
-      if (patch[k] !== undefined) {
-        const err = new Error(`No se puede modificar "${k}" en un viaje cerrado`);
-        (err as Error & { status?: number }).status = 400;
-        throw err;
-      }
-    }
-  } else {
+  if (!isClosed) {
     await assertTripOpen(trip);
+    if (patch.km_final !== undefined || patch.fecha_llegada !== undefined) {
+      const err = new Error("Km final y fecha de llegada solo se editan en viajes cerrados; use cerrar viaje");
+      (err as Error & { status?: number }).status = 400;
+      throw err;
+    }
   }
 
-  const allowed = isClosed
-    ? [...PATCH_WHEN_CLOSED]
-    : [...PATCH_OPEN_ONLY, ...PATCH_WHEN_CLOSED];
-
   const data: Record<string, unknown> = {};
-  for (const k of allowed) {
-    if (k === "fecha_salida") continue;
+  for (const k of PATCH_TRIP_FIELDS) {
+    if (k === "fecha_salida" || k === "num_factura" || k === "comision_override") continue;
     if (patch[k] !== undefined) data[k] = patch[k];
   }
   if (patch.num_factura !== undefined) {
     const v = String(patch.num_factura).trim();
     data.num_factura = v || null;
   }
-  if (!isClosed && patch.fecha_salida !== undefined) {
+  if (patch.fecha_salida !== undefined) {
     data.fecha_salida = new Date(String(patch.fecha_salida));
   }
   if (patch.comision_override === null) data.comision_override = null;
+  else if (patch.comision_override !== undefined) data.comision_override = patch.comision_override;
+
+  if (isClosed) {
+    if (patch.km_final !== undefined) data.km_final = patch.km_final;
+    if (patch.fecha_llegada !== undefined) {
+      data.fecha_llegada = new Date(String(patch.fecha_llegada));
+    }
+    if (patch.km_final !== undefined || patch.km_inicial !== undefined) {
+      const kmInicial = Number(patch.km_inicial ?? trip.km_inicial);
+      const kmFinalRaw = patch.km_final !== undefined ? patch.km_final : trip.km_final;
+      const kmFinal = Number(kmFinalRaw);
+      if (kmFinalRaw == null || Number.isNaN(kmFinal) || kmFinal <= kmInicial) {
+        const err = new Error("El km final debe ser mayor al inicial");
+        (err as Error & { status?: number }).status = 400;
+        throw err;
+      }
+    }
+  }
 
   const paradasPatch = patch.paradas as ParadaInput[] | undefined;
-  if (!isClosed && paradasPatch) {
+  if (paradasPatch) {
     await assertParadasEditable(tenantId, id);
     const paradas = normalizeParadasInput({ paradas: paradasPatch });
     const { origen, destino } = deriveOrigenDestino(paradas);
@@ -262,10 +273,7 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     data.destino = destino;
   }
 
-  if (
-    !isClosed &&
-    (patch.truck_id !== undefined || patch.driver_id !== undefined)
-  ) {
+  if (patch.truck_id !== undefined || patch.driver_id !== undefined) {
     const truckId = String(patch.truck_id ?? trip.truck_id);
     const driverId = String(patch.driver_id ?? trip.driver_id);
     await assertNoOpenTripConflict(tenantId, {
@@ -277,7 +285,7 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
 
   await trip.update(data as never);
 
-  if (!isClosed && paradasPatch) {
+  if (paradasPatch) {
     const paradas = normalizeParadasInput({ paradas: paradasPatch });
     await saveTripStops(tenantId, id, paradas);
     await syncUbicacionesFromTripStops(tenantId, id);

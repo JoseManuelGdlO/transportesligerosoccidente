@@ -71,7 +71,7 @@ npm start
 | Permiso | Uso típico |
 |---------|------------|
 | `viajes.ver` | Listar / ver viajes |
-| `viajes.crear` | Crear / editar viaje abierto, combustible, gastos |
+| `viajes.crear` | Crear / editar viaje (abierto o cerrado), combustible, gastos |
 | `viajes.cerrar` | Cerrar viaje |
 | `viajes.eliminar` | Eliminar viaje |
 | `liquidaciones.ver` | Resumen de liquidación |

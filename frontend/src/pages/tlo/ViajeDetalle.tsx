@@ -107,7 +107,7 @@ export default function ViajeDetalle() {
   const isClosed = tripIsClosed(trip);
   const canFacturar = tripIsOpen(trip) || tripIsClosed(trip);
   const customStatusOptions = allStatuses.filter((s) => !s.is_system && s.activo !== false);
-  const canEditTrip = !isClosed && hasPermission("viajes.crear");
+  const canEditTrip = hasPermission("viajes.crear");
 
   const onTripSaved = (updated: Trip) => {
     replaceTrip(updated);
@@ -265,7 +265,7 @@ export default function ViajeDetalle() {
 
       {isClosed && (
         <div className="rounded-md border border-primary/30 bg-primary/5 px-4 py-3 text-sm text-foreground">
-          Viaje cerrado: puedes seguir registrando <strong>gastos</strong> y <strong>diesel</strong> (incluye tickets foráneos de estaciones externas).
+          Viaje cerrado: puedes <strong>editar</strong> los datos del viaje (botón Editar), registrar <strong>gastos</strong> y <strong>diesel</strong> (incluye tickets foráneos de estaciones externas).
         </div>
       )}
 

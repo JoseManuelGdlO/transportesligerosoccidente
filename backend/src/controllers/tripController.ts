@@ -82,6 +82,8 @@ const patchSchema = z
     comision_override: z.number().nullable().optional(),
     num_factura: z.string().optional(),
     tipo_viaje: z.enum(["local", "foraneo"]).optional(),
+    km_final: z.number().int().optional(),
+    fecha_llegada: z.string().optional(),
   })
   .strict();
 
