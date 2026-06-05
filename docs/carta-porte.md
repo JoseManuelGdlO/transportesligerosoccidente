@@ -7,9 +7,9 @@ Documentación del módulo fiscal **Carta Porte 3.1** en Transportes Ligeros de 
 Cada **viaje** puede tener una carta porte asociada (relación 1:1). El flujo permite:
 
 1. Configurar datos fiscales de la empresa y CSD.
-2. Capturar ubicaciones y mercancías del viaje según el complemento Carta Porte.
-3. Validar requisitos y generar un XML de CFDI tipo traslado (`TipoDeComprobante="T"`).
-4. **Timbrar** mediante un proveedor PAC (hoy solo implementación **stub** para desarrollo).
+2. Capturar ubicaciones y mercancías del viaje según el complemento Carta Porte (autoguardado en la pestaña).
+3. Pulsar **Timbrar**: el sistema valida requisitos (`POST preview`) y, si todo está correcto, genera el XML y timbra mediante un proveedor PAC (hoy solo implementación **stub** para desarrollo).
+4. Si faltan datos, se muestran en pantalla y el usuario puede completarlos en la misma pestaña antes de volver a timbrar.
 
 La UI vive en la pestaña **Carta Porte** del detalle de viaje. La configuración del emisor está en **Empresa → Datos fiscales**.
 
@@ -28,7 +28,8 @@ La UI vive en la pestaña **Carta Porte** del detalle de viaje. La configuració
 │ Frontend                                                         │
 │  Empresa.tsx          → /tenant/fiscal, /tenant/fiscal/csd       │
 │  ViajeDetalle.tsx     → pestaña Carta Porte (si flag + permiso)  │
-│  TripCartaPorte.tsx   → formularios, validar, timbrar            │
+│  TripCartaPorte.tsx   → formularios, timbrar (valida antes)    │
+│  cartaPorteIssues.ts  → mapeo issues → resaltado en UI         │
 └───────────────────────────────┬─────────────────────────────────┘
                                 │ REST /api/v1
 ┌───────────────────────────────▼─────────────────────────────────┐
@@ -58,6 +59,7 @@ La UI vive en la pestaña **Carta Porte** del detalle de viaje. La configuració
 | Modelo | `backend/src/models/CartaPorte.ts` |
 | Rutas | `backend/src/routes/v1.ts` (bloque carta-porte y mercancías) |
 | UI viaje | `frontend/src/components/tlo/TripCartaPorte.tsx` |
+| Mapeo de validación UI | `frontend/src/lib/cartaPorteIssues.ts` |
 | Tipos | `frontend/src/types/tlo.ts` (`CartaPorteRecord`, `TripUbicacion`, …) |
 | PAC | `backend/src/services/pac/` (ver también `pac/README.md`) |
 
@@ -74,7 +76,7 @@ La UI vive en la pestaña **Carta Porte** del detalle de viaje. La configuració
 | Slug | Uso |
 |------|-----|
 | `cartaporte.ver` | Ver pestaña y registro; listar mercancías |
-| `cartaporte.timbrar` | Validar (preview) y timbrar |
+| `cartaporte.timbrar` | Timbrar (incluye preview automático en UI) |
 | `cartaporte.cancelar` | Cancelar CFDI timbrado (solo API hoy) |
 | `fiscal.configurar` | Editar datos fiscales y subir CSD en Empresa |
 
@@ -154,12 +156,12 @@ Base: `/api/v1`. Todas requieren `Authorization: Bearer <token>`.
 
 | Método | Ruta | Permiso |
 |--------|------|---------|
-| `PUT` | `/trips/:id/carta-porte/ubicacion-origen` | `viajes.crear` |
-| `PUT` | `/trips/:id/carta-porte/ubicacion-destino` | `viajes.crear` |
-| `PUT` | `/trips/:id/carta-porte/ubicaciones` | `viajes.crear` |
+| `PUT` | `/trips/:id/carta-porte/ubicacion-origen` | `viajes.crear` o `cartaporte.timbrar` |
+| `PUT` | `/trips/:id/carta-porte/ubicacion-destino` | `viajes.crear` o `cartaporte.timbrar` |
+| `PUT` | `/trips/:id/carta-porte/ubicaciones` | `viajes.crear` o `cartaporte.timbrar` |
 | `GET` | `/trips/:id/mercancias` | `cartaporte.ver` |
-| `POST` | `/trips/:id/mercancias` | `viajes.crear` |
-| `DELETE` | `/trips/:id/mercancias/:mercanciaId` | `viajes.crear` |
+| `POST` | `/trips/:id/mercancias` | `viajes.crear` o `cartaporte.timbrar` |
+| `DELETE` | `/trips/:id/mercancias/:mercanciaId` | `viajes.crear` o `cartaporte.timbrar` |
 
 `PUT .../ubicaciones` espera `{ "ubicaciones": [ { "orden": 1, ... }, ... ] }` con al menos 2 elementos.
 
@@ -180,17 +182,22 @@ El viaje en `GET /trips/:id` incluye anidados `carta_porte`, `ubicaciones` y `me
 ### 1. Preparación (antes de timbrar)
 
 1. En **Empresa**, cargar RFC, régimen, CP fiscal, serie CFDI y certificados **CSD** (`.cer` + `.key` + contraseña).
-2. En catálogos, completar datos fiscales de **cliente**, **camión** y **operador** asignados al viaje.
+2. Completar datos fiscales de **cliente**, **camión** y **operador** (en catálogos o inline en la pestaña Carta Porte).
 3. En el viaje, estado **`en_curso`** o **`cerrado`** (otros estados fallan validación).
-4. En la pestaña Carta Porte: guardar **ubicaciones** (origen, paradas intermedias si aplica, destino con distancias en km) y al menos una **mercancía**.
+4. En la pestaña Carta Porte: capturar **ubicaciones** (origen, paradas intermedias si aplica, destino con distancias en km; se autoguardan al salir del campo) y al menos una **mercancía**.
 
-### 2. Validar
+### 2. Timbrar (UI)
 
-`POST .../preview` ejecuta `validateCartaPorteData`. Si hay problemas, devuelve `valid: false` e `issues` (lista en español). Si todo OK, genera `xml_preview` (sin timbrar).
+Al pulsar **Timbrar** en `TripCartaPorte`:
 
-### 3. Timbrar
+1. Se hace flush de ubicaciones pendientes en memoria.
+2. `POST .../preview` ejecuta `validateCartaPorteData`.
+3. Si `valid: false`: se muestran `issues`, se resaltan secciones/campos afectados y el usuario corrige en la misma pestaña.
+4. Si `valid: true`: `POST .../timbrar` continúa el flujo de timbrado.
 
-`POST .../timbrar`:
+### 3. Timbrar (backend)
+
+`POST .../timbrar` (también invocable directamente por API):
 
 1. Repite validación y construcción de XML (`buildCartaPorteXml`).
 2. Llama al PAC (`getPacProvider`).
@@ -198,6 +205,8 @@ El viaje en `GET /trips/:id` incluye anidados `carta_porte`, `ubicaciones` y `me
 4. Actualiza registro: `estatus: timbrada`, `uuid`, `xml_timbrado`, `timbrado_at`, etc.
 
 Si falla el PAC: `estatus: error` y `error_mensaje`; respuesta HTTP 502.
+
+`POST .../preview` sigue disponible como endpoint; la UI ya no expone un botón separado de validación.
 
 ### 4. Cancelar
 
@@ -207,13 +216,14 @@ Solo vía API con permiso `cartaporte.cancelar`. El PAC stub no hace llamada rea
 
 - No se pueden modificar **paradas del viaje** si la carta porte ya está **timbrada** (`tripStopService.assertParadasEditable`).
 - No se puede timbrar dos veces si ya está `timbrada`.
-- Edición de ubicaciones/mercancías en UI requiere viaje abierto (`tripIsOpen`) y permiso `viajes.crear`.
+- Edición de ubicaciones/mercancías en UI requiere viaje **`en_curso` o `cerrado`**, carta **no timbrada**, y permiso `viajes.crear` o `cartaporte.timbrar`.
+- Edición fiscal inline de operador/camión en la pestaña requiere además `catalogos.editar` (PATCH a catálogos).
 
 ---
 
 ## Validaciones (`validateCartaPorteData`)
 
-Mensajes típicos que aparecen en preview:
+Mensajes típicos que aparecen en preview (y se usan en UI para resaltar campos vía `cartaPorteIssues.ts`):
 
 **Empresa**
 
@@ -284,11 +294,15 @@ Sección **Datos fiscales (Carta Porte)** con permiso `fiscal.configurar`.
 
 Pestaña **Carta Porte** → componente `TripCartaPorte`:
 
-- Estado, IdCCP, UUID, errores.
-- Botones **Validar datos** y **Timbrar** (si `cartaporte.timbrar`).
-- Formularios origen / paradas / destino (catálogo de ubicaciones del cliente).
-- Alta y baja de mercancías.
-- Tarjetas de solo lectura para operador y camión.
+- Estado, IdCCP, UUID, errores de timbrado previo.
+- Un botón **Timbrar** (`cartaporte.timbrar`): valida con preview y timbra si los datos son correctos.
+- Lista de `issues` y resaltado de campos/secciones tras validación fallida (scroll al primer error).
+- Formularios origen / paradas / destino con **autoguardado** (debounce ~400 ms y al salir del campo); sin botones «Guardar origen/entrega».
+- Catálogo de ubicaciones del cliente (select) cuando aplica.
+- Alta (**Agregar**) y baja de mercancías.
+- Tarjetas editables de operador y camión (campos fiscales SAT) con guardado al salir del campo; requieren `catalogos.editar`.
+- Banner con enlace a **Empresa → Datos fiscales** cuando fallan validaciones de tenant/CSD.
+- Todo en solo lectura si la carta ya está **timbrada**.
 
 ### PDF operativo del viaje
 

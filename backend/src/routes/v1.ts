@@ -150,12 +150,37 @@ r.get("/trips/:id/carta-porte", authenticateJwt, requirePermission("cartaporte.v
 r.post("/trips/:id/carta-porte/preview", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postPreview);
 r.post("/trips/:id/carta-porte/timbrar", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postTimbrar);
 r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);
-r.put("/trips/:id/carta-porte/ubicacion-origen", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionOrigen);
-r.put("/trips/:id/carta-porte/ubicacion-destino", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicacionDestino);
-r.put("/trips/:id/carta-porte/ubicaciones", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.putUbicaciones);
+r.put(
+  "/trips/:id/carta-porte/ubicacion-origen",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.putUbicacionOrigen,
+);
+r.put(
+  "/trips/:id/carta-porte/ubicacion-destino",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.putUbicacionDestino,
+);
+r.put(
+  "/trips/:id/carta-porte/ubicaciones",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.putUbicaciones,
+);
 r.get("/trips/:id/mercancias", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.listMercancias);
-r.post("/trips/:id/mercancias", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.postMercancia);
-r.delete("/trips/:id/mercancias/:mercanciaId", authenticateJwt, requirePermission("viajes.crear"), cartaPorteC.deleteMercancia);
+r.post(
+  "/trips/:id/mercancias",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.postMercancia,
+);
+r.delete(
+  "/trips/:id/mercancias/:mercanciaId",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.deleteMercancia,
+);
 
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);

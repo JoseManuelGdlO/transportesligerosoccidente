@@ -12,7 +12,7 @@ import {
   TripMercancia,
 } from "../models";
 import { getTripOrThrow } from "./tripService";
-import { tripHasStatusSlug } from "./tripStatusService";
+import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { ensureUbicacionesFromClient, defaultIdUbicacionSat } from "./tripFiscalService";
 import { num } from "../utils/numbers";
@@ -87,6 +87,7 @@ async function loadTripContext(tenantId: string, tripId: string) {
   const trip = await Trip.findOne({
     where: { id: tripId, tenant_id: tenantId },
     include: [
+      STATUSES_INCLUDE,
       { association: "paradas" },
       { association: "ubicaciones" },
       { association: "mercancias" },
