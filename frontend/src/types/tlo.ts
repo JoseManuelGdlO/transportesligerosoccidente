@@ -288,6 +288,31 @@ export interface FuelImportResult {
   fin?: string;
 }
 
+export interface FuelImportPreviewTicket {
+  fila: number;
+  truck_id: string;
+  numero_economico: string;
+  placas: string;
+  fecha: string;
+  hora: string | null;
+  folio: string;
+  tag: string | null;
+  odometro: number;
+  litros: number;
+  precio_litro: number;
+  importe_total: number;
+  ubicacion: string;
+  external_id: string;
+  posible_duplicado: boolean;
+}
+
+export interface FuelImportPreviewResult {
+  tickets: FuelImportPreviewTicket[];
+  errores: { fila: number; mensaje: string; datos?: Record<string, unknown> }[];
+  inicio?: string;
+  fin?: string;
+}
+
 export interface Truck {
   id: string;
   numero_economico: string;

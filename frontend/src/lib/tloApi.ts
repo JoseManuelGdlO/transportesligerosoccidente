@@ -11,6 +11,7 @@ import type {
   FuelProrationReport,
   FuelSummaryRow,
   FuelImportResult,
+  FuelImportPreviewResult,
   Trip,
   TripMercancia,
   TripUbicacion,
@@ -822,6 +823,13 @@ export async function importFuelTickets(file: File): Promise<FuelImportResult> {
   form.append("file", file);
   const res = await apiFetch("/fuel-tickets/import", { method: "POST", body: form });
   return readJson<FuelImportResult>(res);
+}
+
+export async function previewFuelImport(file: File): Promise<FuelImportPreviewResult> {
+  const form = new FormData();
+  form.append("file", file);
+  const res = await apiFetch("/fuel-tickets/import/preview", { method: "POST", body: form });
+  return readJson<FuelImportPreviewResult>(res);
 }
 
 export async function fetchFuelProration(inicio: string, fin: string): Promise<FuelProrationReport> {

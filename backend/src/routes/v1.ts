@@ -243,6 +243,13 @@ r.delete(
   fuelTicketC.deleteFuelTicket,
 );
 r.post(
+  "/fuel-tickets/import/preview",
+  authenticateJwt,
+  requirePermission("combustibles.importar"),
+  uploadFuelImport.single("file"),
+  fuelTicketC.previewFuelImport,
+);
+r.post(
   "/fuel-tickets/import",
   authenticateJwt,
   requirePermission("combustibles.importar"),

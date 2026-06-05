@@ -7,11 +7,18 @@ import {
   fetchFuelProration,
   fetchFuelSummary,
   fetchFuelTickets,
-  importFuelTickets,
+  previewFuelImport,
   syncFuelTickets,
   updateFuelTicket,
 } from "@/lib/tloApi";
-import type { FuelImportResult, FuelProrationReport, FuelProrationTripRef, FuelSummaryRow, FuelTicket } from "@/types/tlo";
+import type {
+  FuelImportPreviewResult,
+  FuelImportPreviewTicket,
+  FuelProrationReport,
+  FuelProrationTripRef,
+  FuelSummaryRow,
+  FuelTicket,
+} from "@/types/tlo";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -110,6 +117,13 @@ const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> =
   origen: "manual",
 });
 
+type ImportReviewStatus = "pendiente" | "guardado" | "omitido";
+
+type ImportReviewItem = {
+  ticket: FuelImportPreviewTicket;
+  status: ImportReviewStatus;
+};
+
 function downloadImportTemplate() {
   const headers = [
     "folio",
@@ -172,7 +186,11 @@ export default function Combustibles() {
   const [deleteId, setDeleteId] = useState<string | null>(null);
 
   const [importOpen, setImportOpen] = useState(false);
-  const [importResult, setImportResult] = useState<FuelImportResult | null>(null);
+  const [importPreview, setImportPreview] = useState<FuelImportPreviewResult | null>(null);
+  const [importReviewItems, setImportReviewItems] = useState<ImportReviewItem[]>([]);
+  const [reviewTicketIndex, setReviewTicketIndex] = useState<number | null>(null);
+  const [confirmingImportIndex, setConfirmingImportIndex] = useState<number | null>(null);
+  const [confirmingAllImports, setConfirmingAllImports] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [importing, setImporting] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
@@ -238,11 +256,13 @@ export default function Combustibles() {
 
   const openNew = () => {
     setEditId(null);
+    setReviewTicketIndex(null);
     setForm({ ...emptyTicket(), truck_id: activeTrucks[0]?.id ?? "" });
     setDialogOpen(true);
   };
 
   const openEdit = (t: FuelTicket) => {
+    setReviewTicketIndex(null);
     setEditId(t.id);
     setForm({
       truck_id: t.truck_id,
@@ -260,6 +280,61 @@ export default function Combustibles() {
     setDialogOpen(true);
   };
 
+  const openImportReview = (ticket: FuelImportPreviewTicket, index: number) => {
+    setEditId(null);
+    setReviewTicketIndex(index);
+    setForm({
+      truck_id: ticket.truck_id,
+      fecha: ticket.fecha,
+      hora: ticket.hora ?? "",
+      folio: ticket.folio,
+      tag: ticket.tag ?? "",
+      odometro: ticket.odometro,
+      litros: ticket.litros,
+      precio_litro: ticket.precio_litro,
+      importe_total: ticket.importe_total,
+      ubicacion: ticket.ubicacion,
+      origen: "import_excel",
+      external_id: ticket.external_id,
+    });
+    setDialogOpen(true);
+  };
+
+  const confirmImportRow = async (index: number) => {
+    const item = importReviewItems[index];
+    if (!item || item.status !== "pendiente") return;
+    const ticket = item.ticket;
+    if (!ticket.truck_id || ticket.litros <= 0 || ticket.precio_litro <= 0) {
+      toast.error("Datos inválidos en la fila");
+      return;
+    }
+    setConfirmingImportIndex(index);
+    try {
+      await createFuelTicket({
+        truck_id: ticket.truck_id,
+        fecha: ticket.fecha,
+        hora: ticket.hora,
+        folio: ticket.folio,
+        tag: ticket.tag,
+        odometro: ticket.odometro,
+        litros: ticket.litros,
+        precio_litro: ticket.precio_litro,
+        importe_total: ticket.importe_total,
+        ubicacion: ticket.ubicacion,
+        origen: "import_excel",
+        external_id: ticket.external_id,
+      });
+      setImportReviewItems((prev) =>
+        prev.map((row, i) => (i === index ? { ...row, status: "guardado" } : row)),
+      );
+      toast.success(`Ticket fila ${ticket.fila} guardado`);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar el ticket");
+    } finally {
+      setConfirmingImportIndex(null);
+    }
+  };
+
   const saveTicket = async () => {
     if (!form.truck_id || form.litros <= 0 || form.precio_litro <= 0) {
       toast.error("Completa camión, litros y precio");
@@ -273,6 +348,20 @@ export default function Combustibles() {
         tag: form.tag || null,
         importe_total: form.importe_total || form.litros * form.precio_litro,
       };
+      if (reviewTicketIndex != null) {
+        await createFuelTicket({
+          ...body,
+          origen: "import_excel",
+          external_id: form.external_id ?? importReviewItems[reviewTicketIndex]?.ticket.external_id,
+        });
+        setImportReviewItems((prev) =>
+          prev.map((item, i) => (i === reviewTicketIndex ? { ...item, status: "guardado" } : item)),
+        );
+        toast.success(`Ticket fila ${importReviewItems[reviewTicketIndex]?.ticket.fila} guardado`);
+        setReviewTicketIndex(null);
+        setDialogOpen(false);
+        return;
+      }
       if (editId) await updateFuelTicket(editId, body);
       else await createFuelTicket(body);
       toast.success(editId ? "Ticket actualizado" : "Ticket registrado");
@@ -322,41 +411,120 @@ export default function Combustibles() {
     }
   };
 
+  const omitImportRow = (index: number) => {
+    setImportReviewItems((prev) =>
+      prev.map((item, i) => (i === index ? { ...item, status: "omitido" } : item)),
+    );
+  };
+
+  const omitImportRowAndClose = () => {
+    if (reviewTicketIndex == null) return;
+    omitImportRow(reviewTicketIndex);
+    setReviewTicketIndex(null);
+    setDialogOpen(false);
+  };
+
+  const confirmAllPendingImportRows = async () => {
+    const pendingIndices = importReviewItems
+      .map((item, index) => (item.status === "pendiente" ? index : -1))
+      .filter((index) => index >= 0);
+    if (pendingIndices.length === 0) return;
+
+    setConfirmingAllImports(true);
+    let saved = 0;
+    let failed = 0;
+    const nextItems = [...importReviewItems];
+
+    for (const index of pendingIndices) {
+      const ticket = nextItems[index]!.ticket;
+      if (!ticket.truck_id || ticket.litros <= 0 || ticket.precio_litro <= 0) {
+        failed++;
+        continue;
+      }
+      try {
+        await createFuelTicket({
+          truck_id: ticket.truck_id,
+          fecha: ticket.fecha,
+          hora: ticket.hora,
+          folio: ticket.folio,
+          tag: ticket.tag,
+          odometro: ticket.odometro,
+          litros: ticket.litros,
+          precio_litro: ticket.precio_litro,
+          importe_total: ticket.importe_total,
+          ubicacion: ticket.ubicacion,
+          origen: "import_excel",
+          external_id: ticket.external_id,
+        });
+        nextItems[index] = { ...nextItems[index]!, status: "guardado" };
+        saved++;
+      } catch {
+        failed++;
+      }
+    }
+
+    setImportReviewItems(nextItems);
+    setConfirmingAllImports(false);
+    if (saved > 0) toast.success(`${saved} ticket(s) guardados`);
+    if (failed > 0) toast.warning(`${failed} ticket(s) no se pudieron guardar`);
+  };
+
+  const handleImportOpenChange = (open: boolean) => {
+    if (!open && (importPreview || importReviewItems.length > 0)) {
+      const saved = importReviewItems.filter((i) => i.status === "guardado").length;
+      const omitted = importReviewItems.filter((i) => i.status === "omitido").length;
+      const fileErrors = importPreview?.errores.length ?? 0;
+
+      if (saved > 0) {
+        const range =
+          importPreview?.inicio && importPreview?.fin
+            ? { inicio: importPreview.inicio, fin: importPreview.fin }
+            : undefined;
+        if (range) {
+          setInicio(range.inicio);
+          setFin(range.fin);
+          toast.info(
+            `Filtro ajustado al periodo del reporte (${formatIsoDateEs(range.inicio)} – ${formatIsoDateEs(range.fin)})`,
+          );
+        }
+        void loadTickets(range);
+        if (range) {
+          void fetchFuelSummary(range.inicio, range.fin).then((data) => setSummary(data.unidades));
+          void fetchFuelProration(range.inicio, range.fin).then(setProration);
+        } else {
+          void loadSummary();
+          void loadProration();
+        }
+      }
+
+      if (saved > 0 || omitted > 0 || fileErrors > 0) {
+        toast.info(`${saved} guardados · ${omitted} omitidos · ${fileErrors} errores en archivo`);
+      }
+
+      setImportPreview(null);
+      setImportReviewItems([]);
+    }
+    setImportOpen(open);
+  };
+
   const onImportFile = async (file: File) => {
     setImporting(true);
-    setImportResult(null);
+    setImportPreview(null);
+    setImportReviewItems([]);
     try {
-      const result = await importFuelTickets(file);
-      setImportResult(result);
+      const result = await previewFuelImport(file);
+      setImportPreview(result);
+      setImportReviewItems(result.tickets.map((ticket) => ({ ticket, status: "pendiente" })));
 
       const catalogError = result.errores.find(
         (e) => e.fila === 0 && e.mensaje.startsWith("Catálogo de camiones ambiguo"),
       );
       if (catalogError) {
         toast.error(catalogError.mensaje);
-      } else if (result.creados > 0 || result.duplicados > 0) {
-        toast.success(`Importación: ${result.creados} creados, ${result.duplicados} duplicados`);
+      } else if (result.tickets.length > 0) {
+        toast.info(`${result.tickets.length} ticket(s) listos para revisar`);
       } else if (result.errores.length > 0) {
-        toast.warning("Importación sin registros nuevos; revisa los errores.");
-      }
-
-      const range =
-        result.inicio && result.fin ? { inicio: result.inicio, fin: result.fin } : undefined;
-      if (range) {
-        setInicio(range.inicio);
-        setFin(range.fin);
-        toast.info(
-          `Filtro ajustado al periodo del reporte (${formatIsoDateEs(range.inicio)} – ${formatIsoDateEs(range.fin)})`,
-        );
-      }
-
-      await loadTickets(range);
-      if (range) {
-        void fetchFuelSummary(range.inicio, range.fin).then((data) => setSummary(data.unidades));
-        void fetchFuelProration(range.inicio, range.fin).then(setProration);
-      } else {
-        void loadSummary();
-        void loadProration();
+        toast.warning("Sin tickets válidos; revisa los errores.");
       }
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al importar archivo");
@@ -364,6 +532,8 @@ export default function Combustibles() {
       setImporting(false);
     }
   };
+
+  const importReviewPendingCount = importReviewItems.filter((i) => i.status === "pendiente").length;
 
   const dateFilters = (
     <div className="flex flex-wrap gap-3 items-end">
@@ -717,10 +887,22 @@ export default function Combustibles() {
         </TabsContent>
       </Tabs>
 
-      <Dialog open={dialogOpen} onOpenChange={setDialogOpen}>
+      <Dialog
+        open={dialogOpen}
+        onOpenChange={(open) => {
+          if (!open) setReviewTicketIndex(null);
+          setDialogOpen(open);
+        }}
+      >
         <DialogContent className="max-w-md">
           <DialogHeader>
-            <DialogTitle>{editId ? "Editar ticket" : "Nuevo ticket de combustible"}</DialogTitle>
+            <DialogTitle>
+              {reviewTicketIndex != null
+                ? `Editar ticket importado (fila ${importReviewItems[reviewTicketIndex]?.ticket.fila ?? "—"})`
+                : editId
+                  ? "Editar ticket"
+                  : "Nuevo ticket de combustible"}
+            </DialogTitle>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3 py-2">
             <div className="col-span-2 space-y-1">
@@ -781,17 +963,39 @@ export default function Combustibles() {
               <Input value={form.ubicacion} onChange={(e) => setForm({ ...form, ubicacion: e.target.value })} />
             </div>
           </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => setDialogOpen(false)}>
-              Cancelar
-            </Button>
-            <Button onClick={() => void saveTicket()}>Guardar</Button>
+          <DialogFooter className="gap-2 sm:justify-between">
+            {reviewTicketIndex != null ? (
+              <>
+                <Button variant="ghost" onClick={omitImportRowAndClose}>
+                  Omitir
+                </Button>
+                <div className="flex gap-2">
+                  <Button
+                    variant="outline"
+                    onClick={() => {
+                      setReviewTicketIndex(null);
+                      setDialogOpen(false);
+                    }}
+                  >
+                    Cancelar
+                  </Button>
+                  <Button onClick={() => void saveTicket()}>Guardar</Button>
+                </div>
+              </>
+            ) : (
+              <>
+                <Button variant="outline" onClick={() => setDialogOpen(false)}>
+                  Cancelar
+                </Button>
+                <Button onClick={() => void saveTicket()}>Guardar</Button>
+              </>
+            )}
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={importOpen} onOpenChange={setImportOpen}>
-        <DialogContent>
+      <Dialog open={importOpen} onOpenChange={handleImportOpenChange}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Importar consumos (Excel / CSV)</DialogTitle>
           </DialogHeader>
@@ -822,32 +1026,45 @@ export default function Combustibles() {
               }}
             >
               <Upload className="h-8 w-8 mx-auto text-muted-foreground mb-2" />
-              <p className="text-sm">{importing ? "Importando…" : "Arrastra un archivo o haz clic"}</p>
+              <p className="text-sm">{importing ? "Analizando archivo…" : "Arrastra un archivo o haz clic"}</p>
             </div>
-            {importResult && (
-              <div className="text-sm space-y-2 rounded-md border p-3 bg-muted/30">
-                <p>
-                  <strong>{importResult.creados}</strong> creados · <strong>{importResult.duplicados}</strong>{" "}
-                  duplicados
-                  {importResult.inicio && importResult.fin && (
-                    <>
-                      {" "}
-                      · periodo {formatIsoDateEs(importResult.inicio)} – {formatIsoDateEs(importResult.fin)}
-                    </>
+            {importPreview && (
+              <div className="text-sm space-y-3 rounded-md border p-3 bg-muted/30">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p>
+                    <strong>{importReviewItems.length}</strong> listos para revisar ·{" "}
+                    <strong>{importPreview.errores.length}</strong> errores
+                    {importPreview.inicio && importPreview.fin && (
+                      <>
+                        {" "}
+                        · periodo {formatIsoDateEs(importPreview.inicio)} –{" "}
+                        {formatIsoDateEs(importPreview.fin)}
+                      </>
+                    )}
+                  </p>
+                  {importReviewPendingCount > 0 && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      disabled={confirmingAllImports || confirmingImportIndex != null}
+                      onClick={() => void confirmAllPendingImportRows()}
+                    >
+                      {confirmingAllImports ? "Confirmando…" : "Confirmar todos"}
+                    </Button>
                   )}
-                </p>
-                {importResult.errores.some((e) => e.fila === 0) && (
+                </div>
+                {importPreview.errores.some((e) => e.fila === 0) && (
                   <div className="rounded border border-destructive/50 bg-destructive/10 p-2 text-destructive text-xs">
-                    {importResult.errores
+                    {importPreview.errores
                       .filter((e) => e.fila === 0)
                       .map((err, i) => (
                         <p key={i}>{err.mensaje}</p>
                       ))}
                   </div>
                 )}
-                {importResult.errores.some((e) => e.fila > 0) && (
+                {importPreview.errores.some((e) => e.fila > 0) && (
                   <ul className="max-h-32 overflow-auto text-destructive text-xs list-disc pl-4">
-                    {importResult.errores
+                    {importPreview.errores
                       .filter((e) => e.fila > 0)
                       .map((err, i) => (
                         <li key={i}>
@@ -855,6 +1072,83 @@ export default function Combustibles() {
                         </li>
                       ))}
                   </ul>
+                )}
+                {importReviewItems.length > 0 && (
+                  <div className="overflow-x-auto rounded-md border bg-background">
+                    <Table>
+                      <TableHeader>
+                        <TableRow>
+                          <TableHead>Fila</TableHead>
+                          <TableHead>Fecha</TableHead>
+                          <TableHead>Folio/TAG</TableHead>
+                          <TableHead>Unidad</TableHead>
+                          <TableHead className="text-right">Litros</TableHead>
+                          <TableHead className="text-right">Importe</TableHead>
+                          <TableHead>Estado</TableHead>
+                          <TableHead></TableHead>
+                        </TableRow>
+                      </TableHeader>
+                      <TableBody>
+                        {importReviewItems.map((item, index) => (
+                          <TableRow
+                            key={`${item.ticket.fila}-${item.ticket.folio}`}
+                            className={item.status !== "pendiente" ? "opacity-60" : undefined}
+                          >
+                            <TableCell>{item.ticket.fila}</TableCell>
+                            <TableCell>{formatIsoDateEs(item.ticket.fecha)}</TableCell>
+                            <TableCell className="font-mono text-sm">
+                              {item.ticket.folio}
+                              {item.ticket.tag ? (
+                                <span className="text-muted-foreground text-xs block">{item.ticket.tag}</span>
+                              ) : null}
+                            </TableCell>
+                            <TableCell className="font-mono">
+                              {item.ticket.numero_economico}
+                              <span className="text-muted-foreground text-xs block">{item.ticket.placas}</span>
+                            </TableCell>
+                            <TableCell className="text-right">{fmtNumber(item.ticket.litros, 2)}</TableCell>
+                            <TableCell className="text-right">{fmtMXN(item.ticket.importe_total)}</TableCell>
+                            <TableCell>
+                              <div className="flex flex-wrap gap-1">
+                                {item.status === "pendiente" && (
+                                  <Badge variant="outline">Pendiente</Badge>
+                                )}
+                                {item.status === "guardado" && (
+                                  <Badge variant="secondary">Guardado</Badge>
+                                )}
+                                {item.status === "omitido" && (
+                                  <Badge variant="outline" className="text-muted-foreground">
+                                    Omitido
+                                  </Badge>
+                                )}
+                                {item.ticket.posible_duplicado && item.status === "pendiente" && (
+                                  <Badge variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400">
+                                    Duplicado
+                                  </Badge>
+                                )}
+                              </div>
+                            </TableCell>
+                            <TableCell className="text-right space-x-1">
+                              {item.status === "pendiente" && canCreate && (
+                                <>
+                                  <Button
+                                    size="sm"
+                                    disabled={confirmingImportIndex === index || confirmingAllImports}
+                                    onClick={() => void confirmImportRow(index)}
+                                  >
+                                    {confirmingImportIndex === index ? "Guardando…" : "Confirmar"}
+                                  </Button>
+                                  <Button variant="outline" size="sm" onClick={() => openImportReview(item.ticket, index)}>
+                                    Editar
+                                  </Button>
+                                </>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        ))}
+                      </TableBody>
+                    </Table>
+                  </div>
                 )}
               </div>
             )}

@@ -21,6 +21,7 @@ const bodySchema = z.object({
   importe_total: z.number().positive().optional(),
   ubicacion: z.string().min(1).optional(),
   external_id: z.string().optional().nullable(),
+  origen: z.enum(["manual", "import_excel", "api"]).optional(),
 });
 
 function jsonTicket(row: Awaited<ReturnType<typeof fuelTicketService.getFuelTicketOrThrow>>) {
@@ -80,5 +81,15 @@ export const importFuelTickets = asyncHandler(async (req: Request, res: Response
     return;
   }
   const result = await fuelImportService.importFuelTicketsFromBuffer(tid(req), file.buffer);
+  res.json(result);
+});
+
+export const previewFuelImport = asyncHandler(async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file?.buffer) {
+    res.status(400).json({ error: "Archivo requerido (campo file)" });
+    return;
+  }
+  const result = await fuelImportService.previewFuelTicketsFromBuffer(tid(req), file.buffer);
   res.json(result);
 });

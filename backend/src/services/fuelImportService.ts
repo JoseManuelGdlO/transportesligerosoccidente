@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { Op } from "sequelize";
 import * as XLSX from "xlsx";
 import { FuelTicket, Truck } from "../models";
 import type { FuelTicketOrigen } from "../models/FuelTicket";
@@ -17,6 +18,31 @@ export type FuelImportError = {
 export type FuelImportResult = {
   creados: number;
   duplicados: number;
+  errores: FuelImportError[];
+  inicio?: string;
+  fin?: string;
+};
+
+export type FuelImportPreviewTicket = {
+  fila: number;
+  truck_id: string;
+  numero_economico: string;
+  placas: string;
+  fecha: string;
+  hora: string | null;
+  folio: string;
+  tag: string | null;
+  odometro: number;
+  litros: number;
+  precio_litro: number;
+  importe_total: number;
+  ubicacion: string;
+  external_id: string;
+  posible_duplicado: boolean;
+};
+
+export type FuelImportPreviewResult = {
+  tickets: FuelImportPreviewTicket[];
   errores: FuelImportError[];
   inicio?: string;
   fin?: string;
@@ -322,20 +348,78 @@ function fuelDataStartRow(sheet: XLSX.WorkSheet): number {
   return headerIdx + 2;
 }
 
-export async function importFuelTicketsFromBuffer(
+function dedupKey(truckId: string, fecha: string, odometro: number, litros: number | string): string {
+  return `${truckId}|${fecha}|${Math.round(Number(odometro))}|${String(litros)}`;
+}
+
+async function markDuplicateTickets(
+  tenantId: string,
+  tickets: FuelImportPreviewTicket[],
+): Promise<FuelImportPreviewTicket[]> {
+  if (tickets.length === 0) return tickets;
+
+  const folios = [...new Set(tickets.map((t) => t.folio).filter(Boolean))];
+  const dedupOr = tickets.map((t) => ({
+    truck_id: t.truck_id,
+    fecha: t.fecha,
+    odometro: Math.round(t.odometro),
+    litros: String(t.litros),
+  }));
+
+  const existing = await FuelTicket.findAll({
+    where: {
+      tenant_id: tenantId,
+      [Op.or]: [
+        ...(folios.length > 0 ? [{ folio: { [Op.in]: folios } }] : []),
+        ...dedupOr,
+      ],
+    } as never,
+    attributes: ["folio", "truck_id", "fecha", "odometro", "litros"],
+  });
+
+  const folioSet = new Set(existing.map((r) => r.folio).filter(Boolean));
+  const dedupSet = new Set(
+    existing.map((r) => dedupKey(String(r.truck_id), String(r.fecha), Number(r.odometro), String(r.litros))),
+  );
+
+  return tickets.map((t) => ({
+    ...t,
+    posible_duplicado:
+      folioSet.has(t.folio) ||
+      dedupSet.has(dedupKey(t.truck_id, t.fecha, t.odometro, t.litros)),
+  }));
+}
+
+type ParsedFuelRows = {
+  tickets: FuelImportPreviewTicket[];
+  toInsert: Array<Record<string, unknown>>;
+  errores: FuelImportError[];
+  inicio?: string;
+  fin?: string;
+};
+
+async function parseFuelTicketsFromBuffer(
   tenantId: string,
   buffer: Buffer,
   origen: FuelTicketOrigen = "import_excel",
-): Promise<FuelImportResult> {
+): Promise<ParsedFuelRows> {
   const wb = XLSX.read(buffer, { type: "buffer", cellDates: false });
   const sheetName = wb.SheetNames[0];
   if (!sheetName) {
-    return { creados: 0, duplicados: 0, errores: [{ fila: 0, mensaje: "El archivo no tiene hojas" }] };
+    return {
+      tickets: [],
+      toInsert: [],
+      errores: [{ fila: 0, mensaje: "El archivo no tiene hojas" }],
+    };
   }
   const sheet = wb.Sheets[sheetName]!;
   const rows = sheetToFuelDataRows(sheet);
   if (rows.length === 0) {
-    return { creados: 0, duplicados: 0, errores: [{ fila: 0, mensaje: "El archivo está vacío o sin filas de datos" }] };
+    return {
+      tickets: [],
+      toInsert: [],
+      errores: [{ fila: 0, mensaje: "El archivo está vacío o sin filas de datos" }],
+    };
   }
 
   const reportRange = parseReportDateRangeFromSheet(sheet);
@@ -345,14 +429,15 @@ export async function importFuelTicketsFromBuffer(
   const catalogConflicts = validateTruckIndexes(indexes);
   if (catalogConflicts.length > 0) {
     return {
-      creados: 0,
-      duplicados: 0,
+      tickets: [],
+      toInsert: [],
       inicio: reportRange?.inicio,
       fin: reportRange?.fin,
       errores: [{ fila: 0, mensaje: catalogAmbiguityMessage(catalogConflicts) }],
     };
   }
 
+  const previewTickets: FuelImportPreviewTicket[] = [];
   const toInsert: Array<Record<string, unknown>> = [];
   const errores: FuelImportError[] = [];
   const parsedFechas: string[] = [];
@@ -416,6 +501,26 @@ export async function importFuelTicketsFromBuffer(
     const hora = parseExcelTime(row[headerMap.hora ?? ""]);
     const total = importe != null && importe > 0 ? importe : Math.round(litros * precio * 100) / 100;
     const ubicacion = cellStr(row, headerMap.ubicacion) || "Gasolinera";
+    const odometroRounded = Math.round(odometro);
+    const externalId = `${folio}|${fecha}|${odometroRounded}`;
+
+    previewTickets.push({
+      fila,
+      truck_id: resolved.truck.id,
+      numero_economico: resolved.truck.numero_economico,
+      placas: resolved.truck.placas,
+      fecha,
+      hora,
+      folio,
+      tag: tagVal || null,
+      odometro: odometroRounded,
+      litros,
+      precio_litro: precio,
+      importe_total: total,
+      ubicacion,
+      external_id: externalId,
+      posible_duplicado: false,
+    });
 
     toInsert.push({
       id: randomUUID(),
@@ -427,13 +532,13 @@ export async function importFuelTicketsFromBuffer(
       tag: tagVal || null,
       numero_economico_raw: economico || resolved.truck.numero_economico,
       placas_raw: resolved.truck.placas,
-      odometro: Math.round(odometro),
+      odometro: odometroRounded,
       litros: String(litros),
       precio_litro: String(precio),
       importe_total: String(total),
       ubicacion,
       origen,
-      external_id: `${folio}|${fecha}|${Math.round(odometro)}`,
+      external_id: externalId,
       created_at: new Date(),
       updated_at: new Date(),
     });
@@ -443,6 +548,34 @@ export async function importFuelTicketsFromBuffer(
   const inicio = reportRange?.inicio ?? rowRange?.inicio;
   const fin = reportRange?.fin ?? rowRange?.fin;
   const rangeFields = inicio && fin ? { inicio, fin } : {};
+
+  const tickets = await markDuplicateTickets(tenantId, previewTickets);
+
+  return { tickets, toInsert, errores, ...rangeFields };
+}
+
+export async function previewFuelTicketsFromBuffer(
+  tenantId: string,
+  buffer: Buffer,
+): Promise<FuelImportPreviewResult> {
+  const parsed = await parseFuelTicketsFromBuffer(tenantId, buffer);
+  return {
+    tickets: parsed.tickets,
+    errores: parsed.errores,
+    inicio: parsed.inicio,
+    fin: parsed.fin,
+  };
+}
+
+export async function importFuelTicketsFromBuffer(
+  tenantId: string,
+  buffer: Buffer,
+  origen: FuelTicketOrigen = "import_excel",
+): Promise<FuelImportResult> {
+  const parsed = await parseFuelTicketsFromBuffer(tenantId, buffer, origen);
+  const { toInsert, errores } = parsed;
+  const rangeFields =
+    parsed.inicio && parsed.fin ? { inicio: parsed.inicio, fin: parsed.fin } : {};
 
   if (toInsert.length === 0) {
     return { creados: 0, duplicados: 0, errores, ...rangeFields };
