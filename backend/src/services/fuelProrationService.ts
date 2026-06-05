@@ -23,6 +23,36 @@ function compareTicketOrder(a: FuelTicketModel, b: FuelTicketModel): number {
   return ha.localeCompare(hb);
 }
 
+/** Fecha+hora como reloj UTC (convención compartida tickets/viajes). */
+export function utcWallClockMs(dateStr: string, timeStr = "00:00:00"): number {
+  const h = timeStr.slice(0, 8);
+  return new Date(`${dateStr}T${h}.000Z`).getTime();
+}
+
+/** Marca de tiempo del ticket (fecha + hora) para delimitar ventanas sin colisiones el mismo día. */
+export function ticketTimestampMs(ticket: FuelTicketModel): number {
+  const h = ticket.hora ? String(ticket.hora).slice(0, 8) : "00:00:00";
+  return utcWallClockMs(dateOnly(ticket.fecha), h);
+}
+
+export function tripTimestampMs(trip: TripModel): number {
+  const iso = trip.fecha_salida.toISOString();
+  return utcWallClockMs(iso.slice(0, 10), iso.slice(11, 19));
+}
+
+function endOfDayMs(dateStr: string): number {
+  return new Date(`${dateStr}T23:59:59.999Z`).getTime();
+}
+
+/** Límite superior de la ventana de consumo del ticket (hasta la siguiente carga o fin de período). */
+export function ticketWindowEndMs(ticket: FuelTicketModel, nextTicket: FuelTicketModel | null, fin: string): number {
+  if (!nextTicket) return endOfDayMs(fin);
+  if (dateOnly(ticket.fecha) === dateOnly(nextTicket.fecha)) {
+    return ticketTimestampMs(nextTicket);
+  }
+  return endOfDayMs(dateOnly(ticket.fecha));
+}
+
 export type ProratedTripRow = {
   trip_id: string;
   folio: string;
@@ -32,6 +62,16 @@ export type ProratedTripRow = {
   km_recorridos: number;
   litros_asignados: number;
   costo_asignado: number;
+};
+
+/** Viaje referenciado sin prorrateo (sin ticket o sin km). */
+export type FuelProrationTripRef = {
+  trip_id: string;
+  folio: string;
+  origen: string;
+  destino: string;
+  fecha_salida: string;
+  km_recorridos: number;
 };
 
 export type ProratedTicketBlock = {
@@ -55,10 +95,17 @@ export type ProrationRangeResult = {
   inicio: string;
   fin: string;
   tickets: ProratedTicketBlock[];
+  viajes_sin_asignar: FuelProrationTripRef[];
+  viajes_sin_km: FuelProrationTripRef[];
   resumen: {
     total_litros: number;
     total_km_viajes: number;
+    /** Viajes con litros asignados a algún ticket (coincide con las tablas). */
     total_viajes: number;
+    /** Viajes con fecha_salida dentro del filtro Desde–Hasta. */
+    viajes_en_periodo: number;
+    viajes_sin_asignar: number;
+    viajes_sin_km: number;
     rendimiento: number | null;
   };
 };
@@ -73,11 +120,7 @@ export type FuelSummaryRow = {
   rendimiento: number | null;
 };
 
-function buildProratedBlock(
-  ticket: FuelTicketModel,
-  prevFecha: string | null,
-  tripsInWindow: TripModel[],
-): ProratedTicketBlock {
+function buildProratedBlock(ticket: FuelTicketModel, tripsInWindow: TripModel[]): ProratedTicketBlock {
   const litros = num(ticket.litros);
   const precio = num(ticket.precio_litro);
   const withKm = tripsInWindow
@@ -115,19 +158,124 @@ function buildProratedBlock(
   };
 }
 
-function tripsBetweenDates(
+/** Viajes cuya salida cae en (afterExclusiveMs, throughInclusiveMs]. */
+export function tripsInWindow(
   allTrips: TripModel[],
   truckId: string,
-  afterExclusive: string | null,
-  throughInclusive: string,
+  afterExclusiveMs: number | null,
+  throughInclusiveMs: number,
 ): TripModel[] {
   return allTrips.filter((t) => {
     if (String(t.truck_id) !== truckId) return false;
-    const fd = dateOnly(t.fecha_salida);
-    if (afterExclusive != null && fd <= afterExclusive) return false;
-    if (fd > throughInclusive) return false;
+    const ts = tripTimestampMs(t);
+    if (afterExclusiveMs != null && ts <= afterExclusiveMs) return false;
+    if (ts > throughInclusiveMs) return false;
     return true;
   });
+}
+
+function tripsInPeriod(allTrips: TripModel[], inicio: string, fin: string): TripModel[] {
+  return allTrips.filter((t) => {
+    const fd = dateOnly(t.fecha_salida);
+    return fd >= inicio && fd <= fin;
+  });
+}
+
+function tripToRef(trip: TripModel): FuelProrationTripRef {
+  return {
+    trip_id: String(trip.id),
+    folio: trip.folio,
+    origen: trip.origen,
+    destino: trip.destino,
+    fecha_salida: dateOnly(trip.fecha_salida),
+    km_recorridos: tripKmRecorridos(trip),
+  };
+}
+
+function assignedTripIdsFromBlocks(blocks: ProratedTicketBlock[]): Set<string> {
+  const ids = new Set<string>();
+  for (const block of blocks) {
+    for (const v of block.viajes) ids.add(v.trip_id);
+  }
+  return ids;
+}
+
+/** Resumen alineado con los viajes efectivamente prorrateados en los bloques (misma base que las tablas). */
+export function resumenFromBlocks(
+  blocks: ProratedTicketBlock[],
+  totalLitros: number,
+  periodTrips: TripModel[],
+  viajesSinAsignar: FuelProrationTripRef[],
+  viajesSinKm: FuelProrationTripRef[],
+): ProrationRangeResult["resumen"] {
+  const tripIds = new Set<string>();
+  let totalKm = 0;
+  for (const block of blocks) {
+    for (const v of block.viajes) {
+      tripIds.add(v.trip_id);
+      totalKm += v.km_recorridos;
+    }
+  }
+  return {
+    total_litros: Math.round(totalLitros * 100) / 100,
+    total_km_viajes: totalKm,
+    total_viajes: tripIds.size,
+    viajes_en_periodo: periodTrips.length,
+    viajes_sin_asignar: viajesSinAsignar.length,
+    viajes_sin_km: viajesSinKm.length,
+    rendimiento: totalLitros > 0 && totalKm > 0 ? Math.round((totalKm / totalLitros) * 100) / 100 : null,
+  };
+}
+
+export function partitionPeriodTrips(
+  periodTrips: TripModel[],
+  assignedIds: Set<string>,
+): { sinAsignar: FuelProrationTripRef[]; sinKm: FuelProrationTripRef[] } {
+  const sinAsignar: FuelProrationTripRef[] = [];
+  const sinKm: FuelProrationTripRef[] = [];
+  for (const trip of periodTrips) {
+    const km = tripKmRecorridos(trip);
+    if (km <= 0) {
+      sinKm.push(tripToRef(trip));
+      continue;
+    }
+    if (!assignedIds.has(String(trip.id))) sinAsignar.push(tripToRef(trip));
+  }
+  return { sinAsignar, sinKm };
+}
+
+export function buildProrationBlocks(
+  sorted: FuelTicketModel[],
+  allTrips: TripModel[],
+  truckId: string,
+  fin: string,
+  anchorTicket: FuelTicketModel | null,
+): ProratedTicketBlock[] {
+  const blocks: ProratedTicketBlock[] = [];
+  let prevEndMs: number | null = anchorTicket ? ticketTimestampMs(anchorTicket) : null;
+
+  if (sorted.length > 0 && prevEndMs == null) {
+    const firstTrip = allTrips[0];
+    const firstTicketDate = dateOnly(sorted[0]!.fecha);
+    if (firstTrip && dateOnly(firstTrip.fecha_salida) < firstTicketDate) {
+      prevEndMs = endOfDayMs(dateOnly(firstTrip.fecha_salida));
+    }
+  }
+
+  for (let i = 0; i < sorted.length; i++) {
+    const ticket = sorted[i]!;
+    const nextTicket = sorted[i + 1] ?? null;
+    const throughMs = ticketWindowEndMs(ticket, nextTicket, fin);
+    const windowStartMs = Math.max(
+      prevEndMs ?? Number.NEGATIVE_INFINITY,
+      ticketTimestampMs(ticket),
+    );
+    const windowTrips = tripsInWindow(allTrips, truckId, windowStartMs, throughMs);
+    blocks.push(buildProratedBlock(ticket, windowTrips));
+    prevEndMs = throughMs;
+  }
+
+  return blocks;
 }
 
 export async function prorateRange(
@@ -169,31 +317,12 @@ export async function prorateRange(
   });
 
   const sorted = [...ticketsInRange].sort(compareTicketOrder);
-  const blocks: ProratedTicketBlock[] = [];
-  let prevFecha: string | null = anchorTicket ? dateOnly(anchorTicket.fecha) : null;
-
-  if (sorted.length > 0 && prevFecha == null) {
-    const firstTrip = allTrips[0];
-    if (firstTrip) prevFecha = dateOnly(firstTrip.fecha_salida);
-  }
-
-  for (const ticket of sorted) {
-    const ticketFecha = dateOnly(ticket.fecha);
-    const windowTrips = tripsBetweenDates(allTrips, truckId, prevFecha, ticketFecha);
-    blocks.push(buildProratedBlock(ticket, prevFecha, windowTrips));
-    prevFecha = ticketFecha;
-  }
+  const blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
 
   const totalLitros = sorted.reduce((s, t) => s + num(t.litros), 0);
-  const tripIdsInPeriod = new Set<string>();
-  let totalKm = 0;
-  for (const t of allTrips) {
-    const fd = dateOnly(t.fecha_salida);
-    if (fd >= inicio && fd <= fin) {
-      tripIdsInPeriod.add(String(t.id));
-      totalKm += tripKmRecorridos(t);
-    }
-  }
+  const periodTrips = tripsInPeriod(allTrips, inicio, fin);
+  const assignedIds = assignedTripIdsFromBlocks(blocks);
+  const { sinAsignar, sinKm } = partitionPeriodTrips(periodTrips, assignedIds);
 
   return {
     truck_id: truckId,
@@ -201,12 +330,9 @@ export async function prorateRange(
     inicio,
     fin,
     tickets: blocks,
-    resumen: {
-      total_litros: Math.round(totalLitros * 100) / 100,
-      total_km_viajes: totalKm,
-      total_viajes: tripIdsInPeriod.size,
-      rendimiento: totalLitros > 0 ? Math.round((totalKm / totalLitros) * 100) / 100 : null,
-    },
+    viajes_sin_asignar: sinAsignar,
+    viajes_sin_km: sinKm,
+    resumen: resumenFromBlocks(blocks, totalLitros, periodTrips, sinAsignar, sinKm),
   };
 }
 

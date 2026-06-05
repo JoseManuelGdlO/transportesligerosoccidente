@@ -221,6 +221,15 @@ export interface ProratedTripRow {
   costo_asignado: number;
 }
 
+export interface FuelProrationTripRef {
+  trip_id: string;
+  folio: string;
+  origen: string;
+  destino: string;
+  fecha_salida: string;
+  km_recorridos: number;
+}
+
 export interface ProratedTicketBlock {
   ticket_id: string;
   fecha: string;
@@ -242,10 +251,15 @@ export interface FuelProrationUnitReport {
   inicio: string;
   fin: string;
   tickets: ProratedTicketBlock[];
+  viajes_sin_asignar: FuelProrationTripRef[];
+  viajes_sin_km: FuelProrationTripRef[];
   resumen: {
     total_litros: number;
     total_km_viajes: number;
     total_viajes: number;
+    viajes_en_periodo: number;
+    viajes_sin_asignar: number;
+    viajes_sin_km: number;
     rendimiento: number | null;
   };
 }

@@ -54,8 +54,17 @@ export const fmtDateTime = (iso?: string) => {
     year: "numeric",
     hour: "2-digit",
     minute: "2-digit",
+    second: undefined,
   });
 };
+
+/** Hora sin segundos (p. ej. `08:00:00` → `08:00`). */
+export function fmtTime(value?: string | null): string {
+  if (value == null || String(value).trim() === "") return "";
+  const match = String(value).trim().match(/^(\d{1,2}):(\d{2})/);
+  if (!match) return String(value).trim();
+  return `${match[1]!.padStart(2, "0")}:${match[2]!}`;
+}
 
 /** Valor para `<input type="datetime-local">` en hora local del navegador. */
 export function isoToDatetimeLocalValue(iso?: string | null): string {

@@ -11,7 +11,7 @@ import {
   syncFuelTickets,
   updateFuelTicket,
 } from "@/lib/tloApi";
-import type { FuelImportResult, FuelProrationReport, FuelSummaryRow, FuelTicket } from "@/types/tlo";
+import type { FuelImportResult, FuelProrationReport, FuelProrationTripRef, FuelSummaryRow, FuelTicket } from "@/types/tlo";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,48 @@ function formatIsoDateEs(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
+}
+
+function ProrationExtraTripsTable({
+  title,
+  description,
+  rows,
+  variant,
+}: {
+  title: string;
+  description: string;
+  rows: FuelProrationTripRef[];
+  variant: "warning" | "muted";
+}) {
+  if (rows.length === 0) return null;
+  return (
+    <Card className={`overflow-hidden ml-2 border-l-4 ${variant === "warning" ? "border-l-amber-500" : "border-l-muted-foreground/40"}`}>
+      <div className={`px-4 py-3 text-sm ${variant === "warning" ? "bg-amber-500/10" : "bg-muted/40"}`}>
+        <p className="font-semibold">{title}</p>
+        <p className="text-muted-foreground text-xs mt-0.5">{description}</p>
+      </div>
+      <Table>
+        <TableHeader>
+          <TableRow>
+            <TableHead>Folio</TableHead>
+            <TableHead>Ruta</TableHead>
+            <TableHead>Fecha</TableHead>
+            <TableHead className="text-right">Km</TableHead>
+          </TableRow>
+        </TableHeader>
+        <TableBody>
+          {rows.map((v) => (
+            <TableRow key={v.trip_id}>
+              <TableCell className="font-mono">{v.folio}</TableCell>
+              <TableCell>{formatTripRoute(v)}</TableCell>
+              <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
+              <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
+            </TableRow>
+          ))}
+        </TableBody>
+      </Table>
+    </Card>
+  );
 }
 
 const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> => ({
@@ -434,10 +476,7 @@ export default function Combustibles() {
                 ) : (
                   tickets.map((t) => (
                     <TableRow key={t.id}>
-                      <TableCell>
-                        {t.fecha}
-                        {t.hora ? ` ${t.hora.slice(0, 5)}` : ""}
-                      </TableCell>
+                      <TableCell>{formatIsoDateEs(t.fecha)}</TableCell>
                       <TableCell className="font-mono text-sm">
                         {t.folio ?? "—"}
                         {t.tag ? (
@@ -512,13 +551,35 @@ export default function Combustibles() {
                     <p className="font-semibold">{fmtNumber(unit.resumen.total_litros, 2)} L</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Km viajes</span>
+                    <span className="text-muted-foreground">Km prorrateados</span>
                     <p className="font-semibold">{fmtNumber(unit.resumen.total_km_viajes)} km</p>
                   </div>
                   <div>
-                    <span className="text-muted-foreground">Viajes</span>
+                    <span className="text-muted-foreground">Viajes prorrateados</span>
                     <p className="font-semibold">{unit.resumen.total_viajes}</p>
+                    {unit.resumen.viajes_en_periodo !== unit.resumen.total_viajes && (
+                      <p className="text-xs text-muted-foreground">
+                        {unit.resumen.viajes_en_periodo} en el período
+                      </p>
+                    )}
                   </div>
+                  {(unit.resumen.viajes_sin_asignar > 0 || unit.resumen.viajes_sin_km > 0) && (
+                    <div>
+                      <span className="text-muted-foreground">Pendientes</span>
+                      <div className="flex flex-wrap gap-1.5 mt-1">
+                        {unit.resumen.viajes_sin_asignar > 0 && (
+                          <Badge variant="outline" className="border-amber-500/60 text-amber-700 dark:text-amber-400">
+                            {unit.resumen.viajes_sin_asignar} sin ticket
+                          </Badge>
+                        )}
+                        {unit.resumen.viajes_sin_km > 0 && (
+                          <Badge variant="outline">
+                            {unit.resumen.viajes_sin_km} sin km
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                  )}
                   <div>
                     <span className="text-muted-foreground">Rendimiento</span>
                     <p className="font-semibold">
@@ -534,8 +595,7 @@ export default function Combustibles() {
                     <div className="bg-secondary/40 px-4 py-3 flex flex-wrap justify-between gap-2 text-sm">
                       <div>
                         <span className="font-semibold">
-                          Ticket {block.fecha}
-                          {block.hora ? ` ${block.hora.slice(0, 5)}` : ""}
+                          Ticket {formatIsoDateEs(block.fecha)}
                         </span>
                         <span className="text-muted-foreground ml-2">
                           {fmtNumber(block.litros, 2)} L · {fmtMXN(block.importe_total)} · odómetro{" "}
@@ -576,7 +636,7 @@ export default function Combustibles() {
                               <TableCell>
                                 {formatTripRoute(v)}
                               </TableCell>
-                              <TableCell>{v.fecha_salida}</TableCell>
+                              <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
                               <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
                               <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
                               <TableCell className="text-right">{fmtMXN(v.costo_asignado)}</TableCell>
@@ -587,6 +647,19 @@ export default function Combustibles() {
                     )}
                   </Card>
                 ))}
+
+                <ProrationExtraTripsTable
+                  title="Viajes sin prorratear"
+                  description="Tienen km registrado en el período pero no caen en la ventana de ningún ticket de combustible."
+                  rows={unit.viajes_sin_asignar ?? []}
+                  variant="warning"
+                />
+                <ProrationExtraTripsTable
+                  title="Viajes sin km (no prorrateables)"
+                  description="Viajes en el período sin km final; no reciben litros hasta cerrarse."
+                  rows={unit.viajes_sin_km ?? []}
+                  variant="muted"
+                />
               </div>
             ))}
 
@@ -668,10 +741,6 @@ export default function Combustibles() {
             <div className="space-y-1">
               <Label>Fecha</Label>
               <Input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} />
-            </div>
-            <div className="space-y-1">
-              <Label>Hora</Label>
-              <Input type="time" value={form.hora ?? ""} onChange={(e) => setForm({ ...form, hora: e.target.value })} />
             </div>
             <div className="space-y-1">
               <Label>Odómetro</Label>

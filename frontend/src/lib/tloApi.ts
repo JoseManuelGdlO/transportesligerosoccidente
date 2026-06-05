@@ -1,4 +1,5 @@
 import { apiFetch, readJson } from "@/lib/api";
+import { fmtTime } from "@/lib/format";
 import type {
   CartaPorteRecord,
   Client,
@@ -740,7 +741,7 @@ export function normalizeFuelTicket(raw: Record<string, unknown>): FuelTicket {
     id: String(raw.id),
     truck_id: String(raw.truck_id ?? ""),
     fecha: String(raw.fecha ?? "").slice(0, 10),
-    hora: raw.hora != null ? String(raw.hora) : undefined,
+    hora: raw.hora != null ? fmtTime(String(raw.hora)) || undefined : undefined,
     folio: raw.folio != null ? String(raw.folio) : undefined,
     tag: raw.tag != null ? String(raw.tag) : undefined,
     numero_economico_raw: raw.numero_economico_raw != null ? String(raw.numero_economico_raw) : undefined,
