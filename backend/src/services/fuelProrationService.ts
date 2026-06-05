@@ -1,5 +1,6 @@
 import { Op } from "sequelize";
 import { FuelTicket, Trip, Truck } from "../models";
+import { getAssignmentsForTruck } from "./fuelProrationAssignmentService";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
@@ -62,6 +63,7 @@ export type ProratedTripRow = {
   km_recorridos: number;
   litros_asignados: number;
   costo_asignado: number;
+  asignacion_manual?: boolean;
 };
 
 /** Viaje referenciado sin prorrateo (sin ticket o sin km). */
@@ -120,7 +122,11 @@ export type FuelSummaryRow = {
   rendimiento: number | null;
 };
 
-function buildProratedBlock(ticket: FuelTicketModel, tripsInWindow: TripModel[]): ProratedTicketBlock {
+function buildProratedBlock(
+  ticket: FuelTicketModel,
+  tripsInWindow: TripModel[],
+  manualTripIds: Set<string> = new Set(),
+): ProratedTicketBlock {
   const litros = num(ticket.litros);
   const precio = num(ticket.precio_litro);
   const withKm = tripsInWindow
@@ -130,8 +136,9 @@ function buildProratedBlock(ticket: FuelTicketModel, tripsInWindow: TripModel[])
 
   const viajes: ProratedTripRow[] = withKm.map(({ trip, km }) => {
     const litrosAsignados = kmTotal > 0 ? (litros * km) / kmTotal : 0;
+    const tripId = String(trip.id);
     return {
-      trip_id: String(trip.id),
+      trip_id: tripId,
       folio: trip.folio,
       origen: trip.origen,
       destino: trip.destino,
@@ -139,6 +146,7 @@ function buildProratedBlock(ticket: FuelTicketModel, tripsInWindow: TripModel[])
       km_recorridos: km,
       litros_asignados: Math.round(litrosAsignados * 100) / 100,
       costo_asignado: Math.round(litrosAsignados * precio * 100) / 100,
+      ...(manualTripIds.has(tripId) ? { asignacion_manual: true } : {}),
     };
   });
 
@@ -278,6 +286,44 @@ export function buildProrationBlocks(
   return blocks;
 }
 
+/** Aplica overrides manuales trip→ticket sobre bloques automáticos y recalcula litros por km. */
+export function applyManualAssignments(
+  blocks: ProratedTicketBlock[],
+  sortedTickets: FuelTicketModel[],
+  manualMap: Map<string, string>,
+  allTrips: TripModel[],
+): ProratedTicketBlock[] {
+  if (manualMap.size === 0) return blocks;
+
+  const tripById = new Map(allTrips.map((t) => [String(t.id), t]));
+  const ticketById = new Map(sortedTickets.map((t) => [String(t.id), t]));
+  const manualTripIds = new Set(manualMap.keys());
+
+  const tripsPerBlock = new Map<string, TripModel[]>();
+  for (const block of blocks) {
+    const trips = block.viajes
+      .filter((v) => !manualTripIds.has(v.trip_id))
+      .map((v) => tripById.get(v.trip_id))
+      .filter((t): t is TripModel => t != null);
+    tripsPerBlock.set(block.ticket_id, trips);
+  }
+
+  for (const [tripId, ticketId] of manualMap) {
+    const trip = tripById.get(tripId);
+    if (!trip || tripKmRecorridos(trip) <= 0) continue;
+    const list = tripsPerBlock.get(ticketId) ?? [];
+    if (!list.some((t) => String(t.id) === tripId)) list.push(trip);
+    tripsPerBlock.set(ticketId, list);
+  }
+
+  return blocks.map((block) => {
+    const ticket = ticketById.get(block.ticket_id);
+    if (!ticket) return block;
+    const trips = tripsPerBlock.get(block.ticket_id) ?? [];
+    return buildProratedBlock(ticket, trips, manualTripIds);
+  });
+}
+
 export async function prorateRange(
   tenantId: string,
   truckId: string,
@@ -317,7 +363,9 @@ export async function prorateRange(
   });
 
   const sorted = [...ticketsInRange].sort(compareTicketOrder);
-  const blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
+  const manualMap = await getAssignmentsForTruck(tenantId, truckId);
+  let blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
+  blocks = applyManualAssignments(blocks, sorted, manualMap, allTrips);
 
   const totalLitros = sorted.reduce((s, t) => s + num(t.litros), 0);
   const periodTrips = tripsInPeriod(allTrips, inicio, fin);

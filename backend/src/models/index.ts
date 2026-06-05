@@ -29,6 +29,7 @@ import { RouteStop, initRouteStop } from "./RouteStop";
 import { TripStop, initTripStop } from "./TripStop";
 import { TripStatus, initTripStatus } from "./TripStatus";
 import { TripStatusAssignment, initTripStatusAssignment } from "./TripStatusAssignment";
+import { FuelProrationAssignment, initFuelProrationAssignment } from "./FuelProrationAssignment";
 
 export function initModels() {
   initTenant(sequelize);
@@ -45,6 +46,7 @@ export function initModels() {
   initTripStop(sequelize);
   initTripStatus(sequelize);
   initTripStatusAssignment(sequelize);
+  initFuelProrationAssignment(sequelize);
   initTrip(sequelize);
   initFuelLoad(sequelize);
   initFuelTicket(sequelize);
@@ -155,6 +157,13 @@ export function initModels() {
   TripStatusAssignment.belongsTo(Trip, { foreignKey: "trip_id" });
   TripStatusAssignment.belongsTo(TripStatus, { foreignKey: "trip_status_id" });
 
+  Tenant.hasMany(FuelProrationAssignment, { foreignKey: "tenant_id" });
+  FuelProrationAssignment.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Trip.hasOne(FuelProrationAssignment, { foreignKey: "trip_id", as: "fuelProrationAssignment" });
+  FuelProrationAssignment.belongsTo(Trip, { foreignKey: "trip_id" });
+  FuelTicket.hasMany(FuelProrationAssignment, { foreignKey: "fuel_ticket_id", as: "prorationAssignments" });
+  FuelProrationAssignment.belongsTo(FuelTicket, { foreignKey: "fuel_ticket_id" });
+
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });
 
@@ -223,6 +232,7 @@ export {
   MaintenanceRecord,
   TripStatus,
   TripStatusAssignment,
+  FuelProrationAssignment,
 };
 
 initModels();

@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import {
+  applyManualAssignments,
   buildProrationBlocks,
   partitionPeriodTrips,
   resumenFromBlocks,
@@ -307,6 +308,87 @@ describe("resumenFromBlocks", () => {
     assert.equal(resumen.total_km_viajes, 151);
     assert.equal(resumen.viajes_en_periodo, 2);
     assert.equal(resumen.rendimiento, 1.51);
+  });
+});
+
+describe("applyManualAssignments", () => {
+  const truckId = "truck-1";
+  const fin = "2026-06-30";
+
+  it("asigna manualmente viajes fuera de ventana al ticket del período (caso TL004)", () => {
+    const ticket = mockTicket({
+      id: "tk1",
+      truck_id: truckId,
+      fecha: "2026-06-02",
+      hora: "08:00:00",
+      litros: "191.33",
+    });
+    const trips = [
+      mockTrip({
+        id: "v1",
+        truck_id: truckId,
+        fecha_salida: "2026-06-02T09:00:00.000Z",
+        km_inicial: 0,
+        km_final: 1,
+        folio: "TL004-1",
+      }),
+      mockTrip({
+        id: "v2",
+        truck_id: truckId,
+        fecha_salida: "2026-06-02T10:00:00.000Z",
+        km_inicial: 1,
+        km_final: 88,
+        folio: "TL004-2",
+      }),
+      mockTrip({
+        id: "v3",
+        truck_id: truckId,
+        fecha_salida: "2026-06-03T09:00:00.000Z",
+        km_inicial: 88,
+        km_final: 190,
+        folio: "TL004-3",
+      }),
+      mockTrip({
+        id: "v4",
+        truck_id: truckId,
+        fecha_salida: "2026-06-03T11:00:00.000Z",
+        km_inicial: 190,
+        km_final: 330,
+        folio: "TL004-4",
+      }),
+    ];
+
+    const anchor = mockTicket({
+      id: "anchor",
+      truck_id: truckId,
+      fecha: "2026-06-02",
+      hora: "18:00:00",
+    });
+    const autoBlocks = buildProrationBlocks([ticket], trips, truckId, fin, anchor);
+    assert.deepEqual(autoBlocks[0]!.viajes.map((v) => v.trip_id), ["v3", "v4"]);
+
+    const manualMap = new Map([
+      ["v1", "tk1"],
+      ["v2", "tk1"],
+    ]);
+    const blocks = applyManualAssignments(autoBlocks, [ticket], manualMap, trips);
+
+    assert.deepEqual(blocks[0]!.viajes.map((v) => v.trip_id), ["v3", "v4", "v1", "v2"]);
+    assert.equal(blocks[0]!.viajes.find((v) => v.trip_id === "v1")?.asignacion_manual, true);
+    assert.equal(blocks[0]!.viajes.find((v) => v.trip_id === "v3")?.asignacion_manual, undefined);
+    assert.equal(blocks[0]!.km_total_periodo, 330);
+    const litrosSum = blocks[0]!.viajes.reduce((s, v) => s + v.litros_asignados, 0);
+    assert.ok(Math.abs(litrosSum - 191.33) < 0.1);
+  });
+
+  it("devuelve bloques sin cambios cuando no hay overrides", () => {
+    const ticket = mockTicket({ id: "tk1", truck_id: truckId, fecha: "2026-06-02", hora: "08:00:00" });
+    const trips = [
+      mockTrip({ id: "v1", truck_id: truckId, fecha_salida: "2026-06-02T09:00:00.000Z", km_inicial: 0, km_final: 50 }),
+    ];
+    const autoBlocks = buildProrationBlocks([ticket], trips, truckId, fin, null);
+    const blocks = applyManualAssignments(autoBlocks, [ticket], new Map(), trips);
+    assert.deepEqual(blocks, autoBlocks);
   });
 });
 

@@ -23,6 +23,7 @@ import * as reportsC from "../controllers/reportsController";
 import * as fuelTicketC from "../controllers/fuelTicketController";
 import * as fuelConfigC from "../controllers/fuelConfigController";
 import * as reportsFuelC from "../controllers/reportsFuelController";
+import * as fuelProrationC from "../controllers/fuelProrationController";
 import { uploadFuelImport } from "../middlewares/uploadFuelImport";
 import * as docTypeC from "../controllers/documentTypeController";
 import * as docC from "../controllers/documentController";
@@ -233,6 +234,12 @@ r.get(
   reportsFuelC.getFuelSummary,
 );
 
+r.put(
+  "/fuel-proration-assignments",
+  authenticateJwt,
+  requirePermission("combustibles.crear"),
+  fuelProrationC.putFuelProrationAssignments,
+);
 r.get("/fuel-tickets", authenticateJwt, requirePermission("combustibles.ver"), fuelTicketC.listFuelTickets);
 r.post("/fuel-tickets", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.createFuelTicket);
 r.patch("/fuel-tickets/:id", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.patchFuelTicket);

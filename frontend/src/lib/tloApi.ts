@@ -9,6 +9,8 @@ import type {
   FuelLoad,
   FuelTicket,
   FuelProrationReport,
+  FuelProrationUnitReport,
+  FuelProrationAssignmentInput,
   FuelSummaryRow,
   FuelImportResult,
   FuelImportPreviewResult,
@@ -836,6 +838,20 @@ export async function fetchFuelProration(inicio: string, fin: string): Promise<F
   const q = new URLSearchParams({ inicio, fin });
   const res = await apiFetch(`/reports/fuel/proration?${q}`);
   return readJson<FuelProrationReport>(res);
+}
+
+export async function saveFuelProrationAssignments(
+  truckId: string,
+  inicio: string,
+  fin: string,
+  assignments: FuelProrationAssignmentInput[],
+): Promise<FuelProrationUnitReport> {
+  const res = await apiFetch("/fuel-proration-assignments", {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ truck_id: truckId, inicio, fin, assignments }),
+  });
+  return readJson(res);
 }
 
 export async function fetchFuelSummary(

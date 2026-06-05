@@ -219,7 +219,13 @@ export interface ProratedTripRow {
   km_recorridos: number;
   litros_asignados: number;
   costo_asignado: number;
+  asignacion_manual?: boolean;
 }
+
+export type FuelProrationAssignmentInput = {
+  trip_id: string;
+  fuel_ticket_id: string | null;
+};
 
 export interface FuelProrationTripRef {
   trip_id: string;

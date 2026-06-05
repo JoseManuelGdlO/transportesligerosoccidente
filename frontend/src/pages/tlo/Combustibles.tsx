@@ -8,14 +8,17 @@ import {
   fetchFuelSummary,
   fetchFuelTickets,
   previewFuelImport,
+  saveFuelProrationAssignments,
   syncFuelTickets,
   updateFuelTicket,
 } from "@/lib/tloApi";
 import type {
   FuelImportPreviewResult,
   FuelImportPreviewTicket,
+  FuelProrationAssignmentInput,
   FuelProrationReport,
   FuelProrationTripRef,
+  FuelProrationUnitReport,
   FuelSummaryRow,
   FuelTicket,
 } from "@/types/tlo";
@@ -59,6 +62,166 @@ function formatIsoDateEs(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
   return `${d}/${m}/${y}`;
+}
+
+const AUTO_ASSIGN = "auto";
+
+type AssignDraft = Record<string, string>;
+
+function eligibleProrationTrips(unit: FuelProrationUnitReport): FuelProrationTripRef[] {
+  const seen = new Set<string>();
+  const rows: FuelProrationTripRef[] = [];
+  for (const block of unit.tickets) {
+    for (const v of block.viajes) {
+      if (seen.has(v.trip_id)) continue;
+      seen.add(v.trip_id);
+      rows.push({
+        trip_id: v.trip_id,
+        folio: v.folio,
+        origen: v.origen,
+        destino: v.destino,
+        fecha_salida: v.fecha_salida,
+        km_recorridos: v.km_recorridos,
+      });
+    }
+  }
+  for (const v of unit.viajes_sin_asignar ?? []) {
+    if (seen.has(v.trip_id)) continue;
+    seen.add(v.trip_id);
+    rows.push(v);
+  }
+  return rows.sort((a, b) => a.fecha_salida.localeCompare(b.fecha_salida) || a.folio.localeCompare(b.folio));
+}
+
+function buildAssignDraftState(unit: FuelProrationUnitReport): {
+  draft: AssignDraft;
+  initialDraft: AssignDraft;
+  manualTrips: Set<string>;
+} {
+  const draft: AssignDraft = {};
+  const manualTrips = new Set<string>();
+
+  for (const block of unit.tickets) {
+    for (const v of block.viajes) {
+      draft[v.trip_id] = block.ticket_id;
+      if (v.asignacion_manual) manualTrips.add(v.trip_id);
+    }
+  }
+  for (const v of unit.viajes_sin_asignar ?? []) {
+    draft[v.trip_id] = AUTO_ASSIGN;
+  }
+
+  return { draft: { ...draft }, initialDraft: { ...draft }, manualTrips };
+}
+
+function buildAssignmentsPayload(
+  trips: FuelProrationTripRef[],
+  draft: AssignDraft,
+  initialDraft: AssignDraft,
+  manualTrips: Set<string>,
+): FuelProrationAssignmentInput[] {
+  const out: FuelProrationAssignmentInput[] = [];
+  for (const trip of trips) {
+    const current = draft[trip.trip_id] ?? AUTO_ASSIGN;
+    const initial = initialDraft[trip.trip_id] ?? AUTO_ASSIGN;
+    if (current === initial && !manualTrips.has(trip.trip_id)) continue;
+
+    out.push({
+      trip_id: trip.trip_id,
+      fuel_ticket_id: current === AUTO_ASSIGN ? null : current,
+    });
+  }
+  return out;
+}
+
+function ticketAssignLabel(block: FuelProrationUnitReport["tickets"][number]): string {
+  return `Ticket ${formatIsoDateEs(block.fecha)} · ${fmtNumber(block.litros, 2)} L`;
+}
+
+function ProrationAssignDialog({
+  unit,
+  open,
+  saving,
+  draft,
+  onDraftChange,
+  onClose,
+  onSave,
+}: {
+  unit: FuelProrationUnitReport;
+  open: boolean;
+  saving: boolean;
+  draft: AssignDraft;
+  onDraftChange: (tripId: string, value: string) => void;
+  onClose: () => void;
+  onSave: () => void;
+}) {
+  const trips = eligibleProrationTrips(unit);
+
+  return (
+    <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>Asignar viajes — {unit.numero_economico}</DialogTitle>
+        </DialogHeader>
+        <p className="text-xs text-muted-foreground">
+          Elija el ticket de combustible para cada viaje. &quot;Automático&quot; usa la ventana temporal del sistema.
+        </p>
+        {trips.length === 0 ? (
+          <p className="text-sm text-muted-foreground py-4 text-center">
+            No hay viajes con km en el período para asignar.
+          </p>
+        ) : (
+          <Table>
+            <TableHeader>
+              <TableRow>
+                <TableHead>Folio</TableHead>
+                <TableHead>Ruta</TableHead>
+                <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Km</TableHead>
+                <TableHead>Ticket</TableHead>
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {trips.map((trip) => (
+                <TableRow key={trip.trip_id}>
+                  <TableCell className="font-mono">{trip.folio}</TableCell>
+                  <TableCell>{formatTripRoute(trip)}</TableCell>
+                  <TableCell>{formatIsoDateEs(trip.fecha_salida)}</TableCell>
+                  <TableCell className="text-right">{fmtNumber(trip.km_recorridos)}</TableCell>
+                  <TableCell>
+                    <Select
+                      value={draft[trip.trip_id] ?? AUTO_ASSIGN}
+                      onValueChange={(v) => onDraftChange(trip.trip_id, v)}
+                    >
+                      <SelectTrigger className="w-full min-w-[200px]">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value={AUTO_ASSIGN}>Automático</SelectItem>
+                        {unit.tickets.map((block) => (
+                          <SelectItem key={block.ticket_id} value={block.ticket_id}>
+                            {ticketAssignLabel(block)}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </TableCell>
+                </TableRow>
+              ))}
+            </TableBody>
+          </Table>
+        )}
+        <DialogFooter className="gap-2">
+          <Button variant="outline" onClick={onClose} disabled={saving}>
+            Cancelar
+          </Button>
+          <Button onClick={onSave} disabled={saving || trips.length === 0}>
+            {saving ? "Guardando…" : "Guardar"}
+          </Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
 
 function ProrationExtraTripsTable({
@@ -187,6 +350,12 @@ export default function Combustibles() {
 
   const [importOpen, setImportOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<FuelImportPreviewResult | null>(null);
+
+  const [assignUnit, setAssignUnit] = useState<FuelProrationUnitReport | null>(null);
+  const [assignDraft, setAssignDraft] = useState<AssignDraft>({});
+  const [assignInitialDraft, setAssignInitialDraft] = useState<AssignDraft>({});
+  const [assignManualTrips, setAssignManualTrips] = useState<Set<string>>(new Set());
+  const [savingAssign, setSavingAssign] = useState(false);
   const [importReviewItems, setImportReviewItems] = useState<ImportReviewItem[]>([]);
   const [reviewTicketIndex, setReviewTicketIndex] = useState<number | null>(null);
   const [confirmingImportIndex, setConfirmingImportIndex] = useState<number | null>(null);
@@ -253,6 +422,47 @@ export default function Combustibles() {
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  const openAssignDialog = (unit: FuelProrationUnitReport) => {
+    const { draft, initialDraft, manualTrips } = buildAssignDraftState(unit);
+    setAssignUnit(unit);
+    setAssignDraft(draft);
+    setAssignInitialDraft(initialDraft);
+    setAssignManualTrips(manualTrips);
+  };
+
+  const closeAssignDialog = () => {
+    if (savingAssign) return;
+    setAssignUnit(null);
+    setAssignDraft({});
+    setAssignInitialDraft({});
+    setAssignManualTrips(new Set());
+  };
+
+  const handleAssignDraftChange = (tripId: string, value: string) => {
+    setAssignDraft((prev) => ({ ...prev, [tripId]: value }));
+  };
+
+  const saveAssignDialog = async () => {
+    if (!assignUnit) return;
+    const trips = eligibleProrationTrips(assignUnit);
+    const assignments = buildAssignmentsPayload(trips, assignDraft, assignInitialDraft, assignManualTrips);
+    setSavingAssign(true);
+    try {
+      const updated = await saveFuelProrationAssignments(assignUnit.truck_id, inicio, fin, assignments);
+      setProration((prev) =>
+        prev
+          ? { ...prev, unidades: prev.unidades.map((u) => (u.truck_id === updated.truck_id ? updated : u)) }
+          : prev,
+      );
+      toast.success("Asignaciones guardadas");
+      closeAssignDialog();
+    } catch {
+      toast.error("No se pudieron guardar las asignaciones");
+    } finally {
+      setSavingAssign(false);
+    }
+  };
 
   const openNew = () => {
     setEditId(null);
@@ -758,6 +968,14 @@ export default function Combustibles() {
                         : "—"}
                     </p>
                   </div>
+                  {canCreate && (
+                    <div className="flex items-end">
+                      <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit)}>
+                        <Pencil className="h-4 w-4 mr-1.5" />
+                        Editar
+                      </Button>
+                    </div>
+                  )}
                 </Card>
 
                 {unit.tickets.map((block) => (
@@ -802,7 +1020,14 @@ export default function Combustibles() {
                         <TableBody>
                           {block.viajes.map((v) => (
                             <TableRow key={v.trip_id}>
-                              <TableCell className="font-mono">{v.folio}</TableCell>
+                              <TableCell className="font-mono">
+                                <span>{v.folio}</span>
+                                {v.asignacion_manual && (
+                                  <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">
+                                    Manual
+                                  </Badge>
+                                )}
+                              </TableCell>
                               <TableCell>
                                 {formatTripRoute(v)}
                               </TableCell>
@@ -1155,6 +1380,18 @@ export default function Combustibles() {
           </div>
         </DialogContent>
       </Dialog>
+
+      {assignUnit && (
+        <ProrationAssignDialog
+          unit={assignUnit}
+          open={!!assignUnit}
+          saving={savingAssign}
+          draft={assignDraft}
+          onDraftChange={handleAssignDraftChange}
+          onClose={closeAssignDialog}
+          onSave={() => void saveAssignDialog()}
+        />
+      )}
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>
