@@ -18,7 +18,7 @@ const inicio = "2026-06-01";
 const fin = "2026-06-30";
 
 function mockTruck(): Truck {
-  return { id: truckId, tenant_id: tenantId } as Truck;
+  return { id: truckId, tenant_id: tenantId } as unknown as Truck;
 }
 
 function mockTrip(partial: {
@@ -34,7 +34,7 @@ function mockTrip(partial: {
     folio: partial.folio ?? partial.id,
     km_inicial: partial.km_inicial ?? 0,
     km_final: partial.km_final !== undefined ? partial.km_final : 100,
-  } as TripModel;
+  } as unknown as TripModel;
 }
 
 function mockTicket(partial: {
@@ -46,7 +46,7 @@ function mockTicket(partial: {
     id: partial.id,
     truck_id: partial.truck_id ?? truckId,
     fecha: partial.fecha as unknown as Date,
-  } as FuelTicketModel;
+  } as unknown as FuelTicketModel;
 }
 
 async function expectError(
