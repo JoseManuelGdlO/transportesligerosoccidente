@@ -390,6 +390,34 @@ describe("applyManualAssignments", () => {
     const blocks = applyManualAssignments(autoBlocks, [ticket], new Map(), trips);
     assert.deepEqual(blocks, autoBlocks);
   });
+
+  it("ignora override manual a ticket fuera del período (viaje permanece en bloque auto)", () => {
+    const ticket = mockTicket({
+      id: "tk1",
+      truck_id: truckId,
+      fecha: "2026-06-02",
+      hora: "08:00:00",
+      litros: "100",
+    });
+    const trips = [
+      mockTrip({
+        id: "v1",
+        truck_id: truckId,
+        fecha_salida: "2026-06-02T09:00:00.000Z",
+        km_inicial: 0,
+        km_final: 50,
+        folio: "V1",
+      }),
+    ];
+    const autoBlocks = buildProrationBlocks([ticket], trips, truckId, fin, null);
+    assert.deepEqual(autoBlocks[0]!.viajes.map((v) => v.trip_id), ["v1"]);
+
+    const manualMap = new Map([["v1", "tk-outside-period"]]);
+    const blocks = applyManualAssignments(autoBlocks, [ticket], manualMap, trips);
+
+    assert.deepEqual(blocks[0]!.viajes.map((v) => v.trip_id), ["v1"]);
+    assert.equal(blocks[0]!.viajes[0]?.asignacion_manual, undefined);
+  });
 });
 
 describe("partitionPeriodTrips", () => {

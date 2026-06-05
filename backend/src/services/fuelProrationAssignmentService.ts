@@ -8,6 +8,11 @@ import {
 } from "../models";
 import type { Trip as TripModel } from "../models/Trip";
 
+function dateOnly(d: Date | string): string {
+  if (typeof d === "string") return d.slice(0, 10);
+  return d.toISOString().slice(0, 10);
+}
+
 function tripHasKm(trip: TripModel): boolean {
   if (trip.km_final == null) return false;
   return Math.max(0, trip.km_final - trip.km_inicial) > 0;
@@ -43,6 +48,8 @@ export async function getAssignmentsForTruck(
 export async function saveAssignments(
   tenantId: string,
   truckId: string,
+  inicio: string,
+  fin: string,
   assignments: FuelProrationAssignmentInput[],
 ): Promise<void> {
   const truck = await Truck.findOne({ where: { id: truckId, tenant_id: tenantId } });
@@ -51,6 +58,9 @@ export async function saveAssignments(
   if (assignments.length === 0) return;
 
   const tripIds = [...new Set(assignments.map((a) => a.trip_id))];
+  if (tripIds.length !== assignments.length) {
+    throw Object.assign(new Error("Asignaciones duplicadas para el mismo viaje"), { status: 400 });
+  }
   const ticketIdsToAssign = [
     ...new Set(assignments.map((a) => a.fuel_ticket_id).filter((id): id is string => id != null)),
   ];
@@ -81,6 +91,10 @@ export async function saveAssignments(
       if (!ticket) throw Object.assign(new Error(`Ticket no encontrado: ${ticketId}`), { status: 400 });
       if (String(ticket.truck_id) !== truckId) {
         throw Object.assign(new Error(`El ticket no pertenece a esta unidad`), { status: 400 });
+      }
+      const ticketDate = dateOnly(ticket.fecha);
+      if (ticketDate < inicio || ticketDate > fin) {
+        throw Object.assign(new Error("El ticket no está en el período seleccionado"), { status: 400 });
       }
     }
   }

@@ -117,14 +117,28 @@ export async function apiFetch(path: string, init: ApiFetchInit = {}): Promise<R
   return res;
 }
 
+/** Extrae mensaje legible de error API (string o flatten de Zod). */
+function formatApiError(error: unknown): string | undefined {
+  if (typeof error === "string") return error;
+  if (!error || typeof error !== "object") return undefined;
+  const flat = error as { formErrors?: string[]; fieldErrors?: Record<string, string[]> };
+  const form = flat.formErrors?.filter(Boolean);
+  if (form?.length) return form.join("; ");
+  for (const msgs of Object.values(flat.fieldErrors ?? {})) {
+    if (msgs?.length) return msgs.join("; ");
+  }
+  return undefined;
+}
+
 /** Lee JSON de una respuesta fetch; lanza Error con mensaje si !res.ok o JSON inválido. */
 export async function readJson<T>(res: Response): Promise<T> {
   const text = await res.text();
   if (!res.ok) {
     let msg = res.statusText;
     try {
-      const j = JSON.parse(text) as { error?: string };
-      if (typeof j.error === "string") msg = j.error;
+      const j = JSON.parse(text) as { error?: unknown };
+      const formatted = formatApiError(j.error);
+      if (formatted) msg = formatted;
     } catch {
       /* ignore */
     }

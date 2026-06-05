@@ -118,13 +118,12 @@ function buildAssignmentsPayload(
   trips: FuelProrationTripRef[],
   draft: AssignDraft,
   initialDraft: AssignDraft,
-  manualTrips: Set<string>,
 ): FuelProrationAssignmentInput[] {
   const out: FuelProrationAssignmentInput[] = [];
   for (const trip of trips) {
     const current = draft[trip.trip_id] ?? AUTO_ASSIGN;
     const initial = initialDraft[trip.trip_id] ?? AUTO_ASSIGN;
-    if (current === initial && !manualTrips.has(trip.trip_id)) continue;
+    if (current === initial) continue;
 
     out.push({
       trip_id: trip.trip_id,
@@ -446,7 +445,7 @@ export default function Combustibles() {
   const saveAssignDialog = async () => {
     if (!assignUnit) return;
     const trips = eligibleProrationTrips(assignUnit);
-    const assignments = buildAssignmentsPayload(trips, assignDraft, assignInitialDraft, assignManualTrips);
+    const assignments = buildAssignmentsPayload(trips, assignDraft, assignInitialDraft);
     setSavingAssign(true);
     try {
       const updated = await saveFuelProrationAssignments(assignUnit.truck_id, inicio, fin, assignments);
@@ -457,8 +456,8 @@ export default function Combustibles() {
       );
       toast.success("Asignaciones guardadas");
       closeAssignDialog();
-    } catch {
-      toast.error("No se pudieron guardar las asignaciones");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudieron guardar las asignaciones");
     } finally {
       setSavingAssign(false);
     }
@@ -969,7 +968,7 @@ export default function Combustibles() {
                     </p>
                   </div>
                   {canCreate && (
-                    <div className="flex items-end">
+                    <div className="flex items-end ml-auto">
                       <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit)}>
                         <Pencil className="h-4 w-4 mr-1.5" />
                         Editar

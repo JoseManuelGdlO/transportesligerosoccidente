@@ -31,7 +31,7 @@ export const putFuelProrationAssignments = asyncHandler(async (req: Request, res
   }
 
   try {
-    await saveAssignments(tid(req), truck_id, assignments);
+    await saveAssignments(tid(req), truck_id, inicio, fin, assignments);
     const unit = await prorateRange(tid(req), truck_id, inicio, fin);
     res.json(unit);
   } catch (e) {

@@ -297,7 +297,12 @@ export function applyManualAssignments(
 
   const tripById = new Map(allTrips.map((t) => [String(t.id), t]));
   const ticketById = new Map(sortedTickets.map((t) => [String(t.id), t]));
-  const manualTripIds = new Set(manualMap.keys());
+  const validManual = new Map(
+    [...manualMap].filter(([, ticketId]) => ticketById.has(ticketId)),
+  );
+  if (validManual.size === 0) return blocks;
+
+  const manualTripIds = new Set(validManual.keys());
 
   const tripsPerBlock = new Map<string, TripModel[]>();
   for (const block of blocks) {
@@ -308,7 +313,7 @@ export function applyManualAssignments(
     tripsPerBlock.set(block.ticket_id, trips);
   }
 
-  for (const [tripId, ticketId] of manualMap) {
+  for (const [tripId, ticketId] of validManual) {
     const trip = tripById.get(tripId);
     if (!trip || tripKmRecorridos(trip) <= 0) continue;
     const list = tripsPerBlock.get(ticketId) ?? [];

@@ -31,10 +31,6 @@ module.exports = {
       updated_at: { type: Sequelize.DATE, allowNull: false, defaultValue: now },
     });
 
-    await queryInterface.addIndex("fuel_proration_assignments", ["tenant_id", "trip_id"], {
-      name: "fuel_proration_assignments_tenant_trip_unique",
-      unique: true,
-    });
     await queryInterface.addIndex("fuel_proration_assignments", ["tenant_id", "fuel_ticket_id"], {
       name: "fuel_proration_assignments_tenant_ticket_idx",
     });
