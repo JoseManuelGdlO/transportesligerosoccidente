@@ -92,7 +92,16 @@ interface RenderState {
 
 type BlockRenderer = (state: RenderState, props: BlockProps) => void;
 
+function tableMargins(state: RenderState): { left: number; right: number; bottom: number } {
+  return {
+    left: state.margin,
+    right: state.margin,
+    bottom: Math.max(14, state.footerReserve) + 6,
+  };
+}
+
 function ensureSpace(state: RenderState, needed: number): void {
+  if (state.zone === "footer") return;
   const bottom = state.pageH - Math.max(14, state.footerReserve);
   if (state.y + needed > bottom) {
     state.doc.addPage();
@@ -558,7 +567,7 @@ const renderProvidersBreakdownTable: BlockRenderer = (state) => {
         fontSize: 8,
       },
       alternateRowStyles: { fillColor: [250, 250, 252] },
-      margin: { left: margin, right: margin },
+      margin: tableMargins(state),
       columnStyles: {
         0: { cellWidth: 26 },
         1: { cellWidth: 22 },
@@ -682,10 +691,12 @@ const renderTripsTable: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary, driver } = state.data;
   const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Ingreso", "Comisión"]];
+  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Ingreso", "Flete", "Comisión"]];
   const sortedTrips = sortSettlementTrips(summary.trips);
+  let totalFlete = 0;
   const body: string[][] = sortedTrips.map((t: Trip) => {
     const f = computeTrip(t, driver);
+    totalFlete += t.tarifa || 0;
     return [
       String(t.folio),
       t.num_factura?.trim() || "-",
@@ -693,6 +704,7 @@ const renderTripsTable: BlockRenderer = (state) => {
       tripClientLabel(t),
       formatTripRoute(t),
       fmtMXN(f.ingreso),
+      fmtMXN(t.tarifa || 0),
       fmtMXN(f.comision),
     ];
   });
@@ -701,27 +713,30 @@ const renderTripsTable: BlockRenderer = (state) => {
   pdfAutoTable(state.doc, {
     startY: state.y,
     head,
-    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", ""]],
+    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
     foot: [
       [
         { content: `Total:`, colSpan: 2, styles: { halign: "left" } },
         { content: `${summary.trips.length} Viajes`, colSpan: 3 },
         { content: fmtMXN(summary.total_ingresos), styles: { ...footRight, fontStyle: "bold" } },
+        { content: fmtMXN(totalFlete), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(summary.total_comisiones), styles: footRight },
       ],
     ],
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
     footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
+    rowPageBreak: "avoid",
     columnStyles: {
       0: { cellWidth: 18 },
       1: { cellWidth: 20 },
       2: { cellWidth: 16 },
       3: { cellWidth: 24 },
-      4: { cellWidth: 48 },
+      4: { cellWidth: 40 },
       5: { halign: "right", cellWidth: 22 },
       6: { halign: "right", cellWidth: 22 },
+      7: { halign: "right", cellWidth: 22 },
     },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
@@ -758,7 +773,7 @@ const renderFuelTable: BlockRenderer = (state) => {
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
     columnStyles: {
       3: { halign: "right" },
       4: { halign: "right" },
@@ -809,7 +824,7 @@ const renderExpenseSectionTable = (
     }),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
     columnStyles: { [montoCol]: { halign: "right" } },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
@@ -914,7 +929,8 @@ const renderViaticosSummary: BlockRenderer = (state) => {
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
     footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
+    rowPageBreak: "avoid",
     columnStyles: {
       0: { cellWidth: 28 },
       1: { cellWidth: 22 },
@@ -948,7 +964,7 @@ const renderUbicacionesList: BlockRenderer = (state) => {
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
@@ -974,7 +990,7 @@ const renderMercanciasList: BlockRenderer = (state) => {
     ]),
     styles: { fontSize: 8, cellPadding: 1.5 },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
-    margin: { left: state.margin, right: state.margin },
+    margin: tableMargins(state),
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
@@ -1136,12 +1152,15 @@ export function renderTemplatePdf(opts: RenderOptions): jsPDF {
 
   if (footerBlocks.length > 0) {
     const pageCount = doc.getNumberOfPages();
+    const footerY = pageH - footerReserve + 4;
+    state.zone = "footer";
     for (let p = 1; p <= pageCount; p++) {
       doc.setPage(p);
       state.currentPage = p;
-      state.y = pageH - footerReserve + 4;
+      state.y = footerY;
       renderBlocks(state, footerBlocks, "footer", opts.data.kind);
     }
+    state.zone = "body";
     fillPageTotals(doc);
   }
 
