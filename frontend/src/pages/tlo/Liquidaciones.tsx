@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import { computeTrip } from "@/lib/calc";
@@ -15,7 +16,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { KpiCard } from "@/components/tlo/KpiCard";
-import { Wallet, FileText, Lock, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2 } from "lucide-react";
+import { Wallet, FileText, Lock, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil } from "lucide-react";
 import { toast } from "sonner";
 
 const clampDate = (day: string, inicio: string, fin: string) => {
@@ -25,6 +26,7 @@ const clampDate = (day: string, inicio: string, fin: string) => {
 };
 
 export default function Liquidaciones() {
+  const nav = useNavigate();
   const { drivers, trucks } = useTlo();
   const { tenant, hasApiSession, permissions } = useAuth();
   const canClose = permissions.includes("liquidaciones.cerrar");
@@ -380,7 +382,20 @@ export default function Liquidaciones() {
                             <TableCell className="font-mono text-sm">{t.folio}</TableCell>
                             <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
                             <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
-                            <TableCell className="text-right font-semibold text-accent">{fmtMXN(f.comision)}</TableCell>
+                            <TableCell className="text-right">
+                              <div className="flex items-center justify-end gap-1">
+                                <span className="font-semibold text-accent">{fmtMXN(f.comision)}</span>
+                                <Button
+                                  variant="ghost"
+                                  size="sm"
+                                  className="h-8 w-8 p-0"
+                                  aria-label={`Editar viaje ${t.folio}`}
+                                  onClick={() => nav(`/viajes/${t.id}`)}
+                                >
+                                  <Pencil className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            </TableCell>
                           </TableRow>
                         );
                       })}
