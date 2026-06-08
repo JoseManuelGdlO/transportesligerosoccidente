@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -10,15 +11,23 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { apiFetch, readJson } from "@/lib/api";
 import {
   fetchClientUbicaciones,
-  normalizeCartaPorte,
   normalizeTrip,
   putTripUbicaciones,
 } from "@/lib/tloApi";
+import {
+  cardHighlightClass,
+  classifyCartaPorteIssues,
+  fieldHighlightClass,
+  firstErrorSection,
+} from "@/lib/cartaPorteIssues";
 import type { ClientUbicacion, Driver, Trip, TripMercancia, Truck } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
+import { useTlo } from "@/context/TloContext";
+import { driverById, truckById } from "@/lib/calc";
+import { cn } from "@/lib/utils";
 import { FileCheck, Plus, Trash2, Stamp, AlertCircle, Truck as TruckIcon, User } from "lucide-react";
 import { toast } from "sonner";
-import { tripIsOpen } from "@/lib/tripStatus";
+import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 
 type Props = {
   trip: Trip;
@@ -47,28 +56,39 @@ const emptyUbic = () => ({
   client_ubicacion_id: "" as string | undefined,
 });
 
+const AUTOSAVE_MS = 400;
+
 export function TripCartaPorte({
   trip,
   clientId,
   clientRfc,
   clientName,
-  driver,
-  truck,
+  driver: driverProp,
+  truck: truckProp,
   onTripUpdated,
 }: Props) {
   const { hasPermission } = useAuth();
+  const { drivers, trucks, upsertDriver, upsertTruck } = useTlo();
   const canTimbrar = hasPermission("cartaporte.timbrar");
-  const canEdit = tripIsOpen(trip) && hasPermission("viajes.crear");
   const cp = trip.carta_porte;
+  const cpTimbrada = cp?.estatus === "timbrada";
+  const tripFiscalReady = tripIsOpen(trip) || tripIsClosed(trip);
+  const canFiscalEdit =
+    !cpTimbrada &&
+    tripFiscalReady &&
+    (hasPermission("viajes.crear") || hasPermission("cartaporte.timbrar"));
+  const canCatalogEdit = hasPermission("catalogos.editar");
+
+  const driverLive = driverProp?.id
+    ? (driverById(drivers, driverProp.id) ?? driverProp)
+    : driverProp;
+  const truckLive = truckProp?.id ? (truckById(trucks, truckProp.id) ?? truckProp) : truckProp;
+
   const sortedUbics = useMemo(
     () => [...(trip.ubicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
     [trip.ubicaciones],
   );
-  const stopCount = Math.max(
-    trip.paradas?.length ?? 0,
-    sortedUbics.length,
-    2,
-  );
+  const stopCount = Math.max(trip.paradas?.length ?? 0, sortedUbics.length, 2);
   const origen = sortedUbics.find((u) => u.orden === 1) ?? sortedUbics.find((u) => u.tipo === "Origen");
   const destino =
     sortedUbics.find((u) => u.orden === stopCount) ??
@@ -120,7 +140,58 @@ export function TripCartaPorte({
     Array<ReturnType<typeof emptyUbic> & { orden: number; label: string }>
   >([]);
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
+  const [validationAttempted, setValidationAttempted] = useState(false);
   const [loading, setLoading] = useState(false);
+
+  const [driverFiscal, setDriverFiscal] = useState({
+    rfc: "",
+    licencia_federal: "",
+    licencia: "",
+  });
+  const [truckFiscal, setTruckFiscal] = useState({
+    perm_sct: "",
+    num_permiso_sct: "",
+    config_vehicular: "",
+    peso_bruto_vehicular: "" as string | number,
+    aseguradora_resp_civil: "",
+    poliza_resp_civil: "",
+  });
+
+  const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastSavedSnapshotRef = useRef<string>("");
+  const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
+
+  const issueFlags = useMemo(
+    () => classifyCartaPorteIssues(previewIssues, stopCount),
+    [previewIssues, stopCount],
+  );
+
+  useEffect(() => {
+    setDriverFiscal({
+      rfc: driverLive?.rfc ?? "",
+      licencia_federal: driverLive?.licencia_federal ?? "",
+      licencia: driverLive?.licencia ?? "",
+    });
+  }, [driverLive?.id, driverLive?.rfc, driverLive?.licencia_federal, driverLive?.licencia]);
+
+  useEffect(() => {
+    setTruckFiscal({
+      perm_sct: truckLive?.perm_sct ?? "",
+      num_permiso_sct: truckLive?.num_permiso_sct ?? "",
+      config_vehicular: truckLive?.config_vehicular ?? "",
+      peso_bruto_vehicular: truckLive?.peso_bruto_vehicular ?? "",
+      aseguradora_resp_civil: truckLive?.aseguradora_resp_civil ?? "",
+      poliza_resp_civil: truckLive?.poliza_resp_civil ?? "",
+    });
+  }, [
+    truckLive?.id,
+    truckLive?.perm_sct,
+    truckLive?.num_permiso_sct,
+    truckLive?.config_vehicular,
+    truckLive?.peso_bruto_vehicular,
+    truckLive?.aseguradora_resp_civil,
+    truckLive?.poliza_resp_civil,
+  ]);
 
   useEffect(() => {
     if (stopCount <= 2) {
@@ -170,6 +241,24 @@ export function TripCartaPorte({
       .catch(() => setCatalogUbicaciones([]));
   }, [clientId]);
 
+  useEffect(() => {
+    lastSavedSnapshotRef.current = buildUbicSnapshot(origenForm, destinoForm, middleForms);
+  }, [trip.id, trip.ubicaciones]);
+
+  useEffect(() => {
+    if (!validationAttempted) return;
+    const section = firstErrorSection(issueFlags, stopCount);
+    if (!section) return;
+    const refKey =
+      section === "stop"
+        ? `stop-${Object.keys(issueFlags.stops)
+            .map(Number)
+            .filter((o) => o > 1 && o < stopCount)
+            .sort((a, b) => a - b)[0]}`
+        : section;
+    sectionRefs.current[refKey]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [validationAttempted, issueFlags, stopCount]);
+
   const catalogForOrigen = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Origen" || u.tipo === "Ambos"),
   );
@@ -177,34 +266,17 @@ export function TripCartaPorte({
     (u) => u.estatus !== "inactivo" && (u.tipo === "Destino" || u.tipo === "Ambos"),
   );
 
-  const applyCatalogUbicacion = (
-    tipo: "origen" | "destino",
-    ubicacionId: string,
-  ) => {
-    const u = catalogUbicaciones.find((x) => x.id === ubicacionId);
-    if (!u) return;
-    const patch = {
-      nombre: u.nombre,
-      calle: u.calle || "",
-      colonia: u.colonia || "",
-      municipio: u.municipio || "",
-      localidad: u.localidad || "",
-      estado: u.estado || "",
-      cp: u.cp || "",
-      numero_exterior: u.numero_exterior || "",
-      numero_interior: u.numero_interior || "",
-      pais: u.pais || "MEX",
-      client_ubicacion_id: u.id,
-    };
-    if (tipo === "origen") setOrigenForm((prev) => ({ ...prev, ...patch }));
-    else setDestinoForm((prev) => ({ ...prev, ...patch }));
-  };
-
   const reloadTrip = async () => {
     const r = await apiFetch(`/trips/${trip.id}`);
     const j = await readJson<Record<string, unknown>>(r);
     onTripUpdated(normalizeTrip(j));
   };
+
+  const buildUbicSnapshot = (
+    origen: typeof origenForm,
+    destino: typeof destinoForm,
+    middles: typeof middleForms,
+  ) => JSON.stringify({ origen, destino, middles });
 
   const toPayload = (body: ReturnType<typeof emptyUbic>, orden: number) => ({
     orden,
@@ -220,47 +292,146 @@ export function TripCartaPorte({
     numero_interior: body.numero_interior || undefined,
     pais: body.pais || undefined,
     distancia_km:
-      orden === 1 || body.distancia_km === ""
-        ? undefined
-        : Number(body.distancia_km),
+      orden === 1 || body.distancia_km === "" ? undefined : Number(body.distancia_km),
     fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
     client_ubicacion_id: body.client_ubicacion_id || undefined,
   });
 
-  const saveUbicacion = async (tipo: "origen" | "destino") => {
-    const body = tipo === "origen" ? origenForm : destinoForm;
-    const path = tipo === "origen" ? "ubicacion-origen" : "ubicacion-destino";
-    const payload = {
-      ...body,
-      distancia_km: body.distancia_km === "" ? undefined : Number(body.distancia_km),
-      fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
-      client_ubicacion_id: body.client_ubicacion_id || undefined,
-    };
-    const r = await apiFetch(`/trips/${trip.id}/carta-porte/${path}`, {
-      method: "PUT",
-      body: JSON.stringify(payload),
-    });
-    if (!r.ok) {
-      toast.error("No se pudo guardar la ubicación");
-      return;
-    }
-    toast.success(tipo === "origen" ? "Origen guardado" : "Entrega guardada");
-    await reloadTrip();
-  };
+  const persistUbicaciones = useCallback(async () => {
+    if (!canFiscalEdit) return;
+    const snapshot = buildUbicSnapshot(origenForm, destinoForm, middleForms);
+    if (snapshot === lastSavedSnapshotRef.current) return;
 
-  const saveAllUbicaciones = async () => {
     try {
-      const items = [
-        toPayload(origenForm, 1),
-        ...middleForms.map((m) => toPayload(m, m.orden)),
-        toPayload(destinoForm, stopCount),
-      ];
-      await putTripUbicaciones(trip.id, items);
-      toast.success("Ubicaciones fiscales guardadas");
+      if (stopCount <= 2) {
+        const origenPayload = {
+          ...origenForm,
+          fecha_hora: origenForm.fecha_hora
+            ? new Date(origenForm.fecha_hora).toISOString()
+            : undefined,
+          client_ubicacion_id: origenForm.client_ubicacion_id || undefined,
+        };
+        const destinoPayload = {
+          ...destinoForm,
+          distancia_km:
+            destinoForm.distancia_km === "" ? undefined : Number(destinoForm.distancia_km),
+          fecha_hora: destinoForm.fecha_hora
+            ? new Date(destinoForm.fecha_hora).toISOString()
+            : undefined,
+          client_ubicacion_id: destinoForm.client_ubicacion_id || undefined,
+        };
+        const [r1, r2] = await Promise.all([
+          apiFetch(`/trips/${trip.id}/carta-porte/ubicacion-origen`, {
+            method: "PUT",
+            body: JSON.stringify(origenPayload),
+          }),
+          apiFetch(`/trips/${trip.id}/carta-porte/ubicacion-destino`, {
+            method: "PUT",
+            body: JSON.stringify(destinoPayload),
+          }),
+        ]);
+        if (!r1.ok || !r2.ok) {
+          toast.error("No se pudieron guardar las ubicaciones");
+          return;
+        }
+      } else {
+        const items = [
+          toPayload(origenForm, 1),
+          ...middleForms.map((m) => toPayload(m, m.orden)),
+          toPayload(destinoForm, stopCount),
+        ];
+        await putTripUbicaciones(trip.id, items);
+      }
+      lastSavedSnapshotRef.current = snapshot;
       await reloadTrip();
     } catch {
       toast.error("No se pudieron guardar las ubicaciones");
     }
+  }, [canFiscalEdit, destinoForm, middleForms, origenForm, stopCount, trip.id]);
+
+  const flushPendingSaves = useCallback(async () => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    await persistUbicaciones();
+  }, [persistUbicaciones]);
+
+  const schedulePersistUbicaciones = useCallback(() => {
+    if (!canFiscalEdit) return;
+    if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
+    persistTimerRef.current = setTimeout(() => {
+      persistTimerRef.current = null;
+      void persistUbicaciones();
+    }, AUTOSAVE_MS);
+  }, [canFiscalEdit, persistUbicaciones]);
+
+  const onUbicFieldBlur = () => {
+    void flushPendingSaves();
+  };
+
+  const applyCatalogUbicacion = (tipo: "origen" | "destino", ubicacionId: string) => {
+    const u = catalogUbicaciones.find((x) => x.id === ubicacionId);
+    if (!u) return;
+    const patch = {
+      nombre: u.nombre,
+      calle: u.calle || "",
+      colonia: u.colonia || "",
+      municipio: u.municipio || "",
+      localidad: u.localidad || "",
+      estado: u.estado || "",
+      cp: u.cp || "",
+      numero_exterior: u.numero_exterior || "",
+      numero_interior: u.numero_interior || "",
+      pais: u.pais || "MEX",
+      client_ubicacion_id: u.id,
+    };
+    if (tipo === "origen") {
+      setOrigenForm((prev) => ({ ...prev, ...patch }));
+    } else {
+      setDestinoForm((prev) => ({ ...prev, ...patch }));
+    }
+    schedulePersistUbicaciones();
+  };
+
+  const saveDriverFiscal = () => {
+    if (!canCatalogEdit || !driverLive?.id) return;
+    const changed =
+      (driverFiscal.rfc || "") !== (driverLive.rfc || "") ||
+      (driverFiscal.licencia_federal || "") !== (driverLive.licencia_federal || "") ||
+      (driverFiscal.licencia || "") !== (driverLive.licencia || "");
+    if (!changed) return;
+    upsertDriver({
+      ...driverLive,
+      rfc: driverFiscal.rfc || undefined,
+      licencia_federal: driverFiscal.licencia_federal || undefined,
+      licencia: driverFiscal.licencia || driverLive.licencia,
+    });
+  };
+
+  const saveTruckFiscal = () => {
+    if (!canCatalogEdit || !truckLive?.id) return;
+    const peso =
+      truckFiscal.peso_bruto_vehicular === ""
+        ? undefined
+        : Number(truckFiscal.peso_bruto_vehicular);
+    const changed =
+      (truckFiscal.perm_sct || "") !== (truckLive.perm_sct || "") ||
+      (truckFiscal.num_permiso_sct || "") !== (truckLive.num_permiso_sct || "") ||
+      (truckFiscal.config_vehicular || "") !== (truckLive.config_vehicular || "") ||
+      peso !== truckLive.peso_bruto_vehicular ||
+      (truckFiscal.aseguradora_resp_civil || "") !== (truckLive.aseguradora_resp_civil || "") ||
+      (truckFiscal.poliza_resp_civil || "") !== (truckLive.poliza_resp_civil || "");
+    if (!changed) return;
+    upsertTruck({
+      ...truckLive,
+      perm_sct: truckFiscal.perm_sct || undefined,
+      num_permiso_sct: truckFiscal.num_permiso_sct || undefined,
+      config_vehicular: truckFiscal.config_vehicular || undefined,
+      peso_bruto_vehicular: peso,
+      aseguradora_resp_civil: truckFiscal.aseguradora_resp_civil || undefined,
+      poliza_resp_civil: truckFiscal.poliza_resp_civil || undefined,
+    });
   };
 
   const addMercancia = async () => {
@@ -297,23 +468,25 @@ export function TripCartaPorte({
     await reloadTrip();
   };
 
-  const runPreview = async () => {
-    setLoading(true);
-    try {
-      const r = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, { method: "POST" });
-      const j = await readJson<{ valid: boolean; issues: string[] }>(r);
-      setPreviewIssues(j.issues || []);
-      if (j.valid) toast.success("Datos listos para timbrar");
-      else toast.warning("Revisa los datos fiscales");
-    } finally {
-      setLoading(false);
-    }
-  };
-
-  const timbrar = async () => {
+  const handleTimbrar = async () => {
     if (!canTimbrar) return;
     setLoading(true);
     try {
+      await flushPendingSaves();
+      const previewRes = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, {
+        method: "POST",
+      });
+      const preview = await readJson<{ valid: boolean; issues: string[] }>(previewRes);
+      const issues = preview.issues || [];
+      setPreviewIssues(issues);
+
+      if (!preview.valid) {
+        setValidationAttempted(true);
+        toast.warning("Completa los datos fiscales señalados");
+        return;
+      }
+
+      setValidationAttempted(false);
       const r = await apiFetch(`/trips/${trip.id}/carta-porte/timbrar`, { method: "POST" });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
@@ -322,6 +495,7 @@ export function TripCartaPorte({
       }
       await readJson<Record<string, unknown>>(r);
       toast.success("Carta porte timbrada");
+      setPreviewIssues([]);
       await reloadTrip();
     } finally {
       setLoading(false);
@@ -339,6 +513,28 @@ export function TripCartaPorte({
     return <Badge variant={map[s] as "secondary"}>{s}</Badge>;
   };
 
+  const fh = (flag: boolean) => fieldHighlightClass(flag, validationAttempted);
+  const ch = (flag: boolean) => cardHighlightClass(flag, validationAttempted);
+
+  const patchOrigen = (patch: Partial<typeof origenForm>) => {
+    setOrigenForm((prev) => ({ ...prev, ...patch }));
+    schedulePersistUbicaciones();
+  };
+
+  const patchDestino = (patch: Partial<typeof destinoForm>) => {
+    setDestinoForm((prev) => ({ ...prev, ...patch }));
+    schedulePersistUbicaciones();
+  };
+
+  const patchMiddle = (idx: number, patch: Partial<(typeof middleForms)[0]>) => {
+    setMiddleForms((prev) => {
+      const next = [...prev];
+      next[idx] = { ...next[idx], ...patch };
+      return next;
+    });
+    schedulePersistUbicaciones();
+  };
+
   return (
     <div className="space-y-4">
       <Card className="tlo-shadow-md">
@@ -349,6 +545,29 @@ export function TripCartaPorte({
           {statusBadge()}
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+          {issueFlags.hasEmpresaIssues && validationAttempted && (
+            <div
+              ref={(el) => {
+                sectionRefs.current.empresa = el;
+              }}
+              className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm"
+            >
+              <p className="font-medium text-destructive">Datos de empresa incompletos</p>
+              <p className="text-muted-foreground mt-1">
+                Configura RFC, régimen, CP fiscal y certificados CSD en{" "}
+                <Link to="/empresa" className="text-primary underline">
+                  Empresa → Datos fiscales
+                </Link>
+                .
+              </p>
+            </div>
+          )}
+          {issueFlags.hasTripStatusIssue && validationAttempted && (
+            <p className="text-destructive text-xs">
+              El viaje debe estar en estado <strong>en curso</strong> o <strong>cerrado</strong> para
+              timbrar.
+            </p>
+          )}
           {cp?.id_ccp && (
             <p>
               <span className="text-muted-foreground">IdCCP:</span>{" "}
@@ -374,13 +593,10 @@ export function TripCartaPorte({
             </p>
           )}
           <div className="flex flex-wrap gap-2 pt-2">
-            <Button variant="outline" size="sm" onClick={() => void runPreview()} disabled={loading}>
-              Validar datos
-            </Button>
-            {canTimbrar && cp?.estatus !== "timbrada" && (
+            {canTimbrar && !cpTimbrada && (
               <Button
                 size="sm"
-                onClick={() => void timbrar()}
+                onClick={() => void handleTimbrar()}
                 disabled={loading}
                 className="bg-primary text-primary-foreground"
               >
@@ -399,48 +615,167 @@ export function TripCartaPorte({
       </Card>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <Card className="tlo-shadow-md">
+        <Card
+          ref={(el) => {
+            sectionRefs.current.driver = el;
+          }}
+          className={cn("tlo-shadow-md", ch(issueFlags.driver.highlight))}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <User className="h-4 w-4" /> Operador asignado
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm space-y-1">
-            <p className="font-medium">{driver?.nombre || "—"}</p>
-            <p>
-              <span className="text-muted-foreground">RFC:</span> {driver?.rfc || "—"}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Lic. federal:</span>{" "}
-              {driver?.licencia_federal || driver?.licencia || "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">Editar en catálogo Operadores</p>
+          <CardContent className="text-sm space-y-2">
+            <p className="font-medium">{driverLive?.nombre || "—"}</p>
+            {issueFlags.driver.unassigned && validationAttempted && (
+              <p className="text-xs text-destructive">Asigna un operador al viaje</p>
+            )}
+            <div>
+              <Label>RFC</Label>
+              <Input
+                value={driverFiscal.rfc}
+                onChange={(e) => setDriverFiscal((p) => ({ ...p, rfc: e.target.value }))}
+                onBlur={saveDriverFiscal}
+                disabled={!canCatalogEdit || !driverLive?.id}
+                className={fh(issueFlags.driver.rfc)}
+              />
+            </div>
+            <div>
+              <Label>Lic. federal</Label>
+              <Input
+                value={driverFiscal.licencia_federal}
+                onChange={(e) =>
+                  setDriverFiscal((p) => ({ ...p, licencia_federal: e.target.value }))
+                }
+                onBlur={saveDriverFiscal}
+                disabled={!canCatalogEdit || !driverLive?.id}
+                className={fh(issueFlags.driver.licencia)}
+              />
+            </div>
+            <div>
+              <Label>Licencia (alternativa)</Label>
+              <Input
+                value={driverFiscal.licencia}
+                onChange={(e) => setDriverFiscal((p) => ({ ...p, licencia: e.target.value }))}
+                onBlur={saveDriverFiscal}
+                disabled={!canCatalogEdit || !driverLive?.id}
+                className={fh(issueFlags.driver.licencia)}
+              />
+            </div>
+            {!canCatalogEdit && (
+              <p className="text-xs text-muted-foreground">Requiere permiso catalogos.editar</p>
+            )}
           </CardContent>
         </Card>
-        <Card className="tlo-shadow-md">
+
+        <Card
+          ref={(el) => {
+            sectionRefs.current.truck = el;
+          }}
+          className={cn("tlo-shadow-md", ch(issueFlags.truck.highlight))}
+        >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
               <TruckIcon className="h-4 w-4" /> Unidad asignada
             </CardTitle>
           </CardHeader>
-          <CardContent className="text-sm space-y-1">
+          <CardContent className="text-sm space-y-2">
             <p className="font-medium">
-              {truck?.numero_economico || "—"} · {truck?.placas || "—"}
+              {truckLive?.numero_economico || "—"} · {truckLive?.placas || "—"}
             </p>
-            <p>
-              <span className="text-muted-foreground">Permiso SCT:</span> {truck?.perm_sct || "—"} /{" "}
-              {truck?.num_permiso_sct || "—"}
-            </p>
-            <p>
-              <span className="text-muted-foreground">Config.:</span> {truck?.config_vehicular || "—"}
-            </p>
-            <p className="text-xs text-muted-foreground">Editar en catálogo Camiones</p>
+            <div className="grid grid-cols-2 gap-2">
+              <div>
+                <Label>Permiso SCT</Label>
+                <Input
+                  value={truckFiscal.perm_sct}
+                  onChange={(e) => setTruckFiscal((p) => ({ ...p, perm_sct: e.target.value }))}
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.perm_sct)}
+                  placeholder="TPAF01"
+                />
+              </div>
+              <div>
+                <Label>No. permiso SCT</Label>
+                <Input
+                  value={truckFiscal.num_permiso_sct}
+                  onChange={(e) =>
+                    setTruckFiscal((p) => ({ ...p, num_permiso_sct: e.target.value }))
+                  }
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.num_permiso_sct)}
+                />
+              </div>
+              <div>
+                <Label>Config. vehicular</Label>
+                <Input
+                  value={truckFiscal.config_vehicular}
+                  onChange={(e) =>
+                    setTruckFiscal((p) => ({ ...p, config_vehicular: e.target.value }))
+                  }
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.config_vehicular)}
+                  placeholder="C2"
+                />
+              </div>
+              <div>
+                <Label>Peso bruto (kg)</Label>
+                <Input
+                  type="number"
+                  value={truckFiscal.peso_bruto_vehicular}
+                  onChange={(e) =>
+                    setTruckFiscal((p) => ({
+                      ...p,
+                      peso_bruto_vehicular: e.target.value,
+                    }))
+                  }
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.peso_bruto_vehicular)}
+                />
+              </div>
+              <div>
+                <Label>Aseguradora RC</Label>
+                <Input
+                  value={truckFiscal.aseguradora_resp_civil}
+                  onChange={(e) =>
+                    setTruckFiscal((p) => ({ ...p, aseguradora_resp_civil: e.target.value }))
+                  }
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.aseguradora_resp_civil)}
+                />
+              </div>
+              <div>
+                <Label>Póliza RC</Label>
+                <Input
+                  value={truckFiscal.poliza_resp_civil}
+                  onChange={(e) =>
+                    setTruckFiscal((p) => ({ ...p, poliza_resp_civil: e.target.value }))
+                  }
+                  onBlur={saveTruckFiscal}
+                  disabled={!canCatalogEdit || !truckLive?.id}
+                  className={fh(issueFlags.truck.poliza_resp_civil)}
+                />
+              </div>
+            </div>
+            {!canCatalogEdit && (
+              <p className="text-xs text-muted-foreground">Requiere permiso catalogos.editar</p>
+            )}
           </CardContent>
         </Card>
       </div>
 
       <div className="grid md:grid-cols-2 gap-4">
-        <Card className="tlo-shadow-md">
+        <Card
+          ref={(el) => {
+            sectionRefs.current.origen = el;
+          }}
+          className={cn("tlo-shadow-md", ch(issueFlags.origen.highlight))}
+        >
           <CardHeader>
             <CardTitle className="text-sm">Ubicación origen</CardTitle>
             {origen?.id_ubicacion_sat && (
@@ -448,14 +783,14 @@ export function TripCartaPorte({
             )}
           </CardHeader>
           <CardContent className="grid gap-2">
-            {catalogForOrigen.length > 0 && canEdit ? (
+            {catalogForOrigen.length > 0 && canFiscalEdit ? (
               <div>
                 <Label>Cargar desde catálogo</Label>
                 <Select
                   value={origenForm.client_ubicacion_id || "none"}
                   onValueChange={(v) => {
                     if (v === "none") {
-                      setOrigenForm((prev) => ({ ...prev, client_ubicacion_id: undefined }));
+                      patchOrigen({ client_ubicacion_id: undefined });
                       return;
                     }
                     applyCatalogUbicacion("origen", v);
@@ -479,16 +814,18 @@ export function TripCartaPorte({
               <Label>RFC</Label>
               <Input
                 value={origenForm.rfc}
-                onChange={(e) => setOrigenForm({ ...origenForm, rfc: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchOrigen({ rfc: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
             <div>
               <Label>Nombre</Label>
               <Input
                 value={origenForm.nombre}
-                onChange={(e) => setOrigenForm({ ...origenForm, nombre: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchOrigen({ nombre: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -496,24 +833,27 @@ export function TripCartaPorte({
                 <Label>Calle</Label>
                 <Input
                   value={origenForm.calle}
-                  onChange={(e) => setOrigenForm({ ...origenForm, calle: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ calle: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>No. ext.</Label>
                 <Input
                   value={origenForm.numero_exterior}
-                  onChange={(e) => setOrigenForm({ ...origenForm, numero_exterior: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ numero_exterior: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>No. int.</Label>
                 <Input
                   value={origenForm.numero_interior}
-                  onChange={(e) => setOrigenForm({ ...origenForm, numero_interior: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ numero_interior: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
             </div>
@@ -522,48 +862,56 @@ export function TripCartaPorte({
                 <Label>Colonia</Label>
                 <Input
                   value={origenForm.colonia}
-                  onChange={(e) => setOrigenForm({ ...origenForm, colonia: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ colonia: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Municipio</Label>
                 <Input
                   value={origenForm.municipio}
-                  onChange={(e) => setOrigenForm({ ...origenForm, municipio: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ municipio: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Localidad</Label>
                 <Input
                   value={origenForm.localidad}
-                  onChange={(e) => setOrigenForm({ ...origenForm, localidad: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ localidad: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Estado</Label>
                 <Input
                   value={origenForm.estado}
-                  onChange={(e) => setOrigenForm({ ...origenForm, estado: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ estado: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  className={fh(issueFlags.origen.estado)}
                 />
               </div>
               <div>
                 <Label>CP</Label>
                 <Input
                   value={origenForm.cp}
-                  onChange={(e) => setOrigenForm({ ...origenForm, cp: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ cp: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  className={fh(issueFlags.origen.cp)}
                 />
               </div>
               <div>
                 <Label>País</Label>
                 <Input
                   value={origenForm.pais}
-                  onChange={(e) => setOrigenForm({ ...origenForm, pais: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchOrigen({ pais: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                   maxLength={3}
                 />
               </div>
@@ -573,19 +921,20 @@ export function TripCartaPorte({
               <Input
                 type="datetime-local"
                 value={origenForm.fecha_hora}
-                onChange={(e) => setOrigenForm({ ...origenForm, fecha_hora: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchOrigen({ fecha_hora: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
-            {canEdit && (
-              <Button size="sm" onClick={() => void saveUbicacion("origen")}>
-                Guardar origen
-              </Button>
-            )}
           </CardContent>
         </Card>
 
-        <Card className="tlo-shadow-md">
+        <Card
+          ref={(el) => {
+            sectionRefs.current.destino = el;
+          }}
+          className={cn("tlo-shadow-md", ch(issueFlags.stops[stopCount]?.highlight ?? false))}
+        >
           <CardHeader>
             <CardTitle className="text-sm">Ubicación entrega</CardTitle>
             {destino?.id_ubicacion_sat && (
@@ -593,14 +942,14 @@ export function TripCartaPorte({
             )}
           </CardHeader>
           <CardContent className="grid gap-2">
-            {catalogForDestino.length > 0 && canEdit ? (
+            {catalogForDestino.length > 0 && canFiscalEdit ? (
               <div>
                 <Label>Cargar desde catálogo</Label>
                 <Select
                   value={destinoForm.client_ubicacion_id || "none"}
                   onValueChange={(v) => {
                     if (v === "none") {
-                      setDestinoForm((prev) => ({ ...prev, client_ubicacion_id: undefined }));
+                      patchDestino({ client_ubicacion_id: undefined });
                       return;
                     }
                     applyCatalogUbicacion("destino", v);
@@ -624,16 +973,18 @@ export function TripCartaPorte({
               <Label>RFC</Label>
               <Input
                 value={destinoForm.rfc}
-                onChange={(e) => setDestinoForm({ ...destinoForm, rfc: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchDestino({ rfc: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
             <div>
               <Label>Nombre</Label>
               <Input
                 value={destinoForm.nombre}
-                onChange={(e) => setDestinoForm({ ...destinoForm, nombre: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchDestino({ nombre: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
             <div className="grid grid-cols-3 gap-2">
@@ -641,24 +992,27 @@ export function TripCartaPorte({
                 <Label>Calle</Label>
                 <Input
                   value={destinoForm.calle}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, calle: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ calle: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>No. ext.</Label>
                 <Input
                   value={destinoForm.numero_exterior}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, numero_exterior: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ numero_exterior: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>No. int.</Label>
                 <Input
                   value={destinoForm.numero_interior}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, numero_interior: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ numero_interior: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
             </div>
@@ -667,48 +1021,56 @@ export function TripCartaPorte({
                 <Label>Colonia</Label>
                 <Input
                   value={destinoForm.colonia}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, colonia: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ colonia: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Municipio</Label>
                 <Input
                   value={destinoForm.municipio}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, municipio: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ municipio: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Localidad</Label>
                 <Input
                   value={destinoForm.localidad}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, localidad: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ localidad: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                 />
               </div>
               <div>
                 <Label>Estado</Label>
                 <Input
                   value={destinoForm.estado}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, estado: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ estado: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  className={fh(issueFlags.stops[stopCount]?.estado ?? false)}
                 />
               </div>
               <div>
                 <Label>CP</Label>
                 <Input
                   value={destinoForm.cp}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, cp: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ cp: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  className={fh(issueFlags.stops[stopCount]?.cp ?? false)}
                 />
               </div>
               <div>
                 <Label>País</Label>
                 <Input
                   value={destinoForm.pais}
-                  onChange={(e) => setDestinoForm({ ...destinoForm, pais: e.target.value })}
-                  disabled={!canEdit}
+                  onChange={(e) => patchDestino({ pais: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
                   maxLength={3}
                 />
               </div>
@@ -718,8 +1080,10 @@ export function TripCartaPorte({
               <Input
                 type="number"
                 value={destinoForm.distancia_km}
-                onChange={(e) => setDestinoForm({ ...destinoForm, distancia_km: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchDestino({ distancia_km: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
+                className={fh(issueFlags.stops[stopCount]?.distancia_km ?? false)}
               />
             </div>
             <div>
@@ -727,96 +1091,94 @@ export function TripCartaPorte({
               <Input
                 type="datetime-local"
                 value={destinoForm.fecha_hora}
-                onChange={(e) => setDestinoForm({ ...destinoForm, fecha_hora: e.target.value })}
-                disabled={!canEdit}
+                onChange={(e) => patchDestino({ fecha_hora: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
               />
             </div>
-            {canEdit && stopCount <= 2 && (
-              <Button size="sm" onClick={() => void saveUbicacion("destino")}>
-                Guardar entrega
-              </Button>
-            )}
           </CardContent>
         </Card>
       </div>
 
       {middleForms.length > 0 && (
         <div className="grid md:grid-cols-2 gap-4">
-          {middleForms.map((mf, idx) => (
-            <Card key={mf.orden} className="tlo-shadow-md">
-              <CardHeader>
-                <CardTitle className="text-sm">{mf.label}</CardTitle>
-              </CardHeader>
-              <CardContent className="grid gap-2">
-                <div>
-                  <Label>Calle</Label>
-                  <Input
-                    value={mf.calle}
-                    onChange={(e) => {
-                      const next = [...middleForms];
-                      next[idx] = { ...next[idx], calle: e.target.value };
-                      setMiddleForms(next);
-                    }}
-                    disabled={!canEdit}
-                  />
-                </div>
-                <div className="grid grid-cols-2 gap-2">
+          {middleForms.map((mf, idx) => {
+            const stopFlags = issueFlags.stops[mf.orden];
+            return (
+              <Card
+                key={mf.orden}
+                ref={(el) => {
+                  sectionRefs.current[`stop-${mf.orden}`] = el;
+                }}
+                className={cn("tlo-shadow-md", ch(stopFlags?.highlight ?? false))}
+              >
+                <CardHeader>
+                  <CardTitle className="text-sm">{mf.label}</CardTitle>
+                </CardHeader>
+                <CardContent className="grid gap-2">
                   <div>
-                    <Label>Estado</Label>
+                    <Label>Calle</Label>
                     <Input
-                      value={mf.estado}
-                      onChange={(e) => {
-                        const next = [...middleForms];
-                        next[idx] = { ...next[idx], estado: e.target.value };
-                        setMiddleForms(next);
-                      }}
-                      disabled={!canEdit}
+                      value={mf.calle}
+                      onChange={(e) => patchMiddle(idx, { calle: e.target.value })}
+                      onBlur={onUbicFieldBlur}
+                      disabled={!canFiscalEdit}
                     />
                   </div>
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <Label>Estado</Label>
+                      <Input
+                        value={mf.estado}
+                        onChange={(e) => patchMiddle(idx, { estado: e.target.value })}
+                        onBlur={onUbicFieldBlur}
+                        disabled={!canFiscalEdit}
+                        className={fh(stopFlags?.estado ?? false)}
+                      />
+                    </div>
+                    <div>
+                      <Label>CP</Label>
+                      <Input
+                        value={mf.cp}
+                        onChange={(e) => patchMiddle(idx, { cp: e.target.value })}
+                        onBlur={onUbicFieldBlur}
+                        disabled={!canFiscalEdit}
+                        className={fh(stopFlags?.cp ?? false)}
+                      />
+                    </div>
+                  </div>
                   <div>
-                    <Label>CP</Label>
+                    <Label>Distancia del tramo (km)</Label>
                     <Input
-                      value={mf.cp}
-                      onChange={(e) => {
-                        const next = [...middleForms];
-                        next[idx] = { ...next[idx], cp: e.target.value };
-                        setMiddleForms(next);
-                      }}
-                      disabled={!canEdit}
+                      type="number"
+                      value={mf.distancia_km}
+                      onChange={(e) => patchMiddle(idx, { distancia_km: e.target.value })}
+                      onBlur={onUbicFieldBlur}
+                      disabled={!canFiscalEdit}
+                      className={fh(stopFlags?.distancia_km ?? false)}
                     />
                   </div>
-                </div>
-                <div>
-                  <Label>Distancia del tramo (km)</Label>
-                  <Input
-                    type="number"
-                    value={mf.distancia_km}
-                    onChange={(e) => {
-                      const next = [...middleForms];
-                      next[idx] = { ...next[idx], distancia_km: e.target.value };
-                      setMiddleForms(next);
-                    }}
-                    disabled={!canEdit}
-                  />
-                </div>
-              </CardContent>
-            </Card>
-          ))}
+                </CardContent>
+              </Card>
+            );
+          })}
         </div>
       )}
 
-      {canEdit && stopCount > 2 && (
-        <Button size="sm" onClick={() => void saveAllUbicaciones()}>
-          Guardar todas las ubicaciones fiscales
-        </Button>
-      )}
-
-      <Card className="tlo-shadow-md">
+      <Card
+        ref={(el) => {
+          sectionRefs.current.mercancias = el;
+        }}
+        className={cn(
+          "tlo-shadow-md",
+          ch(issueFlags.hasMercanciasIssue || issueFlags.ubicacionesMin),
+        )}
+      >
         <CardHeader>
           <CardTitle className="text-sm">Mercancías</CardTitle>
         </CardHeader>
         <CardContent>
-          {canEdit && (
+          {canFiscalEdit && (
             <div className="grid md:grid-cols-6 gap-2 mb-4">
               <div className="md:col-span-2">
                 <Label>Descripción</Label>
@@ -834,7 +1196,10 @@ export function TripCartaPorte({
               </div>
               <div>
                 <Label>Unidad</Label>
-                <Input value={merc.unidad} onChange={(e) => setMerc({ ...merc, unidad: e.target.value })} />
+                <Input
+                  value={merc.unidad}
+                  onChange={(e) => setMerc({ ...merc, unidad: e.target.value })}
+                />
               </div>
               <div>
                 <Label>Cantidad</Label>
@@ -892,7 +1257,7 @@ export function TripCartaPorte({
                   <TableCell className="text-right">{m.cantidad_transportada ?? m.cantidad}</TableCell>
                   <TableCell className="text-right">{m.peso_kg}</TableCell>
                   <TableCell className="text-right">
-                    {canEdit && (
+                    {canFiscalEdit && (
                       <Button variant="ghost" size="sm" onClick={() => void removeMercancia(m.id)}>
                         <Trash2 className="h-4 w-4 text-destructive" />
                       </Button>

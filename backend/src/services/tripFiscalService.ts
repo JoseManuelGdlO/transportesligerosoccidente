@@ -1,7 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia } from "../models";
 import type { UbicacionTipo } from "../models/TripUbicacion";
-import { getTripOrThrow, assertTripOpen } from "./tripService";
+import { getTripOrThrow, assertTripAllowsFiscalEdit } from "./tripService";
 import { listTripStops, type ParadaInput } from "./tripStopService";
 
 export function defaultIdUbicacionSat(tipo: UbicacionTipo, tripId: string, orden = 1): string {
@@ -259,7 +259,7 @@ export async function upsertUbicacion(
   },
 ) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripOpen(trip);
+  await assertTripAllowsFiscalEdit(trip);
   const tipo = tipoFromOrden(orden);
   const resolved = await resolveUbicacionPayload(tenantId, data);
   const existing = await TripUbicacion.findOne({
@@ -336,7 +336,7 @@ export async function replaceUbicaciones(
   }>,
 ) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripOpen(trip);
+  await assertTripAllowsFiscalEdit(trip);
   if (items.length < 2) {
     const err = new Error("Se requieren al menos 2 ubicaciones");
     (err as Error & { status?: number }).status = 400;
@@ -377,7 +377,7 @@ export async function addMercancia(
   },
 ) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripOpen(trip);
+  await assertTripAllowsFiscalEdit(trip);
   return TripMercancia.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -395,7 +395,7 @@ export async function addMercancia(
 
 export async function removeMercancia(tenantId: string, tripId: string, mercanciaId: string) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripOpen(trip);
+  await assertTripAllowsFiscalEdit(trip);
   const row = await TripMercancia.findOne({
     where: { id: mercanciaId, tenant_id: tenantId, trip_id: tripId },
   });

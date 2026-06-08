@@ -12,6 +12,7 @@ import {
 import { syncUbicacionesFromTripStops } from "./tripFiscalService";
 import {
   STATUSES_INCLUDE,
+  tripHasStatusSlug,
   tripIsClosed,
   assignEnCursoOnCreate,
   swapSystemStatus,
@@ -89,6 +90,14 @@ export async function getTripOrThrow(
 export async function assertTripOpen(trip: Trip) {
   if (tripIsClosed(trip)) {
     const err = new Error("El viaje ya está cerrado");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
+}
+
+export async function assertTripAllowsFiscalEdit(trip: Trip) {
+  if (!tripHasStatusSlug(trip, "en_curso") && !tripHasStatusSlug(trip, "cerrado")) {
+    const err = new Error("El viaje no permite editar datos fiscales de carta porte");
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
