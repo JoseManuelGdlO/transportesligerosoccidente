@@ -62,6 +62,7 @@ export function fuelToJson(f: FuelLoad): Record<string, unknown> {
     estacion_nombre: p.estacion_nombre ?? undefined,
     es_estacion_empresa: p.es_estacion_empresa !== false,
     comprobante_url: p.comprobante_url ?? undefined,
+    fuel_ticket_id: p.fuel_ticket_id ?? undefined,
   };
 }
 

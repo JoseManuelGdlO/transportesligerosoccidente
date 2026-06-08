@@ -31,6 +31,7 @@ export class FuelTicket extends Model<
   declare ubicacion: string;
   declare origen: FuelTicketOrigen;
   declare external_id: CreationOptional<string | null>;
+  declare prorrateo_confirmado_at: CreationOptional<Date | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -60,6 +61,7 @@ export function initFuelTicket(sequelize: Sequelize) {
         defaultValue: "manual",
       },
       external_id: { type: DataTypes.STRING(128), allowNull: true },
+      prorrateo_confirmado_at: { type: DataTypes.DATE, allowNull: true },
     } as never,
     {
       sequelize,

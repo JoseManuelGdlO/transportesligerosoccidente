@@ -458,11 +458,28 @@ export default function ViajeDetalle() {
                     <TableRow key={f.id}>
                       <TableCell className="text-sm">{fmtDate(f.fecha)}</TableCell>
                       <TableCell className="text-sm">{f.estacion_nombre || f.ubicacion}</TableCell>
-                      <TableCell>{f.es_foraneo ? <Badge variant="outline" className="text-warning-foreground border-warning/40">Foráneo</Badge> : <Badge variant="outline">Empresa</Badge>}</TableCell>
+                      <TableCell>
+                        <div className="flex flex-wrap gap-1">
+                          {f.es_foraneo ? (
+                            <Badge variant="outline" className="text-warning-foreground border-warning/40">Foráneo</Badge>
+                          ) : (
+                            <Badge variant="outline">Empresa</Badge>
+                          )}
+                          {f.fuel_ticket_id && (
+                            <Badge variant="secondary" className="text-[10px]">Prorrateo</Badge>
+                          )}
+                        </div>
+                      </TableCell>
                       <TableCell className="text-right font-mono">{fmtNumber(f.litros, 1)}</TableCell>
                       <TableCell className="text-right font-mono">{fmtMXN(f.precio_litro)}</TableCell>
                       <TableCell className="text-right font-semibold">{fmtMXN(f.litros * f.precio_litro)}</TableCell>
-                      <TableCell className="text-right"><Button variant="ghost" size="sm" onClick={async () => { removeFuel(trip.id, f.id); await reloadTrip(); }}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
+                      <TableCell className="text-right">
+                        {!f.fuel_ticket_id && (
+                          <Button variant="ghost" size="sm" onClick={async () => { removeFuel(trip.id, f.id); await reloadTrip(); }}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
+                      </TableCell>
                     </TableRow>
                   ))}
                 </TableBody>

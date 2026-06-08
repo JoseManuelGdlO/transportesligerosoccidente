@@ -2,25 +2,27 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import {
+  autoProrateFuel,
+  confirmFuelTicketProration,
   createFuelTicket,
   deleteFuelTicket,
   fetchFuelProration,
   fetchFuelSummary,
   fetchFuelTickets,
   previewFuelImport,
-  saveFuelProrationAssignments,
+  saveFuelTicketProrationAssignments,
   syncFuelTickets,
   updateFuelTicket,
 } from "@/lib/tloApi";
 import type {
   FuelImportPreviewResult,
   FuelImportPreviewTicket,
-  FuelProrationAssignmentInput,
   FuelProrationReport,
   FuelProrationTripRef,
   FuelProrationUnitReport,
   FuelSummaryRow,
   FuelTicket,
+  ProratedTicketBlock,
 } from "@/types/tlo";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -46,8 +48,9 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { fmtMXN, fmtNumber, formatTripRoute } from "@/lib/format";
-import { Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { Check, Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { toast } from "sonner";
 
 function monthRange(): { inicio: string; fin: string } {
@@ -64,26 +67,25 @@ function formatIsoDateEs(iso: string): string {
   return `${d}/${m}/${y}`;
 }
 
-const AUTO_ASSIGN = "auto";
+type TicketAssignContext = {
+  unit: FuelProrationUnitReport;
+  block: ProratedTicketBlock;
+};
 
-type AssignDraft = Record<string, string>;
-
-function eligibleProrationTrips(unit: FuelProrationUnitReport): FuelProrationTripRef[] {
+function eligibleTripsForTicket(unit: FuelProrationUnitReport, block: ProratedTicketBlock): FuelProrationTripRef[] {
   const seen = new Set<string>();
   const rows: FuelProrationTripRef[] = [];
-  for (const block of unit.tickets) {
-    for (const v of block.viajes) {
-      if (seen.has(v.trip_id)) continue;
-      seen.add(v.trip_id);
-      rows.push({
-        trip_id: v.trip_id,
-        folio: v.folio,
-        origen: v.origen,
-        destino: v.destino,
-        fecha_salida: v.fecha_salida,
-        km_recorridos: v.km_recorridos,
-      });
-    }
+  for (const v of block.viajes) {
+    if (seen.has(v.trip_id)) continue;
+    seen.add(v.trip_id);
+    rows.push({
+      trip_id: v.trip_id,
+      folio: v.folio,
+      origen: v.origen,
+      destino: v.destino,
+      fecha_salida: v.fecha_salida,
+      km_recorridos: v.km_recorridos,
+    });
   }
   for (const v of unit.viajes_sin_asignar ?? []) {
     if (seen.has(v.trip_id)) continue;
@@ -93,118 +95,65 @@ function eligibleProrationTrips(unit: FuelProrationUnitReport): FuelProrationTri
   return rows.sort((a, b) => a.fecha_salida.localeCompare(b.fecha_salida) || a.folio.localeCompare(b.folio));
 }
 
-function buildAssignDraftState(unit: FuelProrationUnitReport): {
-  draft: AssignDraft;
-  initialDraft: AssignDraft;
-  manualTrips: Set<string>;
-} {
-  const draft: AssignDraft = {};
-  const manualTrips = new Set<string>();
-
-  for (const block of unit.tickets) {
-    for (const v of block.viajes) {
-      draft[v.trip_id] = block.ticket_id;
-      if (v.asignacion_manual) manualTrips.add(v.trip_id);
-    }
-  }
-  for (const v of unit.viajes_sin_asignar ?? []) {
-    draft[v.trip_id] = AUTO_ASSIGN;
-  }
-
-  return { draft: { ...draft }, initialDraft: { ...draft }, manualTrips };
-}
-
-function buildAssignmentsPayload(
-  trips: FuelProrationTripRef[],
-  draft: AssignDraft,
-  initialDraft: AssignDraft,
-): FuelProrationAssignmentInput[] {
-  const out: FuelProrationAssignmentInput[] = [];
-  for (const trip of trips) {
-    const current = draft[trip.trip_id] ?? AUTO_ASSIGN;
-    const initial = initialDraft[trip.trip_id] ?? AUTO_ASSIGN;
-    if (current === initial) continue;
-
-    out.push({
-      trip_id: trip.trip_id,
-      fuel_ticket_id: current === AUTO_ASSIGN ? null : current,
-    });
-  }
-  return out;
-}
-
-function ticketAssignLabel(block: FuelProrationUnitReport["tickets"][number]): string {
-  return `Ticket ${formatIsoDateEs(block.fecha)} · ${fmtNumber(block.litros, 2)} L`;
-}
-
-function ProrationAssignDialog({
-  unit,
+function TicketAssignDialog({
+  context,
   open,
   saving,
-  draft,
-  onDraftChange,
+  selectedTripIds,
+  onToggleTrip,
   onClose,
   onSave,
 }: {
-  unit: FuelProrationUnitReport;
+  context: TicketAssignContext;
   open: boolean;
   saving: boolean;
-  draft: AssignDraft;
-  onDraftChange: (tripId: string, value: string) => void;
+  selectedTripIds: Set<string>;
+  onToggleTrip: (tripId: string, checked: boolean) => void;
   onClose: () => void;
   onSave: () => void;
 }) {
-  const trips = eligibleProrationTrips(unit);
+  const { unit, block } = context;
+  const trips = eligibleTripsForTicket(unit, block);
 
   return (
     <Dialog open={open} onOpenChange={(o) => !o && onClose()}>
       <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
-          <DialogTitle>Asignar viajes — {unit.numero_economico}</DialogTitle>
+          <DialogTitle>
+            Asignar viajes — Ticket {formatIsoDateEs(block.fecha)} · {fmtNumber(block.litros, 2)} L
+          </DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          Elija el ticket de combustible para cada viaje. &quot;Automático&quot; usa la ventana temporal del sistema.
+          Unidad {unit.numero_economico}. Marque los viajes que consumieron combustible de este ticket.
         </p>
         {trips.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
-            No hay viajes con km en el período para asignar.
+            No hay viajes con km disponibles para asignar a este ticket.
           </p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
+                <TableHead className="w-10" />
                 <TableHead>Folio</TableHead>
                 <TableHead>Ruta</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead className="text-right">Km</TableHead>
-                <TableHead>Ticket</TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
               {trips.map((trip) => (
                 <TableRow key={trip.trip_id}>
+                  <TableCell>
+                    <Checkbox
+                      checked={selectedTripIds.has(trip.trip_id)}
+                      onCheckedChange={(checked) => onToggleTrip(trip.trip_id, checked === true)}
+                    />
+                  </TableCell>
                   <TableCell className="font-mono">{trip.folio}</TableCell>
                   <TableCell>{formatTripRoute(trip)}</TableCell>
                   <TableCell>{formatIsoDateEs(trip.fecha_salida)}</TableCell>
                   <TableCell className="text-right">{fmtNumber(trip.km_recorridos)}</TableCell>
-                  <TableCell>
-                    <Select
-                      value={draft[trip.trip_id] ?? AUTO_ASSIGN}
-                      onValueChange={(v) => onDraftChange(trip.trip_id, v)}
-                    >
-                      <SelectTrigger className="w-full min-w-[200px]">
-                        <SelectValue />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value={AUTO_ASSIGN}>Automático</SelectItem>
-                        {unit.tickets.map((block) => (
-                          <SelectItem key={block.ticket_id} value={block.ticket_id}>
-                            {ticketAssignLabel(block)}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                  </TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -214,7 +163,7 @@ function ProrationAssignDialog({
           <Button variant="outline" onClick={onClose} disabled={saving}>
             Cancelar
           </Button>
-          <Button onClick={onSave} disabled={saving || trips.length === 0}>
+          <Button onClick={onSave} disabled={saving}>
             {saving ? "Guardando…" : "Guardar"}
           </Button>
         </DialogFooter>
@@ -336,8 +285,13 @@ export default function Combustibles() {
   const [tickets, setTickets] = useState<FuelTicket[]>([]);
   const [loadingTickets, setLoadingTickets] = useState(false);
 
+  const [activeTab, setActiveTab] = useState("tickets");
   const [proration, setProration] = useState<FuelProrationReport | null>(null);
   const [loadingProration, setLoadingProration] = useState(false);
+  const [autoProrating, setAutoProrating] = useState(false);
+
+  const [confirmedProration, setConfirmedProration] = useState<FuelProrationReport | null>(null);
+  const [loadingConfirmedProration, setLoadingConfirmedProration] = useState(false);
 
   const [summary, setSummary] = useState<FuelSummaryRow[]>([]);
   const [loadingSummary, setLoadingSummary] = useState(false);
@@ -350,11 +304,11 @@ export default function Combustibles() {
   const [importOpen, setImportOpen] = useState(false);
   const [importPreview, setImportPreview] = useState<FuelImportPreviewResult | null>(null);
 
-  const [assignUnit, setAssignUnit] = useState<FuelProrationUnitReport | null>(null);
-  const [assignDraft, setAssignDraft] = useState<AssignDraft>({});
-  const [assignInitialDraft, setAssignInitialDraft] = useState<AssignDraft>({});
-  const [assignManualTrips, setAssignManualTrips] = useState<Set<string>>(new Set());
+  const [assignContext, setAssignContext] = useState<TicketAssignContext | null>(null);
+  const [assignTripIds, setAssignTripIds] = useState<Set<string>>(new Set());
   const [savingAssign, setSavingAssign] = useState(false);
+  const [confirmTicketId, setConfirmTicketId] = useState<string | null>(null);
+  const [confirmingTicket, setConfirmingTicket] = useState(false);
   const [importReviewItems, setImportReviewItems] = useState<ImportReviewItem[]>([]);
   const [reviewTicketIndex, setReviewTicketIndex] = useState<number | null>(null);
   const [confirmingImportIndex, setConfirmingImportIndex] = useState<number | null>(null);
@@ -390,21 +344,34 @@ export default function Combustibles() {
     void loadTickets();
   }, [loadTickets]);
 
-  const loadProration = useCallback(async () => {
+  const loadPendingProration = useCallback(async () => {
     setLoadingProration(true);
     try {
-      const report = await fetchFuelProration(inicio, fin);
+      const report = await fetchFuelProration(inicio, fin, "pendiente");
       setProration(report);
     } catch {
-      toast.error("No se pudo calcular el prorrateo");
+      toast.error("No se pudieron cargar los tickets pendientes");
     } finally {
       setLoadingProration(false);
     }
   }, [inicio, fin]);
 
+  const loadConfirmedProration = useCallback(async () => {
+    setLoadingConfirmedProration(true);
+    try {
+      const report = await fetchFuelProration(inicio, fin, "confirmado");
+      setConfirmedProration(report);
+    } catch {
+      toast.error("No se pudieron cargar los prorrateos confirmados");
+    } finally {
+      setLoadingConfirmedProration(false);
+    }
+  }, [inicio, fin]);
+
   useEffect(() => {
-    void loadProration();
-  }, [loadProration]);
+    if (activeTab === "prorrateo") void loadPendingProration();
+    if (activeTab === "confirmados") void loadConfirmedProration();
+  }, [activeTab, loadPendingProration, loadConfirmedProration]);
 
   const loadSummary = useCallback(async () => {
     setLoadingSummary(true);
@@ -422,33 +389,37 @@ export default function Combustibles() {
     void loadSummary();
   }, [loadSummary]);
 
-  const openAssignDialog = (unit: FuelProrationUnitReport) => {
-    const { draft, initialDraft, manualTrips } = buildAssignDraftState(unit);
-    setAssignUnit(unit);
-    setAssignDraft(draft);
-    setAssignInitialDraft(initialDraft);
-    setAssignManualTrips(manualTrips);
+  const openAssignDialog = (unit: FuelProrationUnitReport, block: ProratedTicketBlock) => {
+    const selected = new Set(block.viajes.map((v) => v.trip_id));
+    setAssignContext({ unit, block });
+    setAssignTripIds(selected);
   };
 
   const closeAssignDialog = () => {
     if (savingAssign) return;
-    setAssignUnit(null);
-    setAssignDraft({});
-    setAssignInitialDraft({});
-    setAssignManualTrips(new Set());
+    setAssignContext(null);
+    setAssignTripIds(new Set());
   };
 
-  const handleAssignDraftChange = (tripId: string, value: string) => {
-    setAssignDraft((prev) => ({ ...prev, [tripId]: value }));
+  const handleAssignTripToggle = (tripId: string, checked: boolean) => {
+    setAssignTripIds((prev) => {
+      const next = new Set(prev);
+      if (checked) next.add(tripId);
+      else next.delete(tripId);
+      return next;
+    });
   };
 
   const saveAssignDialog = async () => {
-    if (!assignUnit) return;
-    const trips = eligibleProrationTrips(assignUnit);
-    const assignments = buildAssignmentsPayload(trips, assignDraft, assignInitialDraft);
+    if (!assignContext) return;
     setSavingAssign(true);
     try {
-      const updated = await saveFuelProrationAssignments(assignUnit.truck_id, inicio, fin, assignments);
+      const updated = await saveFuelTicketProrationAssignments(
+        assignContext.block.ticket_id,
+        inicio,
+        fin,
+        [...assignTripIds],
+      );
       setProration((prev) =>
         prev
           ? { ...prev, unidades: prev.unidades.map((u) => (u.truck_id === updated.truck_id ? updated : u)) }
@@ -460,6 +431,35 @@ export default function Combustibles() {
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar las asignaciones");
     } finally {
       setSavingAssign(false);
+    }
+  };
+
+  const runAutoProrate = async () => {
+    setAutoProrating(true);
+    try {
+      const report = await autoProrateFuel(inicio, fin);
+      setProration(report);
+      toast.success("Prorrateo automático aplicado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo prorratear automáticamente");
+    } finally {
+      setAutoProrating(false);
+    }
+  };
+
+  const runConfirmTicket = async () => {
+    if (!confirmTicketId) return;
+    setConfirmingTicket(true);
+    try {
+      await confirmFuelTicketProration(confirmTicketId);
+      toast.success("Ticket confirmado y archivado");
+      setConfirmTicketId(null);
+      await loadPendingProration();
+      if (activeTab === "confirmados") await loadConfirmedProration();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo confirmar el ticket");
+    } finally {
+      setConfirmingTicket(false);
     }
   };
 
@@ -577,7 +577,7 @@ export default function Combustibles() {
       setDialogOpen(false);
       await loadTickets();
       void loadSummary();
-      void loadProration();
+      void loadPendingProration();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo guardar el ticket");
     }
@@ -591,7 +591,7 @@ export default function Combustibles() {
       setDeleteId(null);
       await loadTickets();
       void loadSummary();
-      void loadProration();
+      void loadPendingProration();
     } catch {
       toast.error("No se pudo eliminar");
     }
@@ -612,7 +612,7 @@ export default function Combustibles() {
       }
       await loadTickets();
       void loadSummary();
-      void loadProration();
+      void loadPendingProration();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al sincronizar con el proveedor");
     } finally {
@@ -699,10 +699,10 @@ export default function Combustibles() {
         void loadTickets(range);
         if (range) {
           void fetchFuelSummary(range.inicio, range.fin).then((data) => setSummary(data.unidades));
-          void fetchFuelProration(range.inicio, range.fin).then(setProration);
+          void fetchFuelProration(range.inicio, range.fin, "pendiente").then(setProration);
         } else {
           void loadSummary();
-          void loadProration();
+          void loadPendingProration();
         }
       }
 
@@ -791,10 +791,11 @@ export default function Combustibles() {
         </div>
       </div>
 
-      <Tabs defaultValue="tickets">
+      <Tabs value={activeTab} onValueChange={setActiveTab}>
         <TabsList>
           <TabsTrigger value="tickets">Tickets</TabsTrigger>
           <TabsTrigger value="prorrateo">Prorrateo</TabsTrigger>
+          <TabsTrigger value="confirmados">Prorrateos confirmados</TabsTrigger>
           <TabsTrigger value="resumen">Resumen mensual</TabsTrigger>
         </TabsList>
 
@@ -897,12 +898,22 @@ export default function Combustibles() {
           <Card className="p-4">
             <div className="flex flex-wrap gap-3 items-end">
               {dateFilters}
-              <Button variant="secondary" onClick={() => void loadProration()} disabled={loadingProration}>
-                Actualizar prorrateo
+              <Button variant="secondary" onClick={() => void loadPendingProration()} disabled={loadingProration}>
+                Actualizar
               </Button>
+              {canCreate && (
+                <Button
+                  variant="secondary"
+                  onClick={() => void runAutoProrate()}
+                  disabled={autoProrating || loadingProration}
+                >
+                  {autoProrating ? "Prorrateando…" : "Prorratear automáticamente"}
+                </Button>
+              )}
             </div>
             <p className="text-xs text-muted-foreground mt-3">
-              Se prorratean automáticamente todas las unidades con tickets de combustible en el período.
+              Solo se muestran tickets sin confirmar. Use &quot;Prorratear automáticamente&quot; o edite cada ticket
+              manualmente; al confirmar, el prorrateo se guarda y el ticket desaparece de esta vista.
             </p>
           </Card>
 
@@ -967,14 +978,6 @@ export default function Combustibles() {
                         : "—"}
                     </p>
                   </div>
-                  {canCreate && (
-                    <div className="flex items-end ml-auto">
-                      <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit)}>
-                        <Pencil className="h-4 w-4 mr-1.5" />
-                        Editar
-                      </Button>
-                    </div>
-                  )}
                 </Card>
 
                 {unit.tickets.map((block) => (
@@ -989,7 +992,7 @@ export default function Combustibles() {
                           {fmtNumber(block.odometro)}
                         </span>
                       </div>
-                      <div className="flex gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         {block.sin_asignar ? (
                           <Badge variant="destructive">Sin viajes asignados</Badge>
                         ) : (
@@ -1000,6 +1003,23 @@ export default function Combustibles() {
                                 ? `${fmtNumber(block.rendimiento_periodo, 2)} km/L`
                                 : "—"}
                             </span>
+                          </>
+                        )}
+                        {canCreate && (
+                          <>
+                            <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit, block)}>
+                              <Pencil className="h-4 w-4 mr-1.5" />
+                              Editar
+                            </Button>
+                            <Button
+                              variant="default"
+                              size="sm"
+                              disabled={block.sin_asignar}
+                              onClick={() => setConfirmTicketId(block.ticket_id)}
+                            >
+                              <Check className="h-4 w-4 mr-1.5" />
+                              Confirmar
+                            </Button>
                           </>
                         )}
                       </div>
@@ -1057,6 +1077,115 @@ export default function Combustibles() {
               </div>
             ))}
 
+        </TabsContent>
+
+        <TabsContent value="confirmados" className="space-y-4 mt-4">
+          <Card className="p-4 flex flex-wrap gap-3 items-end">
+            {dateFilters}
+            <Button
+              variant="secondary"
+              onClick={() => void loadConfirmedProration()}
+              disabled={loadingConfirmedProration}
+            >
+              Actualizar
+            </Button>
+          </Card>
+
+          {loadingConfirmedProration && (
+            <p className="text-sm text-muted-foreground text-center py-6">Cargando prorrateos confirmados…</p>
+          )}
+
+          {confirmedProration && !loadingConfirmedProration && confirmedProration.unidades.length === 0 && (
+            <p className="text-muted-foreground text-center py-6">
+              No hay tickets confirmados en el período seleccionado.
+            </p>
+          )}
+
+          {confirmedProration &&
+            !loadingConfirmedProration &&
+            confirmedProration.unidades.map((unit) => (
+              <div key={unit.truck_id} className="space-y-3 mb-6">
+                <Card className="p-4 flex flex-wrap gap-6 text-sm border-l-4 border-l-green-600">
+                  <div>
+                    <span className="text-muted-foreground">Unidad</span>
+                    <p className="font-semibold font-mono text-lg">{unit.numero_economico}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Litros (período)</span>
+                    <p className="font-semibold">{fmtNumber(unit.resumen.total_litros, 2)} L</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Km prorrateados</span>
+                    <p className="font-semibold">{fmtNumber(unit.resumen.total_km_viajes)} km</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Viajes prorrateados</span>
+                    <p className="font-semibold">{unit.resumen.total_viajes}</p>
+                  </div>
+                  <div>
+                    <span className="text-muted-foreground">Rendimiento</span>
+                    <p className="font-semibold">
+                      {unit.resumen.rendimiento != null
+                        ? `${fmtNumber(unit.resumen.rendimiento, 2)} km/L`
+                        : "—"}
+                    </p>
+                  </div>
+                </Card>
+
+                {unit.tickets.map((block) => (
+                  <Card key={block.ticket_id} className="overflow-hidden ml-2">
+                    <div className="bg-green-500/10 px-4 py-3 flex flex-wrap justify-between gap-2 text-sm">
+                      <div>
+                        <span className="font-semibold">Ticket {formatIsoDateEs(block.fecha)}</span>
+                        <span className="text-muted-foreground ml-2">
+                          {fmtNumber(block.litros, 2)} L · {fmtMXN(block.importe_total)} · odómetro{" "}
+                          {fmtNumber(block.odometro)}
+                        </span>
+                        {block.prorrateo_confirmado_at && (
+                          <p className="text-xs text-muted-foreground mt-0.5">
+                            Confirmado {formatIsoDateEs(block.prorrateo_confirmado_at.slice(0, 10))}
+                          </p>
+                        )}
+                      </div>
+                      <div className="flex gap-3">
+                        <span>{fmtNumber(block.km_total_periodo)} km</span>
+                        <span className="font-medium">
+                          {block.rendimiento_periodo != null
+                            ? `${fmtNumber(block.rendimiento_periodo, 2)} km/L`
+                            : "—"}
+                        </span>
+                      </div>
+                    </div>
+                    {block.viajes.length > 0 && (
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead>Folio</TableHead>
+                            <TableHead>Ruta</TableHead>
+                            <TableHead>Fecha</TableHead>
+                            <TableHead className="text-right">Km</TableHead>
+                            <TableHead className="text-right">L asignados</TableHead>
+                            <TableHead className="text-right">Costo</TableHead>
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {block.viajes.map((v) => (
+                            <TableRow key={v.trip_id}>
+                              <TableCell className="font-mono">{v.folio}</TableCell>
+                              <TableCell>{formatTripRoute(v)}</TableCell>
+                              <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
+                              <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
+                              <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
+                              <TableCell className="text-right">{fmtMXN(v.costo_asignado)}</TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    )}
+                  </Card>
+                ))}
+              </div>
+            ))}
         </TabsContent>
 
         <TabsContent value="resumen" className="space-y-4 mt-4">
@@ -1380,17 +1509,35 @@ export default function Combustibles() {
         </DialogContent>
       </Dialog>
 
-      {assignUnit && (
-        <ProrationAssignDialog
-          unit={assignUnit}
-          open={!!assignUnit}
+      {assignContext && (
+        <TicketAssignDialog
+          context={assignContext}
+          open={!!assignContext}
           saving={savingAssign}
-          draft={assignDraft}
-          onDraftChange={handleAssignDraftChange}
+          selectedTripIds={assignTripIds}
+          onToggleTrip={handleAssignTripToggle}
           onClose={closeAssignDialog}
           onSave={() => void saveAssignDialog()}
         />
       )}
+
+      <AlertDialog open={!!confirmTicketId} onOpenChange={(o) => !o && !confirmingTicket && setConfirmTicketId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Confirmar prorrateo del ticket?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se guardará el prorrateo con los viajes asignados y el ticket dejará de aparecer en pendientes. Esta
+              acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={confirmingTicket}>Cancelar</AlertDialogCancel>
+            <Button onClick={() => void runConfirmTicket()} disabled={confirmingTicket}>
+              {confirmingTicket ? "Confirmando…" : "Confirmar"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={!!deleteId} onOpenChange={(o) => !o && setDeleteId(null)}>
         <AlertDialogContent>

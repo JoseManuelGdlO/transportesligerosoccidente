@@ -236,6 +236,8 @@ export interface FuelProrationTripRef {
   km_recorridos: number;
 }
 
+export type FuelProrationEstado = "pendiente" | "confirmado";
+
 export interface ProratedTicketBlock {
   ticket_id: string;
   fecha: string;
@@ -248,6 +250,7 @@ export interface ProratedTicketBlock {
   km_total_periodo: number;
   rendimiento_periodo: number | null;
   sin_asignar: boolean;
+  prorrateo_confirmado_at?: string | null;
   viajes: ProratedTripRow[];
 }
 
@@ -273,6 +276,7 @@ export interface FuelProrationUnitReport {
 export interface FuelProrationReport {
   inicio: string;
   fin: string;
+  estado?: FuelProrationEstado;
   unidades: FuelProrationUnitReport[];
 }
 
@@ -484,6 +488,8 @@ export interface FuelLoad {
   estacion_nombre?: string;
   es_estacion_empresa?: boolean;
   comprobante_url?: string;
+  /** Presente si la carga se generó al confirmar un ticket de prorrateo. */
+  fuel_ticket_id?: string;
 }
 
 export interface Expense {

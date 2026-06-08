@@ -97,7 +97,7 @@ Job diario (`CRON_FUEL_SYNC`, por defecto 05:00) que:
 
 1. Descarga el Excel del proveedor de combustible (HTTP o archivo local de prueba).
 2. Importa tickets (`origen: api`) con deduplicación.
-3. El **prorrateo** no se guarda en BD: al abrir **Combustibles → Prorrateo / Resumen** se calcula con los tickets ya importados.
+3. El **prorrateo pendiente** es borrador hasta que el usuario confirma cada ticket en **Combustibles → Prorrateo**. Al confirmar se persisten asignaciones, litros y costo por viaje; los confirmados se consultan en **Prorrateos confirmados**.
 
 Variables en `.env.example`: `FUEL_SYNC_ENABLED`, `FUEL_PROVIDER_*`, `FUEL_SYNC_LOOKBACK_DAYS`. Por empresa: `PATCH /api/v1/tenant/fuel` (`fuel_sync_habilitado`, URL y credenciales). Disparo manual: `POST /api/v1/fuel-tickets/sync`. Prueba: `npm run job:fuel-sync`.
 

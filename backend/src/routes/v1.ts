@@ -265,6 +265,24 @@ r.put(
   requirePermission("combustibles.crear"),
   fuelProrationC.putFuelProrationAssignments,
 );
+r.post(
+  "/fuel-proration/auto",
+  authenticateJwt,
+  requirePermission("combustibles.crear"),
+  fuelProrationC.postAutoProrate,
+);
+r.put(
+  "/fuel-tickets/:id/proration-assignments",
+  authenticateJwt,
+  requirePermission("combustibles.crear"),
+  fuelProrationC.putTicketProrationAssignments,
+);
+r.post(
+  "/fuel-tickets/:id/confirm-proration",
+  authenticateJwt,
+  requirePermission("combustibles.crear"),
+  fuelProrationC.postConfirmTicketProration,
+);
 r.get("/fuel-tickets", authenticateJwt, requirePermission("combustibles.ver"), fuelTicketC.listFuelTickets);
 r.post("/fuel-tickets", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.createFuelTicket);
 r.patch("/fuel-tickets/:id", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.patchFuelTicket);

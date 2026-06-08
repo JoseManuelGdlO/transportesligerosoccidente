@@ -9,6 +9,7 @@ const rangeSchema = z.object({
   truck_id: z.string().min(1).optional(),
   inicio: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
   fin: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+  estado: z.enum(["pendiente", "confirmado"]).optional().default("pendiente"),
 });
 
 const summarySchema = z.object({
@@ -22,19 +23,19 @@ export const getFuelProration = asyncHandler(async (req: Request, res: Response)
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const { truck_id, inicio, fin } = parsed.data;
+  const { truck_id, inicio, fin, estado } = parsed.data;
   if (inicio > fin) {
     res.status(400).json({ error: "inicio debe ser anterior o igual a fin" });
     return;
   }
   try {
     if (truck_id) {
-      const report = await prorateRange(tid(req), truck_id, inicio, fin);
-      res.json({ inicio, fin, unidades: [report] });
+      const report = await prorateRange(tid(req), truck_id, inicio, fin, estado);
+      res.json({ inicio, fin, estado, unidades: [report] });
       return;
     }
-    const report = await prorateRangeAll(tid(req), inicio, fin);
-    res.json(report);
+    const report = await prorateRangeAll(tid(req), inicio, fin, estado);
+    res.json({ ...report, estado });
   } catch (e) {
     const err = e as Error & { status?: number };
     res.status(err.status ?? 500).json({ error: err.message });

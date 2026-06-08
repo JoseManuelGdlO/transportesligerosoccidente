@@ -17,6 +17,9 @@ export class FuelProrationAssignment extends Model<
   declare tenant_id: string;
   declare trip_id: string;
   declare fuel_ticket_id: string;
+  declare km_recorridos: CreationOptional<string | null>;
+  declare litros_asignados: CreationOptional<string | null>;
+  declare costo_asignado: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -30,6 +33,9 @@ export function initFuelProrationAssignment(sequelize: Sequelize) {
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), primaryKey: true },
       fuel_ticket_id: { type: DataTypes.CHAR(36), allowNull: false },
+      km_recorridos: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+      litros_asignados: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
+      costo_asignado: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
     } as never,
     {
       sequelize,

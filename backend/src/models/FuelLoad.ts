@@ -18,6 +18,7 @@ export class FuelLoad extends Model<InferAttributes<FuelLoad>, InferCreationAttr
   declare estacion_nombre: CreationOptional<string | null>;
   declare es_estacion_empresa: CreationOptional<boolean>;
   declare comprobante_url: CreationOptional<string | null>;
+  declare fuel_ticket_id: CreationOptional<string | null>;
   declare fecha: Date;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
@@ -36,8 +37,20 @@ export function initFuelLoad(sequelize: Sequelize) {
       estacion_nombre: { type: DataTypes.STRING(255), allowNull: true },
       es_estacion_empresa: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
       comprobante_url: { type: DataTypes.STRING(512), allowNull: true },
+      fuel_ticket_id: { type: DataTypes.CHAR(36), allowNull: true },
       fecha: { type: DataTypes.DATE, allowNull: false },
     } as never,
-    { sequelize, tableName: "fuel_loads", underscored: true },
+    {
+      sequelize,
+      tableName: "fuel_loads",
+      underscored: true,
+      indexes: [
+        {
+          name: "fuel_loads_tenant_trip_ticket_unique",
+          unique: true,
+          fields: ["tenant_id", "trip_id", "fuel_ticket_id"],
+        },
+      ],
+    },
   );
 }

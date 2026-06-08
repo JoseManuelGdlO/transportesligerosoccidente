@@ -174,6 +174,11 @@ export async function removeFuel(tenantId: string, tripId: string, fuelId: strin
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
+  if (f.fuel_ticket_id) {
+    const err = new Error("Carga generada por prorrateo; no se puede eliminar");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
   await f.destroy();
 }
 

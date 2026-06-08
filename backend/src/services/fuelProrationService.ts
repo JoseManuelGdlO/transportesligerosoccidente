@@ -1,9 +1,16 @@
+import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
-import { FuelTicket, Trip, Truck } from "../models";
-import { getAssignmentsForTruck } from "./fuelProrationAssignmentService";
+import { FuelLoad, FuelProrationAssignment, FuelTicket, Trip, Truck, sequelize } from "../models";
+import {
+  getConfirmedTripIdsForTruck,
+  getDraftAssignmentsForTruck,
+  saveDraftAssignmentsForTruck,
+} from "./fuelProrationAssignmentService";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
+
+export type FuelProrationEstado = "pendiente" | "confirmado";
 
 export function tripKmRecorridos(trip: TripModel): number {
   if (trip.km_final == null) return 0;
@@ -88,6 +95,7 @@ export type ProratedTicketBlock = {
   km_total_periodo: number;
   rendimiento_periodo: number | null;
   sin_asignar: boolean;
+  prorrateo_confirmado_at?: string | null;
   viajes: ProratedTripRow[];
 };
 
@@ -122,7 +130,7 @@ export type FuelSummaryRow = {
   rendimiento: number | null;
 };
 
-function buildProratedBlock(
+export function buildProratedBlock(
   ticket: FuelTicketModel,
   tripsInWindow: TripModel[],
   manualTripIds: Set<string> = new Set(),
@@ -162,8 +170,105 @@ function buildProratedBlock(
     km_total_periodo: kmTotal,
     rendimiento_periodo: litros > 0 && kmTotal > 0 ? Math.round((kmTotal / litros) * 100) / 100 : null,
     sin_asignar: viajes.length === 0,
+    prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
+      ? ticket.prorrateo_confirmado_at.toISOString()
+      : null,
     viajes,
   };
+}
+
+function buildEmptyTicketBlock(ticket: FuelTicketModel): ProratedTicketBlock {
+  return buildProratedBlock(ticket, []);
+}
+
+function filterTripsExcludingLocked(allTrips: TripModel[], lockedTripIds: Set<string>): TripModel[] {
+  if (lockedTripIds.size === 0) return allTrips;
+  return allTrips.filter((t) => !lockedTripIds.has(String(t.id)));
+}
+
+function buildBlocksFromDraftMap(
+  sortedTickets: FuelTicketModel[],
+  draftMap: Map<string, string>,
+  allTrips: TripModel[],
+): ProratedTicketBlock[] {
+  const tripById = new Map(allTrips.map((t) => [String(t.id), t]));
+  const tripsPerTicket = new Map<string, TripModel[]>();
+  for (const ticket of sortedTickets) {
+    tripsPerTicket.set(String(ticket.id), []);
+  }
+  for (const [tripId, ticketId] of draftMap) {
+    const trip = tripById.get(tripId);
+    if (!trip || tripKmRecorridos(trip) <= 0) continue;
+    const list = tripsPerTicket.get(ticketId);
+    if (list) list.push(trip);
+  }
+  return sortedTickets.map((ticket) => {
+    const trips = tripsPerTicket.get(String(ticket.id)) ?? [];
+    return buildProratedBlock(ticket, trips);
+  });
+}
+
+async function buildConfirmedBlocks(
+  tenantId: string,
+  tickets: FuelTicketModel[],
+  allTrips: TripModel[],
+): Promise<ProratedTicketBlock[]> {
+  if (tickets.length === 0) return [];
+
+  const ticketIds = tickets.map((t) => String(t.id));
+  const assignments = await FuelProrationAssignment.findAll({
+    where: { tenant_id: tenantId, fuel_ticket_id: { [Op.in]: ticketIds } },
+  });
+
+  const tripById = new Map(allTrips.map((t) => [String(t.id), t]));
+  const blocks: ProratedTicketBlock[] = [];
+
+  for (const ticket of tickets) {
+    const ticketId = String(ticket.id);
+    const rows = assignments.filter((a) => String(a.fuel_ticket_id) === ticketId);
+    const viajes: ProratedTripRow[] = [];
+    let kmTotal = 0;
+
+    for (const row of rows) {
+      const trip = tripById.get(String(row.trip_id));
+      if (!trip) continue;
+      const km = row.km_recorridos != null ? num(row.km_recorridos) : tripKmRecorridos(trip);
+      const litros = row.litros_asignados != null ? num(row.litros_asignados) : 0;
+      const costo = row.costo_asignado != null ? num(row.costo_asignado) : 0;
+      kmTotal += km;
+      viajes.push({
+        trip_id: String(trip.id),
+        folio: trip.folio,
+        origen: trip.origen,
+        destino: trip.destino,
+        fecha_salida: dateOnly(trip.fecha_salida),
+        km_recorridos: km,
+        litros_asignados: litros,
+        costo_asignado: costo,
+      });
+    }
+
+    const litros = num(ticket.litros);
+    blocks.push({
+      ticket_id: ticketId,
+      fecha: dateOnly(ticket.fecha),
+      hora: ticket.hora ? String(ticket.hora).slice(0, 8) : undefined,
+      litros,
+      precio_litro: num(ticket.precio_litro),
+      importe_total: num(ticket.importe_total),
+      odometro: ticket.odometro,
+      ubicacion: ticket.ubicacion,
+      km_total_periodo: kmTotal,
+      rendimiento_periodo: litros > 0 && kmTotal > 0 ? Math.round((kmTotal / litros) * 100) / 100 : null,
+      sin_asignar: viajes.length === 0,
+      prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
+        ? ticket.prorrateo_confirmado_at.toISOString()
+        : null,
+      viajes,
+    });
+  }
+
+  return blocks;
 }
 
 /** Viajes cuya salida cae en (afterExclusiveMs, throughInclusiveMs]. */
@@ -334,31 +439,27 @@ export async function prorateRange(
   truckId: string,
   inicio: string,
   fin: string,
+  estado: FuelProrationEstado = "pendiente",
 ): Promise<ProrationRangeResult> {
   const truck = await Truck.findOne({ where: { id: truckId, tenant_id: tenantId } });
   if (!truck) throw Object.assign(new Error("Camión no encontrado"), { status: 404 });
 
+  const ticketWhere: Record<string, unknown> = {
+    tenant_id: tenantId,
+    truck_id: truckId,
+    fecha: { [Op.between]: [inicio, fin] },
+  };
+  if (estado === "pendiente") {
+    ticketWhere.prorrateo_confirmado_at = null;
+  } else {
+    ticketWhere.prorrateo_confirmado_at = { [Op.ne]: null };
+  }
+
   const ticketsInRange = await FuelTicket.findAll({
-    where: {
-      tenant_id: tenantId,
-      truck_id: truckId,
-      fecha: { [Op.between]: [inicio, fin] },
-    },
+    where: ticketWhere,
     order: [
       ["fecha", "ASC"],
       ["hora", "ASC"],
-    ],
-  });
-
-  const anchorTicket = await FuelTicket.findOne({
-    where: {
-      tenant_id: tenantId,
-      truck_id: truckId,
-      fecha: { [Op.lt]: inicio },
-    },
-    order: [
-      ["fecha", "DESC"],
-      ["hora", "DESC"],
     ],
   });
 
@@ -368,14 +469,38 @@ export async function prorateRange(
   });
 
   const sorted = [...ticketsInRange].sort(compareTicketOrder);
-  const manualMap = await getAssignmentsForTruck(tenantId, truckId);
-  let blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
-  blocks = applyManualAssignments(blocks, sorted, manualMap, allTrips);
+
+  let blocks: ProratedTicketBlock[];
+
+  if (estado === "confirmado") {
+    blocks = await buildConfirmedBlocks(tenantId, sorted, allTrips);
+    const totalLitros = sorted.reduce((s, t) => s + num(t.litros), 0);
+    return {
+      truck_id: truckId,
+      numero_economico: truck.numero_economico,
+      inicio,
+      fin,
+      tickets: blocks,
+      viajes_sin_asignar: [],
+      viajes_sin_km: [],
+      resumen: resumenFromBlocks(blocks, totalLitros, [], [], []),
+    };
+  }
+
+  const confirmedTripIds = await getConfirmedTripIdsForTruck(tenantId, truckId);
+  const availableTrips = filterTripsExcludingLocked(allTrips, confirmedTripIds);
+  const draftMap = await getDraftAssignmentsForTruck(tenantId, truckId);
+
+  if (draftMap.size > 0) {
+    blocks = buildBlocksFromDraftMap(sorted, draftMap, availableTrips);
+  } else {
+    blocks = sorted.map((t) => buildEmptyTicketBlock(t));
+  }
 
   const totalLitros = sorted.reduce((s, t) => s + num(t.litros), 0);
   const periodTrips = tripsInPeriod(allTrips, inicio, fin);
-  const assignedIds = assignedTripIdsFromBlocks(blocks);
-  const { sinAsignar, sinKm } = partitionPeriodTrips(periodTrips, assignedIds);
+  const allAssignedIds = new Set([...assignedTripIdsFromBlocks(blocks), ...confirmedTripIds]);
+  const { sinAsignar, sinKm } = partitionPeriodTrips(periodTrips, allAssignedIds);
 
   return {
     truck_id: truckId,
@@ -387,6 +512,147 @@ export async function prorateRange(
     viajes_sin_km: sinKm,
     resumen: resumenFromBlocks(blocks, totalLitros, periodTrips, sinAsignar, sinKm),
   };
+}
+
+export async function autoProratePending(
+  tenantId: string,
+  inicio: string,
+  fin: string,
+): Promise<FuelProrationAllResult> {
+  const trucks = await Truck.findAll({
+    where: { tenant_id: tenantId, estatus: { [Op.ne]: "baja" } },
+    order: [["numero_economico", "ASC"]],
+  });
+
+  for (const truck of trucks) {
+    const truckId = String(truck.id);
+
+    const pendingTickets = await FuelTicket.findAll({
+      where: {
+        tenant_id: tenantId,
+        truck_id: truckId,
+        fecha: { [Op.between]: [inicio, fin] },
+        prorrateo_confirmado_at: null,
+      },
+    });
+    if (pendingTickets.length === 0) continue;
+
+    const anchorTicket = await FuelTicket.findOne({
+      where: {
+        tenant_id: tenantId,
+        truck_id: truckId,
+        fecha: { [Op.lt]: inicio },
+      },
+      order: [
+        ["fecha", "DESC"],
+        ["hora", "DESC"],
+      ],
+    });
+
+    const allTrips = await Trip.findAll({
+      where: { tenant_id: tenantId, truck_id: truckId },
+      order: [["fecha_salida", "ASC"]],
+    });
+
+    const confirmedTripIds = await getConfirmedTripIdsForTruck(tenantId, truckId);
+    const availableTrips = filterTripsExcludingLocked(allTrips, confirmedTripIds);
+    const sorted = [...pendingTickets].sort(compareTicketOrder);
+
+    let blocks = buildProrationBlocks(sorted, availableTrips, truckId, fin, anchorTicket);
+
+    const draftAssignments: { trip_id: string; fuel_ticket_id: string }[] = [];
+    for (const block of blocks) {
+      for (const v of block.viajes) {
+        draftAssignments.push({ trip_id: v.trip_id, fuel_ticket_id: block.ticket_id });
+      }
+    }
+
+    await saveDraftAssignmentsForTruck(tenantId, truckId, draftAssignments);
+  }
+
+  return prorateRangeAll(tenantId, inicio, fin, "pendiente");
+}
+
+export async function confirmTicketProration(tenantId: string, ticketId: string): Promise<void> {
+  const ticket = await FuelTicket.findOne({
+    where: { id: ticketId, tenant_id: tenantId },
+  });
+  if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
+  if (ticket.prorrateo_confirmado_at) {
+    throw Object.assign(new Error("El ticket ya está confirmado"), { status: 400 });
+  }
+
+  const assignments = await FuelProrationAssignment.findAll({
+    where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+  });
+  if (assignments.length === 0) {
+    throw Object.assign(new Error("El ticket no tiene viajes asignados"), { status: 400 });
+  }
+
+  const tripIds = assignments.map((a) => String(a.trip_id));
+  const trips = await Trip.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
+  });
+  const withKm = trips.filter((t) => tripKmRecorridos(t) > 0);
+  if (withKm.length === 0) {
+    throw Object.assign(new Error("Ningún viaje asignado tiene km registrado"), { status: 400 });
+  }
+
+  const block = buildProratedBlock(ticket, withKm);
+  const rowByTripId = new Map(block.viajes.map((v) => [v.trip_id, v]));
+
+  const precioLitro = num(ticket.precio_litro);
+  const ubicacion = ticket.ubicacion;
+  const fuelFecha = new Date(ticketTimestampMs(ticket));
+
+  await sequelize.transaction(async (t) => {
+    for (const assignment of assignments) {
+      const row = rowByTripId.get(String(assignment.trip_id));
+      if (!row) {
+        await assignment.destroy({ transaction: t });
+        continue;
+      }
+      await assignment.update(
+        {
+          km_recorridos: String(row.km_recorridos),
+          litros_asignados: String(row.litros_asignados),
+          costo_asignado: String(row.costo_asignado),
+        },
+        { transaction: t },
+      );
+
+      if (row.litros_asignados <= 0) continue;
+
+      const existingLoad = await FuelLoad.findOne({
+        where: {
+          tenant_id: tenantId,
+          trip_id: row.trip_id,
+          fuel_ticket_id: ticketId,
+        },
+        transaction: t,
+      });
+      if (existingLoad) continue;
+
+      await FuelLoad.create(
+        {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          trip_id: row.trip_id,
+          litros: String(row.litros_asignados),
+          precio_litro: String(precioLitro),
+          ubicacion,
+          estacion_nombre: ubicacion,
+          es_foraneo: false,
+          es_estacion_empresa: true,
+          comprobante_url: null,
+          fuel_ticket_id: ticketId,
+          fecha: fuelFecha,
+        } as never,
+        { transaction: t },
+      );
+    }
+    await ticket.update({ prorrateo_confirmado_at: new Date() }, { transaction: t });
+  });
 }
 
 export async function fuelSummaryByTruck(
@@ -454,6 +720,7 @@ export async function prorateRangeAll(
   tenantId: string,
   inicio: string,
   fin: string,
+  estado: FuelProrationEstado = "pendiente",
 ): Promise<FuelProrationAllResult> {
   const trucks = await Truck.findAll({
     where: { tenant_id: tenantId, estatus: { [Op.ne]: "baja" } },
@@ -462,7 +729,7 @@ export async function prorateRangeAll(
 
   const unidades: ProrationRangeResult[] = [];
   for (const truck of trucks) {
-    const report = await prorateRange(tenantId, String(truck.id), inicio, fin);
+    const report = await prorateRange(tenantId, String(truck.id), inicio, fin, estado);
     if (report.tickets.length > 0) unidades.push(report);
   }
 

@@ -1,10 +1,19 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { describe, it, mock } from "node:test";
+import {
+  FuelLoad,
+  FuelProrationAssignment,
+  FuelTicket,
+  Trip,
+  sequelize,
+} from "../models";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import {
   applyManualAssignments,
+  buildProratedBlock,
   buildProrationBlocks,
+  confirmTicketProration,
   partitionPeriodTrips,
   resumenFromBlocks,
   ticketTimestampMs,
@@ -417,6 +426,162 @@ describe("applyManualAssignments", () => {
 
     assert.deepEqual(blocks[0]!.viajes.map((v) => v.trip_id), ["v1"]);
     assert.equal(blocks[0]!.viajes[0]?.asignacion_manual, undefined);
+  });
+});
+
+describe("buildProratedBlock", () => {
+  it("incluye prorrateo_confirmado_at cuando el ticket está confirmado", () => {
+    const confirmedAt = new Date("2026-06-03T12:00:00.000Z");
+    const ticket = {
+      ...mockTicket({ id: "tk1", truck_id: "t1", fecha: "2026-06-02" }),
+      prorrateo_confirmado_at: confirmedAt,
+    } as unknown as FuelTicketModel;
+    const trips = [
+      mockTrip({
+        id: "v1",
+        truck_id: "t1",
+        fecha_salida: "2026-06-02T09:00:00.000Z",
+        km_inicial: 0,
+        km_final: 100,
+      }),
+    ];
+    const block = buildProratedBlock(ticket, trips);
+    assert.equal(block.prorrateo_confirmado_at, confirmedAt.toISOString());
+    assert.equal(block.viajes.length, 1);
+    assert.equal(block.viajes[0]!.litros_asignados, 100);
+  });
+});
+
+describe("confirmTicketProration", () => {
+  it("crea fuel_loads por viaje al confirmar", async () => {
+    const tenantId = "tenant-1";
+    const ticketId = "tk1";
+    const tripId = "v1";
+
+    const ticket = {
+      id: ticketId,
+      tenant_id: tenantId,
+      truck_id: "truck-1",
+      fecha: "2026-06-02",
+      hora: "10:00:00",
+      litros: "100",
+      precio_litro: "30",
+      importe_total: "3000",
+      odometro: 1000,
+      ubicacion: "Pemex GDL",
+      prorrateo_confirmado_at: null,
+      update: mock.fn(async () => {}),
+    };
+
+    const assignment = {
+      trip_id: tripId,
+      fuel_ticket_id: ticketId,
+      update: mock.fn(async () => {}),
+      destroy: mock.fn(async () => {}),
+    };
+
+    const trip = mockTrip({
+      id: tripId,
+      truck_id: "truck-1",
+      fecha_salida: "2026-06-02T09:00:00.000Z",
+      km_inicial: 0,
+      km_final: 100,
+    });
+
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
+    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [assignment] as never);
+    const tripFindAll = mock.method(Trip, "findAll", async () => [trip] as never);
+    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async () => null);
+    const fuelLoadCreate = mock.method(FuelLoad, "create", async (row: Record<string, unknown>) => row as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({ tx: true });
+    });
+
+    await confirmTicketProration(tenantId, ticketId);
+
+    assert.equal(fuelLoadCreate.mock.callCount(), 1);
+    const created = fuelLoadCreate.mock.calls[0]!.arguments[0] as {
+      trip_id: string;
+      fuel_ticket_id: string;
+      litros: string;
+      precio_litro: string;
+      ubicacion: string;
+      es_foraneo: boolean;
+      es_estacion_empresa: boolean;
+    };
+    assert.equal(created.trip_id, tripId);
+    assert.equal(created.fuel_ticket_id, ticketId);
+    assert.equal(created.litros, "100");
+    assert.equal(created.precio_litro, "30");
+    assert.equal(created.ubicacion, "Pemex GDL");
+    assert.equal(created.es_foraneo, false);
+    assert.equal(created.es_estacion_empresa, true);
+    assert.equal(ticket.update.mock.callCount(), 1);
+
+    ticketFindOne.mock.restore();
+    assignmentFindAll.mock.restore();
+    tripFindAll.mock.restore();
+    fuelLoadFindOne.mock.restore();
+    fuelLoadCreate.mock.restore();
+    transaction.mock.restore();
+  });
+
+  it("no duplica fuel_load si ya existe para el mismo ticket y viaje", async () => {
+    const tenantId = "tenant-1";
+    const ticketId = "tk1";
+    const tripId = "v1";
+
+    const ticket = {
+      id: ticketId,
+      tenant_id: tenantId,
+      truck_id: "truck-1",
+      fecha: "2026-06-02",
+      hora: null,
+      litros: "100",
+      precio_litro: "30",
+      importe_total: "3000",
+      odometro: 1000,
+      ubicacion: "Pemex GDL",
+      prorrateo_confirmado_at: null,
+      update: mock.fn(async () => {}),
+    };
+
+    const assignment = {
+      trip_id: tripId,
+      fuel_ticket_id: ticketId,
+      update: mock.fn(async () => {}),
+      destroy: mock.fn(async () => {}),
+    };
+
+    const trip = mockTrip({
+      id: tripId,
+      truck_id: "truck-1",
+      fecha_salida: "2026-06-02T09:00:00.000Z",
+      km_inicial: 0,
+      km_final: 50,
+    });
+
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
+    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [assignment] as never);
+    const tripFindAll = mock.method(Trip, "findAll", async () => [trip] as never);
+    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async () => ({ id: "existing" }) as never);
+    const fuelLoadCreate = mock.method(FuelLoad, "create", async () => {
+      throw new Error("no debe crear");
+    });
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({});
+    });
+
+    await confirmTicketProration(tenantId, ticketId);
+
+    assert.equal(fuelLoadCreate.mock.callCount(), 0);
+
+    ticketFindOne.mock.restore();
+    assignmentFindAll.mock.restore();
+    tripFindAll.mock.restore();
+    fuelLoadFindOne.mock.restore();
+    fuelLoadCreate.mock.restore();
+    transaction.mock.restore();
   });
 });
 

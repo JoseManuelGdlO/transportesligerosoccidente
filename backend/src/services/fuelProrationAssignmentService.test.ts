@@ -10,7 +10,7 @@ import {
 } from "../models";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
-import { saveAssignments } from "./fuelProrationAssignmentService";
+import { saveAssignments, saveTicketAssignments } from "./fuelProrationAssignmentService";
 
 const tenantId = "tenant-1";
 const truckId = "truck-1";
@@ -41,11 +41,13 @@ function mockTicket(partial: {
   id: string;
   truck_id?: string;
   fecha: string;
+  prorrateo_confirmado_at?: Date | null;
 }): FuelTicketModel {
   return {
     id: partial.id,
     truck_id: partial.truck_id ?? truckId,
     fecha: partial.fecha as unknown as Date,
+    prorrateo_confirmado_at: partial.prorrateo_confirmado_at ?? null,
   } as unknown as FuelTicketModel;
 }
 
@@ -192,6 +194,9 @@ describe("saveAssignments", () => {
   it("elimina asignación con fuel_ticket_id null (destroy sin bulkCreate)", async () => {
     const truckFindOne = mock.method(Truck, "findOne", async () => mockTruck());
     const tripFindAll = mock.method(Trip, "findAll", async () => [mockTrip({ id: "v1" })] as never);
+    const ticketFindAll = mock.method(FuelTicket, "findAll", async () => [
+      mockTicket({ id: "tk1", fecha: "2026-06-02" }),
+    ] as never);
     const destroy = mock.method(FuelProrationAssignment, "destroy", async () => 1 as never);
     const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => {
       throw new Error("no debe crear filas");
@@ -207,6 +212,7 @@ describe("saveAssignments", () => {
 
     truckFindOne.mock.restore();
     tripFindAll.mock.restore();
+    ticketFindAll.mock.restore();
     destroy.mock.restore();
     bulkCreate.mock.restore();
     transaction.mock.restore();
@@ -246,14 +252,98 @@ describe("saveAssignments", () => {
       tenant_id: string;
       trip_id: string;
       fuel_ticket_id: string;
+      km_recorridos: null;
+      litros_asignados: null;
+      costo_asignado: null;
     }>;
     assert.deepEqual(createRows, [
-      { tenant_id: tenantId, trip_id: "v1", fuel_ticket_id: "tk1" },
+      {
+        tenant_id: tenantId,
+        trip_id: "v1",
+        fuel_ticket_id: "tk1",
+        km_recorridos: null,
+        litros_asignados: null,
+        costo_asignado: null,
+      },
     ]);
 
     truckFindOne.mock.restore();
     tripFindAll.mock.restore();
     ticketFindAll.mock.restore();
+    destroy.mock.restore();
+    bulkCreate.mock.restore();
+    transaction.mock.restore();
+  });
+});
+
+describe("saveTicketAssignments", () => {
+  it("rechaza ticket confirmado", async () => {
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      mockTicket({ id: "tk1", fecha: "2026-06-02", prorrateo_confirmado_at: new Date() }),
+    );
+
+    await expectError(
+      () => saveTicketAssignments(tenantId, "tk1", ["v1"]),
+      400,
+      "El ticket ya está confirmado",
+    );
+
+    ticketFindOne.mock.restore();
+  });
+
+  it("rechaza viaje en ticket confirmado", async () => {
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      mockTicket({ id: "tk1", fecha: "2026-06-02" }),
+    );
+    const confirmedTickets = mock.method(FuelTicket, "findAll", async () => [
+      mockTicket({ id: "tk-conf", fecha: "2026-06-01", prorrateo_confirmado_at: new Date() }),
+    ] as never);
+    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [
+      { trip_id: "v1", fuel_ticket_id: "tk-conf" },
+    ] as never);
+
+    await expectError(
+      () => saveTicketAssignments(tenantId, "tk1", ["v1"]),
+      400,
+      "Uno o más viajes ya están en un ticket confirmado",
+    );
+
+    ticketFindOne.mock.restore();
+    confirmedTickets.mock.restore();
+    assignmentFindAll.mock.restore();
+  });
+
+  it("solo borra asignaciones del ticket editado, no las de otros tickets pendientes", async () => {
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      mockTicket({ id: "tk1", fecha: "2026-06-02" }),
+    );
+    const ticketFindAll = mock.method(FuelTicket, "findAll", async () => [] as never);
+    const tripFindAll = mock.method(Trip, "findAll", async () => [mockTrip({ id: "v1" })] as never);
+
+    const destroyCalls: Record<string, unknown>[] = [];
+    const destroy = mock.method(
+      FuelProrationAssignment,
+      "destroy",
+      async (opts: { where: Record<string, unknown> }) => {
+        destroyCalls.push(opts.where);
+        return 1 as never;
+      },
+    );
+    const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => [] as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({ tx: true });
+    });
+
+    await saveTicketAssignments(tenantId, "tk1", ["v1"]);
+
+    assert.equal(destroyCalls.length, 1);
+    assert.equal(destroyCalls[0]!.fuel_ticket_id, "tk1");
+    assert.equal(destroyCalls[0]!.tenant_id, tenantId);
+    assert.ok(!("trip_id" in destroyCalls[0]!));
+
+    ticketFindOne.mock.restore();
+    ticketFindAll.mock.restore();
+    tripFindAll.mock.restore();
     destroy.mock.restore();
     bulkCreate.mock.restore();
     transaction.mock.restore();

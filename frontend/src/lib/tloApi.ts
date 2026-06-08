@@ -51,6 +51,7 @@ export function normalizeFuel(raw: Record<string, unknown>): FuelLoad {
     estacion_nombre: raw.estacion_nombre != null ? String(raw.estacion_nombre) : undefined,
     es_estacion_empresa: raw.es_estacion_empresa !== false,
     comprobante_url: raw.comprobante_url != null ? String(raw.comprobante_url) : undefined,
+    fuel_ticket_id: raw.fuel_ticket_id != null ? String(raw.fuel_ticket_id) : undefined,
   };
 }
 
@@ -834,10 +835,45 @@ export async function previewFuelImport(file: File): Promise<FuelImportPreviewRe
   return readJson<FuelImportPreviewResult>(res);
 }
 
-export async function fetchFuelProration(inicio: string, fin: string): Promise<FuelProrationReport> {
-  const q = new URLSearchParams({ inicio, fin });
+export async function fetchFuelProration(
+  inicio: string,
+  fin: string,
+  estado: "pendiente" | "confirmado" = "pendiente",
+): Promise<FuelProrationReport> {
+  const q = new URLSearchParams({ inicio, fin, estado });
   const res = await apiFetch(`/reports/fuel/proration?${q}`);
   return readJson<FuelProrationReport>(res);
+}
+
+export async function autoProrateFuel(inicio: string, fin: string): Promise<FuelProrationReport> {
+  const res = await apiFetch("/fuel-proration/auto", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ inicio, fin }),
+  });
+  return readJson<FuelProrationReport>(res);
+}
+
+export async function saveFuelTicketProrationAssignments(
+  ticketId: string,
+  inicio: string,
+  fin: string,
+  tripIds: string[],
+): Promise<FuelProrationUnitReport> {
+  const res = await apiFetch(`/fuel-tickets/${ticketId}/proration-assignments`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ trip_ids: tripIds, inicio, fin }),
+  });
+  return readJson(res);
+}
+
+export async function confirmFuelTicketProration(ticketId: string): Promise<void> {
+  const res = await apiFetch(`/fuel-tickets/${ticketId}/confirm-proration`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "No se pudo confirmar el prorrateo");
+  }
 }
 
 export async function saveFuelProrationAssignments(
