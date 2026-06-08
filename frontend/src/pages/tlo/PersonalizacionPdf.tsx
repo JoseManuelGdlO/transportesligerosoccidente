@@ -16,10 +16,13 @@ import {
 import { SAMPLE_TRIP, SAMPLE_TRIP_CLIENT, SAMPLE_TRIP_DRIVER, SAMPLE_TRIP_TRUCK } from "@/lib/tripPdfSample";
 import {
   DEFAULT_PDF_TEMPLATES,
+  type PdfOrientation,
   type PdfTemplate,
   type PdfTemplatesConfig,
   type TemplateKind,
 } from "@/types/pdfTemplate";
+import { Label } from "@/components/ui/label";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TemplateEditor } from "@/components/tlo/pdfEditor/TemplateEditor";
 import { toast } from "sonner";
 import { RotateCcw, Save } from "lucide-react";
@@ -141,7 +144,14 @@ export default function PersonalizacionPdf() {
     }
     previewRevoke.current = url;
     setPreviewUrl(url);
-  }, [activeKind, settlement.template, settlement.logoPreview, trip.template, trip.logoPreview, tenantNombre]);
+  }, [
+    activeKind,
+    settlement.template,
+    settlement.logoPreview,
+    trip.template,
+    trip.logoPreview,
+    tenantNombre,
+  ]);
 
   useEffect(() => {
     if (debounceRef.current) clearTimeout(debounceRef.current);
@@ -250,6 +260,11 @@ export default function PersonalizacionPdf() {
     setState((s) => ({ ...s, template: next }));
   };
 
+  const updateTemplateForKind = (kind: TemplateKind, patch: Partial<PdfTemplate>) => {
+    const setter = kind === "settlement" ? setSettlement : setTrip;
+    setter((s) => ({ ...s, template: { ...s.template, ...patch } }));
+  };
+
   const tabLabel = useMemo(() => (activeKind === "settlement" ? "Liquidación" : "Detalle de viaje"), [activeKind]);
 
   if (!hasPermission("marca.gestionar")) {
@@ -275,6 +290,29 @@ export default function PersonalizacionPdf() {
           <TabsContent key={kind} value={kind} className="mt-4">
             <div className="grid grid-cols-1 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)] gap-4 items-start">
               <div className="space-y-4 min-w-0">
+                <Card>
+                  <CardHeader className="pb-2">
+                    <CardTitle className="text-base">Formato de página</CardTitle>
+                  </CardHeader>
+                  <CardContent>
+                    <div className="space-y-1 max-w-xs">
+                      <Label htmlFor={`pdf-orientacion-${kind}`}>Orientación del PDF</Label>
+                      <Select
+                        value={(kind === "settlement" ? settlement.template : trip.template).orientacion}
+                        onValueChange={(v) => updateTemplateForKind(kind, { orientacion: v as PdfOrientation })}
+                        disabled={loading}
+                      >
+                        <SelectTrigger id={`pdf-orientacion-${kind}`}>
+                          <SelectValue />
+                        </SelectTrigger>
+                        <SelectContent>
+                          <SelectItem value="horizontal">Horizontal</SelectItem>
+                          <SelectItem value="vertical">Vertical</SelectItem>
+                        </SelectContent>
+                      </Select>
+                    </div>
+                  </CardContent>
+                </Card>
                 <TemplateEditor
                   kind={kind}
                   template={kind === "settlement" ? settlement.template : trip.template}

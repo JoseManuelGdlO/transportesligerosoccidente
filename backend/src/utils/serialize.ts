@@ -406,7 +406,10 @@ export type BlockInstanceJson = {
   props?: Record<string, unknown>;
 };
 
+export type PdfOrientationJson = "horizontal" | "vertical";
+
 export type PdfTemplateJson = {
+  orientacion: PdfOrientationJson;
   branding: PdfBrandingJson;
   sections: {
     header: BlockInstanceJson[];
@@ -446,6 +449,7 @@ const DEFAULT_TRIP_COMPANY_TEXT =
   "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000";
 
 export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplateJson = {
+  orientacion: "horizontal",
   branding: { ...DEFAULT_BRANDING_SETTLEMENT },
   sections: {
     header: [
@@ -473,6 +477,7 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplateJson = {
 };
 
 export const DEFAULT_TEMPLATE_TRIP: PdfTemplateJson = {
+  orientacion: "horizontal",
   branding: { ...DEFAULT_BRANDING_TRIP },
   sections: {
     header: [
@@ -546,6 +551,11 @@ function normalizeBlocks(raw: unknown): BlockInstanceJson[] {
   return out;
 }
 
+function normalizeOrientation(raw: unknown, fallback: PdfOrientationJson): PdfOrientationJson {
+  if (raw === "horizontal" || raw === "vertical") return raw;
+  return fallback;
+}
+
 function normalizeTemplate(raw: unknown, fallback: PdfTemplateJson): PdfTemplateJson {
   const o = raw && typeof raw === "object" ? (raw as Record<string, unknown>) : {};
   const sectionsRaw =
@@ -554,6 +564,7 @@ function normalizeTemplate(raw: unknown, fallback: PdfTemplateJson): PdfTemplate
   const body = normalizeBlocks(sectionsRaw.body);
   const footer = normalizeBlocks(sectionsRaw.footer);
   return {
+    orientacion: normalizeOrientation(o.orientacion, fallback.orientacion),
     branding: normalizeBranding(o.branding, fallback.branding),
     sections: {
       header: header.length > 0 ? header : fallback.sections.header,
@@ -595,10 +606,12 @@ export function normalizePdfConfig(raw: unknown): PdfTemplatesConfigJson {
   return {
     version: 2,
     settlement: {
+      orientacion: DEFAULT_TEMPLATE_SETTLEMENT.orientacion,
       branding: settlementBranding,
       sections: { ...DEFAULT_TEMPLATE_SETTLEMENT.sections },
     },
     trip: {
+      orientacion: DEFAULT_TEMPLATE_TRIP.orientacion,
       branding: { ...DEFAULT_BRANDING_TRIP },
       sections: { ...DEFAULT_TEMPLATE_TRIP.sections },
     },

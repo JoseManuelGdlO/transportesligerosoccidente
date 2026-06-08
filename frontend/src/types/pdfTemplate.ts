@@ -48,6 +48,8 @@ export interface BlockInstance {
   props?: BlockProps;
 }
 
+export type PdfOrientation = "horizontal" | "vertical";
+
 export interface PdfBranding {
   titulo: string;
   color_header: string;
@@ -57,6 +59,7 @@ export interface PdfBranding {
 }
 
 export interface PdfTemplate {
+  orientacion: PdfOrientation;
   branding: PdfBranding;
   sections: {
     header: BlockInstance[];
@@ -245,7 +248,7 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   },
   trips_table: {
     label: "Tabla de viajes",
-    description: "Viajes del periodo (viajes, ingresos, km, comisiones, neto)",
+    description: "Viajes del periodo (folio, factura, ingresos y comisiones)",
     zones: ["body"],
     kinds: ["settlement"],
   },
@@ -352,6 +355,7 @@ const DEFAULT_TRIP_COMPANY_TEXT =
   "RAZÓN SOCIAL S.A. DE C.V.\nDirección, número exterior\nColonia, CP: 00000\nMunicipio, Estado\nRFC: XXXXXXXXXXX\nTels. 00-00000000";
 
 export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
+  orientacion: "horizontal",
   branding: { ...DEFAULT_BRANDING_SETTLEMENT },
   sections: {
     header: [
@@ -379,6 +383,7 @@ export const DEFAULT_TEMPLATE_SETTLEMENT: PdfTemplate = {
 };
 
 export const DEFAULT_TEMPLATE_TRIP: PdfTemplate = {
+  orientacion: "horizontal",
   branding: { ...DEFAULT_BRANDING_TRIP },
   sections: {
     header: [

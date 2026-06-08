@@ -93,6 +93,11 @@ function parseBlocks(raw: unknown): BlockInstance[] {
   return out;
 }
 
+function parseOrientation(raw: unknown, fallback: PdfTemplate["orientacion"]): PdfTemplate["orientacion"] {
+  if (raw === "horizontal" || raw === "vertical") return raw;
+  return fallback;
+}
+
 function parseTemplate(raw: unknown, fallback: PdfTemplate): PdfTemplate {
   const o = (raw && typeof raw === "object" ? raw : {}) as Record<string, unknown>;
   const sectionsRaw =
@@ -101,6 +106,7 @@ function parseTemplate(raw: unknown, fallback: PdfTemplate): PdfTemplate {
   const body = parseBlocks(sectionsRaw.body);
   const footer = parseBlocks(sectionsRaw.footer);
   return {
+    orientacion: parseOrientation(o.orientacion, fallback.orientacion),
     branding: parseBranding(o.branding, fallback.branding),
     sections: {
       header: header.length ? header : fallback.sections.header,

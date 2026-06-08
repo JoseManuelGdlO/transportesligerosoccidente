@@ -103,6 +103,7 @@ const sectionsSchema = z
 
 const templatePatchSchema = z
   .object({
+    orientacion: z.enum(["horizontal", "vertical"]).optional(),
     branding: brandingSchema,
     sections: sectionsSchema,
   })
@@ -139,11 +140,12 @@ function logoPathColumn(kind: TemplateKind): "pdf_logo_path" | "pdf_trip_logo_pa
 
 function mergeTemplate(
   current: PdfTemplateJson,
-  patch: { branding?: Partial<PdfTemplateJson["branding"]>; sections?: Partial<PdfTemplateJson["sections"]> } | undefined,
+  patch: { orientacion?: PdfTemplateJson["orientacion"]; branding?: Partial<PdfTemplateJson["branding"]>; sections?: Partial<PdfTemplateJson["sections"]>; } | undefined,
   fallback: PdfTemplateJson,
 ): PdfTemplateJson {
   if (!patch) return current;
   const branding = { ...current.branding, ...(patch.branding ?? {}) };
+  const orientacion = patch.orientacion ?? current.orientacion ?? fallback.orientacion;
   const blocks = (arr: BlockInstanceJson[] | undefined, def: BlockInstanceJson[]) => {
     if (!arr) return def;
     return arr.map((b) => ({
@@ -158,6 +160,7 @@ function mergeTemplate(
     footer: blocks(patch.sections?.footer, current.sections.footer),
   };
   return {
+    orientacion,
     branding,
     sections: {
       header: sections.header.length > 0 ? sections.header : fallback.sections.header,

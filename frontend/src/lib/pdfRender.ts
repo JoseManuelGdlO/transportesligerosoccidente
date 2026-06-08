@@ -682,7 +682,7 @@ const renderTripsTable: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary, driver } = state.data;
   const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Km", "Ingreso", "Comisión"]];
+  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Ingreso", "Comisión"]];
   const sortedTrips = sortSettlementTrips(summary.trips);
   const body: string[][] = sortedTrips.map((t: Trip) => {
     const f = computeTrip(t, driver);
@@ -692,7 +692,6 @@ const renderTripsTable: BlockRenderer = (state) => {
       fmtDatePdf(t.fecha_salida),
       tripClientLabel(t),
       formatTripRoute(t),
-      fmtNumber(f.km_recorridos),
       fmtMXN(f.ingreso),
       fmtMXN(f.comision),
     ];
@@ -702,18 +701,13 @@ const renderTripsTable: BlockRenderer = (state) => {
   pdfAutoTable(state.doc, {
     startY: state.y,
     head,
-    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
+    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", ""]],
     foot: [
       [
-        { content: `Total:`,colSpan: 2, styles: { halign: "left" } },
+        { content: `Total:`, colSpan: 2, styles: { halign: "left" } },
         { content: `${summary.trips.length} Viajes`, colSpan: 3 },
-        { content: fmtNumber(summary.total_km), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(summary.total_ingresos), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(summary.total_comisiones), styles: footRight },
-      ],
-      [
-        { content: "Neto a pagar", colSpan: 7, styles: { halign: "left", fontStyle: "bold" } },
-        { content: fmtMXN(summary.neto_pagar), styles: { ...footRight, fontStyle: "bold" } },
       ],
     ],
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
@@ -725,10 +719,9 @@ const renderTripsTable: BlockRenderer = (state) => {
       1: { cellWidth: 20 },
       2: { cellWidth: 16 },
       3: { cellWidth: 24 },
-      4: { cellWidth: 34 },
-      5: { halign: "right", cellWidth: 14 },
+      4: { cellWidth: 48 },
+      5: { halign: "right", cellWidth: 22 },
       6: { halign: "right", cellWidth: 22 },
-      7: { halign: "right", cellWidth: 22 },
     },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
@@ -1106,7 +1099,12 @@ export interface RenderOptions {
 }
 
 export function renderTemplatePdf(opts: RenderOptions): jsPDF {
-  const doc = new jsPDF({ orientation: "portrait", unit: "mm", format: "a4" });
+  const orientacion = opts.template.orientacion ?? "horizontal";
+  const doc = new jsPDF({
+    orientation: orientacion === "horizontal" ? "landscape" : "portrait",
+    unit: "mm",
+    format: "a4",
+  });
   const margin = 14;
   const pageW = doc.internal.pageSize.getWidth();
   const pageH = doc.internal.pageSize.getHeight();
