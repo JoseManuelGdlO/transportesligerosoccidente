@@ -89,7 +89,7 @@ module.exports = {
       );
     }
 
-    const capturistaSlugs = ["combustibles.ver", "combustibles.crear", "combustibles.importar"];
+    const capturistaSlugs = ["combustibles.ver", "combustibles.crear"];
     for (const slug of capturistaSlugs) {
       const perm = COMBUSTIBLES_PERMS.find((x) => x.slug === slug);
       if (!perm) continue;

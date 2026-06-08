@@ -37,7 +37,6 @@ export const CAPTURISTA_DEFAULT_PERMISSIONS: PermissionSlug[] = [
   "reportes.ver",
   "combustibles.ver",
   "combustibles.crear",
-  "combustibles.importar",
 ];
 
 const ALL_SET = new Set<string>(ALL_PERMISSIONS);
