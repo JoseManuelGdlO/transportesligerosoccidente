@@ -691,7 +691,7 @@ const renderTripsTable: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary, driver } = state.data;
   const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Ingreso", "Flete", "Comisión"]];
+  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Flete", "Comisión"]];
   const sortedTrips = sortSettlementTrips(summary.trips);
   let totalFlete = 0;
   const body: string[][] = sortedTrips.map((t: Trip) => {
@@ -703,7 +703,6 @@ const renderTripsTable: BlockRenderer = (state) => {
       fmtDatePdf(t.fecha_salida),
       tripClientLabel(t),
       formatTripRoute(t),
-      fmtMXN(f.ingreso),
       fmtMXN(t.tarifa || 0),
       fmtMXN(f.comision),
     ];
@@ -713,12 +712,11 @@ const renderTripsTable: BlockRenderer = (state) => {
   pdfAutoTable(state.doc, {
     startY: state.y,
     head,
-    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
+    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", ""]],
     foot: [
       [
         { content: `Total:`, colSpan: 2, styles: { halign: "left" } },
         { content: `${summary.trips.length} Viajes`, colSpan: 3 },
-        { content: fmtMXN(summary.total_ingresos), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(totalFlete), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(summary.total_comisiones), styles: footRight },
       ],
@@ -733,10 +731,9 @@ const renderTripsTable: BlockRenderer = (state) => {
       1: { cellWidth: 20 },
       2: { cellWidth: 16 },
       3: { cellWidth: 24 },
-      4: { cellWidth: 40 },
+      4: { cellWidth: 48 },
       5: { halign: "right", cellWidth: 22 },
       6: { halign: "right", cellWidth: 22 },
-      7: { halign: "right", cellWidth: 22 },
     },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
