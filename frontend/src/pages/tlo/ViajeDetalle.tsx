@@ -24,6 +24,7 @@ import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { downloadTripPdf } from "@/lib/tripPdf";
 import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
+import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
@@ -738,13 +739,13 @@ export default function ViajeDetalle() {
               </Select>
             </div>
             <div><Label>Descripción</Label><Input value={exp.descripcion} onChange={e => setExp({ ...exp, descripcion: e.target.value })} /></div>
-            <div><Label>Monto (MXN)</Label><Input type="number" min={0} step="0.01" value={exp.monto} onChange={e => setExp({ ...exp, monto: +e.target.value })} /></div>
+            <div><Label>Monto (MXN)</Label><Input type="number" min={0} step="1.00" value={exp.monto} onChange={e => setExp({ ...exp, monto: +e.target.value })} /></div>
             <div>
               <Label>Monto comprobado (MXN)</Label>
               <Input
                 type="number"
                 min={0}
-                step="0.01"
+                step="1.00"
                 max={exp.monto || undefined}
                 value={exp.monto_comprobado}
                 onChange={e => setExp({ ...exp, monto_comprobado: +e.target.value })}
@@ -788,6 +789,15 @@ export default function ViajeDetalle() {
           <DialogFooter><Button variant="outline" onClick={() => setCloseOpen(false)}>Cancelar</Button><Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90"><Lock className="h-4 w-4 mr-2" />Cerrar viaje</Button></DialogFooter>
         </DialogContent>
       </Dialog>
+
+      {canEditTrip && (
+        <EditTripDialog
+          open={editOpen}
+          onOpenChange={setEditOpen}
+          trip={trip}
+          onSaved={onTripSaved}
+        />
+      )}
     </div>
   );
 }
