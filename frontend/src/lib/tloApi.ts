@@ -65,7 +65,7 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
     tipo,
     descripcion: String(raw.descripcion ?? ""),
     monto: Number(raw.monto ?? 0),
-    comprobado: Boolean(raw.comprobado),
+    monto_comprobado: raw.monto_comprobado != null ? Number(raw.monto_comprobado) : raw.comprobado ? Number(raw.monto ?? 0) : 0,
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(raw.visible_en_liquidacion) : false,
     fecha: String(raw.fecha ?? new Date().toISOString()),
   };

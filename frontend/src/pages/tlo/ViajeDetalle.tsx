@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw } from "lucide-react";
+import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw } from "lucide-react";
 import type { Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
 import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
@@ -33,7 +33,7 @@ type ExpForm = {
   categoria: ExpenseCategory;
   descripcion: string;
   monto: number;
-  comprobado: boolean;
+  monto_comprobado: number;
   visible_en_liquidacion: boolean;
 };
 
@@ -42,7 +42,7 @@ const defaultExpForm = (): ExpForm => ({
   categoria: "casetas",
   descripcion: "",
   monto: 0,
-  comprobado: true,
+  monto_comprobado: 0,
   visible_en_liquidacion: false,
 });
 
@@ -197,6 +197,10 @@ export default function ViajeDetalle() {
 
   const onAddExp = async () => {
     if (exp.monto <= 0) { toast.error("Captura el monto"); return; }
+    if (exp.monto_comprobado < 0 || exp.monto_comprobado > exp.monto) {
+      toast.error("El monto comprobado debe estar entre 0 y el monto total");
+      return;
+    }
     const payload: Omit<Expense, "id"> = {
       ...exp,
       visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
@@ -233,11 +237,7 @@ export default function ViajeDetalle() {
         <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
         <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
         <TableCell className="text-sm">{e.descripcion}</TableCell>
-        <TableCell>
-          {e.comprobado
-            ? <Badge className="bg-success/15 text-success border-success/30" variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />Sí</Badge>
-            : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
-        </TableCell>
+        <TableCell className="text-sm">{fmtMXN(e.monto_comprobado)}</TableCell>
         <TableCell className={`text-right font-semibold ${montoClassName}`}>{fmtMXN(e.monto)}</TableCell>
         <TableCell className="text-right">
           <Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}>
@@ -505,7 +505,7 @@ export default function ViajeDetalle() {
                       <TableHead>Fecha</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Descripción</TableHead>
-                      <TableHead>Comprobado</TableHead>
+                      <TableHead>Monto comprobado</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead />
                     </TableRow>
@@ -530,7 +530,7 @@ export default function ViajeDetalle() {
                       <TableHead>Fecha</TableHead>
                       <TableHead>Categoría</TableHead>
                       <TableHead>Descripción</TableHead>
-                      <TableHead>Comprobado</TableHead>
+                      <TableHead>Monto comprobado</TableHead>
                       <TableHead>Liquidación</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead />
@@ -549,11 +549,7 @@ export default function ViajeDetalle() {
                         <TableCell className="text-sm">{fmtDate(e.fecha)}</TableCell>
                         <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
                         <TableCell className="text-sm">{e.descripcion}</TableCell>
-                        <TableCell>
-                          {e.comprobado
-                            ? <Badge className="bg-success/15 text-success border-success/30" variant="outline"><CheckCircle2 className="h-3 w-3 mr-1" />Sí</Badge>
-                            : <Badge variant="outline" className="bg-warning/20 text-warning-foreground border-warning/40">No</Badge>}
-                        </TableCell>
+                        <TableCell className="text-sm">{fmtMXN(e.monto_comprobado)}</TableCell>
                         <TableCell>
                           {e.visible_en_liquidacion
                             ? <Badge variant="outline" className="bg-primary/10 text-primary border-primary/30">Visible</Badge>
@@ -742,11 +738,18 @@ export default function ViajeDetalle() {
               </Select>
             </div>
             <div><Label>Descripción</Label><Input value={exp.descripcion} onChange={e => setExp({ ...exp, descripcion: e.target.value })} /></div>
-            <div><Label>Monto (MXN)</Label><Input type="number" value={exp.monto} onChange={e => setExp({ ...exp, monto: +e.target.value })} /></div>
-            <label className="flex items-center gap-2 text-sm cursor-pointer">
-              <Checkbox checked={exp.comprobado} onCheckedChange={c => setExp({ ...exp, comprobado: !!c })} />
-              Comprobado con ticket / factura
-            </label>
+            <div><Label>Monto (MXN)</Label><Input type="number" min={0} step="0.01" value={exp.monto} onChange={e => setExp({ ...exp, monto: +e.target.value })} /></div>
+            <div>
+              <Label>Monto comprobado (MXN)</Label>
+              <Input
+                type="number"
+                min={0}
+                step="0.01"
+                max={exp.monto || undefined}
+                value={exp.monto_comprobado}
+                onChange={e => setExp({ ...exp, monto_comprobado: +e.target.value })}
+              />
+            </div>
             {exp.tipo === "ingreso" && (
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox

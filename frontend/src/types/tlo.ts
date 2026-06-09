@@ -498,7 +498,7 @@ export interface Expense {
   tipo: ExpenseTipo;
   descripcion: string;
   monto: number;
-  comprobado: boolean;
+  monto_comprobado: number;
   visible_en_liquidacion: boolean;
   fecha: string;
 }

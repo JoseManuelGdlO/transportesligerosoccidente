@@ -15,7 +15,7 @@ export class Expense extends Model<InferAttributes<Expense>, InferCreationAttrib
   declare tipo: "gasto" | "ingreso";
   declare descripcion: string;
   declare monto: string;
-  declare comprobado: boolean;
+  declare monto_comprobado: string;
   declare visible_en_liquidacion: boolean;
   declare fecha: Date;
   declare readonly createdAt: CreationOptional<Date>;
@@ -39,7 +39,7 @@ export function initExpense(sequelize: Sequelize) {
       },
       descripcion: { type: DataTypes.STRING(512), allowNull: false },
       monto: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
-      comprobado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      monto_comprobado: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },
       visible_en_liquidacion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       fecha: { type: DataTypes.DATE, allowNull: false },
     } as never,

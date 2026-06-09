@@ -75,7 +75,7 @@ export function expenseToJson(e: Expense): Record<string, unknown> {
     tipo,
     descripcion: p.descripcion,
     monto: num(p.monto),
-    comprobado: p.comprobado,
+    monto_comprobado: num(p.monto_comprobado),
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(p.visible_en_liquidacion) : false,
     fecha: iso(p.fecha),
   };

@@ -804,7 +804,7 @@ const renderExpenseSectionTable = (
     state.y += 8;
     return;
   }
-  const head = ["Fecha", "Categoría", "Descripción", "Comprobado"];
+  const head = ["Fecha", "Categoría", "Descripción", "Monto comprobado"];
   if (extraHead) head.push(extraHead);
   head.push("Monto");
   const montoCol = head.length - 1;
@@ -816,7 +816,7 @@ const renderExpenseSectionTable = (
         e.fecha ? fmtDate(e.fecha) : "—",
         e.categoria,
         e.descripcion || "—",
-        e.comprobado ? "Sí" : "No",
+        fmtMXN(e.monto_comprobado),
       ];
       if (extraHead) row.push(e.visible_en_liquidacion ? "Sí" : "No");
       row.push(fmtMXN(e.monto));

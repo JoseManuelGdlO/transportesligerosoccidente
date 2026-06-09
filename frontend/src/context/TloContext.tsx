@@ -612,7 +612,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
                 tipo: e.tipo ?? "gasto",
                 descripcion: e.descripcion,
                 monto: e.monto,
-                comprobado: e.comprobado,
+                monto_comprobado: e.monto_comprobado,
                 visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
                 fecha: e.fecha,
               }),
