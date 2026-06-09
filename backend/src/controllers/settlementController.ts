@@ -67,3 +67,13 @@ export const postCloseById = asyncHandler(async (req: Request, res: Response) =>
   const row = await settlementService.closeSettlementById(req.user!.tenantId, req.params.id);
   res.json(settlementToJson(row));
 });
+
+export const patchDraft = asyncHandler(async (req: Request, res: Response) => {
+  const row = await settlementService.updateDraftSettlement(req.user!.tenantId, req.params.id);
+  res.json(settlementToJson(row));
+});
+
+export const deleteDraft = asyncHandler(async (req: Request, res: Response) => {
+  await settlementService.deleteDraftSettlement(req.user!.tenantId, req.params.id);
+  res.status(204).send();
+});

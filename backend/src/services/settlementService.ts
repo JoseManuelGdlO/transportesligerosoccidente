@@ -111,23 +111,36 @@ export async function listSettlements(tenantId: string, driverId?: string) {
   });
 }
 
+async function findOpenDraft(
+  tenantId: string,
+  driverId: string,
+  fechaInicio: string,
+  fechaFin: string,
+) {
+  return Settlement.findOne({
+    where: {
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: false,
+    },
+  });
+}
+
 export async function createDraftSettlement(
   tenantId: string,
   driverId: string,
   fechaInicio: string,
   fechaFin: string,
 ) {
-  const existing = await Settlement.findOne({
-    where: {
-      tenant_id: tenantId,
-      driver_id: driverId,
-      fecha_inicio: fechaInicio,
-      fecha_fin: fechaFin,
-    },
-  });
-  if (existing) return existing;
-
   const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+  const existing = await findOpenDraft(tenantId, driverId, fechaInicio, fechaFin);
+  if (existing) {
+    await existing.update({ snapshot: summary } as never);
+    return existing;
+  }
+
   return Settlement.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -138,6 +151,37 @@ export async function createDraftSettlement(
     cerrado_at: null,
     snapshot: summary,
   } as never);
+}
+
+export async function updateDraftSettlement(tenantId: string, settlementId: string) {
+  const row = await Settlement.findOne({
+    where: { id: settlementId, tenant_id: tenantId, cerrado: false },
+  });
+  if (!row) {
+    const err = new Error("Pre-liquidación no encontrada");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  const summary = await settlementSummary(tenantId, row.driver_id, row.fecha_inicio, row.fecha_fin);
+  await row.update({ snapshot: summary } as never);
+  return row;
+}
+
+export async function deleteDraftSettlement(tenantId: string, settlementId: string) {
+  const row = await Settlement.findOne({
+    where: { id: settlementId, tenant_id: tenantId },
+  });
+  if (!row) {
+    const err = new Error("Pre-liquidación no encontrada");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  if (row.cerrado) {
+    const err = new Error("No se puede eliminar una liquidación cerrada");
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+  await row.destroy();
 }
 
 export async function closeSettlement(

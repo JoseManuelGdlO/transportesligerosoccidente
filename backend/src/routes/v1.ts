@@ -185,6 +185,18 @@ r.delete(
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);
 r.post("/settlements/draft", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postDraft);
+r.patch(
+  "/settlements/:id/draft",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  settlementC.patchDraft,
+);
+r.delete(
+  "/settlements/:id",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  settlementC.deleteDraft,
+);
 r.post("/settlements/close", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postClose);
 r.post(
   "/settlements/:id/close",

@@ -2,22 +2,40 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
-import { computeTrip } from "@/lib/calc";
-import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay } from "@/lib/format";
-import { Badge } from "@/components/ui/badge";
+import type { SettlementSummary } from "@/lib/calc";
+import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
+import { resolveSettlementDriver, snapshotToPdfSummary } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
-import type { DriverAdvance, DriverDiscount, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
-import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import type { Driver, DiscountType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
+import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
+import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { KpiCard } from "@/components/tlo/KpiCard";
-import { Wallet, FileText, Lock, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil } from "lucide-react";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  Dialog,
+  DialogContent,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import { FileText, Lock, Eye, Trash2 } from "lucide-react";
 import { toast } from "sonner";
+
+type SettlementTab = "actual" | "borradores" | "historico";
+type SummarySource = "live" | "snapshot";
 
 const clampDate = (day: string, inicio: string, fin: string) => {
   if (day < inicio) return inicio;
@@ -41,15 +59,30 @@ export default function Liquidaciones() {
   const [drafts, setDrafts] = useState<SettlementRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
+  const [activeTab, setActiveTab] = useState<SettlementTab>("actual");
+  const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
+  const [summarySource, setSummarySource] = useState<SummarySource>("live");
+  const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
+  const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
   const [advForm, setAdvForm] = useState({ monto: 0, fecha: defaultFechaEnPeriodo(), descripcion: "" });
-  const [discForm, setDiscForm] = useState({
-    tipo: "otro" as const,
+  const [discForm, setDiscForm] = useState<{
+    tipo: DiscountType;
+    monto: number;
+    fecha: string;
+    descripcion: string;
+  }>({
+    tipo: "otro",
     monto: 0,
     fecha: defaultFechaEnPeriodo(),
     descripcion: "",
   });
+
+  const resetToLiveMode = useCallback(() => {
+    setActiveDraftId(null);
+    setSummarySource("live");
+  }, []);
 
   useEffect(() => {
     setAdvForm((a) => ({ ...a, fecha: clampDate(a.fecha, inicio, fin) }));
@@ -58,10 +91,11 @@ export default function Liquidaciones() {
 
   useEffect(() => {
     if (activeDrivers.length === 0) return;
+    if (summarySource === "snapshot" || activeDraftId) return;
     if (!driverId || !activeDrivers.some((d) => d.id === driverId)) {
       setDriverId(activeDrivers[0].id);
     }
-  }, [activeDrivers, driverId]);
+  }, [activeDrivers, driverId, summarySource, activeDraftId]);
 
   const loadSummary = useCallback(async () => {
     if (!hasApiSession || !driverId) return;
@@ -82,11 +116,8 @@ export default function Liquidaciones() {
   const loadLists = useCallback(async () => {
     if (!hasApiSession) return;
     try {
-      const [allRes, draftRes] = await Promise.all([
-        apiFetch("/settlements"),
-        apiFetch("/settlements?driver_id=" + encodeURIComponent(driverId)),
-      ]);
-      const all = await readJson<SettlementRecord[]>(allRes);
+      const res = await apiFetch("/settlements");
+      const all = await readJson<SettlementRecord[]>(res);
       setHistory(all.filter((s) => s.cerrado));
       setDrafts(all.filter((s) => !s.cerrado && s.driver_id === driverId));
     } catch {
@@ -96,11 +127,72 @@ export default function Liquidaciones() {
   }, [hasApiSession, driverId]);
 
   useEffect(() => {
-    void loadSummary();
-    void loadLists();
-  }, [loadSummary, loadLists]);
+    if (summarySource === "live") {
+      void loadSummary();
+    }
+  }, [loadSummary, summarySource]);
 
-  const driver = drivers.find((d) => d.id === driverId);
+  useEffect(() => {
+    void loadLists();
+  }, [loadLists]);
+
+  const driver = useMemo(() => {
+    if (summarySource === "snapshot" && summary) {
+      return resolveSettlementDriver(summary, drivers) ?? undefined;
+    }
+    return drivers.find((d) => d.id === driverId) ?? undefined;
+  }, [summarySource, summary, drivers, driverId]);
+
+  const selectDrivers = useMemo(() => {
+    if (!driverId || activeDrivers.some((d) => d.id === driverId)) {
+      return activeDrivers;
+    }
+    const current = drivers.find((d) => d.id === driverId);
+    if (current) return [...activeDrivers, current];
+    const fromSummary = summary?.driver;
+    if (fromSummary?.id === driverId) {
+      return [...activeDrivers, fromSummary as Driver];
+    }
+    return activeDrivers;
+  }, [activeDrivers, drivers, driverId, summary?.driver]);
+
+  const handleDriverChange = (id: string) => {
+    resetToLiveMode();
+    setDriverId(id);
+  };
+
+  const handleInicioChange = (value: string) => {
+    resetToLiveMode();
+    setInicio(value);
+  };
+
+  const handleFinChange = (value: string) => {
+    resetToLiveMode();
+    setFin(value);
+  };
+
+  const handleRecalcular = () => {
+    if (summarySource === "snapshot") {
+      resetToLiveMode();
+    } else {
+      void loadSummary();
+    }
+  };
+
+  const openDraft = (draft: SettlementRecord) => {
+    if (!draft.snapshot) {
+      toast.error("La pre-liquidación no tiene datos guardados");
+      return;
+    }
+    setActiveDraftId(draft.id);
+    setSummarySource("snapshot");
+    setDriverId(draft.driver_id);
+    setInicio(draft.fecha_inicio);
+    setFin(draft.fecha_fin);
+    setSummary(draft.snapshot);
+    setActiveTab("actual");
+    toast.success("Pre-liquidación cargada");
+  };
 
   const addAdvance = async () => {
     if (!driverId) return;
@@ -121,6 +213,7 @@ export default function Liquidaciones() {
       await readJson(res);
       setAdvForm({ monto: 0, fecha: clampDate(isoDay(today), inicio, fin), descripcion: "" });
       toast.success("Anticipo registrado");
+      setSummarySource("live");
       await loadSummary();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al registrar anticipo");
@@ -151,6 +244,7 @@ export default function Liquidaciones() {
         descripcion: "",
       });
       toast.success("Descuento registrado");
+      setSummarySource("live");
       await loadSummary();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al registrar descuento");
@@ -160,6 +254,7 @@ export default function Liquidaciones() {
   const removeAdvance = async (id: string) => {
     try {
       await apiFetch(`/drivers/${driverId}/advances/${id}`, { method: "DELETE" });
+      setSummarySource("live");
       await loadSummary();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
@@ -169,6 +264,7 @@ export default function Liquidaciones() {
   const removeDiscount = async (id: string) => {
     try {
       await apiFetch(`/drivers/${driverId}/discounts/${id}`, { method: "DELETE" });
+      setSummarySource("live");
       await loadSummary();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
@@ -178,10 +274,22 @@ export default function Liquidaciones() {
   const saveDraft = async () => {
     if (!driverId) return;
     try {
-      await apiFetch("/settlements/draft", {
-        method: "POST",
-        body: JSON.stringify({ driver_id: driverId, fecha_inicio: inicio, fecha_fin: fin }),
-      });
+      let row: SettlementRecord;
+      if (activeDraftId) {
+        const res = await apiFetch(`/settlements/${activeDraftId}/draft`, { method: "PATCH" });
+        row = await readJson<SettlementRecord>(res);
+      } else {
+        const res = await apiFetch("/settlements/draft", {
+          method: "POST",
+          body: JSON.stringify({ driver_id: driverId, fecha_inicio: inicio, fecha_fin: fin }),
+        });
+        row = await readJson<SettlementRecord>(res);
+        setActiveDraftId(row.id);
+      }
+      if (row.snapshot) {
+        setSummary(row.snapshot);
+        setSummarySource("snapshot");
+      }
       toast.success("Pre-liquidación guardada");
       await loadLists();
     } catch (e) {
@@ -189,12 +297,30 @@ export default function Liquidaciones() {
     }
   };
 
+  const deleteDraft = async (settlementId: string) => {
+    try {
+      await apiFetch(`/settlements/${settlementId}`, { method: "DELETE" });
+      if (activeDraftId === settlementId) {
+        resetToLiveMode();
+        setSummary(null);
+        await loadSummary();
+      }
+      toast.success("Pre-liquidación eliminada");
+      await loadLists();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
+    } finally {
+      setPendingDeleteDraftId(null);
+    }
+  };
+
   const closeSettlement = async (settlementId?: string) => {
     if (!driverId) return;
     setClosing(true);
     try {
-      if (settlementId) {
-        await apiFetch(`/settlements/${settlementId}/close`, { method: "POST" });
+      const idToClose = settlementId ?? activeDraftId ?? undefined;
+      if (idToClose) {
+        await apiFetch(`/settlements/${idToClose}/close`, { method: "POST" });
       } else {
         await apiFetch("/settlements/close", {
           method: "POST",
@@ -202,6 +328,7 @@ export default function Liquidaciones() {
         });
       }
       toast.success("Liquidación cerrada");
+      resetToLiveMode();
       await loadSummary();
       await loadLists();
     } catch (e) {
@@ -211,23 +338,66 @@ export default function Liquidaciones() {
     }
   };
 
+  const downloadSettlementPdfSafe = async (params: {
+    driver: Driver;
+    inicio: string;
+    fin: string;
+    summary: SettlementSummary;
+  }) => {
+    try {
+      const logoDataUrl = tenant?.has_pdf_logo ? await loadPdfLogoDataUrl("settlement") : null;
+      await downloadSettlementPdf({
+        tenantNombre: tenant?.nombre ?? "TLO",
+        driver: params.driver,
+        inicio: params.inicio,
+        fin: params.fin,
+        summary: params.summary,
+        trucks,
+        template: tenant?.pdf_config?.settlement,
+        logoDataUrl,
+      });
+      toast.success("PDF descargado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al generar PDF");
+    }
+  };
+
+  const downloadPdfForRecord = async (record: SettlementRecord) => {
+    if (!record.snapshot) {
+      toast.error("No hay datos para generar el PDF");
+      return;
+    }
+    const recordDriver = resolveSettlementDriver(record.snapshot, drivers);
+    if (!recordDriver) {
+      toast.error("Operador no encontrado");
+      return;
+    }
+    await downloadSettlementPdfSafe({
+      driver: recordDriver,
+      inicio: record.fecha_inicio,
+      fin: record.fecha_fin,
+      summary: snapshotToPdfSummary(record.snapshot),
+    });
+  };
+
+  const downloadCurrentSettlementPdf = async () => {
+    if (!driver || !summaryForPdf) return;
+    await downloadSettlementPdfSafe({
+      driver,
+      inicio,
+      fin,
+      summary: summaryForPdf,
+    });
+  };
+
   const summaryForPdf = useMemo(() => {
-    if (!summary || !driver) return null;
-    return {
-      trips: summary.trips,
-      total_ingresos: summary.total_ingresos,
-      total_comisiones: summary.total_comisiones,
-      total_km: summary.total_km,
-      viaticos_entregados: summary.viaticos_entregados,
-      viaticos_comprobados: summary.viaticos_comprobados,
-      saldo_viaticos: summary.saldo_viaticos,
-      total_descuentos: summary.total_descuentos,
-      total_anticipos: summary.total_anticipos,
-      neto_pagar: summary.neto_pagar,
-      advances: summary.advances ?? [],
-      discounts: summary.discounts ?? [],
-    };
-  }, [summary, driver]);
+    if (!summary) return null;
+    return snapshotToPdfSummary(summary);
+  }, [summary]);
+
+  const viewingHistoryDriver = viewingHistory?.snapshot
+    ? resolveSettlementDriver(viewingHistory.snapshot, drivers)
+    : null;
 
   return (
     <div className="space-y-4">
@@ -235,23 +405,32 @@ export default function Liquidaciones() {
         <div className="flex flex-wrap items-end gap-3">
           <div className="flex-1 min-w-[240px]">
             <Label className="text-xs">Operador</Label>
-            <Select value={driverId} onValueChange={setDriverId}>
+            <Select value={driverId} onValueChange={handleDriverChange}>
               <SelectTrigger><SelectValue /></SelectTrigger>
               <SelectContent>
-                {activeDrivers.map((d) => (
+                {selectDrivers.map((d) => (
                   <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>
                 ))}
               </SelectContent>
             </Select>
           </div>
-          <div><Label className="text-xs">Desde</Label><Input type="date" value={inicio} onChange={(e) => setInicio(e.target.value)} /></div>
-          <div><Label className="text-xs">Hasta</Label><Input type="date" value={fin} onChange={(e) => setFin(e.target.value)} /></div>
-          <Button variant="outline" onClick={() => { setInicio(isoDay(startOfWeek(today))); setFin(isoDay(endOfWeek(today))); }}>Semana actual</Button>
-          <Button variant="secondary" onClick={() => void loadSummary()} disabled={loading}>Recalcular</Button>
+          <div><Label className="text-xs">Desde</Label><Input type="date" value={inicio} onChange={(e) => handleInicioChange(e.target.value)} /></div>
+          <div><Label className="text-xs">Hasta</Label><Input type="date" value={fin} onChange={(e) => handleFinChange(e.target.value)} /></div>
+          <Button
+            variant="outline"
+            onClick={() => {
+              resetToLiveMode();
+              setInicio(isoDay(startOfWeek(today)));
+              setFin(isoDay(endOfWeek(today)));
+            }}
+          >
+            Semana actual
+          </Button>
+          <Button variant="secondary" onClick={handleRecalcular} disabled={loading}>Recalcular</Button>
         </div>
       </Card>
 
-      <Tabs defaultValue="actual">
+      <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettlementTab)}>
         <TabsList>
           <TabsTrigger value="actual">Liquidación actual</TabsTrigger>
           <TabsTrigger value="borradores">Pre-liquidaciones ({drafts.length})</TabsTrigger>
@@ -265,170 +444,41 @@ export default function Liquidaciones() {
             <p className="text-muted-foreground">{loading ? "Cargando…" : "Selecciona operador y periodo."}</p>
           ) : (
             <>
-              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-                <KpiCard label="Viajes" value={String(summary.trips.length)} icon={TruckIcon} tone="default" />
-                <KpiCard label="Comisiones" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
-                <KpiCard label="Descuentos + anticipos" value={fmtMXN(summary.total_descuentos + summary.total_anticipos)} icon={Receipt} tone="default" />
-                <KpiCard label="Neto a pagar" value={fmtMXN(summary.neto_pagar)} icon={TrendingUp} tone={summary.neto_pagar >= 0 ? "success" : "destructive"} />
-              </div>
+              {summarySource === "snapshot" && (
+                <div className="rounded-md border border-amber-500/40 bg-amber-500/10 px-4 py-2 text-sm text-amber-900 dark:text-amber-200">
+                  Viendo pre-liquidación guardada. Usa Recalcular para datos actuales.
+                </div>
+              )}
 
-              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-                <Card className="tlo-shadow-md">
-                  <CardHeader><CardTitle className="text-base">Anticipos del periodo</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    {canClose && (
-                      <div className="grid grid-cols-3 gap-2">
-                        <Input type="number" placeholder="Monto" value={advForm.monto || ""} onChange={(e) => setAdvForm({ ...advForm, monto: +e.target.value })} />
-                        <Input type="date" value={advForm.fecha} onChange={(e) => setAdvForm({ ...advForm, fecha: e.target.value })} />
-                        <Button size="sm" onClick={addAdvance}><Plus className="h-4 w-4" /></Button>
-                        <Input className="col-span-3" placeholder="Descripción" value={advForm.descripcion} onChange={(e) => setAdvForm({ ...advForm, descripcion: e.target.value })} />
-                      </div>
-                    )}
-                    <Table>
-                      <TableBody>
-                        {(summary.advances ?? []).length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
-                              Sin anticipos pendientes de liquidar
-                            </TableCell>
-                          </TableRow>
-                        )}
-                        {(summary.advances ?? []).map((a: DriverAdvance) => (
-                          <TableRow key={a.id}>
-                            <TableCell>{fmtDate(a.fecha)}</TableCell>
-                            <TableCell className="text-sm">
-                              {a.descripcion}
-                              {a.en_periodo === false && (
-                                <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">{fmtMXN(a.monto)}</TableCell>
-                            {canClose && !a.settlement_id && (
-                              <TableCell><Button variant="ghost" size="sm" onClick={() => removeAdvance(a.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                            )}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-
-                <Card className="tlo-shadow-md">
-                  <CardHeader><CardTitle className="text-base">Descuentos del periodo</CardTitle></CardHeader>
-                  <CardContent className="space-y-3">
-                    {canClose && (
-                      <div className="grid grid-cols-3 gap-2">
-                        <Select value={discForm.tipo} onValueChange={(v) => setDiscForm({ ...discForm, tipo: v as typeof discForm.tipo })}>
-                          <SelectTrigger><SelectValue /></SelectTrigger>
-                          <SelectContent>
-                            <SelectItem value="prestamo">Préstamo</SelectItem>
-                            <SelectItem value="dano">Daño</SelectItem>
-                            <SelectItem value="multa">Multa</SelectItem>
-                            <SelectItem value="otro">Otro</SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <Input type="number" value={discForm.monto || ""} onChange={(e) => setDiscForm({ ...discForm, monto: +e.target.value })} />
-                        <Button size="sm" onClick={addDiscount}><Plus className="h-4 w-4" /></Button>
-                        <Input className="col-span-3" placeholder="Descripción" value={discForm.descripcion} onChange={(e) => setDiscForm({ ...discForm, descripcion: e.target.value })} />
-                      </div>
-                    )}
-                    <Table>
-                      <TableBody>
-                        {(summary.discounts ?? []).length === 0 && (
-                          <TableRow>
-                            <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
-                              Sin descuentos pendientes de liquidar
-                            </TableCell>
-                          </TableRow>
-                        )}
-                        {(summary.discounts ?? []).map((d: DriverDiscount) => (
-                          <TableRow key={d.id}>
-                            <TableCell>{d.tipo}</TableCell>
-                            <TableCell className="text-sm">
-                              {d.descripcion}
-                              {d.en_periodo === false && (
-                                <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
-                              )}
-                            </TableCell>
-                            <TableCell className="text-right">{fmtMXN(d.monto)}</TableCell>
-                            {canClose && !d.settlement_id && (
-                              <TableCell><Button variant="ghost" size="sm" onClick={() => removeDiscount(d.id)}><Trash2 className="h-4 w-4 text-destructive" /></Button></TableCell>
-                            )}
-                          </TableRow>
-                        ))}
-                      </TableBody>
-                    </Table>
-                  </CardContent>
-                </Card>
-              </div>
-
-              <Card className="tlo-shadow-md">
-                <CardHeader><CardTitle className="text-base">Viajes del periodo</CardTitle></CardHeader>
-                <CardContent className="p-0">
-                  <Table>
-                    <TableHeader>
-                      <TableRow className="bg-secondary/50">
-                        <TableHead>Folio</TableHead>
-                        <TableHead>Tipo</TableHead>
-                        <TableHead>Fecha</TableHead>
-                        <TableHead className="text-right">Comisión</TableHead>
-                      </TableRow>
-                    </TableHeader>
-                    <TableBody>
-                      {summary.trips.map((t) => {
-                        const f = computeTrip(t, driver);
-                        return (
-                          <TableRow key={t.id}>
-                            <TableCell className="font-mono text-sm">{t.folio}</TableCell>
-                            <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
-                            <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
-                            <TableCell className="text-right">
-                              <div className="flex items-center justify-end gap-1">
-                                <span className="font-semibold text-accent">{fmtMXN(f.comision)}</span>
-                                <Button
-                                  variant="ghost"
-                                  size="sm"
-                                  className="h-8 w-8 p-0"
-                                  aria-label={`Editar viaje ${t.folio}`}
-                                  onClick={() => nav(`/viajes/${t.id}`)}
-                                >
-                                  <Pencil className="h-4 w-4" />
-                                </Button>
-                              </div>
-                            </TableCell>
-                          </TableRow>
-                        );
-                      })}
-                    </TableBody>
-                  </Table>
-                </CardContent>
-              </Card>
+              <SettlementSummaryPanel
+                summary={summary}
+                driver={driver}
+                readOnly={summarySource === "snapshot"}
+                canEditFinance={canClose}
+                advForm={advForm}
+                discForm={discForm}
+                onAdvFormChange={setAdvForm}
+                onDiscFormChange={setDiscForm}
+                onAddAdvance={addAdvance}
+                onAddDiscount={addDiscount}
+                onRemoveAdvance={removeAdvance}
+                onRemoveDiscount={removeDiscount}
+                onEditTrip={(tripId) => nav(`/viajes/${tripId}`)}
+              />
 
               <Card className="tlo-shadow-md">
                 <CardContent className="p-4 flex flex-wrap gap-2 justify-end">
-                  <Button variant="outline" disabled={!summaryForPdf} onClick={() => {
-                    void (async () => {
-                      if (!driver || !summaryForPdf) return;
-                      const logoDataUrl = tenant?.has_pdf_logo ? await loadPdfLogoDataUrl("settlement") : null;
-                      await downloadSettlementPdf({
-                        tenantNombre: tenant?.nombre ?? "TLO",
-                        driver,
-                        inicio,
-                        fin,
-                        summary: summaryForPdf,
-                        trucks,
-                        template: tenant?.pdf_config?.settlement,
-                        logoDataUrl,
-                      });
-                      toast.success("PDF descargado");
-                    })();
-                  }}>
+                  <Button variant="outline" disabled={!summaryForPdf || !driver} onClick={() => void downloadCurrentSettlementPdf()}>
                     <FileText className="h-4 w-4 mr-2" /> PDF
                   </Button>
                   {canClose && (
                     <>
                       <Button variant="secondary" onClick={saveDraft}>Generar pre-liquidación</Button>
-                      <Button className="bg-success text-success-foreground" disabled={closing} onClick={() => closeSettlement()}>
+                      <Button
+                        className="bg-success text-success-foreground"
+                        disabled={closing}
+                        onClick={() => closeSettlement()}
+                      >
                         <Lock className="h-4 w-4 mr-2" /> {closing ? "Cerrando…" : "Cerrar liquidación"}
                       </Button>
                     </>
@@ -442,15 +492,46 @@ export default function Liquidaciones() {
         <TabsContent value="borradores" className="mt-4">
           <Card>
             <Table>
-              <TableHeader><TableRow><TableHead>Operador</TableHead><TableHead>Periodo</TableHead><TableHead className="text-right">Acción</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Periodo</TableHead>
+                  <TableHead className="text-right">Acción</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
-                {drafts.length === 0 && <TableRow><TableCell colSpan={3} className="text-center text-muted-foreground py-6">Sin borradores</TableCell></TableRow>}
+                {drafts.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={3} className="text-center text-muted-foreground py-6">
+                      Sin borradores
+                    </TableCell>
+                  </TableRow>
+                )}
                 {drafts.map((s) => (
-                  <TableRow key={s.id}>
+                  <TableRow
+                    key={s.id}
+                    className="cursor-pointer hover:bg-muted/50"
+                    onClick={() => openDraft(s)}
+                  >
                     <TableCell>{drivers.find((d) => d.id === s.driver_id)?.nombre}</TableCell>
                     <TableCell>{s.fecha_inicio} — {s.fecha_fin}</TableCell>
                     <TableCell className="text-right">
-                      {canClose && <Button size="sm" onClick={() => closeSettlement(s.id)}>Cerrar</Button>}
+                      <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
+                        {canClose && (
+                          <>
+                            <Button size="sm" variant="outline" onClick={() => openDraft(s)}>Abrir</Button>
+                            <Button size="sm" onClick={() => closeSettlement(s.id)}>Cerrar</Button>
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              className="text-destructive hover:text-destructive"
+                              onClick={() => setPendingDeleteDraftId(s.id)}
+                            >
+                              <Trash2 className="h-4 w-4" />
+                            </Button>
+                          </>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -462,13 +543,34 @@ export default function Liquidaciones() {
         <TabsContent value="historico" className="mt-4">
           <Card>
             <Table>
-              <TableHeader><TableRow><TableHead>Operador</TableHead><TableHead>Periodo</TableHead><TableHead className="text-right">Neto</TableHead></TableRow></TableHeader>
+              <TableHeader>
+                <TableRow>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Periodo</TableHead>
+                  <TableHead className="text-right">Neto</TableHead>
+                  <TableHead className="text-right">Acción</TableHead>
+                </TableRow>
+              </TableHeader>
               <TableBody>
+                {history.length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
+                      Sin liquidaciones cerradas
+                    </TableCell>
+                  </TableRow>
+                )}
                 {history.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell>{drivers.find((d) => d.id === s.driver_id)?.nombre}</TableCell>
                     <TableCell>{s.fecha_inicio} — {s.fecha_fin}</TableCell>
-                    <TableCell className="text-right font-mono">{fmtMXN(Number((s.snapshot as { neto_pagar?: number })?.neto_pagar ?? 0))}</TableCell>
+                    <TableCell className="text-right font-mono">
+                      {fmtMXN(Number(s.snapshot?.neto_pagar ?? 0))}
+                    </TableCell>
+                    <TableCell className="text-right">
+                      <Button size="sm" variant="outline" onClick={() => setViewingHistory(s)}>
+                        <Eye className="h-4 w-4 mr-1" /> Ver
+                      </Button>
+                    </TableCell>
                   </TableRow>
                 ))}
               </TableBody>
@@ -476,6 +578,53 @@ export default function Liquidaciones() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog open={viewingHistory !== null} onOpenChange={(open) => !open && setViewingHistory(null)}>
+        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+          {viewingHistory && viewingHistory.snapshot && viewingHistoryDriver && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  Liquidación — {viewingHistoryDriver.nombre} ({viewingHistory.fecha_inicio} — {viewingHistory.fecha_fin})
+                </DialogTitle>
+              </DialogHeader>
+              <SettlementSummaryPanel
+                summary={viewingHistory.snapshot}
+                driver={viewingHistoryDriver}
+                readOnly
+              />
+              <div className="flex justify-end pt-2">
+                <Button variant="outline" onClick={() => void downloadPdfForRecord(viewingHistory)}>
+                  <FileText className="h-4 w-4 mr-2" /> PDF
+                </Button>
+              </div>
+            </>
+          )}
+          {viewingHistory && (!viewingHistory.snapshot || !viewingHistoryDriver) && (
+            <p className="text-muted-foreground text-sm py-4">No hay datos guardados para esta liquidación.</p>
+          )}
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog open={pendingDeleteDraftId !== null} onOpenChange={(open) => !open && setPendingDeleteDraftId(null)}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar pre-liquidación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se borrará el borrador guardado. Los viajes y movimientos del periodo no se verán afectados.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancelar</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => pendingDeleteDraftId && void deleteDraft(pendingDeleteDraftId)}
+            >
+              Eliminar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }
