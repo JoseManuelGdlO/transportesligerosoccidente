@@ -25,14 +25,18 @@ export const driverCommissionRate = (trip: Trip, driver: Driver): number => {
   return isForaneo ? foraneo : local;
 };
 
-export const computeCommission = (trip: Trip, driver?: Driver): number => {
-  if (typeof trip.comision_override === "number") return trip.comision_override;
+export const computeCommissionFromScheme = (trip: Trip, driver?: Driver): number => {
   if (!driver) return 0;
   const rate = driverCommissionRate(trip, driver);
   if (driver.comision_tipo === "porcentaje") {
     return (trip.tarifa * rate) / 100;
   }
   return rate;
+};
+
+export const computeCommission = (trip: Trip, driver?: Driver): number => {
+  if (typeof trip.comision_override === "number") return trip.comision_override;
+  return computeCommissionFromScheme(trip, driver);
 };
 
 export function ingresosComprobadosLiquidacion(trip: Trip): number {

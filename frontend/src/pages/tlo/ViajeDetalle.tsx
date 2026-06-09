@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, driverById, truckById, driverCommissionRate } from "@/lib/calc";
+import { computeTrip, computeCommissionFromScheme, driverById, truckById, driverCommissionRate } from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -15,7 +15,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil } from "lucide-react";
+import { ArrowLeft, Fuel, Receipt, DollarSign, CheckCircle2, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw } from "lucide-react";
 import type { Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
 import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
@@ -121,6 +121,8 @@ export default function ViajeDetalle() {
   const truck = truckById(trucks, trip.truck_id);
   const client = clients.find(c => c.id === trip.client_id);
   const fin = computeTrip(trip, driver);
+  const comisionEsquema = computeCommissionFromScheme(trip, driver);
+  const hasComisionManual = typeof trip.comision_override === "number";
   const isClosed = tripIsClosed(trip);
   const canFacturar = tripIsOpen(trip) || tripIsClosed(trip);
   const customStatusOptions = allStatuses.filter((s) => !s.is_system && s.activo !== false);
@@ -581,26 +583,79 @@ export default function ViajeDetalle() {
                 <div><p className="text-muted-foreground">Aplica en este viaje</p><p className="font-semibold">{driver && driver.comision_tipo === "porcentaje" ? `${driverCommissionRate(trip, driver)}%` : fmtMXN(driver ? driverCommissionRate(trip, driver) : 0)}</p></div>
                 <div><p className="text-muted-foreground">Tarifa del viaje</p><p className="font-semibold">{fmtMXN(trip.tarifa)}</p></div>
               </div>
-              <div className="bg-secondary p-4 rounded-md">
-                <p className="text-xs uppercase text-muted-foreground">Comisión calculada</p>
-                <p className="text-2xl font-bold">{fmtMXN(fin.comision)}</p>
+              <div className="grid gap-3 sm:grid-cols-2">
+                <div className="rounded-md border bg-muted/30 p-4">
+                  <p className="text-xs uppercase text-muted-foreground">Según esquema</p>
+                  <p className="text-xl font-semibold">{fmtMXN(comisionEsquema)}</p>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    {driver && driver.comision_tipo === "porcentaje"
+                      ? `${driverCommissionRate(trip, driver)}% sobre tarifa de ${fmtMXN(trip.tarifa)}`
+                      : "Monto fijo configurado para este tipo de viaje"}
+                  </p>
+                </div>
+                <div className="rounded-md bg-secondary p-4">
+                  <div className="flex items-center justify-between gap-2">
+                    <p className="text-xs uppercase text-muted-foreground">Comisión a pagar</p>
+                    {hasComisionManual ? (
+                      <Badge variant="outline" className="text-xs">Ajuste manual</Badge>
+                    ) : null}
+                  </div>
+                  <p className="text-2xl font-bold">{fmtMXN(fin.comision)}</p>
+                  {hasComisionManual ? (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      {fin.comision >= comisionEsquema ? "+" : ""}
+                      {fmtMXN(fin.comision - comisionEsquema)} respecto al cálculo automático
+                    </p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground mt-1">Coincide con el esquema del operador</p>
+                  )}
+                </div>
               </div>
-              <div>
-                <Label>Ajustar manualmente (opcional)</Label>
-                <div className="flex gap-2">
-                  <Input
-                    type="number"
-                    placeholder="Monto override"
-                    defaultValue={trip.comision_override ?? ""}
-                    onBlur={async (e) => {
-                      const v = e.target.value === "" ? null : +e.target.value;
-                      const prev = trip.comision_override ?? null;
-                      if (v === prev) return;
-                      updateTrip(trip.id, { comision_override: v });
-                      toast.success("Comisión actualizada");
-                      await reloadTrip();
-                    }}
-                  />
+              <div className="rounded-md border border-dashed p-4 space-y-3">
+                <div>
+                  <Label htmlFor="comision-personalizada">Comisión personalizada</Label>
+                  <p className="text-sm text-muted-foreground mt-1">
+                    Úsala cuando el monto del esquema no aplique en este viaje (acuerdo especial, bonificación, descuento, etc.).
+                    Si dejas el campo vacío, se aplicará el cálculo automático de {fmtMXN(comisionEsquema)}.
+                  </p>
+                </div>
+                <div className="flex flex-col sm:flex-row gap-2 max-w-lg">
+                  <div className="relative flex-1">
+                    <span className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-sm text-muted-foreground">$</span>
+                    <Input
+                      id="comision-personalizada"
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="pl-7"
+                      placeholder={String(comisionEsquema)}
+                      defaultValue={trip.comision_override ?? ""}
+                      key={`comision-${trip.id}-${trip.comision_override ?? "auto"}`}
+                      onBlur={async (e) => {
+                        const v = e.target.value === "" ? null : +e.target.value;
+                        const prev = trip.comision_override ?? null;
+                        if (v === prev) return;
+                        updateTrip(trip.id, { comision_override: v });
+                        toast.success(v == null ? "Se restauró la comisión automática" : "Comisión personalizada guardada");
+                        await reloadTrip();
+                      }}
+                    />
+                  </div>
+                  {hasComisionManual ? (
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="shrink-0"
+                      onClick={async () => {
+                        updateTrip(trip.id, { comision_override: null });
+                        toast.success("Se restauró la comisión automática");
+                        await reloadTrip();
+                      }}
+                    >
+                      <RotateCcw className="h-4 w-4 mr-2" />
+                      Usar cálculo automático
+                    </Button>
+                  ) : null}
                 </div>
               </div>
             </CardContent>
