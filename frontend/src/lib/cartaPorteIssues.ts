@@ -117,6 +117,9 @@ export function classifyCartaPorteIssues(
     if (issue.startsWith("Viaje: la tarifa")) {
       flags.hasMercanciasIssue = true;
     }
+    if (issue.startsWith("Mercancía") && issue.includes("c_ClaveProdServCP")) {
+      flags.hasMercanciasIssue = true;
+    }
     if (issue.includes("colonia o clave SAT")) {
       const ubicMatchClave = issue.match(/^Ubicación (.+): falta colonia/);
       if (ubicMatchClave) {

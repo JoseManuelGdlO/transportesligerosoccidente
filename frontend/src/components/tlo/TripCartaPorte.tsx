@@ -39,6 +39,9 @@ import {
 import { toast } from "sonner";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 
+/** c_ClaveProdServCP (Carta Porte). No usar 78101800 (eso es CFDI servicio de transporte). */
+const DEFAULT_CLAVE_BIENES_TRANSP = "50192100";
+
 type Props = {
   trip: Trip;
   clientId?: string;
@@ -174,7 +177,7 @@ export function TripCartaPorte({
     cantidad: 1,
     unidad: "H87",
     peso_kg: 0,
-    clave_prod_serv: "78101800",
+    clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
     material_peligroso: false,
   });
   const [middleForms, setMiddleForms] = useState<
@@ -498,7 +501,7 @@ export function TripCartaPorte({
       cantidad: 1,
       unidad: "H87",
       peso_kg: 0,
-      clave_prod_serv: "78101800",
+      clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
       material_peligroso: false,
     });
     toast.success("Mercancía agregada");
@@ -1391,7 +1394,7 @@ export function TripCartaPorte({
                 />
               </div>
               <div>
-                <Label>Clave SAT</Label>
+                <Label>Clave bienes transp. (CP)</Label>
                 <Input
                   value={merc.clave_prod_serv}
                   onChange={(e) => setMerc({ ...merc, clave_prod_serv: e.target.value })}

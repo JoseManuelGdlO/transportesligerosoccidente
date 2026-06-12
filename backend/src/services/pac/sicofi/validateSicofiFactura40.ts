@@ -1,5 +1,8 @@
 import { num } from "../../../utils/numbers";
+import { satRfcIssue } from "../../../utils/rfcSat";
+import { bienesTranspCpIssue, configVehicularIssue, permSctIssue } from "../../../utils/cartaPorteSat";
 import type { TimbradoContext } from "../types";
+import { isPublicoGeneralReceptor } from "./publicoGeneral";
 
 /** Validaciones adicionales para timbrado Sicofi Factura40. */
 export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
@@ -12,6 +15,10 @@ export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
 
   if (!client.regimen_fiscal) issues.push("Cliente: falta régimen fiscal");
   if (!client.cp) issues.push("Cliente: falta código postal fiscal");
+  const clientRfcIssue = satRfcIssue("Cliente", client.rfc);
+  if (clientRfcIssue) issues.push(clientRfcIssue);
+  const driverRfcIssue = satRfcIssue("Operador", driver?.rfc);
+  if (driverRfcIssue) issues.push(driverRfcIssue);
 
   if (tipo === "ingreso") {
     if (num(trip.tarifa) <= 0) issues.push("Viaje: la tarifa debe ser mayor a 0 para factura de ingreso");
@@ -19,6 +26,8 @@ export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
 
   for (const u of ubicaciones) {
     const label = u.orden === 1 ? "origen" : u.orden === ubicaciones.length ? "destino final" : `parada ${u.orden}`;
+    const ubicRfcIssue = satRfcIssue(`Ubicación ${label}`, u.rfc || client.rfc);
+    if (ubicRfcIssue) issues.push(ubicRfcIssue);
     if (!u.colonia_clave && !u.colonia) {
       issues.push(`Ubicación ${label}: falta colonia o clave SAT de colonia`);
     }
@@ -28,16 +37,31 @@ export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
   }
 
   for (const m of mercancias) {
-    if (!m.clave_prod_serv) issues.push(`Mercancía "${m.descripcion}": falta clave bienes transportados`);
+    const bienesIssue = bienesTranspCpIssue(`Mercancía "${m.descripcion}"`, m.clave_prod_serv);
+    if (bienesIssue) issues.push(bienesIssue);
     if (!m.unidad) issues.push(`Mercancía "${m.descripcion}": falta unidad`);
     if (!m.peso_kg || num(m.peso_kg) <= 0) {
       issues.push(`Mercancía "${m.descripcion}": falta peso en kg`);
     }
   }
 
-  if (!truck?.config_vehicular) issues.push("Camión: falta configuración vehicular SAT");
-  if (!truck?.perm_sct) issues.push("Camión: falta permiso SCT");
-  if (!driver?.rfc) issues.push("Operador: falta RFC");
+  const publicoGeneral = isPublicoGeneralReceptor(client);
+
+  if (tipo === "ingreso" && publicoGeneral) {
+    issues.push(
+      "Ingreso con Carta Porte: no use RFC genérico XAXX010101000; capture un cliente con RFC real inscrito en el SAT",
+    );
+  }
+
+  if (tipo === "traslado") {
+    if (!tenant.rfc) issues.push("Empresa: falta RFC del emisor (debe coincidir con el CSD en Sicofi)");
+    if (!tenant.razon_social) issues.push("Empresa: falta razón social del emisor");
+    if (!tenant.cp_fiscal) issues.push("Empresa: falta código postal fiscal (LugarDeExpedicion)");
+  }
+  const configIssue = configVehicularIssue("Camión", truck?.config_vehicular);
+  if (configIssue) issues.push(configIssue);
+  const permIssue = permSctIssue("Camión", truck?.perm_sct);
+  if (permIssue) issues.push(permIssue);
   if (!driver?.licencia_federal && !driver?.licencia) {
     issues.push("Operador: falta licencia federal");
   }

@@ -1,4 +1,5 @@
 import type { TimbradoResult } from "../types";
+import { enhanceSicofiErrorMessage } from "./sicofiErrors";
 
 export interface ParsedCfdiMeta {
   uuid: string;
@@ -36,8 +37,8 @@ export function extractXmlFromBody(body: string, contentType?: string): string {
         (typeof j.XML === "string" && j.XML) ||
         (typeof j.Comprobante === "string" && j.Comprobante);
       if (xml) return xml;
-      const err = typeof j.Mensaje === "string" ? j.Mensaje : typeof j.error === "string" ? j.error : JSON.stringify(j);
-      throw new Error(err || "Respuesta Sicofi sin XML");
+      const err = typeof j.Mensaje === "string" ? j.Mensaje : typeof j.message === "string" ? j.message : typeof j.error === "string" ? j.error : JSON.stringify(j);
+      throw new Error(enhanceSicofiErrorMessage(err || "Respuesta Sicofi sin XML"));
     } catch (e) {
       if (e instanceof SyntaxError) throw new Error("Respuesta Sicofi no reconocida");
       throw e;

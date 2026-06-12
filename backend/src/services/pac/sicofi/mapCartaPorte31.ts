@@ -1,6 +1,7 @@
 import type { Trip, CartaPorte, TripUbicacion, TripMercancia, Truck, Driver, Client } from "../../../models";
 import { num } from "../../../utils/numbers";
-import { defaultIdUbicacionSat } from "../../tripFiscalService";
+import { DEFAULT_BIENES_TRANSP_CP, normalizePermSct } from "../../../utils/cartaPorteSat";
+import { resolveIdUbicacionSat } from "../../tripFiscalService";
 
 function formatFecha(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().slice(0, 19);
@@ -49,7 +50,7 @@ export function mapCartaPorte31(
     const isOrigen = u.orden === 1;
     return {
       tipoubicacion: isOrigen ? "Origen" : "Destino",
-      idubicacion: u.id_ubicacion_sat || defaultIdUbicacionSat(u.tipo, trip.id, u.orden),
+      idubicacion: resolveIdUbicacionSat(u.id_ubicacion_sat, u.tipo, trip.id, u.orden),
       rfcremitentedestinatario: u.rfc || client.rfc,
       nombreremitentedestinatario: u.nombre || client.razon_social,
       numregidtrib: null,
@@ -64,19 +65,41 @@ export function mapCartaPorte31(
     };
   });
 
-  const mercancia30 = mercancias.map((m) => ({
-    SectorCOFEPRIS: null,
-    bienestransp: m.clave_prod_serv || "78101800",
-    descripcion_mercancia: m.descripcion,
-    cantidad_mercancia: String(m.cantidad),
-    claveunidad_mercancia: m.unidad,
-    unidad_mercancia: m.unidad,
-    materialpeligroso: m.material_peligroso ? "Sí" : "No",
-    pesoenkg: String(m.peso_kg),
-    cvematerialpeligroso: null,
-    embalaje: m.embalaje || null,
-    DocumentacionAduanera: [],
-  }));
+  const origen = sorted[0];
+  const destinoFinal = sorted[sorted.length - 1];
+  const idOrigen = origen
+    ? resolveIdUbicacionSat(origen.id_ubicacion_sat, origen.tipo, trip.id, origen.orden)
+    : "";
+  const idDestino = destinoFinal
+    ? resolveIdUbicacionSat(destinoFinal.id_ubicacion_sat, destinoFinal.tipo, trip.id, destinoFinal.orden)
+    : "";
+
+  const mercancia30 = mercancias.map((m) => {
+    const cantidad = String(m.cantidad);
+    const item: Record<string, unknown> = {
+      SectorCOFEPRIS: null,
+      bienestransp: m.clave_prod_serv || DEFAULT_BIENES_TRANSP_CP,
+      descripcion_mercancia: m.descripcion,
+      cantidad_mercancia: cantidad,
+      claveunidad_mercancia: m.unidad,
+      unidad_mercancia: m.unidad,
+      materialpeligroso: m.material_peligroso ? "Sí" : "No",
+      pesoenkg: String(m.peso_kg),
+      cvematerialpeligroso: null,
+      embalaje: m.embalaje || null,
+      DocumentacionAduanera: [],
+    };
+    if (idOrigen && idDestino) {
+      item.CantidadTransporta = [
+        {
+          Cantidad: cantidad,
+          IDOrigen: idOrigen,
+          IDDestino: idDestino,
+        },
+      ];
+    }
+    return item;
+  });
 
   return {
     RegimenesAduaneros: null,
@@ -93,7 +116,7 @@ export function mapCartaPorte31(
           placavm: truck.placas,
           aniomodelovm: String(truck.anio),
         },
-        permsct: truck.perm_sct || "",
+        permsct: normalizePermSct(truck.perm_sct || ""),
         numpermisosct: truck.num_permiso_sct || "",
         Seguros: {
           asegurarespcivil: truck.aseguradora_resp_civil || "",

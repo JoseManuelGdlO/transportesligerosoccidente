@@ -1,8 +1,10 @@
 import { decryptSecret } from "../../utils/fiscalCrypto";
 import { buildFactura40Payload } from "./sicofi/buildFactura40Payload";
-import { resolveSicofiFactura40Url } from "./sicofi/config";
-import { sicofiPostFactura40 } from "./sicofi/sicofiClient";
+import { resolveSicofiBaseUrl, resolveSicofiFactura40Url } from "./sicofi/config";
+import { getSicofiAccessToken, invalidateSicofiAccessToken } from "./sicofi/sicofiAuth";
+import { isSicofiHttp401, sicofiPostFactura40 } from "./sicofi/sicofiClient";
 import type { PacProvider, TimbradoContext, TimbradoResult } from "./types";
+import type { SicofiFactura40Request } from "./sicofi/types";
 
 export class SicofiPacProvider implements PacProvider {
   readonly name = "sicofi";
@@ -16,13 +18,25 @@ export class SicofiPacProvider implements PacProvider {
     if (!contrasena) throw new Error("No se pudo descifrar la contraseña Sicofi");
 
     const payload = buildFactura40Payload(ctx);
+    const base = resolveSicofiBaseUrl(tenant);
     const url = resolveSicofiFactura40Url(tenant);
-    return sicofiPostFactura40(url, {
-      Usuario: tenant.pac_usuario,
+    const usuario = tenant.pac_usuario;
+    const request: SicofiFactura40Request = {
+      Usuario: usuario,
       Contrasena: contrasena,
       EmisorCFDI40: null,
       ...payload,
-    });
+    };
+
+    let accessToken = await getSicofiAccessToken(base, usuario, contrasena);
+    try {
+      return await sicofiPostFactura40(url, request, accessToken);
+    } catch (e) {
+      if (!isSicofiHttp401(e)) throw e;
+      invalidateSicofiAccessToken(base, usuario);
+      accessToken = await getSicofiAccessToken(base, usuario, contrasena, { forceRefresh: true });
+      return sicofiPostFactura40(url, request, accessToken);
+    }
   }
 
   async cancelar(uuid: string, motivo: string, rfc: string): Promise<void> {

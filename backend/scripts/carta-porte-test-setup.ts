@@ -6,13 +6,26 @@
 import "dotenv/config";
 import "../src/models/index";
 import { randomUUID } from "node:crypto";
-import { sequelize, Tenant, Truck, Driver, Client, TripStatus } from "../src/models";
+import { sequelize, Tenant, Truck, Driver, Client, TripStatus, TripUbicacion, TripMercancia } from "../src/models";
 import * as tripService from "../src/services/tripService";
 import * as tripFiscalService from "../src/services/tripFiscalService";
 import * as cartaPorteService from "../src/services/cartaPorteService";
+import {
+  DEFAULT_BIENES_TRANSP_CP,
+  isValidConfigVehicular,
+  isValidPermSct,
+  normalizePermSct,
+} from "../src/utils/cartaPorteSat";
 
 const TENANT_ID = "ba2e46fb-b4d9-47d0-8e0e-a1c84c5e7fed";
 const TIMBRAR = process.argv.includes("--timbrar");
+/** Cliente en ubicaciones Carta Porte (remitente/destinatario). */
+const TEST_UBIC_CLIENT_RFC = "XAXX010101000";
+const TEST_UBIC_CLIENT_RAZON = "PUBLICO EN GENERAL";
+/** Receptor CFDI de ingreso: RFC real inscrito en SAT (configurable). */
+const TEST_INGRESO_CLIENT_RFC = process.env.SICOFI_TEST_INGRESO_CLIENT_RFC?.trim() || "";
+const TEST_INGRESO_CLIENT_RAZON = process.env.SICOFI_TEST_INGRESO_CLIENT_RAZON?.trim() || "";
+const TEST_INGRESO_CLIENT_CP = process.env.SICOFI_TEST_INGRESO_CLIENT_CP?.trim() || "";
 
 const UBIC_ORIGEN = {
   calle: "Av. López Mateos Norte 2077",
@@ -44,7 +57,7 @@ const MERCANCIA = {
   cantidad: 1,
   unidad: "H87",
   peso_kg: 500,
-  clave_prod_serv: "78101800",
+  clave_prod_serv: DEFAULT_BIENES_TRANSP_CP,
   material_peligroso: false,
 };
 
@@ -120,8 +133,11 @@ async function ensureTestDriver(tenantId: string, truckId: string): Promise<Driv
 
 async function ensureTruckFiscal(truck: Truck) {
   const patch: Record<string, string> = {};
-  if (!truck.config_vehicular) patch.config_vehicular = "C2";
-  if (!truck.perm_sct) patch.perm_sct = "TPAF01";
+  if (!isValidConfigVehicular(truck.config_vehicular)) patch.config_vehicular = "C2";
+  if (!isValidPermSct(truck.perm_sct)) patch.perm_sct = "TPAF01";
+  else if (truck.perm_sct && normalizePermSct(truck.perm_sct) !== truck.perm_sct.trim().toUpperCase()) {
+    patch.perm_sct = normalizePermSct(truck.perm_sct);
+  }
   if (!truck.num_permiso_sct) patch.num_permiso_sct = "PERM-TEST-001";
   if (!truck.peso_bruto_vehicular) patch.peso_bruto_vehicular = "3500";
   if (!truck.aseguradora_resp_civil || truck.aseguradora_resp_civil === "NA") {
@@ -135,34 +151,63 @@ async function ensureTruckFiscal(truck: Truck) {
   }
 }
 
-async function ensureTestClient(tenantId: string): Promise<Client> {
-  let client = await Client.findOne({ where: { tenant_id: tenantId, estatus: "activo" } });
+async function patchInvalidTestRfcs(tenantId: string) {
+  const [ubicUpdated] = await TripUbicacion.update(
+    { rfc: TEST_UBIC_CLIENT_RFC, nombre: TEST_UBIC_CLIENT_RAZON } as never,
+    { where: { tenant_id: tenantId, rfc: ["CPR850101ABC", "CPR850101AB8", TEST_INGRESO_CLIENT_RFC].filter(Boolean) } },
+  );
+  const [mercUpdated] = await TripMercancia.update(
+    { clave_prod_serv: DEFAULT_BIENES_TRANSP_CP } as never,
+    { where: { tenant_id: tenantId, clave_prod_serv: "78101800" } },
+  );
+  if (ubicUpdated > 0) console.log(`RFC de prueba corregido en ${ubicUpdated} ubicación(es)`);
+  if (mercUpdated > 0) console.log(`Clave CP corregida en ${mercUpdated} mercancía(s)`);
+}
+
+async function ensureTestClient(tenant: Tenant, forIngreso: boolean): Promise<Client> {
+  await patchInvalidTestRfcs(tenant.id);
+
+  const targetRfc = forIngreso && TEST_INGRESO_CLIENT_RFC ? TEST_INGRESO_CLIENT_RFC : TEST_UBIC_CLIENT_RFC;
+  const targetRazon = forIngreso && TEST_INGRESO_CLIENT_RAZON ? TEST_INGRESO_CLIENT_RAZON : TEST_UBIC_CLIENT_RAZON;
+
+  let client = await Client.findOne({ where: { tenant_id: tenant.id, rfc: targetRfc } });
   if (!client) {
-    client = await Client.findOne({ where: { tenant_id: tenantId } });
-    if (client) {
-      await client.update({ estatus: "activo" } as never);
-    }
+    client = await Client.findOne({ where: { tenant_id: tenant.id, estatus: "activo" } });
+  }
+  if (!client) {
+    client = await Client.findOne({ where: { tenant_id: tenant.id } });
+    if (client) await client.update({ estatus: "activo" } as never);
   }
   if (!client) {
     client = await Client.create({
       id: randomUUID(),
-      tenant_id: tenantId,
-      razon_social: "CLIENTE PRUEBA CP SA DE CV",
-      rfc: "CPR850101ABC",
+      tenant_id: tenant.id,
+      razon_social: targetRazon,
+      rfc: targetRfc,
       contacto: "Contacto Prueba",
       telefono: "3312345678",
       calle: "Av. Revolución 1500",
       colonia: "Centro",
       municipio: "Guadalajara",
       estado: "JAL",
-      cp: "44100",
+      cp: forIngreso && TEST_INGRESO_CLIENT_CP ? TEST_INGRESO_CLIENT_CP : "44100",
       pais: "MEX",
       regimen_fiscal: "601",
       estatus: "activo",
     } as never);
     console.log(`Cliente de prueba creado: ${client.id}`);
+  } else {
+    await client.update({
+      rfc: targetRfc,
+      razon_social: targetRazon,
+      cp: forIngreso && TEST_INGRESO_CLIENT_CP ? TEST_INGRESO_CLIENT_CP : client.cp || "44100",
+      regimen_fiscal: client.regimen_fiscal || "601",
+      estatus: "activo",
+    } as never);
   }
-  await ensureClientFiscal(client);
+  if (!forIngreso) {
+    await ensureUbicClientFiscal(client, tenant);
+  }
   return client;
 }
 
@@ -177,10 +222,16 @@ async function ensureTruck(tenantId: string): Promise<Truck> {
   return truck;
 }
 
-async function ensureClientFiscal(client: Client) {
+async function ensureUbicClientFiscal(client: Client, tenant: Tenant) {
   const patch: Record<string, string> = {};
-  if (!client.regimen_fiscal) patch.regimen_fiscal = "601";
-  if (!client.cp) patch.cp = "44100";
+  if (client.rfc === TEST_UBIC_CLIENT_RFC) {
+    if (client.razon_social !== TEST_UBIC_CLIENT_RAZON) patch.razon_social = TEST_UBIC_CLIENT_RAZON;
+    if (tenant.cp_fiscal && client.cp !== tenant.cp_fiscal) patch.cp = tenant.cp_fiscal;
+    patch.regimen_fiscal = "616";
+  } else {
+    if (!client.regimen_fiscal) patch.regimen_fiscal = "601";
+    if (!client.cp) patch.cp = "44100";
+  }
   if (!client.estado) patch.estado = "JAL";
   if (Object.keys(patch).length > 0) {
     await client.update(patch as never);
@@ -234,11 +285,22 @@ async function main() {
   await ensureSystemTripStatuses(TENANT_ID);
 
   const truck = await ensureTruck(TENANT_ID);
-  const client = await ensureTestClient(TENANT_ID);
+  const ubicClient = await ensureTestClient(tenant, false);
   const driver = await ensureTestDriver(TENANT_ID, truck.id);
   console.log(`Operador: ${driver.nombre} (${driver.id})`);
   console.log(`Camión: ${truck.placas ?? truck.numero_economico} (${truck.id})`);
-  console.log(`Cliente: ${client.razon_social} (${client.id})\n`);
+  console.log(`Cliente ubicaciones: ${ubicClient.razon_social} (${ubicClient.id})`);
+  if (TIMBRAR) {
+    if (!TEST_INGRESO_CLIENT_RFC) {
+      console.log(
+        "Aviso: define SICOFI_TEST_INGRESO_CLIENT_RFC (+ opcional _RAZON y _CP) para timbrar ingreso-con-mercancia",
+      );
+    }
+    console.log(
+      "Aviso traslado: si timbra CP107, el RFC del tenant debe coincidir con el CSD en Sicofi (receptor=emisor en tipo T).",
+    );
+  }
+  console.log("");
 
   const results: Array<{
     label: string;
@@ -252,11 +314,14 @@ async function main() {
 
   for (const caso of CASOS) {
     console.log(`--- ${caso.label} ---`);
+    const tripClient = caso.tipo === "ingreso"
+      ? await ensureTestClient(tenant, true)
+      : ubicClient;
     const trip = await setupTrip(
       TENANT_ID,
       truck.id,
       driver.id,
-      client.id,
+      tripClient.id,
       caso.label,
       caso.tipo === "ingreso" ? 2500 : 0,
     );

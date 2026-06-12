@@ -1,3 +1,4 @@
+export const SICOFI_AUTH_TOKEN_PATH = "/auth/token";
 export const SICOFI_FACTURA40_PATH = "/Comprobante40/Factura40";
 
 const DEFAULT_BASE = "https://demo.sicofi.com.mx/DFWSR/api";

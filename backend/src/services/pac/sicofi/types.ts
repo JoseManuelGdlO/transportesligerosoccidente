@@ -49,6 +49,13 @@ export interface DatosCFDI40 {
   complementos?: null;
 }
 
+/** CFDI global — público en general (XAXX010101000). Sicofi usa Año (string). */
+export interface InformacionGlobalCFDI40 {
+  Periodicidad: string;
+  Meses: string;
+  Año: string;
+}
+
 export interface ReceptorCFDI40 {
   RFC: string;
   RazonSocial: string;
@@ -78,7 +85,7 @@ export interface ReceptorCFDI40 {
 export interface Factura40PayloadBody {
   DatosCFDI40: DatosCFDI40;
   CFDIRelacion40: unknown[];
-  InformacionGlobal: null;
+  InformacionGlobal: InformacionGlobalCFDI40 | null;
   ReceptorCFDI40: ReceptorCFDI40;
   ConceptosCFDI40: { Conceptos: ConceptoCFDI40[] };
   CartaPorte20: null;

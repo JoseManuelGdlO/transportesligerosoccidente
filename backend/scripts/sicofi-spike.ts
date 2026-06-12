@@ -6,7 +6,8 @@
 import "dotenv/config";
 import path from "node:path";
 import { sicofiPostFactura40 } from "../src/services/pac/sicofi/sicofiClient";
-import { resolveSicofiBaseUrl } from "../src/services/pac/sicofi/config";
+import { resolveSicofiBaseUrl, SICOFI_AUTH_TOKEN_PATH } from "../src/services/pac/sicofi/config";
+import { getSicofiAccessToken } from "../src/services/pac/sicofi/sicofiAuth";
 import type { SicofiFactura40Request } from "../src/services/pac/sicofi/types";
 
 function arg(name: string): string | undefined {
@@ -23,7 +24,7 @@ if (!usuario || !contrasena) {
   process.exit(1);
 }
 
-const base = resolveSicofiBaseUrl(null);
+const base = resolveSicofiBaseUrl();
 const url = `${base}/Comprobante40/Factura40`;
 
 const sampleIngreso: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
@@ -59,9 +60,11 @@ const sampleIngreso: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
         ClaveProdServ: "78101801",
         Cantidad: 1,
         ClaveUnidad: "E48",
+        Unidad: "Unidad de servicio",
         Descripcion: "Flete spike ingreso",
         ValorUnitario: 250,
         Importe: 250,
+        Descuento: 0,
         ObjetoImp: "02",
         Traslados: [{ Base: 250, Impuesto: "002", TipoFactor: "Tasa", TasaOCuota: 0.16, Importe: 40 }],
         Retenciones: [{ Base: 250, Impuesto: "002", TipoFactor: "Tasa", TasaOCuota: 0.04, Importe: 10 }],
@@ -82,6 +85,7 @@ const sampleTraslado: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
     Fecha: "0001-01-01T00:00:00",
     FormadePago: "99",
     Subtotal: 0,
+    Descuento: 0,
     Moneda: "XXX",
     Total: 0,
     TipodeComprobante: "T",
@@ -105,9 +109,11 @@ const sampleTraslado: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
         ClaveProdServ: "78101800",
         Cantidad: 1,
         ClaveUnidad: "E48",
+        Unidad: "Unidad de servicio",
         Descripcion: "Transporte de carga",
         ValorUnitario: 0,
         Importe: 0,
+        Descuento: 0,
         ObjetoImp: "01",
       },
     ],
@@ -120,13 +126,27 @@ const sampleTraslado: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
 
 async function main() {
   const body = tipo === "ingreso" ? sampleIngreso : sampleTraslado;
+  console.log(`POST ${base}${SICOFI_AUTH_TOKEN_PATH}`);
+  let accessToken: string;
+  try {
+    accessToken = await getSicofiAccessToken(base, usuario, contrasena);
+    console.log("Token obtenido (JWT, no mostrado)");
+  } catch (e) {
+    console.error("Error auth:", e instanceof Error ? e.message : e);
+    process.exit(1);
+  }
+
   console.log(`POST ${url} tipo=${tipo}`);
   try {
-    const result = await sicofiPostFactura40(url, {
-      Usuario: usuario,
-      Contrasena: contrasena,
-      ...body,
-    });
+    const result = await sicofiPostFactura40(
+      url,
+      {
+        Usuario: usuario,
+        Contrasena: contrasena,
+        ...body,
+      },
+      accessToken,
+    );
     console.log("UUID:", result.uuid);
     console.log("Serie:", result.serie, "Folio:", result.folio);
     console.log("XML length:", result.xmlTimbrado.length);

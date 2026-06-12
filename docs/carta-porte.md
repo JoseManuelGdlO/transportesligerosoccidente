@@ -287,9 +287,10 @@ Ver `backend/src/services/pac/README.md`.
 |----------------|--------|
 | `PAC_PROVIDER=stub` (default) | Simula timbrado; inserta nodo de timbre ficticio en el XML |
 | `tenant.pac_proveedor` | Override por empresa |
-| `FISCAL_ENC_KEY` | Cifrado de contraseña CSD y token PAC en `.env` |
+| `tenant.pac_proveedor=sicofi` | Timbrado vía Sicofi Factura40 (auth híbrida: Basic → JWT Bearer); ver `docs/sicofi-factura40.md` |
+| `FISCAL_ENC_KEY` | Cifrado de contraseña CSD y contraseña PAC Sicofi en `.env` |
 
-Proveedores reales (Facturama, SW Sapien, Finkok, …) están **pendientes**; solo existe `StubPacProvider` en `pac/index.ts`.
+Proveedores adicionales (Facturama, SW Sapien, Finkok, …) están **pendientes**; hoy existen `StubPacProvider` y `SicofiPacProvider` en `pac/index.ts`.
 
 ---
 

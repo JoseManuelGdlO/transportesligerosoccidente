@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, mock, afterEach } from "node:test";
 import { encryptSecret } from "../../utils/fiscalCrypto";
 import { SicofiPacProvider } from "./SicofiPacProvider";
+import { clearSicofiTokenCacheForTests } from "./sicofi/sicofiAuth";
 import type { TimbradoContext } from "./types";
 
 const fixtureXml = `<?xml version="1.0"?>
@@ -33,7 +34,7 @@ const minimalCtx = (): TimbradoContext =>
         cantidad: "1",
         unidad: "H87",
         peso_kg: "1",
-        clave_prod_serv: "78101800",
+        clave_prod_serv: "50192100",
         material_peligroso: false,
       },
     ],
@@ -51,12 +52,24 @@ const minimalCtx = (): TimbradoContext =>
     client: { rfc: "CLI", razon_social: "C", cp: "44100", regimen_fiscal: "601" },
   }) as TimbradoContext;
 
+function authResponse() {
+  return new Response(JSON.stringify({ access_token: "jwt-test", expires_in: 3600 }), {
+    status: 200,
+    headers: { "Content-Type": "application/json" },
+  });
+}
+
+function facturaResponse() {
+  return new Response(fixtureXml, { status: 200, headers: { "Content-Type": "application/xml" } });
+}
+
 describe("SicofiPacProvider", () => {
   afterEach(() => {
     mock.restoreAll();
+    clearSicofiTokenCacheForTests();
   });
 
-  it("timbrar éxito con fetch mock", async () => {
+  it("timbrar éxito con fetch mock (auth + factura)", async () => {
     process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
     const tenant = {
       pac_usuario: "user@test.com",
@@ -66,15 +79,51 @@ describe("SicofiPacProvider", () => {
       cp_fiscal: "44100",
     } as never;
 
-    mock.method(globalThis, "fetch", async () =>
-      new Response(fixtureXml, { status: 200, headers: { "Content-Type": "application/xml" } }),
-    );
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      calls.push({ url, init });
+      if (url.includes("/auth/token")) return authResponse();
+      return facturaResponse();
+    });
 
     const provider = new SicofiPacProvider();
     const result = await provider.timbrar({ ...minimalCtx(), tenant });
     assert.equal(result.uuid, "AAA-BBB-CCC");
     assert.equal(result.serie, "A");
     assert.equal(result.folio, "99");
+    assert.equal(calls.length, 2);
+    assert.match(calls[0]!.url, /\/auth\/token$/);
+    assert.match(calls[1]!.url, /Factura40$/);
+    const facturaHeaders = calls[1]!.init?.headers as Record<string, string>;
+    assert.equal(facturaHeaders.Authorization, "Bearer jwt-test");
+  });
+
+  it("reintenta tras 401 en Factura40", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+      cfdi_serie: "CP",
+      cp_fiscal: "44100",
+    } as never;
+
+    let facturaCalls = 0;
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      facturaCalls += 1;
+      if (facturaCalls === 1) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+      }
+      return facturaResponse();
+    });
+
+    const provider = new SicofiPacProvider();
+    const result = await provider.timbrar({ ...minimalCtx(), tenant });
+    assert.equal(result.uuid, "AAA-BBB-CCC");
+    assert.equal(facturaCalls, 2);
   });
 
   it("falla sin credenciales", async () => {

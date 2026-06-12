@@ -19,7 +19,7 @@ import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
 import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
 import type { TimbradoContext, TimbradoOpts } from "./pac/types";
-import { ensureUbicacionesFromClient, defaultIdUbicacionSat } from "./tripFiscalService";
+import { ensureUbicacionesFromClient, resolveIdUbicacionSat } from "./tripFiscalService";
 import { num } from "../utils/numbers";
 
 function err(msg: string, status = 400): Error {
@@ -42,7 +42,7 @@ function formatFecha(d: Date): string {
 }
 
 function idUbicacion(u: TripUbicacion, tripId: string): string {
-  return u.id_ubicacion_sat || defaultIdUbicacionSat(u.tipo, tripId, u.orden);
+  return resolveIdUbicacionSat(u.id_ubicacion_sat, u.tipo, tripId, u.orden);
 }
 
 function domicilioAttrs(

@@ -4,10 +4,34 @@ import type { UbicacionTipo } from "../models/TripUbicacion";
 import { getTripOrThrow, assertTripAllowsFiscalEdit } from "./tripService";
 import { listTripStops, type ParadaInput } from "./tripStopService";
 
+/** Carta Porte 3.1: IDUbicacion = (OR|DE) + 6 dígitos. */
+export const SAT_ID_UBICACION_PATTERN = /^(OR|DE)[0-9]{6}$/;
+
+export function isValidIdUbicacionSat(id: string | null | undefined): boolean {
+  return !!id && SAT_ID_UBICACION_PATTERN.test(id);
+}
+
+function idUbicacionNumericSuffix(tripId: string, orden: number): string {
+  let h = orden;
+  for (let i = 0; i < tripId.length; i++) {
+    h = (Math.imul(31, h) + tripId.charCodeAt(i)) >>> 0;
+  }
+  return String(h % 1_000_000).padStart(6, "0");
+}
+
 export function defaultIdUbicacionSat(tipo: UbicacionTipo, tripId: string, orden = 1): string {
-  const base = tripId.replace(/-/g, "").slice(0, 6).toUpperCase();
-  if (tipo === "Origen") return `OR${base}`;
-  return `DE${orden}${base.slice(0, 4)}`;
+  const prefix = tipo === "Origen" ? "OR" : "DE";
+  return `${prefix}${idUbicacionNumericSuffix(tripId, orden)}`;
+}
+
+export function resolveIdUbicacionSat(
+  stored: string | null | undefined,
+  tipo: UbicacionTipo,
+  tripId: string,
+  orden: number,
+): string {
+  if (isValidIdUbicacionSat(stored)) return stored!;
+  return defaultIdUbicacionSat(tipo, tripId, orden);
 }
 
 function tipoFromOrden(orden: number): UbicacionTipo {
