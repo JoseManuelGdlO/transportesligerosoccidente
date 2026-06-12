@@ -44,8 +44,11 @@ const emptyUbic = () => ({
   nombre: "",
   calle: "",
   colonia: "",
+  colonia_clave: "",
   municipio: "",
+  municipio_clave: "",
   localidad: "",
+  localidad_clave: "",
   estado: "",
   cp: "",
   numero_exterior: "",
@@ -79,6 +82,27 @@ export function TripCartaPorte({
     (hasPermission("viajes.crear") || hasPermission("cartaporte.timbrar"));
   const canCatalogEdit = hasPermission("catalogos.editar");
 
+  const [tipoTimbrado, setTipoTimbrado] = useState<"ingreso" | "traslado">("traslado");
+  const [usoCfdi, setUsoCfdi] = useState("G03");
+  const [moneda, setMoneda] = useState("MXN");
+  const [tipoCambio, setTipoCambio] = useState("");
+  const [metodoPago, setMetodoPago] = useState("PPD");
+  const [formaPago, setFormaPago] = useState("99");
+  const [condicionesPago, setCondicionesPago] = useState("");
+
+  const timbradoBody = () => ({
+    tipo: tipoTimbrado,
+    uso_cfdi: tipoTimbrado === "ingreso" ? usoCfdi : undefined,
+    moneda: tipoTimbrado === "ingreso" ? moneda : undefined,
+    tipo_cambio:
+      tipoTimbrado === "ingreso" && moneda !== "MXN" && tipoCambio
+        ? Number(tipoCambio)
+        : undefined,
+    metodo_pago: tipoTimbrado === "ingreso" ? metodoPago : undefined,
+    forma_pago: tipoTimbrado === "ingreso" ? formaPago : undefined,
+    condiciones_pago: tipoTimbrado === "ingreso" && condicionesPago ? condicionesPago : undefined,
+  });
+
   const driverLive = driverProp?.id
     ? (driverById(drivers, driverProp.id) ?? driverProp)
     : driverProp;
@@ -100,8 +124,11 @@ export function TripCartaPorte({
     nombre: origen?.nombre || clientName || "",
     calle: origen?.calle || trip.origen,
     colonia: origen?.colonia || "",
+    colonia_clave: origen?.colonia_clave || "",
     municipio: origen?.municipio || "",
+    municipio_clave: origen?.municipio_clave || "",
     localidad: origen?.localidad || "",
+    localidad_clave: origen?.localidad_clave || "",
     estado: origen?.estado || "",
     cp: origen?.cp || "",
     numero_exterior: origen?.numero_exterior || "",
@@ -116,8 +143,11 @@ export function TripCartaPorte({
     nombre: destino?.nombre || clientName || "",
     calle: destino?.calle || trip.destino,
     colonia: destino?.colonia || "",
+    colonia_clave: destino?.colonia_clave || "",
     municipio: destino?.municipio || "",
+    municipio_clave: destino?.municipio_clave || "",
     localidad: destino?.localidad || "",
+    localidad_clave: destino?.localidad_clave || "",
     estado: destino?.estado || "",
     cp: destino?.cp || "",
     numero_exterior: destino?.numero_exterior || "",
@@ -142,7 +172,6 @@ export function TripCartaPorte({
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
   const [validationAttempted, setValidationAttempted] = useState(false);
   const [loading, setLoading] = useState(false);
-
   const [driverFiscal, setDriverFiscal] = useState({
     rfc: "",
     licencia_federal: "",
@@ -284,8 +313,11 @@ export function TripCartaPorte({
     nombre: body.nombre || undefined,
     calle: body.calle || undefined,
     colonia: body.colonia || undefined,
+    colonia_clave: body.colonia_clave || undefined,
     municipio: body.municipio || undefined,
+    municipio_clave: body.municipio_clave || undefined,
     localidad: body.localidad || undefined,
+    localidad_clave: body.localidad_clave || undefined,
     estado: body.estado || undefined,
     cp: body.cp || undefined,
     numero_exterior: body.numero_exterior || undefined,
@@ -475,6 +507,7 @@ export function TripCartaPorte({
       await flushPendingSaves();
       const previewRes = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, {
         method: "POST",
+        body: JSON.stringify(timbradoBody()),
       });
       const preview = await readJson<{ valid: boolean; issues: string[] }>(previewRes);
       const issues = preview.issues || [];
@@ -487,7 +520,10 @@ export function TripCartaPorte({
       }
 
       setValidationAttempted(false);
-      const r = await apiFetch(`/trips/${trip.id}/carta-porte/timbrar`, { method: "POST" });
+      const r = await apiFetch(`/trips/${trip.id}/carta-porte/timbrar`, {
+        method: "POST",
+        body: JSON.stringify(timbradoBody()),
+      });
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         toast.error(typeof j.error === "string" ? j.error : "Error al timbrar");
@@ -591,6 +627,64 @@ export function TripCartaPorte({
               <AlertCircle className="h-4 w-4 shrink-0" />
               {cp.error_mensaje}
             </p>
+          )}
+          {canTimbrar && !cpTimbrada && (
+            <div className="grid sm:grid-cols-2 gap-3 pt-2 border-t">
+              <div>
+                <Label>Tipo de comprobante</Label>
+                <Select value={tipoTimbrado} onValueChange={(v) => setTipoTimbrado(v as "ingreso" | "traslado")}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="traslado">Traslado (T)</SelectItem>
+                    <SelectItem value="ingreso">Factura de ingreso (FA)</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              {tipoTimbrado === "ingreso" && (
+                <>
+                  <div>
+                    <Label>Uso CFDI receptor</Label>
+                    <Input value={usoCfdi} onChange={(e) => setUsoCfdi(e.target.value)} placeholder="G03" />
+                  </div>
+                  <div>
+                    <Label>Moneda</Label>
+                    <Select value={moneda} onValueChange={setMoneda}>
+                      <SelectTrigger>
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="MXN">MXN</SelectItem>
+                        <SelectItem value="USD">USD</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  {moneda !== "MXN" && (
+                    <div>
+                      <Label>Tipo de cambio</Label>
+                      <Input value={tipoCambio} onChange={(e) => setTipoCambio(e.target.value)} placeholder="17.29" />
+                    </div>
+                  )}
+                  <div>
+                    <Label>Método pago</Label>
+                    <Input value={metodoPago} onChange={(e) => setMetodoPago(e.target.value)} placeholder="PPD" />
+                  </div>
+                  <div>
+                    <Label>Forma pago</Label>
+                    <Input value={formaPago} onChange={(e) => setFormaPago(e.target.value)} placeholder="99" />
+                  </div>
+                  <div className="sm:col-span-2">
+                    <Label>Condiciones de pago</Label>
+                    <Input
+                      value={condicionesPago}
+                      onChange={(e) => setCondicionesPago(e.target.value)}
+                      placeholder="CREDITO 30 DIAS"
+                    />
+                  </div>
+                </>
+              )}
+            </div>
           )}
           <div className="flex flex-wrap gap-2 pt-2">
             {canTimbrar && !cpTimbrada && (
@@ -868,6 +962,16 @@ export function TripCartaPorte({
                 />
               </div>
               <div>
+                <Label>Clave colonia SAT</Label>
+                <Input
+                  value={origenForm.colonia_clave}
+                  onChange={(e) => patchOrigen({ colonia_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="0251"
+                />
+              </div>
+              <div>
                 <Label>Municipio</Label>
                 <Input
                   value={origenForm.municipio}
@@ -877,12 +981,32 @@ export function TripCartaPorte({
                 />
               </div>
               <div>
+                <Label>Clave municipio SAT</Label>
+                <Input
+                  value={origenForm.municipio_clave}
+                  onChange={(e) => patchOrigen({ municipio_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="003"
+                />
+              </div>
+              <div>
                 <Label>Localidad</Label>
                 <Input
                   value={origenForm.localidad}
                   onChange={(e) => patchOrigen({ localidad: e.target.value })}
                   onBlur={onUbicFieldBlur}
                   disabled={!canFiscalEdit}
+                />
+              </div>
+              <div>
+                <Label>Clave localidad SAT</Label>
+                <Input
+                  value={origenForm.localidad_clave}
+                  onChange={(e) => patchOrigen({ localidad_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="03"
                 />
               </div>
               <div>
@@ -1027,6 +1151,16 @@ export function TripCartaPorte({
                 />
               </div>
               <div>
+                <Label>Clave colonia SAT</Label>
+                <Input
+                  value={destinoForm.colonia_clave}
+                  onChange={(e) => patchDestino({ colonia_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="0251"
+                />
+              </div>
+              <div>
                 <Label>Municipio</Label>
                 <Input
                   value={destinoForm.municipio}
@@ -1036,12 +1170,32 @@ export function TripCartaPorte({
                 />
               </div>
               <div>
+                <Label>Clave municipio SAT</Label>
+                <Input
+                  value={destinoForm.municipio_clave}
+                  onChange={(e) => patchDestino({ municipio_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="003"
+                />
+              </div>
+              <div>
                 <Label>Localidad</Label>
                 <Input
                   value={destinoForm.localidad}
                   onChange={(e) => patchDestino({ localidad: e.target.value })}
                   onBlur={onUbicFieldBlur}
                   disabled={!canFiscalEdit}
+                />
+              </div>
+              <div>
+                <Label>Clave localidad SAT</Label>
+                <Input
+                  value={destinoForm.localidad_clave}
+                  onChange={(e) => patchDestino({ localidad_clave: e.target.value })}
+                  onBlur={onUbicFieldBlur}
+                  disabled={!canFiscalEdit}
+                  placeholder="03"
                 />
               </div>
               <div>

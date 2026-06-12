@@ -97,8 +97,11 @@ export interface TripUbicacion {
   fecha_hora?: string;
   calle?: string;
   colonia?: string;
+  colonia_clave?: string;
   municipio?: string;
+  municipio_clave?: string;
   localidad?: string;
+  localidad_clave?: string;
   estado?: string;
   cp?: string;
   numero_exterior?: string;
@@ -134,6 +137,7 @@ export interface CartaPorteRecord {
   has_xml?: boolean;
   id_ccp?: string;
   transporte_internacional?: boolean;
+  tipo_comprobante?: "ingreso" | "traslado";
 }
 
 export interface TenantFiscal {
@@ -151,6 +155,12 @@ export interface TenantFiscal {
   has_pac_token?: boolean;
   has_csd?: boolean;
   cfdi_serie?: string;
+  metodo_pago_default?: string;
+  forma_pago_default?: string;
+  uso_cfdi_default?: string;
+  iva_tasa_default?: number;
+  retencion_tasa_default?: number;
+  condiciones_pago_default?: string;
 }
 
 export type TenantStatus = "activo" | "suspendido";

@@ -16,18 +16,65 @@ export const getCartaPorte = asyncHandler(async (req: Request, res: Response) =>
   res.json(cartaPorteToJson(cp));
 });
 
+const timbradoOptsSchema = z.object({
+  tipo: z.enum(["ingreso", "traslado"]).optional(),
+  moneda: z.string().optional(),
+  tipo_cambio: z.number().positive().optional(),
+  uso_cfdi: z.string().optional(),
+  metodo_pago: z.string().optional(),
+  forma_pago: z.string().optional(),
+  condiciones_pago: z.string().optional(),
+  iva_tasa: z.number().min(0).max(1).optional(),
+  retencion_tasa: z.number().min(0).max(1).optional(),
+  exento: z.boolean().optional(),
+});
+
+function timbradoOptsFromBody(body: z.infer<typeof timbradoOptsSchema>) {
+  return {
+    moneda: body.moneda,
+    tipoCambio: body.tipo_cambio,
+    usoCfdi: body.uso_cfdi,
+    metodoPago: body.metodo_pago,
+    formaPago: body.forma_pago,
+    condicionesPago: body.condiciones_pago,
+    ivaTasa: body.iva_tasa,
+    retencionTasa: body.retencion_tasa,
+    exento: body.exento,
+  };
+}
+
 export const postPreview = asyncHandler(async (req: Request, res: Response) => {
-  const result = await cartaPorteService.previewCartaPorte(tid(req), req.params.id);
+  const parsed = timbradoOptsSchema.safeParse(req.body ?? {});
+  const body = parsed.success ? parsed.data : {};
+  const tipo = body.tipo ?? "traslado";
+  const result = await cartaPorteService.previewCartaPorte(
+    tid(req),
+    req.params.id,
+    tipo,
+    timbradoOptsFromBody(body),
+  );
   res.json({
     valid: result.valid,
     issues: result.issues,
     xml_preview: result.xml,
+    payload_preview: result.payload_preview,
     carta_porte: cartaPorteToJson(result.cartaPorte),
   });
 });
 
 export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
-  const cp = await cartaPorteService.timbrarCartaPorte(tid(req), req.params.id);
+  const parsed = timbradoOptsSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const tipo = parsed.data.tipo ?? "traslado";
+  const cp = await cartaPorteService.timbrarCartaPorte(
+    tid(req),
+    req.params.id,
+    tipo,
+    timbradoOptsFromBody(parsed.data),
+  );
   res.json(cartaPorteToJson(cp));
 });
 
@@ -49,8 +96,11 @@ const ubicacionSchema = z.object({
   fecha_hora: z.string().optional(),
   calle: z.string().optional(),
   colonia: z.string().optional(),
+  colonia_clave: z.string().optional(),
   municipio: z.string().optional(),
+  municipio_clave: z.string().optional(),
   localidad: z.string().optional(),
+  localidad_clave: z.string().optional(),
   estado: z.string().optional(),
   cp: z.string().optional(),
   numero_exterior: z.string().optional(),

@@ -108,6 +108,33 @@ export function classifyCartaPorteIssues(
     if (issue === "Agrega al menos una mercancía") {
       flags.hasMercanciasIssue = true;
     }
+    if (issue.startsWith("Cliente:")) {
+      flags.hasEmpresaIssues = true;
+    }
+    if (issue.startsWith("PAC:")) {
+      flags.hasEmpresaIssues = true;
+    }
+    if (issue.startsWith("Viaje: la tarifa")) {
+      flags.hasMercanciasIssue = true;
+    }
+    if (issue.includes("colonia o clave SAT")) {
+      const ubicMatchClave = issue.match(/^Ubicación (.+): falta colonia/);
+      if (ubicMatchClave) {
+        const label = ubicMatchClave[1];
+        const orden = ordenFromUbicacionLabel(label, stopCount);
+        if (orden === 1) flags.origen.highlight = true;
+        else if (orden != null) ensureStop(flags, orden).highlight = true;
+      }
+    }
+    if (issue.includes("municipio o clave SAT")) {
+      const ubicMatchMun = issue.match(/^Ubicación (.+): falta municipio/);
+      if (ubicMatchMun) {
+        const label = ubicMatchMun[1];
+        const orden = ordenFromUbicacionLabel(label, stopCount);
+        if (orden === 1) flags.origen.highlight = true;
+        else if (orden != null) ensureStop(flags, orden).highlight = true;
+      }
+    }
     if (issue === "Se requieren al menos 2 ubicaciones (origen y destino)") {
       flags.ubicacionesMin = true;
       flags.origen.highlight = true;
@@ -168,6 +195,24 @@ export function classifyCartaPorteIssues(
     if (issue === "Camión: falta póliza de responsabilidad civil") {
       flags.truck.highlight = true;
       flags.truck.poliza_resp_civil = true;
+    }
+
+    if (issue.includes("Cliente: falta")) {
+      flags.hasEmpresaIssues = true;
+    }
+    if (issue.includes("PAC: falta")) {
+      flags.hasEmpresaIssues = true;
+    }
+    if (issue.includes("clave SAT de colonia") || issue.includes("clave SAT de municipio")) {
+      const ubicMatch2 = issue.match(/^Ubicación (.+):/);
+      if (ubicMatch2) {
+        const orden = ordenFromUbicacionLabel(ubicMatch2[1], stopCount);
+        if (orden === 1) flags.origen.highlight = true;
+        else if (orden != null) ensureStop(flags, orden).highlight = true;
+      }
+    }
+    if (issue.includes("tarifa debe ser mayor")) {
+      flags.hasTripStatusIssue = true;
     }
   }
 

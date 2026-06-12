@@ -14,6 +14,9 @@ import {
 import { getTripOrThrow } from "./tripService";
 import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
+import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
+import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
+import type { TimbradoContext, TimbradoOpts } from "./pac/types";
 import { ensureUbicacionesFromClient, defaultIdUbicacionSat } from "./tripFiscalService";
 import { num } from "../utils/numbers";
 
@@ -240,41 +243,127 @@ export function buildCartaPorteXml(
 </cfdi:Comprobante>`;
 }
 
-export async function previewCartaPorte(tenantId: string, tripId: string) {
+function buildTimbradoContext(
+  trip: Trip,
+  tenant: Tenant,
+  cartaPorte: CartaPorte,
+  ubicaciones: TripUbicacion[],
+  mercancias: TripMercancia[],
+  truck: Truck,
+  driver: Driver,
+  client: Client,
+  tipo: "ingreso" | "traslado",
+  opts?: TimbradoOpts,
+): TimbradoContext {
+  return {
+    tipo,
+    trip,
+    tenant,
+    cartaPorte,
+    ubicaciones,
+    mercancias,
+    truck,
+    driver,
+    client,
+    opts,
+  };
+}
+
+export async function previewCartaPorte(
+  tenantId: string,
+  tripId: string,
+  tipo: "ingreso" | "traslado" = "traslado",
+  opts?: TimbradoOpts,
+) {
   const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
   const ubicaciones = (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
-  const issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver);
+  const isSicofi = (tenant.pac_proveedor || "").toLowerCase() === "sicofi";
+  let issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver);
+  if (isSicofi) {
+    issues = issues.filter((i) => !i.includes("Certificados CSD"));
+  }
   const cp = cartaPorte;
   const folio = cp.folio_cfdi || trip.folio.replace(/[^0-9]/g, "").slice(-8) || "1";
+  let payload_preview: Record<string, unknown> | undefined;
+  if (truck && driver && client) {
+    const ctx = buildTimbradoContext(
+      trip,
+      tenant,
+      cp,
+      ubicaciones,
+      mercancias,
+      truck,
+      driver,
+      client,
+      tipo,
+      opts,
+    );
+    if (isSicofi) {
+      const sicofiIssues = validateSicofiFactura40(ctx);
+      issues = [...issues, ...sicofiIssues];
+      if (issues.length === 0) {
+        payload_preview = buildFactura40Payload(ctx) as unknown as Record<string, unknown>;
+      }
+    } else if (issues.length === 0) {
+      payload_preview = buildFactura40Payload(ctx) as unknown as Record<string, unknown>;
+    }
+  }
   const xml =
     issues.length === 0 && truck && driver && client
       ? buildCartaPorteXml(trip, tenant, cp, ubicaciones, mercancias, truck, driver, client, folio)
       : undefined;
-  return { valid: issues.length === 0, issues, xml, cartaPorte: cp };
+  return { valid: issues.length === 0, issues, xml, payload_preview, cartaPorte: cp };
 }
 
-export async function timbrarCartaPorte(tenantId: string, tripId: string) {
-  const preview = await previewCartaPorte(tenantId, tripId);
-  if (!preview.valid || !preview.xml) {
+export async function timbrarCartaPorte(
+  tenantId: string,
+  tripId: string,
+  tipo: "ingreso" | "traslado" = "traslado",
+  opts?: TimbradoOpts,
+) {
+  const preview = await previewCartaPorte(tenantId, tripId, tipo, opts);
+  if (!preview.valid) {
     throw err(preview.issues.join("; ") || "Datos incompletos para timbrar");
   }
+  const { trip, tenant } = await loadTripContext(tenantId, tripId);
+  const truck = (trip as Trip & { Truck?: Truck }).Truck;
+  const driver = (trip as Trip & { Driver?: Driver }).Driver;
+  const client = (trip as Trip & { Client?: Client }).Client;
+  if (!truck || !driver || !client) {
+    throw err("Datos incompletos para timbrar");
+  }
+  const ubicaciones = (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
+  const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const cp = await getOrCreateCartaPorte(tenantId, tripId);
   if (cp.estatus === "timbrada") {
     throw err("La carta porte ya está timbrada");
   }
-  const tenant = await Tenant.findByPk(tenantId);
-  const pac = getPacProvider(tenant?.pac_proveedor);
+  const pac = getPacProvider(tenant);
+  const ctx = buildTimbradoContext(
+    trip,
+    tenant,
+    cp,
+    ubicaciones,
+    mercancias,
+    truck,
+    driver,
+    client,
+    tipo,
+    opts,
+  );
   try {
-    const result = await pac.timbrarCartaPorte(preview.xml);
+    const result = await pac.timbrar(ctx);
     const uploadRoot = process.env.UPLOAD_DIR || "./uploads";
     const dir = path.join(uploadRoot, tenantId, "cartas-porte");
     await mkdir(dir, { recursive: true });
     const xmlPath = path.join(dir, `${tripId}.xml`);
     await writeFile(xmlPath, result.xmlTimbrado, "utf8");
+    const serie = result.serie || tenant.cfdi_serie || "CP";
+    const folioCfdi = result.folio || cp.folio_cfdi;
     await cp.update({
       estatus: "timbrada",
       uuid: result.uuid,
@@ -283,9 +372,13 @@ export async function timbrarCartaPorte(tenantId: string, tripId: string) {
       pac_response: result.pacResponse ?? null,
       error_mensaje: null,
       timbrado_at: new Date(),
-      folio_cfdi: cp.folio_cfdi || preview.cartaPorte.folio_cfdi,
-      serie: tenant?.cfdi_serie || "CP",
+      folio_cfdi: folioCfdi,
+      serie,
+      tipo_comprobante: tipo,
     } as never);
+    if (tipo === "ingreso" && folioCfdi && !trip.num_factura?.trim()) {
+      await trip.update({ num_factura: `${serie}-${folioCfdi}` } as never);
+    }
     return cp;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error al timbrar";
@@ -301,7 +394,7 @@ export async function cancelarCartaPorte(tenantId: string, tripId: string, motiv
   }
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant?.rfc) throw err("RFC de empresa no configurado");
-  const pac = getPacProvider(tenant.pac_proveedor);
+  const pac = getPacProvider(tenant);
   await pac.cancelar(cp.uuid, motivo, tenant.rfc);
   await cp.update({ estatus: "cancelada" } as never);
   return cp;

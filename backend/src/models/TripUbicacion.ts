@@ -23,8 +23,11 @@ export class TripUbicacion extends Model<
   declare fecha_hora: CreationOptional<Date | null>;
   declare calle: CreationOptional<string | null>;
   declare colonia: CreationOptional<string | null>;
+  declare colonia_clave: CreationOptional<string | null>;
   declare municipio: CreationOptional<string | null>;
+  declare municipio_clave: CreationOptional<string | null>;
   declare localidad: CreationOptional<string | null>;
+  declare localidad_clave: CreationOptional<string | null>;
   declare estado: CreationOptional<string | null>;
   declare cp: CreationOptional<string | null>;
   declare numero_exterior: CreationOptional<string | null>;
@@ -50,8 +53,11 @@ export function initTripUbicacion(sequelize: Sequelize) {
       fecha_hora: { type: DataTypes.DATE, allowNull: true },
       calle: { type: DataTypes.STRING(255), allowNull: true },
       colonia: { type: DataTypes.STRING(128), allowNull: true },
+      colonia_clave: { type: DataTypes.STRING(16), allowNull: true },
       municipio: { type: DataTypes.STRING(128), allowNull: true },
+      municipio_clave: { type: DataTypes.STRING(16), allowNull: true },
       localidad: { type: DataTypes.STRING(128), allowNull: true },
+      localidad_clave: { type: DataTypes.STRING(16), allowNull: true },
       estado: { type: DataTypes.STRING(64), allowNull: true },
       cp: { type: DataTypes.STRING(5), allowNull: true },
       numero_exterior: { type: DataTypes.STRING(32), allowNull: true },

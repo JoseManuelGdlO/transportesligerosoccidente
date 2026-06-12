@@ -151,6 +151,103 @@ export default function Empresa() {
               <div><Label>CP fiscal</Label><Input value={fiscal.cp_fiscal || ""} onChange={e => setFiscal({ ...fiscal, cp_fiscal: e.target.value })} maxLength={5} placeholder="44100" /></div>
               <div><Label>Serie CFDI</Label><Input value={fiscal.cfdi_serie || "CP"} onChange={e => setFiscal({ ...fiscal, cfdi_serie: e.target.value })} /></div>
             </div>
+            <div className="pt-3 border-t space-y-3">
+              <p className="text-sm font-medium">PAC Sicofi</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <Label>Proveedor</Label>
+                  <Input
+                    value={fiscal.pac_proveedor || "stub"}
+                    onChange={(e) => setFiscal({ ...fiscal, pac_proveedor: e.target.value })}
+                    placeholder="stub | sicofi"
+                  />
+                </div>
+                <div>
+                  <Label>URL API base</Label>
+                  <Input
+                    value={fiscal.pac_url || ""}
+                    onChange={(e) => setFiscal({ ...fiscal, pac_url: e.target.value })}
+                    placeholder="https://demo.sicofi.com.mx/DFWSR/api"
+                  />
+                </div>
+                <div>
+                  <Label>Usuario Sicofi</Label>
+                  <Input
+                    value={fiscal.pac_usuario || ""}
+                    onChange={(e) => setFiscal({ ...fiscal, pac_usuario: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Contraseña Sicofi</Label>
+                  <Input
+                    type="password"
+                    value={pacToken}
+                    onChange={(e) => setPacToken(e.target.value)}
+                    placeholder={fiscal.has_pac_token ? "•••••• (dejar vacío para no cambiar)" : ""}
+                  />
+                </div>
+                <div>
+                  <Label>Método pago default</Label>
+                  <Input
+                    value={fiscal.metodo_pago_default || "PPD"}
+                    onChange={(e) => setFiscal({ ...fiscal, metodo_pago_default: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Forma pago default</Label>
+                  <Input
+                    value={fiscal.forma_pago_default || "99"}
+                    onChange={(e) => setFiscal({ ...fiscal, forma_pago_default: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Uso CFDI default</Label>
+                  <Input
+                    value={fiscal.uso_cfdi_default || "G03"}
+                    onChange={(e) => setFiscal({ ...fiscal, uso_cfdi_default: e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>IVA % default</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={fiscal.iva_tasa_default != null ? fiscal.iva_tasa_default * 100 : 16}
+                    onChange={(e) =>
+                      setFiscal({
+                        ...fiscal,
+                        iva_tasa_default: Number(e.target.value) / 100,
+                      })
+                    }
+                  />
+                </div>
+                <div>
+                  <Label>Retención % default</Label>
+                  <Input
+                    type="number"
+                    step="0.01"
+                    value={
+                      fiscal.retencion_tasa_default != null ? fiscal.retencion_tasa_default * 100 : 4
+                    }
+                    onChange={(e) =>
+                      setFiscal({
+                        ...fiscal,
+                        retencion_tasa_default: Number(e.target.value) / 100,
+                      })
+                    }
+                  />
+                </div>
+                <div className="col-span-2">
+                  <Label>Condiciones de pago</Label>
+                  <Input
+                    value={fiscal.condiciones_pago_default || ""}
+                    onChange={(e) =>
+                      setFiscal({ ...fiscal, condiciones_pago_default: e.target.value })
+                    }
+                  />
+                </div>
+              </div>
+            </div>
             <div className="pt-3 border-t space-y-2">
               <p className="text-sm font-medium">Certificado CSD</p>
               {fiscal.has_csd ? <Badge variant="outline">CSD cargado</Badge> : <p className="text-xs text-muted-foreground">Selecciona .cer y .key; al elegir .cer se suben ambos archivos</p>}

@@ -199,8 +199,11 @@ async function resolveUbicacionPayload(
     fecha_hora?: string;
     calle?: string;
     colonia?: string;
+    colonia_clave?: string;
     municipio?: string;
+    municipio_clave?: string;
     localidad?: string;
+    localidad_clave?: string;
     estado?: string;
     cp?: string;
     numero_exterior?: string;
@@ -247,8 +250,11 @@ export async function upsertUbicacion(
     fecha_hora?: string;
     calle?: string;
     colonia?: string;
+    colonia_clave?: string;
     municipio?: string;
+    municipio_clave?: string;
     localidad?: string;
+    localidad_clave?: string;
     estado?: string;
     cp?: string;
     numero_exterior?: string;
@@ -273,8 +279,11 @@ export async function upsertUbicacion(
     fecha_hora: resolved.fecha_hora ? new Date(resolved.fecha_hora) : null,
     calle: resolved.calle ?? null,
     colonia: resolved.colonia ?? null,
+    colonia_clave: resolved.colonia_clave ?? null,
     municipio: resolved.municipio ?? null,
+    municipio_clave: resolved.municipio_clave ?? null,
     localidad: resolved.localidad ?? null,
+    localidad_clave: resolved.localidad_clave ?? null,
     estado: resolved.estado ?? null,
     cp: resolved.cp ?? null,
     numero_exterior: resolved.numero_exterior ?? null,

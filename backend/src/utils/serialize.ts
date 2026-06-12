@@ -127,8 +127,11 @@ export function tripUbicacionToJson(u: TripUbicacion): Record<string, unknown> {
     fecha_hora: p.fecha_hora ? iso(p.fecha_hora) : undefined,
     calle: p.calle ?? undefined,
     colonia: p.colonia ?? undefined,
+    colonia_clave: p.colonia_clave ?? undefined,
     municipio: p.municipio ?? undefined,
+    municipio_clave: p.municipio_clave ?? undefined,
     localidad: p.localidad ?? undefined,
+    localidad_clave: p.localidad_clave ?? undefined,
     estado: p.estado ?? undefined,
     cp: p.cp ?? undefined,
     numero_exterior: p.numero_exterior ?? undefined,
@@ -171,6 +174,7 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
     has_xml: !!p.xml_timbrado,
     id_ccp: p.id_ccp ?? undefined,
     transporte_internacional: p.transporte_internacional != null ? !!p.transporte_internacional : undefined,
+    tipo_comprobante: p.tipo_comprobante ?? undefined,
   };
 }
 
@@ -352,6 +356,12 @@ export function tenantFiscalToJson(t: Tenant): Record<string, unknown> {
     has_pac_token: !!p.pac_token_enc,
     has_csd: !!(p.csd_cer_path && p.csd_key_path),
     cfdi_serie: p.cfdi_serie ?? undefined,
+    metodo_pago_default: p.metodo_pago_default ?? undefined,
+    forma_pago_default: p.forma_pago_default ?? undefined,
+    uso_cfdi_default: p.uso_cfdi_default ?? undefined,
+    iva_tasa_default: p.iva_tasa_default != null ? num(p.iva_tasa_default) : undefined,
+    retencion_tasa_default: p.retencion_tasa_default != null ? num(p.retencion_tasa_default) : undefined,
+    condiciones_pago_default: p.condiciones_pago_default ?? undefined,
   };
 }
 

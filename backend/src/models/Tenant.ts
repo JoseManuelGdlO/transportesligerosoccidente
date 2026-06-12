@@ -32,6 +32,12 @@ export class Tenant extends Model<InferAttributes<Tenant>, InferCreationAttribut
   declare csd_key_path: CreationOptional<string | null>;
   declare csd_password_enc: CreationOptional<string | null>;
   declare cfdi_serie: CreationOptional<string | null>;
+  declare metodo_pago_default: CreationOptional<string | null>;
+  declare forma_pago_default: CreationOptional<string | null>;
+  declare uso_cfdi_default: CreationOptional<string | null>;
+  declare iva_tasa_default: CreationOptional<string | null>;
+  declare retencion_tasa_default: CreationOptional<string | null>;
+  declare condiciones_pago_default: CreationOptional<string | null>;
   declare fuel_proveedor_url: CreationOptional<string | null>;
   declare fuel_proveedor_usuario: CreationOptional<string | null>;
   declare fuel_proveedor_password_enc: CreationOptional<string | null>;
@@ -70,6 +76,12 @@ export function initTenant(sequelize: Sequelize) {
       csd_key_path: { type: DataTypes.STRING(512), allowNull: true },
       csd_password_enc: { type: DataTypes.TEXT, allowNull: true },
       cfdi_serie: { type: DataTypes.STRING(16), allowNull: true, defaultValue: "CP" },
+      metodo_pago_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "PPD" },
+      forma_pago_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "99" },
+      uso_cfdi_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "G03" },
+      iva_tasa_default: { type: DataTypes.DECIMAL(6, 4), allowNull: true, defaultValue: "0.1600" },
+      retencion_tasa_default: { type: DataTypes.DECIMAL(6, 4), allowNull: true, defaultValue: "0.0400" },
+      condiciones_pago_default: { type: DataTypes.STRING(255), allowNull: true },
       fuel_proveedor_url: { type: DataTypes.STRING(512), allowNull: true },
       fuel_proveedor_usuario: { type: DataTypes.STRING(128), allowNull: true },
       fuel_proveedor_password_enc: { type: DataTypes.TEXT, allowNull: true },

@@ -13,7 +13,7 @@
     "job:fuel-sync": "tsx src/scripts/runFuelSync.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "tsx --test src/**/*.test.ts"
+    "test": "tsx --test 'src/**/*.test.ts' 'src/**/**/*.test.ts'"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
