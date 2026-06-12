@@ -899,6 +899,17 @@ export async function fetchFuelSummary(
   return readJson(res);
 }
 
+function parseContentDispositionFilename(header: string | null): string | undefined {
+  if (!header) return undefined;
+  const m = /filename\*?=(?:UTF-8''|")?([^";]+)/i.exec(header);
+  if (!m) return undefined;
+  try {
+    return decodeURIComponent(m[1].replace(/"/g, ""));
+  } catch {
+    return m[1].replace(/"/g, "");
+  }
+}
+
 export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> {
   const path = fileUrlPath.startsWith("/") ? fileUrlPath : `/${fileUrlPath}`;
   const res = await apiFetch(path);
@@ -907,6 +918,25 @@ export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> 
   const url = URL.createObjectURL(blob);
   window.open(url, "_blank", "noopener,noreferrer");
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+}
+
+export async function downloadCartaPorteXml(tripId: string, suggestedName?: string): Promise<void> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/xml`);
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(typeof j.error === "string" ? j.error : "No se pudo descargar el XML");
+  }
+  const blob = await res.blob();
+  const filename =
+    parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
+    suggestedName ||
+    `carta-porte-${tripId}.xml`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 
 export async function fetchRoutes(opts?: { client_id?: string; all?: boolean }): Promise<

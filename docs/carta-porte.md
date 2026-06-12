@@ -135,9 +135,12 @@ Base: `/api/v1`. Todas requieren `Authorization: Bearer <token>`.
 | Método | Ruta | Permiso |
 |--------|------|---------|
 | `GET` | `/trips/:id/carta-porte` | `cartaporte.ver` |
+| `GET` | `/trips/:id/carta-porte/xml` | `cartaporte.ver` |
 | `POST` | `/trips/:id/carta-porte/preview` | `cartaporte.timbrar` |
 | `POST` | `/trips/:id/carta-porte/timbrar` | `cartaporte.timbrar` |
 | `POST` | `/trips/:id/carta-porte/cancelar` | `cartaporte.cancelar` |
+
+**Descargar XML** — respuesta `application/xml` con `Content-Disposition: attachment`. Solo si `estatus` es `timbrada` o `cancelada` y existe XML (archivo en `{UPLOAD_DIR}/{tenantId}/cartas-porte/{tripId}.xml` o columna `xml_timbrado`). Nombre sugerido: `{serie}-{folio}.xml`.
 
 **Preview** — respuesta ejemplo:
 
@@ -194,17 +197,23 @@ Al pulsar **Timbrar** en `TripCartaPorte`:
 2. `POST .../preview` ejecuta `validateCartaPorteData`.
 3. Si `valid: false`: se muestran `issues`, se resaltan secciones/campos afectados y el usuario corrige en la misma pestaña.
 4. Si `valid: true`: `POST .../timbrar` continúa el flujo de timbrado.
+5. Tras timbrado exitoso, la UI descarga automáticamente el XML (`GET .../carta-porte/xml`).
+6. En viajes ya timbrados, el botón **XML** en la misma pestaña permite volver a descargar el archivo.
 
 ### 3. Timbrar (backend)
 
 `POST .../timbrar` (también invocable directamente por API):
 
-1. Repite validación y construcción de XML (`buildCartaPorteXml`).
+1. Repite validación y construcción del payload (Sicofi JSON o preview XML legacy).
 2. Llama al PAC (`getPacProvider`).
 3. Guarda XML en disco: `{UPLOAD_DIR}/{tenantId}/cartas-porte/{tripId}.xml`.
 4. Actualiza registro: `estatus: timbrada`, `uuid`, `xml_timbrado`, `timbrado_at`, etc.
 
 Si falla el PAC: `estatus: error` y `error_mensaje`; respuesta HTTP 502.
+
+### 3b. Descargar XML
+
+`GET .../carta-porte/xml` devuelve el CFDI timbrado. La UI usa `downloadCartaPorteXml` en `frontend/src/lib/tloApi.ts`.
 
 `POST .../preview` sigue disponible como endpoint; la UI ya no expone un botón separado de validación.
 

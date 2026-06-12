@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
-import { mkdir, writeFile } from "node:fs/promises";
+import { existsSync } from "node:fs";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { uploadRootDir } from "../middlewares/uploadDocument";
 import {
   Trip,
   Tenant,
@@ -357,8 +359,7 @@ export async function timbrarCartaPorte(
   );
   try {
     const result = await pac.timbrar(ctx);
-    const uploadRoot = process.env.UPLOAD_DIR || "./uploads";
-    const dir = path.join(uploadRoot, tenantId, "cartas-porte");
+    const dir = path.join(uploadRootDir(), tenantId, "cartas-porte");
     await mkdir(dir, { recursive: true });
     const xmlPath = path.join(dir, `${tripId}.xml`);
     await writeFile(xmlPath, result.xmlTimbrado, "utf8");
@@ -385,6 +386,48 @@ export async function timbrarCartaPorte(
     await cp.update({ estatus: "error", error_mensaje: msg } as never);
     throw err(msg, 502);
   }
+}
+
+function safeFilenamePart(s: string): string {
+  return s.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+}
+
+function cartaPorteXmlFilename(cp: CartaPorte, trip: Trip): string {
+  if (cp.serie && cp.folio_cfdi) {
+    return `${safeFilenamePart(cp.serie)}-${safeFilenamePart(String(cp.folio_cfdi))}.xml`;
+  }
+  if (trip.folio?.trim()) {
+    return `${safeFilenamePart(trip.folio)}-carta-porte.xml`;
+  }
+  if (cp.uuid) {
+    return `${safeFilenamePart(cp.uuid)}.xml`;
+  }
+  return `carta-porte-${trip.id}.xml`;
+}
+
+export async function getCartaPorteXml(
+  tenantId: string,
+  tripId: string,
+): Promise<{ xml: string; filename: string }> {
+  await getTripOrThrow(tenantId, tripId, false);
+  const cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
+  if (!cp) throw err("Carta porte no encontrada", 404);
+  if (cp.estatus !== "timbrada" && cp.estatus !== "cancelada") {
+    throw err("El XML solo está disponible para cartas timbradas o canceladas", 404);
+  }
+  const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
+  if (!trip) throw err("Viaje no encontrado", 404);
+
+  const xmlPath = path.join(uploadRootDir(), tenantId, "cartas-porte", `${tripId}.xml`);
+  let xml: string | null = null;
+  if (existsSync(xmlPath)) {
+    xml = await readFile(xmlPath, "utf8");
+  } else if (cp.xml_timbrado?.trim()) {
+    xml = cp.xml_timbrado;
+  }
+  if (!xml?.trim()) throw err("XML timbrado no encontrado", 404);
+
+  return { xml, filename: cartaPorteXmlFilename(cp, trip) };
 }
 
 export async function cancelarCartaPorte(tenantId: string, tripId: string, motivo: string) {

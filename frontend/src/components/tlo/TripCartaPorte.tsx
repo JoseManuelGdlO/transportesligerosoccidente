@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, readJson } from "@/lib/api";
 import {
+  downloadCartaPorteXml,
   fetchClientUbicaciones,
   normalizeTrip,
   putTripUbicaciones,
@@ -25,7 +26,16 @@ import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { driverById, truckById } from "@/lib/calc";
 import { cn } from "@/lib/utils";
-import { FileCheck, Plus, Trash2, Stamp, AlertCircle, Truck as TruckIcon, User } from "lucide-react";
+import {
+  FileCheck,
+  Plus,
+  Trash2,
+  Stamp,
+  AlertCircle,
+  Download,
+  Truck as TruckIcon,
+  User,
+} from "lucide-react";
 import { toast } from "sonner";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 
@@ -73,6 +83,7 @@ export function TripCartaPorte({
   const { hasPermission } = useAuth();
   const { drivers, trucks, upsertDriver, upsertTruck } = useTlo();
   const canTimbrar = hasPermission("cartaporte.timbrar");
+  const canViewCartaPorte = hasPermission("cartaporte.ver");
   const cp = trip.carta_porte;
   const cpTimbrada = cp?.estatus === "timbrada";
   const tripFiscalReady = tripIsOpen(trip) || tripIsClosed(trip);
@@ -500,6 +511,24 @@ export function TripCartaPorte({
     await reloadTrip();
   };
 
+  const suggestedXmlFilename = useCallback(
+    (serie?: string, folioCfdi?: string) => {
+      if (serie && folioCfdi) return `${serie}-${folioCfdi}.xml`;
+      if (trip.folio?.trim()) return `${trip.folio.replace(/[^A-Za-z0-9._-]/g, "_")}-carta-porte.xml`;
+      return undefined;
+    },
+    [trip.folio],
+  );
+
+  const handleDownloadXml = async (serie?: string, folioCfdi?: string) => {
+    try {
+      await downloadCartaPorteXml(trip.id, suggestedXmlFilename(serie, folioCfdi));
+      toast.success("XML descargado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo descargar el XML");
+    }
+  };
+
   const handleTimbrar = async () => {
     if (!canTimbrar) return;
     setLoading(true);
@@ -529,8 +558,18 @@ export function TripCartaPorte({
         toast.error(typeof j.error === "string" ? j.error : "Error al timbrar");
         return;
       }
-      await readJson<Record<string, unknown>>(r);
+      const timbrado = await readJson<{ serie?: string; folio_cfdi?: string }>(r);
       toast.success("Carta porte timbrada");
+      try {
+        await downloadCartaPorteXml(
+          trip.id,
+          suggestedXmlFilename(timbrado.serie, timbrado.folio_cfdi),
+        );
+      } catch (e) {
+        toast.warning(
+          e instanceof Error ? e.message : "Timbrado correcto, pero no se pudo descargar el XML",
+        );
+      }
       setPreviewIssues([]);
       await reloadTrip();
     } finally {
@@ -695,6 +734,16 @@ export function TripCartaPorte({
                 className="bg-primary text-primary-foreground"
               >
                 <Stamp className="h-4 w-4 mr-1" /> Timbrar
+              </Button>
+            )}
+            {canViewCartaPorte && (cp?.has_xml || cpTimbrada) && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => void handleDownloadXml(cp?.serie, cp?.folio_cfdi)}
+              >
+                <Download className="h-4 w-4 mr-1" /> XML
               </Button>
             )}
           </div>

@@ -16,6 +16,13 @@ export const getCartaPorte = asyncHandler(async (req: Request, res: Response) =>
   res.json(cartaPorteToJson(cp));
 });
 
+export const getCartaPorteXml = asyncHandler(async (req: Request, res: Response) => {
+  const { xml, filename } = await cartaPorteService.getCartaPorteXml(tid(req), req.params.id);
+  res.setHeader("Content-Type", "application/xml; charset=utf-8");
+  res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
+  res.send(xml);
+});
+
 const timbradoOptsSchema = z.object({
   tipo: z.enum(["ingreso", "traslado"]).optional(),
   moneda: z.string().optional(),
