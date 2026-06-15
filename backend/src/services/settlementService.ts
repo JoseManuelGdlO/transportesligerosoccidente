@@ -1,12 +1,42 @@
 import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import { Driver, Trip, Settlement, DriverAdvance, DriverDiscount } from "../models";
-import { computeSettlement } from "./calc";
+import {
+  computeSettlementTotals,
+  filterEligibleSettlementTrips,
+} from "./calc";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 
+export type TripInclusion = { id: string; included: boolean };
+
 function fechaEnPeriodo(fecha: string, inicioStr: string, finStr: string): boolean {
   return fecha >= inicioStr && fecha <= finStr;
+}
+
+function inclusionMapFromList(
+  eligibleIds: string[],
+  tripInclusions?: TripInclusion[],
+): Map<string, boolean> {
+  const map = new Map<string, boolean>(eligibleIds.map((id) => [id, true]));
+  if (tripInclusions === undefined) return map;
+  for (const row of tripInclusions) {
+    if (map.has(row.id)) map.set(row.id, row.included);
+  }
+  return map;
+}
+
+function inclusionMapFromSnapshot(snapshot: Record<string, unknown> | null | undefined): Map<string, boolean> | null {
+  if (!snapshot || !Array.isArray(snapshot.trips)) return null;
+  const map = new Map<string, boolean>();
+  for (const t of snapshot.trips as { id?: string; included?: boolean }[]) {
+    if (t.id) map.set(t.id, t.included !== false);
+  }
+  return map.size > 0 ? map : null;
+}
+
+function tripInclusionsFromMap(map: Map<string, boolean>): TripInclusion[] {
+  return [...map.entries()].map(([id, included]) => ({ id, included }));
 }
 
 async function pendingAdvancesAndDiscounts(
@@ -44,6 +74,7 @@ export async function settlementSummary(
   driverId: string,
   inicioStr: string,
   finStr: string,
+  tripInclusions?: TripInclusion[],
 ): Promise<Record<string, unknown>> {
   const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
@@ -59,10 +90,20 @@ export async function settlementSummary(
   });
   const { advances, discounts, total_anticipos, total_descuentos } =
     await pendingAdvancesAndDiscounts(tenantId, driverId, inicioStr, finStr);
-  const summary = computeSettlement(driver, trips, inicio, fin, {
+
+  const eligible = filterEligibleSettlementTrips(driver, trips, inicio, fin);
+  const inclusionMap = inclusionMapFromList(
+    eligible.map((e) => String(e.trip.id)),
+    tripInclusions,
+  );
+  const includedTrips = eligible
+    .filter((e) => inclusionMap.get(String(e.trip.id)) !== false)
+    .map((e) => e.trip);
+  const totals = computeSettlementTotals(driver, includedTrips, {
     total_anticipos,
     total_descuentos,
   });
+
   return {
     driver: {
       id: driver.id,
@@ -73,15 +114,7 @@ export async function settlementSummary(
       estatus: driver.estatus,
     },
     periodo: { inicio: inicioStr, fin: finStr },
-    total_ingresos: summary.total_ingresos,
-    total_comisiones: summary.total_comisiones,
-    total_km: summary.total_km,
-    viaticos_entregados: summary.viaticos_entregados,
-    viaticos_comprobados: summary.viaticos_comprobados,
-    saldo_viaticos: summary.saldo_viaticos,
-    total_descuentos: summary.total_descuentos,
-    total_anticipos: summary.total_anticipos,
-    neto_pagar: summary.neto_pagar,
+    ...totals,
     advances: advances.map((a) => ({
       id: a.id,
       monto: num(a.monto),
@@ -97,7 +130,14 @@ export async function settlementSummary(
       descripcion: d.descripcion,
       en_periodo: fechaEnPeriodo(String(d.fecha), inicioStr, finStr),
     })),
-    trips: summary.trips.map((t) => tripToJson(t)),
+    trips: eligible.map(({ trip, en_periodo }) => {
+      const id = String(trip.id);
+      return {
+        ...tripToJson(trip),
+        en_periodo,
+        included: inclusionMap.get(id) !== false,
+      };
+    }),
   };
 }
 
@@ -133,8 +173,9 @@ export async function createDraftSettlement(
   driverId: string,
   fechaInicio: string,
   fechaFin: string,
+  tripInclusions?: TripInclusion[],
 ) {
-  const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+  const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, tripInclusions);
   const existing = await findOpenDraft(tenantId, driverId, fechaInicio, fechaFin);
   if (existing) {
     await existing.update({ snapshot: summary } as never);
@@ -153,7 +194,11 @@ export async function createDraftSettlement(
   } as never);
 }
 
-export async function updateDraftSettlement(tenantId: string, settlementId: string) {
+export async function updateDraftSettlement(
+  tenantId: string,
+  settlementId: string,
+  tripInclusions?: TripInclusion[],
+) {
   const row = await Settlement.findOne({
     where: { id: settlementId, tenant_id: tenantId, cerrado: false },
   });
@@ -162,7 +207,13 @@ export async function updateDraftSettlement(tenantId: string, settlementId: stri
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
-  const summary = await settlementSummary(tenantId, row.driver_id, row.fecha_inicio, row.fecha_fin);
+  const summary = await settlementSummary(
+    tenantId,
+    row.driver_id,
+    row.fecha_inicio,
+    row.fecha_fin,
+    tripInclusions,
+  );
   await row.update({ snapshot: summary } as never);
   return row;
 }
@@ -190,6 +241,7 @@ export async function closeSettlement(
   fechaInicio: string,
   fechaFin: string,
   settlementId?: string,
+  tripInclusions?: TripInclusion[],
 ) {
   const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
@@ -213,12 +265,20 @@ export async function closeSettlement(
     throw err;
   }
 
-  const summaryData = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
-  const tripIds = (summaryData.trips as { id: string }[]).map((t) => t.id);
-
   let row = settlementId
     ? await Settlement.findOne({ where: { id: settlementId, tenant_id: tenantId, cerrado: false } })
     : null;
+
+  let inclusions = tripInclusions;
+  if (tripInclusions === undefined && row?.snapshot) {
+    const fromSnapshot = inclusionMapFromSnapshot(row.snapshot as Record<string, unknown>);
+    if (fromSnapshot) inclusions = tripInclusionsFromMap(fromSnapshot);
+  }
+
+  const summaryData = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, inclusions);
+  const tripIds = (summaryData.trips as { id: string; included?: boolean }[])
+    .filter((t) => t.included !== false)
+    .map((t) => t.id);
 
   if (row) {
     await row.update({
@@ -240,7 +300,9 @@ export async function closeSettlement(
   }
 
   const sid = row!.id;
-  await Trip.update({ settlement_id: sid }, { where: { id: { [Op.in]: tripIds }, tenant_id: tenantId } });
+  if (tripIds.length > 0) {
+    await Trip.update({ settlement_id: sid }, { where: { id: { [Op.in]: tripIds }, tenant_id: tenantId } });
+  }
 
   const { advancesInPeriod, discountsInPeriod } = await pendingAdvancesAndDiscounts(
     tenantId,
@@ -254,7 +316,11 @@ export async function closeSettlement(
   return row!;
 }
 
-export async function closeSettlementById(tenantId: string, settlementId: string) {
+export async function closeSettlementById(
+  tenantId: string,
+  settlementId: string,
+  tripInclusions?: TripInclusion[],
+) {
   const row = await Settlement.findOne({
     where: { id: settlementId, tenant_id: tenantId, cerrado: false },
   });
@@ -263,5 +329,12 @@ export async function closeSettlementById(tenantId: string, settlementId: string
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
-  return closeSettlement(tenantId, row.driver_id, row.fecha_inicio, row.fecha_fin, settlementId);
+  return closeSettlement(
+    tenantId,
+    row.driver_id,
+    row.fecha_inicio,
+    row.fecha_fin,
+    settlementId,
+    tripInclusions,
+  );
 }

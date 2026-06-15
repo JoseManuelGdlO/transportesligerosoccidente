@@ -10,6 +10,21 @@ const summaryQuery = z.object({
   fin: z.string().min(1),
 });
 
+const tripInclusionsSchema = z
+  .array(z.object({ id: z.string().min(1), included: z.boolean() }))
+  .optional();
+
+const periodBody = z.object({
+  driver_id: z.string().min(1),
+  fecha_inicio: z.string().min(1),
+  fecha_fin: z.string().min(1),
+  trip_inclusions: tripInclusionsSchema,
+});
+
+const draftPatchBody = z.object({
+  trip_inclusions: tripInclusionsSchema,
+});
+
 export const getSummary = asyncHandler(async (req: Request, res: Response) => {
   const parsed = summaryQuery.safeParse(req.query);
   if (!parsed.success) {
@@ -27,12 +42,6 @@ export const listSettlements = asyncHandler(async (req: Request, res: Response) 
   res.json(rows.map((r) => settlementToJson(r)));
 });
 
-const periodBody = z.object({
-  driver_id: z.string().min(1),
-  fecha_inicio: z.string().min(1),
-  fecha_fin: z.string().min(1),
-});
-
 export const postDraft = asyncHandler(async (req: Request, res: Response) => {
   const parsed = periodBody.safeParse(req.body);
   if (!parsed.success) {
@@ -44,6 +53,7 @@ export const postDraft = asyncHandler(async (req: Request, res: Response) => {
     parsed.data.driver_id,
     parsed.data.fecha_inicio,
     parsed.data.fecha_fin,
+    parsed.data.trip_inclusions,
   );
   res.status(201).json(settlementToJson(row));
 });
@@ -59,17 +69,37 @@ export const postClose = asyncHandler(async (req: Request, res: Response) => {
     parsed.data.driver_id,
     parsed.data.fecha_inicio,
     parsed.data.fecha_fin,
+    undefined,
+    parsed.data.trip_inclusions,
   );
   res.status(201).json(settlementToJson(row));
 });
 
 export const postCloseById = asyncHandler(async (req: Request, res: Response) => {
-  const row = await settlementService.closeSettlementById(req.user!.tenantId, req.params.id);
+  const parsed = draftPatchBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await settlementService.closeSettlementById(
+    req.user!.tenantId,
+    req.params.id,
+    parsed.data.trip_inclusions,
+  );
   res.json(settlementToJson(row));
 });
 
 export const patchDraft = asyncHandler(async (req: Request, res: Response) => {
-  const row = await settlementService.updateDraftSettlement(req.user!.tenantId, req.params.id);
+  const parsed = draftPatchBody.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await settlementService.updateDraftSettlement(
+    req.user!.tenantId,
+    req.params.id,
+    parsed.data.trip_inclusions,
+  );
   res.json(settlementToJson(row));
 });
 

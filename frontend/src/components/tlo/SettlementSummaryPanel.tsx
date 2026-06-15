@@ -8,6 +8,7 @@ import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil } from "lucide-react";
 
 export interface AdvanceFormState {
@@ -37,6 +38,9 @@ interface SettlementSummaryPanelProps {
   onRemoveAdvance?: (id: string) => void;
   onRemoveDiscount?: (id: string) => void;
   onEditTrip?: (tripId: string) => void;
+  canSelectTrips?: boolean;
+  tripInclusions?: Record<string, boolean>;
+  onTripInclusionChange?: (tripId: string, included: boolean) => void;
 }
 
 export function SettlementSummaryPanel({
@@ -53,16 +57,30 @@ export function SettlementSummaryPanel({
   onRemoveAdvance,
   onRemoveDiscount,
   onEditTrip,
+  canSelectTrips = false,
+  tripInclusions,
+  onTripInclusionChange,
 }: SettlementSummaryPanelProps) {
   const showFinanceForms = !readOnly && canEditFinance;
   const sortedTrips = [...summary.trips].sort((a, b) =>
     a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" }),
   );
+  const includedTripCount = summary.trips.filter((t) => {
+    if (tripInclusions) return tripInclusions[t.id] !== false;
+    return t.included !== false;
+  }).length;
+  const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
+  const tripColSpan = showTripSelection ? 5 : 4;
+
+  const isTripIncluded = (tripId: string, tripIncluded?: boolean) => {
+    if (tripInclusions) return tripInclusions[tripId] !== false;
+    return tripIncluded !== false;
+  };
 
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Viajes" value={String(summary.trips.length)} icon={TruckIcon} tone="default" />
+        <KpiCard label="Viajes" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
         <KpiCard label="Comisiones" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
         <KpiCard
           label="Descuentos + anticipos"
@@ -208,6 +226,7 @@ export function SettlementSummaryPanel({
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/50">
+                {showTripSelection && <TableHead className="w-10">Incluir</TableHead>}
                 <TableHead>Folio</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Fecha</TableHead>
@@ -217,16 +236,32 @@ export function SettlementSummaryPanel({
             <TableBody>
               {sortedTrips.length === 0 && (
                 <TableRow>
-                  <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
+                  <TableCell colSpan={tripColSpan} className="text-center text-muted-foreground py-4 text-sm">
                     Sin viajes en el periodo
                   </TableCell>
                 </TableRow>
               )}
               {sortedTrips.map((t) => {
+                const included = isTripIncluded(t.id, t.included);
                 const f = computeTrip(t, driver);
                 return (
-                  <TableRow key={t.id}>
-                    <TableCell className="font-mono text-sm">{t.folio}</TableCell>
+                  <TableRow key={t.id} className={!included ? "opacity-60" : undefined}>
+                    {showTripSelection && (
+                      <TableCell>
+                        <Checkbox
+                          checked={included}
+                          disabled={!canSelectTrips}
+                          aria-label={`Incluir viaje ${t.folio} en liquidación`}
+                          onCheckedChange={(checked) => onTripInclusionChange?.(t.id, checked === true)}
+                        />
+                      </TableCell>
+                    )}
+                    <TableCell className="font-mono text-sm">
+                      {t.folio}
+                      {t.en_periodo === false && (
+                        <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                      )}
+                    </TableCell>
                     <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
                     <TableCell className="text-right">

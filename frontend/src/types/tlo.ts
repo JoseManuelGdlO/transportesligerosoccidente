@@ -544,6 +544,8 @@ export interface Trip {
   comision_override?: number | null; // si admin lo edita
   tipo_viaje: TripType;
   settlement_id?: string;
+  included?: boolean;
+  en_periodo?: boolean;
   statuses: TripStatusRef[];
   fuel: FuelLoad[];
   expenses: Expense[];

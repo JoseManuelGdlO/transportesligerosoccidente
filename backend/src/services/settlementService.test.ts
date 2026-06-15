@@ -5,6 +5,9 @@ import {
   createDraftSettlement,
   updateDraftSettlement,
   deleteDraftSettlement,
+  settlementSummary,
+  closeSettlement,
+  closeSettlementById,
 } from "./settlementService";
 
 const tenantId = "tenant-1";
@@ -181,5 +184,234 @@ describe("deleteDraftSettlement", () => {
     );
 
     settlementFindOne.mock.restore();
+  });
+});
+
+const mockTrip = (overrides: Record<string, unknown>) => ({
+  id: "trip-1",
+  tenant_id: tenantId,
+  driver_id: driverId,
+  folio: "TL001-1",
+  truck_id: "truck-1",
+  client_id: "client-1",
+  origen: "A",
+  destino: "B",
+  fecha_salida: "2026-06-03",
+  km_inicial: 0,
+  km_final: 100,
+  tarifa: 1000,
+  viaticos_entregados: 0,
+  tipo_viaje: "local",
+  fuel: [],
+  expenses: [],
+  ...overrides,
+});
+
+describe("settlementSummary trip inclusions", () => {
+  it("incluye viajes pendientes anteriores al periodo con en_periodo false", async () => {
+    const deps = mockSummaryDeps();
+    const carryOver = mockTrip({ id: "trip-carry", folio: "TL000-1", fecha_salida: "2026-05-28" });
+    const inPeriod = mockTrip({ id: "trip-in", folio: "TL001-1", fecha_salida: "2026-06-03" });
+    deps.tripFindAll.mock.mockImplementation(async () => [carryOver, inPeriod] as never);
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+    const trips = summary.trips as { id: string; en_periodo?: boolean; included?: boolean }[];
+
+    assert.equal(trips.length, 2);
+    const carry = trips.find((t) => t.id === "trip-carry");
+    const current = trips.find((t) => t.id === "trip-in");
+    assert.equal(carry?.en_periodo, false);
+    assert.equal(current?.en_periodo, true);
+    assert.equal(carry?.included, true);
+    assert.equal(current?.included, true);
+
+    restoreSummaryDeps(deps);
+  });
+
+  it("respeta trip_inclusions al calcular totales y flags", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a", tarifa: 1000 });
+    const tripB = mockTrip({ id: "trip-b", folio: "TL002-1", tarifa: 2000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, [
+      { id: "trip-a", included: true },
+      { id: "trip-b", included: false },
+    ]);
+    const trips = summary.trips as { id: string; included?: boolean }[];
+
+    assert.equal(trips.find((t) => t.id === "trip-a")?.included, true);
+    assert.equal(trips.find((t) => t.id === "trip-b")?.included, false);
+    assert.equal(summary.total_comisiones, 100);
+
+    restoreSummaryDeps(deps);
+  });
+});
+
+describe("closeSettlement trip inclusions", () => {
+  it("liquida solo viajes incluidos", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a" });
+    const tripB = mockTrip({ id: "trip-b", folio: "TL002-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
+
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => ({
+      ...(data as object),
+      id: "settlement-1",
+    }) as never);
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin, undefined, [
+      { id: "trip-a", included: true },
+      { id: "trip-b", included: false },
+    ]);
+
+    assert.equal(tripUpdate.mock.callCount(), 1);
+    const updateArgs = tripUpdate.mock.calls[0].arguments[0] as { settlement_id: string };
+    const updateWhere = tripUpdate.mock.calls[0].arguments[1] as { where: { id: Record<symbol, string[]> } };
+    const inKey = Object.getOwnPropertySymbols(updateWhere.where.id)[0];
+    assert.equal(updateArgs.settlement_id, "settlement-1");
+    assert.deepEqual(updateWhere.where.id[inKey], ["trip-a"]);
+
+    restoreSummaryDeps(deps);
+    tripUpdate.mock.restore();
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+  });
+
+  it("mantiene viaje excluido disponible en el periodo siguiente", async () => {
+    const deps = mockSummaryDeps();
+    const excluded = mockTrip({ id: "trip-excluded", fecha_salida: "2026-06-03" });
+    deps.tripFindAll.mock.mockImplementation(async () => [excluded] as never);
+
+    const nextPeriodSummary = await settlementSummary(
+      tenantId,
+      driverId,
+      "2026-06-08",
+      "2026-06-14",
+    );
+    const trips = nextPeriodSummary.trips as { id: string; en_periodo?: boolean }[];
+
+    assert.equal(trips.length, 1);
+    assert.equal(trips[0]?.id, "trip-excluded");
+    assert.equal(trips[0]?.en_periodo, false);
+
+    restoreSummaryDeps(deps);
+  });
+
+  it("no usa snapshot del borrador cuando trip_inclusions es un arreglo vacío explícito", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a" });
+    const tripB = mockTrip({ id: "trip-b", folio: "TL002-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
+
+    const draftRow = {
+      id: "draft-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: false,
+      snapshot: {
+        trips: [
+          { id: "trip-a", included: true },
+          { id: "trip-b", included: false },
+        ],
+      },
+      update: mock.fn(async () => {}),
+    };
+
+    const settlementFindOne = mock.method(Settlement, "findOne", async (opts: { where?: Record<string, unknown> }) => {
+      const where = opts?.where ?? {};
+      if (where.id === "draft-1" && where.cerrado === false) return draftRow as never;
+      if (where.cerrado === true) return null;
+      return null;
+    });
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin, "draft-1", []);
+
+    assert.equal(tripUpdate.mock.callCount(), 1);
+    const updateWhere = tripUpdate.mock.calls[0].arguments[1] as { where: { id: Record<symbol, string[]> } };
+    const inKey = Object.getOwnPropertySymbols(updateWhere.where.id)[0];
+    assert.deepEqual(updateWhere.where.id[inKey].sort(), ["trip-a", "trip-b"]);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    tripUpdate.mock.restore();
+  });
+});
+
+describe("createDraftSettlement with trip inclusions", () => {
+  it("guarda included en el snapshot del borrador", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a" });
+    const tripB = mockTrip({ id: "trip-b", folio: "TL002-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
+
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+    let savedSnapshot: Record<string, unknown> | undefined;
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => {
+      savedSnapshot = (data as { snapshot: Record<string, unknown> }).snapshot;
+      return { ...(data as object), id: "draft-1" } as never;
+    });
+
+    await createDraftSettlement(tenantId, driverId, fechaInicio, fechaFin, [
+      { id: "trip-a", included: true },
+      { id: "trip-b", included: false },
+    ]);
+
+    const trips = (savedSnapshot?.trips ?? []) as { id: string; included?: boolean }[];
+    assert.equal(trips.find((t) => t.id === "trip-b")?.included, false);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+  });
+});
+
+describe("closeSettlementById", () => {
+  it("usa inclusiones del snapshot del borrador al cerrar", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a" });
+    const tripB = mockTrip({ id: "trip-b", folio: "TL002-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
+
+    const draftRow = {
+      id: "draft-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: false,
+      snapshot: {
+        trips: [
+          { id: "trip-a", included: true },
+          { id: "trip-b", included: false },
+        ],
+      },
+      update: mock.fn(async () => {}),
+    };
+
+    const settlementFindOne = mock.method(Settlement, "findOne", async (opts: { where?: Record<string, unknown> }) => {
+      const where = opts?.where ?? {};
+      if (where.id === "draft-1" && where.cerrado === false) return draftRow as never;
+      if (where.cerrado === true) return null;
+      return null;
+    });
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+
+    await closeSettlementById(tenantId, "draft-1");
+
+    assert.equal(tripUpdate.mock.callCount(), 1);
+    const updateWhere = tripUpdate.mock.calls[0].arguments[1] as { where: { id: Record<symbol, string[]> } };
+    const inKey = Object.getOwnPropertySymbols(updateWhere.where.id)[0];
+    assert.deepEqual(updateWhere.where.id[inKey], ["trip-a"]);
+    assert.equal(draftRow.update.mock.callCount(), 1);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    tripUpdate.mock.restore();
   });
 });

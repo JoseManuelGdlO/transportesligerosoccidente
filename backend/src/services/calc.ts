@@ -115,24 +115,40 @@ export interface SettlementSummary {
   neto_pagar: number;
 }
 
-export function computeSettlement(
+export interface EligibleSettlementTrip {
+  trip: Trip & { fuel?: unknown[]; expenses?: unknown[] };
+  en_periodo: boolean;
+}
+
+export function filterEligibleSettlementTrips(
   driver: Driver,
   trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
   inicio: Date,
   fin: Date,
+): EligibleSettlementTrip[] {
+  return trips
+    .filter((t) => {
+      if (t.driver_id !== driver.id) return false;
+      const d = new Date(t.fecha_salida as unknown as string);
+      return d <= fin;
+    })
+    .map((trip) => {
+      const d = new Date(trip.fecha_salida as unknown as string);
+      return { trip, en_periodo: d >= inicio && d <= fin };
+    });
+}
+
+export function computeSettlementTotals(
+  driver: Driver,
+  trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
   opts?: { total_descuentos?: number; total_anticipos?: number },
-): SettlementSummary {
-  const inRange = trips.filter((t) => {
-    if (t.driver_id !== driver.id) return false;
-    const d = new Date(t.fecha_salida as unknown as string);
-    return d >= inicio && d <= fin;
-  });
+): Omit<SettlementSummary, "trips"> {
   let total_ingresos = 0;
   let total_comisiones = 0;
   let total_km = 0;
   let viaticos_entregados = 0;
   let viaticos_comprobados = 0;
-  for (const t of inRange) {
+  for (const t of trips) {
     const f = computeTrip(t, driver);
     total_ingresos += f.ingreso;
     total_comisiones += f.comision;
@@ -146,7 +162,6 @@ export function computeSettlement(
   const total_anticipos = opts?.total_anticipos ?? 0;
   const neto_pagar = total_comisiones - no_comprobado - total_descuentos - total_anticipos;
   return {
-    trips: inRange,
     total_ingresos,
     total_comisiones,
     total_km,
@@ -156,5 +171,21 @@ export function computeSettlement(
     total_descuentos,
     total_anticipos,
     neto_pagar,
+  };
+}
+
+export function computeSettlement(
+  driver: Driver,
+  trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
+  inicio: Date,
+  fin: Date,
+  opts?: { total_descuentos?: number; total_anticipos?: number },
+): SettlementSummary {
+  const eligible = filterEligibleSettlementTrips(driver, trips, inicio, fin);
+  const includedTrips = eligible.map((e) => e.trip);
+  const totals = computeSettlementTotals(driver, includedTrips, opts);
+  return {
+    trips: includedTrips,
+    ...totals,
   };
 }

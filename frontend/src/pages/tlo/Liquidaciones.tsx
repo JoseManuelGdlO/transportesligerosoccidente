@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { SettlementSummary } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
-import { resolveSettlementDriver, snapshotToPdfSummary } from "@/lib/settlementSnapshot";
+import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
@@ -64,6 +64,7 @@ export default function Liquidaciones() {
   const [summarySource, setSummarySource] = useState<SummarySource>("live");
   const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
+  const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
   const [advForm, setAdvForm] = useState({ monto: 0, fecha: defaultFechaEnPeriodo(), descripcion: "" });
@@ -105,6 +106,7 @@ export default function Liquidaciones() {
       const res = await apiFetch(`/settlements/summary?${q}`);
       const data = await readJson<SettlementSummaryApi>(res);
       setSummary(data);
+      setTripInclusions(buildTripInclusionsFromTrips(data.trips));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cargar resumen");
       setSummary(null);
@@ -190,6 +192,7 @@ export default function Liquidaciones() {
     setInicio(draft.fecha_inicio);
     setFin(draft.fecha_fin);
     setSummary(draft.snapshot);
+    setTripInclusions(buildTripInclusionsFromTrips(draft.snapshot.trips));
     setActiveTab("actual");
     toast.success("Pre-liquidación cargada");
   };
@@ -273,21 +276,31 @@ export default function Liquidaciones() {
 
   const saveDraft = async () => {
     if (!driverId) return;
+    const payload = tripInclusionsPayload(tripInclusions);
     try {
       let row: SettlementRecord;
       if (activeDraftId) {
-        const res = await apiFetch(`/settlements/${activeDraftId}/draft`, { method: "PATCH" });
+        const res = await apiFetch(`/settlements/${activeDraftId}/draft`, {
+          method: "PATCH",
+          body: JSON.stringify({ trip_inclusions: payload }),
+        });
         row = await readJson<SettlementRecord>(res);
       } else {
         const res = await apiFetch("/settlements/draft", {
           method: "POST",
-          body: JSON.stringify({ driver_id: driverId, fecha_inicio: inicio, fecha_fin: fin }),
+          body: JSON.stringify({
+            driver_id: driverId,
+            fecha_inicio: inicio,
+            fecha_fin: fin,
+            trip_inclusions: payload,
+          }),
         });
         row = await readJson<SettlementRecord>(res);
         setActiveDraftId(row.id);
       }
       if (row.snapshot) {
         setSummary(row.snapshot);
+        setTripInclusions(buildTripInclusionsFromTrips(row.snapshot.trips));
         setSummarySource("snapshot");
       }
       toast.success("Pre-liquidación guardada");
@@ -319,12 +332,21 @@ export default function Liquidaciones() {
     setClosing(true);
     try {
       const idToClose = settlementId ?? activeDraftId ?? undefined;
+      const inclusionsBody = { trip_inclusions: tripInclusionsPayload(tripInclusions) };
       if (idToClose) {
-        await apiFetch(`/settlements/${idToClose}/close`, { method: "POST" });
+        await apiFetch(`/settlements/${idToClose}/close`, {
+          method: "POST",
+          body: JSON.stringify(inclusionsBody),
+        });
       } else {
         await apiFetch("/settlements/close", {
           method: "POST",
-          body: JSON.stringify({ driver_id: driverId, fecha_inicio: inicio, fecha_fin: fin }),
+          body: JSON.stringify({
+            driver_id: driverId,
+            fecha_inicio: inicio,
+            fecha_fin: fin,
+            ...inclusionsBody,
+          }),
         });
       }
       toast.success("Liquidación cerrada");
@@ -390,10 +412,16 @@ export default function Liquidaciones() {
     });
   };
 
+  const effectiveSummary = useMemo(() => {
+    if (!summary || !driver) return null;
+    if (summarySource === "snapshot") return summary;
+    return applyTripInclusions(summary, driver, tripInclusions);
+  }, [summary, driver, tripInclusions, summarySource]);
+
   const summaryForPdf = useMemo(() => {
-    if (!summary) return null;
-    return snapshotToPdfSummary(summary);
-  }, [summary]);
+    if (!effectiveSummary) return null;
+    return snapshotToPdfSummary(effectiveSummary);
+  }, [effectiveSummary]);
 
   const viewingHistoryDriver = viewingHistory?.snapshot
     ? resolveSettlementDriver(viewingHistory.snapshot, drivers)
@@ -451,10 +479,15 @@ export default function Liquidaciones() {
               )}
 
               <SettlementSummaryPanel
-                summary={summary}
+                summary={effectiveSummary ?? summary}
                 driver={driver}
                 readOnly={summarySource === "snapshot"}
                 canEditFinance={canClose}
+                canSelectTrips={canClose && summarySource === "live"}
+                tripInclusions={tripInclusions}
+                onTripInclusionChange={(tripId, included) => {
+                  setTripInclusions((prev) => ({ ...prev, [tripId]: included }));
+                }}
                 advForm={advForm}
                 discForm={discForm}
                 onAdvFormChange={setAdvForm}
