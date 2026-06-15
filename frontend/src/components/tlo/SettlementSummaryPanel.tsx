@@ -55,6 +55,9 @@ export function SettlementSummaryPanel({
   onEditTrip,
 }: SettlementSummaryPanelProps) {
   const showFinanceForms = !readOnly && canEditFinance;
+  const sortedTrips = [...summary.trips].sort((a, b) =>
+    a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" }),
+  );
 
   return (
     <div className="space-y-4">
@@ -212,14 +215,14 @@ export function SettlementSummaryPanel({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {summary.trips.length === 0 && (
+              {sortedTrips.length === 0 && (
                 <TableRow>
                   <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
                     Sin viajes en el periodo
                   </TableCell>
                 </TableRow>
               )}
-              {summary.trips.map((t) => {
+              {sortedTrips.map((t) => {
                 const f = computeTrip(t, driver);
                 return (
                   <TableRow key={t.id}>
