@@ -248,7 +248,7 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
   },
   trips_table: {
     label: "Tabla de viajes",
-    description: "Viajes del periodo (folio, factura, ingresos, flete y comisiones)",
+    description: "Viajes del periodo (folio, factura, viáticos, comprobados y comisiones)",
     zones: ["body"],
     kinds: ["settlement"],
   },

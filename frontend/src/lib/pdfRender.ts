@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
-import { computeTrip } from "@/lib/calc";
+import { computeTrip, ingresosComprobadosLiquidacion } from "@/lib/calc";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
@@ -691,19 +691,19 @@ const renderTripsTable: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const { summary, driver } = state.data;
   const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Flete", "Comisión"]];
+  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Viáticos", "Comprobaciones", "Comisión"]];
   const sortedTrips = sortSettlementTrips(summary.trips);
-  let totalFlete = 0;
   const body: string[][] = sortedTrips.map((t: Trip) => {
     const f = computeTrip(t, driver);
-    totalFlete += t.tarifa || 0;
+    const comprobados = f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
     return [
       String(t.folio),
       t.num_factura?.trim() || "-",
       fmtDatePdf(t.fecha_salida),
       tripClientLabel(t),
       formatTripRoute(t),
-      fmtMXN(t.tarifa || 0),
+      fmtMXN(t.viaticos_entregados || 0),
+      fmtMXN(comprobados),
       fmtMXN(f.comision),
     ];
   });
@@ -712,12 +712,13 @@ const renderTripsTable: BlockRenderer = (state) => {
   pdfAutoTable(state.doc, {
     startY: state.y,
     head,
-    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", ""]],
+    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
     foot: [
       [
         { content: `Total:`, colSpan: 2, styles: { halign: "left" } },
         { content: `${summary.trips.length} Viajes`, colSpan: 3 },
-        { content: fmtMXN(totalFlete), styles: { ...footRight, fontStyle: "bold" } },
+        { content: fmtMXN(summary.viaticos_entregados), styles: { ...footRight, fontStyle: "bold" } },
+        { content: fmtMXN(summary.viaticos_comprobados), styles: { ...footRight, fontStyle: "bold" } },
         { content: fmtMXN(summary.total_comisiones), styles: footRight },
       ],
     ],
@@ -727,13 +728,14 @@ const renderTripsTable: BlockRenderer = (state) => {
     margin: tableMargins(state),
     rowPageBreak: "avoid",
     columnStyles: {
-      0: { cellWidth: 18 },
-      1: { cellWidth: 20 },
-      2: { cellWidth: 16 },
-      3: { cellWidth: 24 },
-      4: { cellWidth: 48 },
-      5: { halign: "right", cellWidth: 22 },
+      0: { cellWidth: 16 },
+      1: { cellWidth: 18 },
+      2: { cellWidth: 14 },
+      3: { cellWidth: 22 },
+      4: { cellWidth: 40 },
+      5: { halign: "right", cellWidth: 20 },
       6: { halign: "right", cellWidth: 22 },
+      7: { halign: "right", cellWidth: 20 },
     },
   });
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
