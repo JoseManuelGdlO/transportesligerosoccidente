@@ -1,3 +1,7 @@
+/**
+ * Construcción del payload JSON para Sicofi Factura40.
+ * @module pac/sicofi/buildFactura40Payload
+ */
 import type { CartaPorte, Trip } from "../../../models";
 import { num } from "../../../utils/numbers";
 import type { TimbradoContext } from "../types";
@@ -12,6 +16,7 @@ import {
   isPublicoGeneralReceptor,
 } from "./publicoGeneral";
 
+/** Resuelve tasas de IVA/retención desde opts del request o defaults del tenant. */
 function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
   const o = ctx.opts ?? {};
   return {
@@ -23,6 +28,10 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
   };
 }
 
+/**
+ * Folio numérico para Sicofi; `0` indica auto-asignación por el PAC.
+ * Usa `cartaPorte.folio_cfdi` si ya existe.
+ */
 function folioNumber(cartaPorte: CartaPorte, trip: Trip): number | string {
   if (cartaPorte.folio_cfdi) {
     const n = Number(cartaPorte.folio_cfdi);
@@ -31,7 +40,16 @@ function folioNumber(cartaPorte: CartaPorte, trip: Trip): number | string {
   return 0;
 }
 
-/** Construye bloques Factura40 (sin Usuario/Contrasena). */
+/**
+ * Construye el JSON Factura40 (sin `Usuario`/`Contrasena`) a partir del contexto del viaje.
+ *
+ * Orquesta `mapConceptos`, `mapCartaPorte31` y reglas de receptor:
+ * - Traslado: receptor = datos del tenant (mismo RFC que CSD en Sicofi).
+ * - Ingreso: receptor = cliente; público en general solo sin Carta Porte.
+ *
+ * @param ctx - Contexto completo de timbrado.
+ * @returns Cuerpo listo para extender con credenciales en `SicofiPacProvider`.
+ */
 export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBody {
   const { tipo, trip, tenant, cartaPorte, ubicaciones, mercancias, truck, driver, client } = ctx;
   const opts = ctx.opts ?? {};

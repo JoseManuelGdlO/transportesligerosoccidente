@@ -1,6 +1,7 @@
 import type { TimbradoResult } from "../types";
 import { enhanceSicofiErrorMessage } from "./sicofiErrors";
 
+/** Metadatos extraídos del XML timbrado antes de armar `TimbradoResult`. */
 export interface ParsedCfdiMeta {
   uuid: string;
   xmlTimbrado: string;
@@ -10,19 +11,29 @@ export interface ParsedCfdiMeta {
   tipoDeComprobante?: string;
 }
 
+/** Lee un atributo de un nodo XML por nombre de tag y atributo (con o sin namespace). */
 function attr(xml: string, tag: string, name: string): string | undefined {
   const re = new RegExp(`<(?:[^:>]+:)?${tag}[^>]*\\s${name}="([^"]*)"`, "i");
   const m = xml.match(re);
   return m?.[1];
 }
 
+/** Lee un atributo del nodo `Comprobante` del CFDI. */
 function comprobanteAttr(xml: string, name: string): string | undefined {
   const re = new RegExp(`<(?:[^:>]+:)?Comprobante[^>]*\\s${name}="([^"]*)"`, "i");
   const m = xml.match(re);
   return m?.[1];
 }
 
-/** Extrae XML desde body crudo (XML directo o JSON con campo Xml/xml). */
+/**
+ * Extrae el XML del CFDI desde el body de respuesta de Sicofi.
+ * Acepta XML directo o JSON con campo `Xml`/`xml`/`Comprobante`.
+ *
+ * @param body - Cuerpo crudo de la respuesta HTTP.
+ * @param contentType - Header Content-Type opcional para detectar JSON.
+ * @returns XML del comprobante timbrado.
+ * @throws Si el formato no es reconocido o JSON sin XML (mensaje enriquecido).
+ */
 export function extractXmlFromBody(body: string, contentType?: string): string {
   const trimmed = body.trim();
   if (trimmed.startsWith("<?xml") || trimmed.startsWith("<cfdi:") || trimmed.startsWith("<")) {
@@ -47,6 +58,13 @@ export function extractXmlFromBody(body: string, contentType?: string): string {
   throw new Error("Respuesta Sicofi no reconocida");
 }
 
+/**
+ * Parsea UUID, fecha de timbrado y serie/folio desde el XML del CFDI.
+ *
+ * @param xml - XML timbrado completo.
+ * @returns Metadatos del TimbreFiscalDigital y Comprobante.
+ * @throws Si falta `TimbreFiscalDigital` con UUID o FechaTimbrado.
+ */
 export function parseTimbradoXml(xml: string): ParsedCfdiMeta {
   const uuid = attr(xml, "TimbreFiscalDigital", "UUID");
   const fechaTimbrado = attr(xml, "TimbreFiscalDigital", "FechaTimbrado");
@@ -63,6 +81,10 @@ export function parseTimbradoXml(xml: string): ParsedCfdiMeta {
   };
 }
 
+/**
+ * Pipeline completo: body HTTP → XML → `TimbradoResult`.
+ * Trunca `pacResponse` a 8000 caracteres para persistencia en BD.
+ */
 export function parseSicofiResponse(body: string, contentType?: string): TimbradoResult {
   const xml = extractXmlFromBody(body, contentType);
   const parsed = parseTimbradoXml(xml);

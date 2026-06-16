@@ -6,6 +6,10 @@ import type { TimbradoResult } from "../types";
 
 export { enhanceSicofiErrorMessage } from "./sicofiErrors";
 
+/**
+ * Error HTTP devuelto por Sicofi en Factura40.
+ * El mensaje se enriquece con `enhanceSicofiErrorMessage`.
+ */
 export class SicofiHttpError extends Error {
   readonly status: number;
 
@@ -16,10 +20,23 @@ export class SicofiHttpError extends Error {
   }
 }
 
+/**
+ * Indica si el error es un 401 de Sicofi (token expirado o credenciales inválidas).
+ * Usado para decidir reintento con token fresco.
+ */
 export function isSicofiHttp401(e: unknown): boolean {
   return e instanceof SicofiHttpError && e.status === 401;
 }
 
+/**
+ * Envía el payload Factura40 a Sicofi y parsea la respuesta a `TimbradoResult`.
+ *
+ * @param url - URL completa de Factura40.
+ * @param payload - JSON con credenciales y bloques CFDI.
+ * @param accessToken - JWT Bearer obtenido en `sicofiAuth`.
+ * @returns UUID, XML y metadatos del comprobante timbrado.
+ * @throws `SicofiHttpError` si HTTP no OK; `Error` en timeout o parseo fallido.
+ */
 export async function sicofiPostFactura40(
   url: string,
   payload: SicofiFactura40Request,

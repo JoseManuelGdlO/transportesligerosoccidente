@@ -4,6 +4,14 @@ import type { ConceptoCFDI40 } from "./types";
 import { computeTripInvoiceTaxes } from "./invoiceTaxes";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
 
+/**
+ * Mapea los conceptos CFDI 4.0 según el tipo de comprobante.
+ *
+ * - **Traslado**: un concepto de transporte en $0, moneda `XXX`, sin impuestos (`ObjetoImp: 01`).
+ * - **Ingreso**: concepto de flete con clave `78101801`, IVA y retención vía `computeTripInvoiceTaxes`.
+ *
+ * @returns Conceptos, subtotal, total y moneda para `DatosCFDI40`.
+ */
 export function mapConceptos(
   trip: Trip,
   truck: Truck,

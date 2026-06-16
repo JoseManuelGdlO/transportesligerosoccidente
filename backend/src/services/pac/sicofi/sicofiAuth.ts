@@ -7,15 +7,18 @@ type TokenCacheEntry = { accessToken: string; expiresAt: number };
 
 const tokenCache = new Map<string, TokenCacheEntry>();
 
+/** Clave de caché: `{baseUrl}:{usuario}`. */
 function cacheKey(baseUrl: string, usuario: string): string {
   return `${baseUrl}:${usuario}`;
 }
 
+/** Calcula timestamp de expiración con margen de 60s antes del TTL real. */
 function computeExpiresAt(expiresInSec: number): number {
   const ttlMs = Math.max(expiresInSec * 1000 - EXPIRY_MARGIN_MS, EXPIRY_MARGIN_MS);
   return Date.now() + ttlMs;
 }
 
+/** Extrae token y TTL de la respuesta JSON de `/auth/token` (variantes de nombres de campo). */
 function parseAuthTokenBody(parsed: Record<string, unknown>): { accessToken: string; expiresIn: number } {
   const raw =
     parsed.access_token ?? parsed.token ?? parsed.accessToken ?? parsed.AccessToken;
@@ -31,6 +34,16 @@ function parseAuthTokenBody(parsed: Record<string, unknown>): { accessToken: str
   return { accessToken, expiresIn };
 }
 
+/**
+ * Obtiene un JWT de Sicofi vía `POST /auth/token` con Basic auth.
+ * No usa caché; para token cacheado usar `getSicofiAccessToken`.
+ *
+ * @param baseUrl - URL base de la API (sin `/auth/token`).
+ * @param usuario - Usuario Sicofi del tenant.
+ * @param contrasena - Contraseña Sicofi descifrada.
+ * @returns Token y timestamp de expiración en memoria.
+ * @throws Si HTTP no OK, JSON inválido, sin token o timeout.
+ */
 export async function fetchSicofiAccessToken(
   baseUrl: string,
   usuario: string,
@@ -82,10 +95,20 @@ export async function fetchSicofiAccessToken(
   }
 }
 
+/**
+ * Elimina el JWT cacheado para forzar renovación en el próximo timbrado.
+ * Usado tras recibir 401 en Factura40.
+ */
 export function invalidateSicofiAccessToken(baseUrl: string, usuario: string): void {
   tokenCache.delete(cacheKey(baseUrl, usuario));
 }
 
+/**
+ * Devuelve JWT cacheado si sigue vigente; si no, llama a `fetchSicofiAccessToken`.
+ *
+ * @param opts.forceRefresh - Si true, ignora caché y obtiene token nuevo.
+ * @returns Token Bearer para el header `Authorization`.
+ */
 export async function getSicofiAccessToken(
   baseUrl: string,
   usuario: string,
@@ -105,7 +128,7 @@ export async function getSicofiAccessToken(
   return accessToken;
 }
 
-/** Solo para tests: limpia cache en memoria. */
+/** Solo para tests: limpia la caché de tokens en memoria. */
 export function clearSicofiTokenCacheForTests(): void {
   tokenCache.clear();
 }

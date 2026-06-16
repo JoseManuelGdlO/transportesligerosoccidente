@@ -1,11 +1,16 @@
 import type { ImpuestoLinea } from "./types";
 
+/** Tasas opcionales para el cálculo de impuestos de factura de ingreso. */
 export interface InvoiceTaxOpts {
+  /** Tasa de IVA (default 0.16). */
   ivaTasa?: number;
+  /** Tasa de retención ISR/IVA transporte (default 0.04). */
   retencionTasa?: number;
+  /** Si true, no se calculan traslados ni retenciones. */
   exento?: boolean;
 }
 
+/** Desglose de impuestos y totales para un concepto de flete. */
 export interface InvoiceTaxResult {
   subtotal: number;
   iva: number;
@@ -15,10 +20,21 @@ export interface InvoiceTaxResult {
   retenciones: ImpuestoLinea[];
 }
 
+/** Redondeo a 2 decimales para montos fiscales. */
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
+/**
+ * Calcula IVA (impuesto 002) y retención para la tarifa de un viaje de ingreso.
+ *
+ * Fórmula: `total = subtotal + iva − retención`.
+ * Defaults: IVA 16%, retención 4%.
+ *
+ * @param tarifa - Monto base del flete (subtotal).
+ * @param opts - Tasas y flag de exento.
+ * @returns Líneas de traslado/retención listas para `ConceptoCFDI40`.
+ */
 export function computeTripInvoiceTaxes(tarifa: number, opts: InvoiceTaxOpts = {}): InvoiceTaxResult {
   const subtotal = round2(Math.max(0, tarifa));
   if (opts.exento || subtotal === 0) {

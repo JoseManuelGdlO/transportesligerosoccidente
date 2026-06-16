@@ -1,4 +1,14 @@
-/** Añade contexto accionable a errores SAT/Sicofi frecuentes. */
+/**
+ * Añade contexto accionable a mensajes de error SAT/Sicofi frecuentes.
+ *
+ * Códigos enriquecidos:
+ * - **CP107** — traslado: receptor CFDI debe coincidir con RFC del CSD en Sicofi.
+ * - **CFDI40106** — CSD del PAC no corresponde al emisor del comprobante.
+ * - **CP131** — falta o inconsistencia en `CantidadTransporta` de mercancías.
+ *
+ * @param msg - Mensaje original de Sicofi o del parseo.
+ * @returns Mensaje con guía de corrección, o el original si no hay match.
+ */
 export function enhanceSicofiErrorMessage(msg: string): string {
   if (msg.includes("CP107")) {
     return (

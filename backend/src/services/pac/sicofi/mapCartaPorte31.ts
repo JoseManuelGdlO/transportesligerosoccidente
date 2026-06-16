@@ -3,6 +3,7 @@ import { num } from "../../../utils/numbers";
 import { DEFAULT_BIENES_TRANSP_CP, normalizePermSct } from "../../../utils/cartaPorteSat";
 import { resolveIdUbicacionSat } from "../../tripFiscalService";
 
+/** Formatea fecha/hora para Carta Porte (`YYYY-MM-DDTHH:mm:ss`). */
 function formatFecha(d: Date | string | null | undefined): string {
   if (!d) return new Date().toISOString().slice(0, 19);
   const dt = d instanceof Date ? d : new Date(d);
@@ -10,11 +11,13 @@ function formatFecha(d: Date | string | null | undefined): string {
   return `${dt.getFullYear()}-${pad(dt.getMonth() + 1)}-${pad(dt.getDate())}T${pad(dt.getHours())}:${pad(dt.getMinutes())}:${pad(dt.getSeconds())}`;
 }
 
+/** Normaliza IdCCP al prefijo `CCC` que espera Sicofi. */
 function sicofiIdCcp(id: string | null | undefined): string {
   if (!id) return "";
   return id.startsWith("CCC") ? id : `CCC${id}`;
 }
 
+/** Mapea domicilio de una ubicación del viaje al formato Sicofi CP 3.1. */
 function mapDomicilio(u: TripUbicacion) {
   return {
     calle_ubicacion: u.calle || "",
@@ -30,6 +33,14 @@ function mapDomicilio(u: TripUbicacion) {
   };
 }
 
+/**
+ * Construye el bloque `CartaPorte31` del JSON Sicofi (complemento Carta Porte 3.1).
+ *
+ * Incluye ubicaciones, mercancías con `CantidadTransporta`, autotransporte,
+ * seguros y figura de transporte (operador).
+ *
+ * @returns Objeto listo para asignar a `Factura40PayloadBody.CartaPorte31`.
+ */
 export function mapCartaPorte31(
   trip: Trip,
   cartaPorte: CartaPorte,

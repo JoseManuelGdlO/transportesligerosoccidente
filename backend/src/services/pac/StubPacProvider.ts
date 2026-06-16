@@ -1,10 +1,20 @@
 import { randomUUID } from "node:crypto";
 import type { PacProvider, TimbradoContext, TimbradoResult } from "./types";
 
-/** PAC de prueba: simula timbrado sin llamar a proveedor externo. */
+/**
+ * PAC de prueba: simula timbrado sin llamar a proveedor externo.
+ * Útil para desarrollo local cuando `PAC_PROVIDER=stub` o el tenant no tiene Sicofi.
+ */
 export class StubPacProvider implements PacProvider {
   readonly name = "stub";
 
+  /**
+   * Genera un XML mínimo con UUID aleatorio y metadatos de serie/folio.
+   * No valida datos fiscales; asume que el preview ya pasó en `cartaPorteService`.
+   *
+   * @param ctx - Contexto del viaje y tipo de comprobante.
+   * @returns Resultado simulado compatible con `TimbradoResult`.
+   */
   async timbrar(ctx: TimbradoContext): Promise<TimbradoResult> {
     const serie = ctx.tenant.cfdi_serie || "CP";
     const folio =
@@ -28,6 +38,9 @@ export class StubPacProvider implements PacProvider {
     };
   }
 
+  /**
+   * No-op en stub: la cancelación no contacta ningún servicio externo.
+   */
   async cancelar(uuid: string, motivo: string, rfc: string): Promise<void> {
     void uuid;
     void motivo;

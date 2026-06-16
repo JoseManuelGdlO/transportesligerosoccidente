@@ -9,18 +9,25 @@ import type {
   Client,
 } from "../../models";
 
+/** Variante de comprobante a timbrar: factura de ingreso (`FA`) o traslado (`T`). */
 export type TipoComprobanteTimbrado = "ingreso" | "traslado";
 
+/** Resultado normalizado tras un timbrado exitoso en cualquier PAC. */
 export interface TimbradoResult {
+  /** UUID del TimbreFiscalDigital. */
   uuid: string;
+  /** XML del CFDI timbrado completo. */
   xmlTimbrado: string;
+  /** Fecha/hora de timbrado según el PAC (ISO o formato SAT). */
   fechaTimbrado: string;
   serie?: string;
   folio?: string;
   cadenaOriginal?: string;
+  /** Respuesta cruda del PAC (truncada a 8000 chars en Sicofi). */
   pacResponse?: string;
 }
 
+/** Opciones fiscales que pueden sobreescribir los defaults del tenant en un timbrado. */
 export interface TimbradoOpts {
   moneda?: string;
   tipoCambio?: number;
@@ -33,6 +40,10 @@ export interface TimbradoOpts {
   exento?: boolean;
 }
 
+/**
+ * Contexto completo para construir el payload y timbrar un viaje.
+ * Lo arma `cartaPorteService.buildTimbradoContext` antes de llamar al PAC.
+ */
 export interface TimbradoContext {
   tipo: TipoComprobanteTimbrado;
   trip: Trip;
@@ -46,8 +57,13 @@ export interface TimbradoContext {
   opts?: TimbradoOpts;
 }
 
+/**
+ * Contrato que debe implementar cada proveedor PAC (stub, Sicofi, futuros).
+ */
 export interface PacProvider {
   readonly name: string;
+  /** Ejecuta el timbrado ante el PAC y devuelve XML + metadatos. */
   timbrar(ctx: TimbradoContext): Promise<TimbradoResult>;
+  /** Cancela un CFDI timbrado ante el PAC. */
   cancelar(uuid: string, motivo: string, rfc: string): Promise<void>;
 }

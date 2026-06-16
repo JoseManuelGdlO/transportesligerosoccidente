@@ -4,7 +4,15 @@ import { bienesTranspCpIssue, configVehicularIssue, permSctIssue } from "../../.
 import type { TimbradoContext } from "../types";
 import { isPublicoGeneralReceptor } from "./publicoGeneral";
 
-/** Validaciones adicionales para timbrado Sicofi Factura40. */
+/**
+ * Validaciones pre-timbrado específicas de Sicofi Factura40 y reglas SAT frecuentes.
+ *
+ * Complementa `validateCartaPorteData` en `cartaPorteService`. No lanza excepciones:
+ * devuelve una lista de mensajes en español para mostrar en preview.
+ *
+ * @param ctx - Contexto del viaje a timbrar.
+ * @returns Lista vacía si todo es válido; mensajes descriptivos si hay problemas.
+ */
 export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
   const issues: string[] = [];
   const { tipo, trip, tenant, ubicaciones, mercancias, truck, driver, client } = ctx;

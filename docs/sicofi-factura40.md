@@ -1,5 +1,7 @@
 # Sicofi Factura40 — Integración TLO
 
+Guía operativa y troubleshooting. Para arquitectura del código, flujo API y mapa de módulos, ver [backend/src/services/pac/README.md](../backend/src/services/pac/README.md).
+
 ## Endpoint
 
 Un solo endpoint para ingreso y traslado:

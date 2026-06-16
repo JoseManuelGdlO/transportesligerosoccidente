@@ -1,3 +1,9 @@
+/**
+ * Tipos del JSON de request/response para Sicofi Factura40 (CFDI 4.0).
+ * Nombres de propiedades respetan el contrato de la API Sicofi (PascalCase).
+ */
+
+/** Línea de traslado o retención en un concepto CFDI. */
 export interface ImpuestoLinea {
   Base: number;
   Impuesto: string;
@@ -6,6 +12,7 @@ export interface ImpuestoLinea {
   Importe: number;
 }
 
+/** Concepto individual del bloque `ConceptosCFDI40`. */
 export interface ConceptoCFDI40 {
   ClaveProdServ: string;
   NoIdentificacion?: string | null;
@@ -27,6 +34,7 @@ export interface ConceptoCFDI40 {
   ComplementosConceptos?: null;
 }
 
+/** Encabezado fiscal del comprobante (`DatosCFDI40`). */
 export interface DatosCFDI40 {
   Serie: string;
   Folio: number | string;
@@ -49,13 +57,14 @@ export interface DatosCFDI40 {
   complementos?: null;
 }
 
-/** CFDI global — público en general (XAXX010101000). Sicofi usa Año (string). */
+/** Nodo de factura global — público en general (`InformacionGlobal`). Sicofi usa `Año` como string. */
 export interface InformacionGlobalCFDI40 {
   Periodicidad: string;
   Meses: string;
   Año: string;
 }
 
+/** Datos fiscales del receptor (`ReceptorCFDI40`). */
 export interface ReceptorCFDI40 {
   RFC: string;
   RazonSocial: string;
@@ -82,6 +91,10 @@ export interface ReceptorCFDI40 {
   Contacto2?: null;
 }
 
+/**
+ * Cuerpo del JSON Factura40 sin credenciales.
+ * `CartaPorte31` contiene el complemento Carta Porte 3.1; versiones 2.0/3.0 van en null.
+ */
 export interface Factura40PayloadBody {
   DatosCFDI40: DatosCFDI40;
   CFDIRelacion40: unknown[];
@@ -94,6 +107,7 @@ export interface Factura40PayloadBody {
   Addenda: null;
 }
 
+/** Request completo a Sicofi: payload + `Usuario`, `Contrasena` y `EmisorCFDI40: null`. */
 export interface SicofiFactura40Request extends Factura40PayloadBody {
   Usuario: string;
   Contrasena: string;
