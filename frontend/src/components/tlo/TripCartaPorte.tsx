@@ -350,22 +350,8 @@ export function TripCartaPorte({
 
     try {
       if (stopCount <= 2) {
-        const origenPayload = {
-          ...origenForm,
-          fecha_hora: origenForm.fecha_hora
-            ? new Date(origenForm.fecha_hora).toISOString()
-            : undefined,
-          client_ubicacion_id: origenForm.client_ubicacion_id || undefined,
-        };
-        const destinoPayload = {
-          ...destinoForm,
-          distancia_km:
-            destinoForm.distancia_km === "" ? undefined : Number(destinoForm.distancia_km),
-          fecha_hora: destinoForm.fecha_hora
-            ? new Date(destinoForm.fecha_hora).toISOString()
-            : undefined,
-          client_ubicacion_id: destinoForm.client_ubicacion_id || undefined,
-        };
+        const { orden: _o, ...origenPayload } = toPayload(origenForm, 1);
+        const { orden: _d, ...destinoPayload } = toPayload(destinoForm, stopCount);
         const [r1, r2] = await Promise.all([
           apiFetch(`/trips/${trip.id}/carta-porte/ubicacion-origen`, {
             method: "PUT",
