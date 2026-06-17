@@ -3,6 +3,7 @@ import { sicofiTimeoutMs } from "./config";
 import { enhanceSicofiErrorMessage } from "./sicofiErrors";
 import type { SicofiFactura40Request } from "./types";
 import type { TimbradoResult } from "../types";
+import { logger } from "../../../utils/logger";
 
 export { enhanceSicofiErrorMessage } from "./sicofiErrors";
 
@@ -45,6 +46,8 @@ export async function sicofiPostFactura40(
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), sicofiTimeoutMs());
   try {
+    const debugBody = { ...payload, Contrasena: "[redacted]" };
+    logger.debug(`[Sicofi] Factura40 request body:\n${JSON.stringify(debugBody, null, 2)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: {

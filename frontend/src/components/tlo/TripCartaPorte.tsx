@@ -33,6 +33,7 @@ import {
   Stamp,
   AlertCircle,
   Download,
+  Loader2,
   Truck as TruckIcon,
   User,
 } from "lucide-react";
@@ -660,7 +661,11 @@ export function TripCartaPorte({
             <div className="grid sm:grid-cols-2 gap-3 pt-2 border-t">
               <div>
                 <Label>Tipo de comprobante</Label>
-                <Select value={tipoTimbrado} onValueChange={(v) => setTipoTimbrado(v as "ingreso" | "traslado")}>
+                <Select
+                  value={tipoTimbrado}
+                  onValueChange={(v) => setTipoTimbrado(v as "ingreso" | "traslado")}
+                  disabled={loading}
+                >
                   <SelectTrigger>
                     <SelectValue />
                   </SelectTrigger>
@@ -722,7 +727,17 @@ export function TripCartaPorte({
                 disabled={loading}
                 className="bg-primary text-primary-foreground"
               >
-                <Stamp className="h-4 w-4 mr-1" /> Timbrar
+                {loading ? (
+                  <>
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                    Timbrando…
+                  </>
+                ) : (
+                  <>
+                    <Stamp className="h-4 w-4" />
+                    Timbrar
+                  </>
+                )}
               </Button>
             )}
             {canViewCartaPorte && (cp?.has_xml || cpTimbrada) && (
