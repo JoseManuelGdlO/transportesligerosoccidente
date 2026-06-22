@@ -127,11 +127,11 @@ export function TripCartaPorte({
     () => [...(trip.ubicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
     [trip.ubicaciones],
   );
-  const stopCount = Math.max(trip.paradas?.length ?? 0, sortedUbics.length, 2);
+  const fiscalStopCount = 2;
   const origen = sortedUbics.find((u) => u.orden === 1) ?? sortedUbics.find((u) => u.tipo === "Origen");
   const destino =
-    sortedUbics.find((u) => u.orden === stopCount) ??
-    sortedUbics.filter((u) => u.tipo === "Destino").pop();
+    sortedUbics.filter((u) => u.orden > 1).pop() ??
+    sortedUbics.find((u) => u.tipo === "Destino");
 
   const [origenForm, setOrigenForm] = useState({
     ...emptyUbic(),
@@ -181,9 +181,6 @@ export function TripCartaPorte({
     clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
     material_peligroso: false,
   });
-  const [middleForms, setMiddleForms] = useState<
-    Array<ReturnType<typeof emptyUbic> & { orden: number; label: string }>
-  >([]);
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
   const [validationAttempted, setValidationAttempted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -206,8 +203,8 @@ export function TripCartaPorte({
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
 
   const issueFlags = useMemo(
-    () => classifyCartaPorteIssues(previewIssues, stopCount),
-    [previewIssues, stopCount],
+    () => classifyCartaPorteIssues(previewIssues, fiscalStopCount),
+    [previewIssues, fiscalStopCount],
   );
 
   useEffect(() => {
@@ -238,44 +235,6 @@ export function TripCartaPorte({
   ]);
 
   useEffect(() => {
-    if (stopCount <= 2) {
-      setMiddleForms([]);
-      return;
-    }
-    const paradas = trip.paradas?.length
-      ? [...trip.paradas].sort((a, b) => a.orden - b.orden)
-      : [
-          { orden: 1, etiqueta: trip.origen },
-          { orden: 2, etiqueta: trip.destino },
-        ];
-    const middles: Array<ReturnType<typeof emptyUbic> & { orden: number; label: string }> = [];
-    for (let orden = 2; orden < stopCount; orden++) {
-      const u = sortedUbics.find((x) => x.orden === orden);
-      const etiqueta = paradas.find((p) => p.orden === orden)?.etiqueta ?? "";
-      middles.push({
-        ...emptyUbic(),
-        orden,
-        label: `Parada ${orden} (entrega)`,
-        rfc: u?.rfc || clientRfc || "",
-        nombre: u?.nombre || clientName || "",
-        calle: u?.calle || etiqueta,
-        colonia: u?.colonia || "",
-        municipio: u?.municipio || "",
-        localidad: u?.localidad || "",
-        estado: u?.estado || "",
-        cp: u?.cp || "",
-        numero_exterior: u?.numero_exterior || "",
-        numero_interior: u?.numero_interior || "",
-        pais: u?.pais || "MEX",
-        client_ubicacion_id: u?.client_ubicacion_id,
-        distancia_km: u?.distancia_km ?? "",
-        fecha_hora: u?.fecha_hora?.slice(0, 16) || "",
-      });
-    }
-    setMiddleForms(middles);
-  }, [trip.id, trip.paradas, sortedUbics, stopCount, clientRfc, clientName, trip.origen, trip.destino]);
-
-  useEffect(() => {
     if (!clientId) {
       setCatalogUbicaciones([]);
       return;
@@ -286,22 +245,15 @@ export function TripCartaPorte({
   }, [clientId]);
 
   useEffect(() => {
-    lastSavedSnapshotRef.current = buildUbicSnapshot(origenForm, destinoForm, middleForms);
+    lastSavedSnapshotRef.current = buildUbicSnapshot(origenForm, destinoForm);
   }, [trip.id, trip.ubicaciones]);
 
   useEffect(() => {
     if (!validationAttempted) return;
-    const section = firstErrorSection(issueFlags, stopCount);
+    const section = firstErrorSection(issueFlags, fiscalStopCount);
     if (!section) return;
-    const refKey =
-      section === "stop"
-        ? `stop-${Object.keys(issueFlags.stops)
-            .map(Number)
-            .filter((o) => o > 1 && o < stopCount)
-            .sort((a, b) => a - b)[0]}`
-        : section;
-    sectionRefs.current[refKey]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [validationAttempted, issueFlags, stopCount]);
+    sectionRefs.current[section]?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }, [validationAttempted, issueFlags, fiscalStopCount]);
 
   const catalogForOrigen = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Origen" || u.tipo === "Ambos"),
@@ -316,11 +268,8 @@ export function TripCartaPorte({
     onTripUpdated(normalizeTrip(j));
   };
 
-  const buildUbicSnapshot = (
-    origen: typeof origenForm,
-    destino: typeof destinoForm,
-    middles: typeof middleForms,
-  ) => JSON.stringify({ origen, destino, middles });
+  const buildUbicSnapshot = (origen: typeof origenForm, destino: typeof destinoForm) =>
+    JSON.stringify({ origen, destino });
 
   const toPayload = (body: ReturnType<typeof emptyUbic>, orden: number) => ({
     orden,
@@ -339,48 +288,29 @@ export function TripCartaPorte({
     numero_interior: body.numero_interior || undefined,
     pais: body.pais || undefined,
     distancia_km:
-      orden === 1 || body.distancia_km === "" ? undefined : Number(body.distancia_km),
+      orden === 1 || body.distancia_km === "" || body.distancia_km == null
+        ? undefined
+        : Number(body.distancia_km),
     fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
     client_ubicacion_id: body.client_ubicacion_id || undefined,
   });
 
   const persistUbicaciones = useCallback(async () => {
     if (!canFiscalEdit) return;
-    const snapshot = buildUbicSnapshot(origenForm, destinoForm, middleForms);
+    const snapshot = buildUbicSnapshot(origenForm, destinoForm);
     if (snapshot === lastSavedSnapshotRef.current) return;
 
     try {
-      if (stopCount <= 2) {
-        const { orden: _o, ...origenPayload } = toPayload(origenForm, 1);
-        const { orden: _d, ...destinoPayload } = toPayload(destinoForm, stopCount);
-        const [r1, r2] = await Promise.all([
-          apiFetch(`/trips/${trip.id}/carta-porte/ubicacion-origen`, {
-            method: "PUT",
-            body: JSON.stringify(origenPayload),
-          }),
-          apiFetch(`/trips/${trip.id}/carta-porte/ubicacion-destino`, {
-            method: "PUT",
-            body: JSON.stringify(destinoPayload),
-          }),
-        ]);
-        if (!r1.ok || !r2.ok) {
-          toast.error("No se pudieron guardar las ubicaciones");
-          return;
-        }
-      } else {
-        const items = [
-          toPayload(origenForm, 1),
-          ...middleForms.map((m) => toPayload(m, m.orden)),
-          toPayload(destinoForm, stopCount),
-        ];
-        await putTripUbicaciones(trip.id, items);
-      }
+      await putTripUbicaciones(trip.id, [
+        toPayload(origenForm, 1),
+        toPayload(destinoForm, fiscalStopCount),
+      ]);
       lastSavedSnapshotRef.current = snapshot;
       await reloadTrip();
     } catch {
       toast.error("No se pudieron guardar las ubicaciones");
     }
-  }, [canFiscalEdit, destinoForm, middleForms, origenForm, stopCount, trip.id]);
+  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id]);
 
   const flushPendingSaves = useCallback(async () => {
     if (persistTimerRef.current) {
@@ -588,15 +518,6 @@ export function TripCartaPorte({
 
   const patchDestino = (patch: Partial<typeof destinoForm>) => {
     setDestinoForm((prev) => ({ ...prev, ...patch }));
-    schedulePersistUbicaciones();
-  };
-
-  const patchMiddle = (idx: number, patch: Partial<(typeof middleForms)[0]>) => {
-    setMiddleForms((prev) => {
-      const next = [...prev];
-      next[idx] = { ...next[idx], ...patch };
-      return next;
-    });
     schedulePersistUbicaciones();
   };
 
@@ -964,134 +885,28 @@ export function TripCartaPorte({
                 onChange={(e) => patchOrigen({ rfc: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
+                className={fh(issueFlags.origen.rfc)}
               />
             </div>
             <div>
-              <Label>Nombre</Label>
+              <Label>Razón social</Label>
               <Input
                 value={origenForm.nombre}
                 onChange={(e) => patchOrigen({ nombre: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
+                className={fh(issueFlags.origen.nombre)}
               />
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <Label>Calle</Label>
-                <Input
-                  value={origenForm.calle}
-                  onChange={(e) => patchOrigen({ calle: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>No. ext.</Label>
-                <Input
-                  value={origenForm.numero_exterior}
-                  onChange={(e) => patchOrigen({ numero_exterior: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>No. int.</Label>
-                <Input
-                  value={origenForm.numero_interior}
-                  onChange={(e) => patchOrigen({ numero_interior: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Colonia</Label>
-                <Input
-                  value={origenForm.colonia}
-                  onChange={(e) => patchOrigen({ colonia: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave colonia SAT</Label>
-                <Input
-                  value={origenForm.colonia_clave}
-                  onChange={(e) => patchOrigen({ colonia_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="0251"
-                />
-              </div>
-              <div>
-                <Label>Municipio</Label>
-                <Input
-                  value={origenForm.municipio}
-                  onChange={(e) => patchOrigen({ municipio: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave municipio SAT</Label>
-                <Input
-                  value={origenForm.municipio_clave}
-                  onChange={(e) => patchOrigen({ municipio_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="003"
-                />
-              </div>
-              <div>
-                <Label>Localidad</Label>
-                <Input
-                  value={origenForm.localidad}
-                  onChange={(e) => patchOrigen({ localidad: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave localidad SAT</Label>
-                <Input
-                  value={origenForm.localidad_clave}
-                  onChange={(e) => patchOrigen({ localidad_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="03"
-                />
-              </div>
-              <div>
-                <Label>Estado</Label>
-                <Input
-                  value={origenForm.estado}
-                  onChange={(e) => patchOrigen({ estado: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  className={fh(issueFlags.origen.estado)}
-                />
-              </div>
-              <div>
-                <Label>CP</Label>
-                <Input
-                  value={origenForm.cp}
-                  onChange={(e) => patchOrigen({ cp: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  className={fh(issueFlags.origen.cp)}
-                />
-              </div>
-              <div>
-                <Label>País</Label>
-                <Input
-                  value={origenForm.pais}
-                  onChange={(e) => patchOrigen({ pais: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  maxLength={3}
-                />
-              </div>
+            <div>
+              <Label>CP</Label>
+              <Input
+                value={origenForm.cp}
+                onChange={(e) => patchOrigen({ cp: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
+                className={fh(issueFlags.origen.cp)}
+              />
             </div>
             <div>
               <Label>Fecha/hora salida</Label>
@@ -1110,7 +925,7 @@ export function TripCartaPorte({
           ref={(el) => {
             sectionRefs.current.destino = el;
           }}
-          className={cn("tlo-shadow-md", ch(issueFlags.stops[stopCount]?.highlight ?? false))}
+          className={cn("tlo-shadow-md", ch(issueFlags.stops[fiscalStopCount]?.highlight ?? false))}
         >
           <CardHeader>
             <CardTitle className="text-sm">Ubicación entrega</CardTitle>
@@ -1153,134 +968,28 @@ export function TripCartaPorte({
                 onChange={(e) => patchDestino({ rfc: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
+                className={fh(issueFlags.stops[fiscalStopCount]?.rfc ?? false)}
               />
             </div>
             <div>
-              <Label>Nombre</Label>
+              <Label>Razón social</Label>
               <Input
                 value={destinoForm.nombre}
                 onChange={(e) => patchDestino({ nombre: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
+                className={fh(issueFlags.stops[fiscalStopCount]?.nombre ?? false)}
               />
             </div>
-            <div className="grid grid-cols-3 gap-2">
-              <div className="col-span-2">
-                <Label>Calle</Label>
-                <Input
-                  value={destinoForm.calle}
-                  onChange={(e) => patchDestino({ calle: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>No. ext.</Label>
-                <Input
-                  value={destinoForm.numero_exterior}
-                  onChange={(e) => patchDestino({ numero_exterior: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>No. int.</Label>
-                <Input
-                  value={destinoForm.numero_interior}
-                  onChange={(e) => patchDestino({ numero_interior: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-            </div>
-            <div className="grid grid-cols-2 gap-2">
-              <div>
-                <Label>Colonia</Label>
-                <Input
-                  value={destinoForm.colonia}
-                  onChange={(e) => patchDestino({ colonia: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave colonia SAT</Label>
-                <Input
-                  value={destinoForm.colonia_clave}
-                  onChange={(e) => patchDestino({ colonia_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="0251"
-                />
-              </div>
-              <div>
-                <Label>Municipio</Label>
-                <Input
-                  value={destinoForm.municipio}
-                  onChange={(e) => patchDestino({ municipio: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave municipio SAT</Label>
-                <Input
-                  value={destinoForm.municipio_clave}
-                  onChange={(e) => patchDestino({ municipio_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="003"
-                />
-              </div>
-              <div>
-                <Label>Localidad</Label>
-                <Input
-                  value={destinoForm.localidad}
-                  onChange={(e) => patchDestino({ localidad: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                />
-              </div>
-              <div>
-                <Label>Clave localidad SAT</Label>
-                <Input
-                  value={destinoForm.localidad_clave}
-                  onChange={(e) => patchDestino({ localidad_clave: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  placeholder="03"
-                />
-              </div>
-              <div>
-                <Label>Estado</Label>
-                <Input
-                  value={destinoForm.estado}
-                  onChange={(e) => patchDestino({ estado: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  className={fh(issueFlags.stops[stopCount]?.estado ?? false)}
-                />
-              </div>
-              <div>
-                <Label>CP</Label>
-                <Input
-                  value={destinoForm.cp}
-                  onChange={(e) => patchDestino({ cp: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  className={fh(issueFlags.stops[stopCount]?.cp ?? false)}
-                />
-              </div>
-              <div>
-                <Label>País</Label>
-                <Input
-                  value={destinoForm.pais}
-                  onChange={(e) => patchDestino({ pais: e.target.value })}
-                  onBlur={onUbicFieldBlur}
-                  disabled={!canFiscalEdit}
-                  maxLength={3}
-                />
-              </div>
+            <div>
+              <Label>CP</Label>
+              <Input
+                value={destinoForm.cp}
+                onChange={(e) => patchDestino({ cp: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
+                className={fh(issueFlags.stops[fiscalStopCount]?.cp ?? false)}
+              />
             </div>
             <div>
               <Label>Distancia (km)</Label>
@@ -1290,7 +999,7 @@ export function TripCartaPorte({
                 onChange={(e) => patchDestino({ distancia_km: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
-                className={fh(issueFlags.stops[stopCount]?.distancia_km ?? false)}
+                className={fh(issueFlags.stops[fiscalStopCount]?.distancia_km ?? false)}
               />
             </div>
             <div>
@@ -1306,71 +1015,6 @@ export function TripCartaPorte({
           </CardContent>
         </Card>
       </div>
-
-      {middleForms.length > 0 && (
-        <div className="grid md:grid-cols-2 gap-4">
-          {middleForms.map((mf, idx) => {
-            const stopFlags = issueFlags.stops[mf.orden];
-            return (
-              <Card
-                key={mf.orden}
-                ref={(el) => {
-                  sectionRefs.current[`stop-${mf.orden}`] = el;
-                }}
-                className={cn("tlo-shadow-md", ch(stopFlags?.highlight ?? false))}
-              >
-                <CardHeader>
-                  <CardTitle className="text-sm">{mf.label}</CardTitle>
-                </CardHeader>
-                <CardContent className="grid gap-2">
-                  <div>
-                    <Label>Calle</Label>
-                    <Input
-                      value={mf.calle}
-                      onChange={(e) => patchMiddle(idx, { calle: e.target.value })}
-                      onBlur={onUbicFieldBlur}
-                      disabled={!canFiscalEdit}
-                    />
-                  </div>
-                  <div className="grid grid-cols-2 gap-2">
-                    <div>
-                      <Label>Estado</Label>
-                      <Input
-                        value={mf.estado}
-                        onChange={(e) => patchMiddle(idx, { estado: e.target.value })}
-                        onBlur={onUbicFieldBlur}
-                        disabled={!canFiscalEdit}
-                        className={fh(stopFlags?.estado ?? false)}
-                      />
-                    </div>
-                    <div>
-                      <Label>CP</Label>
-                      <Input
-                        value={mf.cp}
-                        onChange={(e) => patchMiddle(idx, { cp: e.target.value })}
-                        onBlur={onUbicFieldBlur}
-                        disabled={!canFiscalEdit}
-                        className={fh(stopFlags?.cp ?? false)}
-                      />
-                    </div>
-                  </div>
-                  <div>
-                    <Label>Distancia del tramo (km)</Label>
-                    <Input
-                      type="number"
-                      value={mf.distancia_km}
-                      onChange={(e) => patchMiddle(idx, { distancia_km: e.target.value })}
-                      onBlur={onUbicFieldBlur}
-                      disabled={!canFiscalEdit}
-                      className={fh(stopFlags?.distancia_km ?? false)}
-                    />
-                  </div>
-                </CardContent>
-              </Card>
-            );
-          })}
-        </div>
-      )}
 
       <Card
         ref={(el) => {

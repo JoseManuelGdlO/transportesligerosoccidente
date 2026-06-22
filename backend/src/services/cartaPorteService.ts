@@ -19,7 +19,11 @@ import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
 import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
 import type { TimbradoContext, TimbradoOpts } from "./pac/types";
-import { ensureUbicacionesFromClient, resolveIdUbicacionSat } from "./tripFiscalService";
+import {
+  ensureUbicacionesFromClient,
+  normalizeFiscalUbicaciones,
+  resolveIdUbicacionSat,
+} from "./tripFiscalService";
 import { num } from "../utils/numbers";
 
 function err(msg: string, status = 400): Error {
@@ -57,7 +61,7 @@ function domicilioAttrs(
     u.colonia ? ` Colonia="${esc(u.colonia)}"` : "",
     u.municipio ? ` Municipio="${esc(u.municipio)}"` : "",
     u.localidad ? ` Localidad="${esc(u.localidad)}"` : "",
-    ` Estado="${esc(u.estado!)}"`,
+    u.estado ? ` Estado="${esc(u.estado)}"` : "",
     ` Pais="${esc(u.pais || client.pais || "MEX")}"`,
     ` CodigoPostal="${esc(u.cp!)}"`,
   ];
@@ -115,6 +119,7 @@ export function validateCartaPorteData(
   mercancias: TripMercancia[],
   truck?: Truck | null,
   driver?: Driver | null,
+  client?: Client | null,
 ): string[] {
   const issues: string[] = [];
   if (!tenant.rfc) issues.push("RFC de la empresa no configurado");
@@ -124,19 +129,30 @@ export function validateCartaPorteData(
   if (!tenant.csd_cer_path || !tenant.csd_key_path) {
     issues.push("Certificados CSD (.cer y .key) no cargados");
   }
-  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  const sorted = normalizeFiscalUbicaciones(ubicaciones);
   if (sorted.length < 2) {
     issues.push("Se requieren al menos 2 ubicaciones (origen y destino)");
   }
-  const origen = sorted.find((u) => u.orden === 1) ?? sorted[0];
-  const destinos = sorted.filter((u) => u.orden > 1);
+  const origen = sorted[0];
+  const destinoFinal = sorted[sorted.length - 1];
   if (!origen?.cp) issues.push("Ubicación origen: falta código postal");
-  if (!origen?.estado) issues.push("Ubicación origen: falta estado");
-  for (const d of destinos) {
-    const label = d.orden === sorted.length ? "destino final" : `parada ${d.orden}`;
-    if (!d.cp) issues.push(`Ubicación ${label}: falta código postal`);
-    if (!d.estado) issues.push(`Ubicación ${label}: falta estado`);
-    if (!d.distancia_km) issues.push(`Ubicación ${label}: falta distancia del tramo en km`);
+  if (!(origen?.rfc?.trim() || client?.rfc?.trim())) {
+    issues.push("Ubicación origen: falta RFC");
+  }
+  if (!(origen?.nombre?.trim() || client?.razon_social?.trim())) {
+    issues.push("Ubicación origen: falta razón social");
+  }
+  if (destinoFinal && destinoFinal.orden > 1) {
+    if (!destinoFinal.cp) issues.push("Ubicación destino final: falta código postal");
+    if (!(destinoFinal.rfc?.trim() || client?.rfc?.trim())) {
+      issues.push("Ubicación destino final: falta RFC");
+    }
+    if (!(destinoFinal.nombre?.trim() || client?.razon_social?.trim())) {
+      issues.push("Ubicación destino final: falta razón social");
+    }
+    if (num(destinoFinal.distancia_km) <= 0) {
+      issues.push("Ubicación destino final: falta distancia del tramo en km");
+    }
   }
   if (mercancias.length === 0) issues.push("Agrega al menos una mercancía");
   if (!truck?.config_vehicular) issues.push("Camión: falta configuración vehicular SAT");
@@ -171,7 +187,7 @@ export function buildCartaPorteXml(
   client: Client,
   folio: string,
 ): string {
-  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  const sorted = normalizeFiscalUbicaciones(ubicaciones);
   const origen = sorted[0];
   const destinos = sorted.slice(1);
   const ultimo = destinos[destinos.length - 1];
@@ -281,10 +297,12 @@ export async function previewCartaPorte(
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
-  const ubicaciones = (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
+  const ubicaciones = normalizeFiscalUbicaciones(
+    (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [],
+  );
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const isSicofi = (tenant.pac_proveedor || "").toLowerCase() === "sicofi";
-  let issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver);
+  let issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver, client);
   if (isSicofi) {
     issues = issues.filter((i) => !i.includes("Certificados CSD"));
   }
@@ -338,7 +356,9 @@ export async function timbrarCartaPorte(
   if (!truck || !driver || !client) {
     throw err("Datos incompletos para timbrar");
   }
-  const ubicaciones = (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
+  const ubicaciones = normalizeFiscalUbicaciones(
+    (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [],
+  );
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const cp = await getOrCreateCartaPorte(tenantId, tripId);
   if (cp.estatus === "timbrada") {

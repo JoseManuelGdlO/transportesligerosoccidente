@@ -3,6 +3,7 @@ import { satRfcIssue } from "../../../utils/rfcSat";
 import { bienesTranspCpIssue, configVehicularIssue, permSctIssue } from "../../../utils/cartaPorteSat";
 import type { TimbradoContext } from "../types";
 import { isPublicoGeneralReceptor } from "./publicoGeneral";
+import { normalizeFiscalUbicaciones } from "../../tripFiscalService";
 
 /**
  * Validaciones pre-timbrado específicas de Sicofi Factura40 y reglas SAT frecuentes.
@@ -32,15 +33,15 @@ export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
     if (num(trip.tarifa) <= 0) issues.push("Viaje: la tarifa debe ser mayor a 0 para factura de ingreso");
   }
 
-  for (const u of ubicaciones) {
-    const label = u.orden === 1 ? "origen" : u.orden === ubicaciones.length ? "destino final" : `parada ${u.orden}`;
+  for (const u of normalizeFiscalUbicaciones(ubicaciones)) {
+    const label = u.orden === 1 ? "origen" : "destino final";
     const ubicRfcIssue = satRfcIssue(`Ubicación ${label}`, u.rfc || client.rfc);
     if (ubicRfcIssue) issues.push(ubicRfcIssue);
-    if (!u.colonia_clave && !u.colonia) {
-      issues.push(`Ubicación ${label}: falta colonia o clave SAT de colonia`);
+    if (!(u.nombre?.trim() || client.razon_social?.trim())) {
+      issues.push(`Ubicación ${label}: falta razón social`);
     }
-    if (!u.municipio_clave && !u.municipio) {
-      issues.push(`Ubicación ${label}: falta municipio o clave SAT de municipio`);
+    if (!u.cp?.trim()) {
+      issues.push(`Ubicación ${label}: falta código postal`);
     }
   }
 

@@ -1,7 +1,7 @@
 import type { Trip, CartaPorte, TripUbicacion, TripMercancia, Truck, Driver, Client } from "../../../models";
 import { num } from "../../../utils/numbers";
 import { DEFAULT_BIENES_TRANSP_CP, normalizePermSct } from "../../../utils/cartaPorteSat";
-import { resolveIdUbicacionSat } from "../../tripFiscalService";
+import { resolveIdUbicacionSat, normalizeFiscalUbicaciones } from "../../tripFiscalService";
 
 /** Formatea fecha/hora para Carta Porte (`YYYY-MM-DDTHH:mm:ss`). */
 function formatFecha(d: Date | string | null | undefined): string {
@@ -50,7 +50,7 @@ export function mapCartaPorte31(
   driver: Driver,
   client: Client,
 ): Record<string, unknown> {
-  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  const sorted = normalizeFiscalUbicaciones(ubicaciones);
   const destinos = sorted.filter((u) => u.orden > 1);
   const totalDist = destinos.reduce((s, d) => s + num(d.distancia_km), 0);
   const transpInternac =

@@ -1,6 +1,8 @@
 export type StopIssueFlags = {
   highlight: boolean;
   cp: boolean;
+  rfc: boolean;
+  nombre: boolean;
   estado: boolean;
   distancia_km: boolean;
 };
@@ -42,6 +44,8 @@ export type ErrorSectionId =
 const emptyStop = (): StopIssueFlags => ({
   highlight: false,
   cp: false,
+  rfc: false,
+  nombre: false,
   estado: false,
   distancia_km: false,
 });
@@ -152,11 +156,15 @@ export function classifyCartaPorteIssues(
       if (orden === 1) {
         flags.origen.highlight = true;
         if (field === "código postal") flags.origen.cp = true;
+        if (field === "RFC") flags.origen.rfc = true;
+        if (field === "razón social") flags.origen.nombre = true;
         if (field === "estado") flags.origen.estado = true;
       } else if (orden != null) {
         const stop = ensureStop(flags, orden);
         stop.highlight = true;
         if (field === "código postal") stop.cp = true;
+        if (field === "RFC") stop.rfc = true;
+        if (field === "razón social") stop.nombre = true;
         if (field === "estado") stop.estado = true;
         if (field === "distancia del tramo en km") stop.distancia_km = true;
       }

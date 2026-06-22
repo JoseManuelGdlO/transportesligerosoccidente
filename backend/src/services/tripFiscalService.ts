@@ -34,6 +34,16 @@ export function resolveIdUbicacionSat(
   return defaultIdUbicacionSat(tipo, tripId, orden);
 }
 
+/** Solo origen y destino final para timbrado (omite paradas intermedias operativas). */
+export function normalizeFiscalUbicaciones<T extends { orden: number }>(ubicaciones: T[]): T[] {
+  const sorted = [...ubicaciones].sort((a, b) => a.orden - b.orden);
+  if (sorted.length === 0) return [];
+  const origen = sorted.find((u) => u.orden === 1) ?? sorted[0];
+  const destino = sorted[sorted.length - 1];
+  if (origen.orden === destino.orden) return [origen];
+  return [origen, destino];
+}
+
 function tipoFromOrden(orden: number): UbicacionTipo {
   return orden === 1 ? "Origen" : "Destino";
 }
@@ -161,10 +171,26 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
     where: { tenant_id: tenantId, trip_id: tripId },
     order: [["orden", "ASC"]],
   });
-  const byOrden = new Map(existing.map((u) => [u.orden, u]));
+  const destinoLegacy =
+    existing.find((u) => u.orden === 2) ??
+    [...existing].filter((u) => u.orden > 1).sort((a, b) => b.orden - a.orden)[0];
 
-  for (const stop of stops) {
-    const tipo = tipoFromOrden(stop.orden);
+  const fiscalPairs: Array<{
+    stop: (typeof stops)[0];
+    fiscalOrden: number;
+    tipo: UbicacionTipo;
+    legacyRow?: TripUbicacion;
+  }> = [
+    { stop: stops[0], fiscalOrden: 1, tipo: "Origen", legacyRow: existing.find((u) => u.orden === 1) },
+    {
+      stop: stops[stops.length - 1],
+      fiscalOrden: 2,
+      tipo: "Destino",
+      legacyRow: destinoLegacy,
+    },
+  ];
+
+  for (const { stop, fiscalOrden, tipo, legacyRow } of fiscalPairs) {
     let catalog: ClientUbicacion | null = null;
     if (stop.client_ubicacion_id) {
       catalog = await ClientUbicacion.findOne({
@@ -176,10 +202,10 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
       ? { rfc: client.rfc, nombre: client.razon_social, ...addressFromClient(client) }
       : null;
     const addr = catalog ? addressFromClientUbicacion(catalog) : clientDefaults;
+    const row = legacyRow;
 
-    const row = byOrden.get(stop.orden);
     const payload = {
-      orden: stop.orden,
+      orden: fiscalOrden,
       tipo,
       rfc: row?.rfc ?? clientDefaults?.rfc ?? null,
       nombre: row?.nombre ?? clientDefaults?.nombre ?? null,
@@ -193,12 +219,16 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
       cp: row?.cp ?? addr?.cp ?? null,
       pais: row?.pais ?? addr?.pais ?? "MEX",
       client_ubicacion_id: stop.client_ubicacion_id ?? row?.client_ubicacion_id ?? null,
-      fecha_hora: row?.fecha_hora ?? (stop.orden === 1 ? trip.fecha_salida : null),
-      id_ubicacion_sat: row?.id_ubicacion_sat ?? defaultIdUbicacionSat(tipo, tripId, stop.orden),
+      fecha_hora: row?.fecha_hora ?? (fiscalOrden === 1 ? trip.fecha_salida : null),
+      distancia_km: fiscalOrden === 2 ? (row?.distancia_km ?? null) : null,
+      id_ubicacion_sat: row?.id_ubicacion_sat ?? defaultIdUbicacionSat(tipo, tripId, fiscalOrden),
     };
 
-    if (row) {
-      await row.update(payload as never);
+    const existingAtOrden = await TripUbicacion.findOne({
+      where: { tenant_id: tenantId, trip_id: tripId, orden: fiscalOrden },
+    });
+    if (existingAtOrden) {
+      await existingAtOrden.update(payload as never);
     } else {
       await TripUbicacion.create({
         id: randomUUID(),
@@ -209,9 +239,8 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
     }
   }
 
-  const maxOrden = stops.length;
   for (const u of existing) {
-    if (u.orden > maxOrden) await u.destroy();
+    if (u.orden > 2) await u.destroy();
   }
 }
 

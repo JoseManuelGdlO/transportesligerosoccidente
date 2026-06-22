@@ -113,7 +113,7 @@ const ubicacionSchema = z.object({
   numero_exterior: z.string().optional(),
   numero_interior: z.string().optional(),
   pais: z.string().optional(),
-  distancia_km: z.number().optional(),
+  distancia_km: z.coerce.number().optional(),
   client_ubicacion_id: z.string().uuid().optional().nullable(),
 });
 
