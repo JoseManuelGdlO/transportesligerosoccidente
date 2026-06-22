@@ -14,7 +14,9 @@ import {
   buildProratedBlock,
   buildProrationBlocks,
   confirmTicketProration,
+  deleteConfirmedTicketProration,
   partitionPeriodTrips,
+  reopenTicketProration,
   resumenFromBlocks,
   ticketTimestampMs,
   ticketWindowEndMs,
@@ -581,6 +583,104 @@ describe("confirmTicketProration", () => {
     tripFindAll.mock.restore();
     fuelLoadFindOne.mock.restore();
     fuelLoadCreate.mock.restore();
+    transaction.mock.restore();
+  });
+});
+
+describe("reopenTicketProration", () => {
+  it("elimina fuel_loads, limpia valores calculados y desconfirma el ticket", async () => {
+    const tenantId = "tenant-1";
+    const ticketId = "tk1";
+    const confirmedAt = new Date("2026-06-03T12:00:00.000Z");
+
+    const ticket = {
+      id: ticketId,
+      tenant_id: tenantId,
+      prorrateo_confirmado_at: confirmedAt,
+      update: mock.fn(async (_patch: { prorrateo_confirmado_at: null }) => {}),
+    };
+
+    const fuelLoadDestroy = mock.method(FuelLoad, "destroy", async () => 1);
+    const assignmentUpdate = mock.method(FuelProrationAssignment, "update", async () => [1] as never);
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({ tx: true });
+    });
+
+    await reopenTicketProration(tenantId, ticketId);
+
+    assert.equal(fuelLoadDestroy.mock.callCount(), 1);
+    assert.deepEqual(fuelLoadDestroy.mock.calls[0]!.arguments[0]!.where, {
+      tenant_id: tenantId,
+      fuel_ticket_id: ticketId,
+    });
+    assert.equal(assignmentUpdate.mock.callCount(), 1);
+    assert.deepEqual(assignmentUpdate.mock.calls[0]!.arguments[0], {
+      km_recorridos: null,
+      litros_asignados: null,
+      costo_asignado: null,
+    });
+    assert.equal(ticket.update.mock.callCount(), 1);
+    assert.deepEqual(ticket.update.mock.calls[0]!.arguments[0], { prorrateo_confirmado_at: null });
+
+    fuelLoadDestroy.mock.restore();
+    assignmentUpdate.mock.restore();
+    ticketFindOne.mock.restore();
+    transaction.mock.restore();
+  });
+
+  it("rechaza ticket no confirmado", async () => {
+    mock.method(FuelTicket, "findOne", async () =>
+      ({
+        id: "tk1",
+        prorrateo_confirmado_at: null,
+      }) as never,
+    );
+
+    await assert.rejects(
+      () => reopenTicketProration("tenant-1", "tk1"),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.message, "El ticket no está confirmado");
+        assert.equal(err.status, 400);
+        return true;
+      },
+    );
+  });
+});
+
+describe("deleteConfirmedTicketProration", () => {
+  it("elimina fuel_loads, asignaciones y el ticket de combustible", async () => {
+    const tenantId = "tenant-1";
+    const ticketId = "tk1";
+    const confirmedAt = new Date("2026-06-03T12:00:00.000Z");
+
+    const ticket = {
+      id: ticketId,
+      tenant_id: tenantId,
+      prorrateo_confirmado_at: confirmedAt,
+      destroy: mock.fn(async () => {}),
+    };
+
+    const fuelLoadDestroy = mock.method(FuelLoad, "destroy", async () => 1);
+    const assignmentDestroy = mock.method(FuelProrationAssignment, "destroy", async () => 2);
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({ tx: true });
+    });
+
+    await deleteConfirmedTicketProration(tenantId, ticketId);
+
+    assert.equal(fuelLoadDestroy.mock.callCount(), 1);
+    assert.equal(assignmentDestroy.mock.callCount(), 1);
+    assert.deepEqual(assignmentDestroy.mock.calls[0]!.arguments[0]!.where, {
+      tenant_id: tenantId,
+      fuel_ticket_id: ticketId,
+    });
+    assert.equal(ticket.destroy.mock.callCount(), 1);
+
+    fuelLoadDestroy.mock.restore();
+    assignmentDestroy.mock.restore();
+    ticketFindOne.mock.restore();
     transaction.mock.restore();
   });
 });

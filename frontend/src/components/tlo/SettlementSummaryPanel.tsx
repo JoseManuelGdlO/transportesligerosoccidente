@@ -1,5 +1,5 @@
 import { computeTrip } from "@/lib/calc";
-import { fmtDate, fmtMXN } from "@/lib/format";
+import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
 import type { Driver, DriverAdvance, DriverDiscount, DiscountType, SettlementSummaryApi } from "@/types/tlo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
@@ -41,6 +41,7 @@ interface SettlementSummaryPanelProps {
   canSelectTrips?: boolean;
   tripInclusions?: Record<string, boolean>;
   onTripInclusionChange?: (tripId: string, included: boolean) => void;
+  onSelectAllTrips?: (included: boolean) => void;
 }
 
 export function SettlementSummaryPanel({
@@ -60,6 +61,7 @@ export function SettlementSummaryPanel({
   canSelectTrips = false,
   tripInclusions,
   onTripInclusionChange,
+  onSelectAllTrips,
 }: SettlementSummaryPanelProps) {
   const showFinanceForms = !readOnly && canEditFinance;
   const sortedTrips = [...summary.trips].sort((a, b) =>
@@ -70,12 +72,22 @@ export function SettlementSummaryPanel({
     return t.included !== false;
   }).length;
   const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
-  const tripColSpan = showTripSelection ? 5 : 4;
+  const tripColSpan = showTripSelection ? 6 : 5;
 
   const isTripIncluded = (tripId: string, tripIncluded?: boolean) => {
     if (tripInclusions) return tripInclusions[tripId] !== false;
     return tripIncluded !== false;
   };
+
+  const includedInSortedTrips = sortedTrips.filter((t) => isTripIncluded(t.id, t.included)).length;
+  const selectAllChecked: boolean | "indeterminate" =
+    sortedTrips.length === 0
+      ? false
+      : includedInSortedTrips === sortedTrips.length
+        ? true
+        : includedInSortedTrips === 0
+          ? false
+          : "indeterminate";
 
   return (
     <div className="space-y-4">
@@ -226,9 +238,24 @@ export function SettlementSummaryPanel({
           <Table>
             <TableHeader>
               <TableRow className="bg-secondary/50">
-                {showTripSelection && <TableHead className="w-10">Incluir</TableHead>}
+                {showTripSelection && (
+                  <TableHead>
+                    <div className="flex flex-row items-center gap-2">
+                      {canSelectTrips && onSelectAllTrips && (
+                        <Checkbox
+                          checked={selectAllChecked}
+                          disabled={sortedTrips.length === 0}
+                          aria-label="Incluir o excluir todos los viajes"
+                          onCheckedChange={(checked) => onSelectAllTrips(checked === true)}
+                        />
+                      )}
+                      <span>Incluir</span>
+                    </div>
+                  </TableHead>
+                )}
                 <TableHead>Folio</TableHead>
                 <TableHead>Tipo</TableHead>
+                <TableHead>Ruta</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead className="text-right">Comisión</TableHead>
               </TableRow>
@@ -263,6 +290,7 @@ export function SettlementSummaryPanel({
                       )}
                     </TableCell>
                     <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
+                    <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">

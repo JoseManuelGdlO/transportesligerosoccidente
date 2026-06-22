@@ -488,6 +488,12 @@ export default function Liquidaciones() {
                 onTripInclusionChange={(tripId, included) => {
                   setTripInclusions((prev) => ({ ...prev, [tripId]: included }));
                 }}
+                onSelectAllTrips={(included) => {
+                  if (!summary) return;
+                  setTripInclusions(
+                    Object.fromEntries(summary.trips.map((t) => [t.id, included])),
+                  );
+                }}
                 advForm={advForm}
                 discForm={discForm}
                 onAdvFormChange={setAdvForm}

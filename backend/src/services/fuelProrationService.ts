@@ -655,6 +655,56 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   });
 }
 
+async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string) {
+  const ticket = await FuelTicket.findOne({
+    where: { id: ticketId, tenant_id: tenantId },
+  });
+  if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
+  if (!ticket.prorrateo_confirmado_at) {
+    throw Object.assign(new Error("El ticket no está confirmado"), { status: 400 });
+  }
+  return ticket;
+}
+
+export async function reopenTicketProration(tenantId: string, ticketId: string): Promise<void> {
+  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId);
+
+  await sequelize.transaction(async (t) => {
+    await FuelLoad.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+      transaction: t,
+    });
+    await FuelProrationAssignment.update(
+      {
+        km_recorridos: null,
+        litros_asignados: null,
+        costo_asignado: null,
+      },
+      {
+        where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+        transaction: t,
+      },
+    );
+    await ticket.update({ prorrateo_confirmado_at: null }, { transaction: t });
+  });
+}
+
+export async function deleteConfirmedTicketProration(tenantId: string, ticketId: string): Promise<void> {
+  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId);
+
+  await sequelize.transaction(async (t) => {
+    await FuelLoad.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+      transaction: t,
+    });
+    await FuelProrationAssignment.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+      transaction: t,
+    });
+    await ticket.destroy({ transaction: t });
+  });
+}
+
 export async function fuelSummaryByTruck(
   tenantId: string,
   inicio: string,

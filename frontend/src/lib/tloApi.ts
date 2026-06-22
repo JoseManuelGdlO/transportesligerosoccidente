@@ -876,6 +876,22 @@ export async function confirmFuelTicketProration(ticketId: string): Promise<void
   }
 }
 
+export async function reopenFuelTicketProration(ticketId: string): Promise<void> {
+  const res = await apiFetch(`/fuel-tickets/${ticketId}/reopen-proration`, { method: "POST" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "No se pudo reabrir el prorrateo");
+  }
+}
+
+export async function deleteConfirmedFuelTicketProration(ticketId: string): Promise<void> {
+  const res = await apiFetch(`/fuel-tickets/${ticketId}/confirmed-proration`, { method: "DELETE" });
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({}));
+    throw new Error((body as { error?: string }).error ?? "No se pudo revertir el prorrateo");
+  }
+}
+
 export async function saveFuelProrationAssignments(
   truckId: string,
   inicio: string,

@@ -6,7 +6,9 @@ import { saveAssignments, saveTicketAssignments } from "../services/fuelProratio
 import {
   autoProratePending,
   confirmTicketProration,
+  deleteConfirmedTicketProration,
   prorateRange,
+  reopenTicketProration,
 } from "../services/fuelProrationService";
 
 const tid = (req: Request) => req.user!.tenantId;
@@ -112,6 +114,28 @@ export const postConfirmTicketProration = asyncHandler(async (req: Request, res:
   const ticketId = String(req.params.id);
   try {
     await confirmTicketProration(tid(req), ticketId);
+    res.json({ ok: true });
+  } catch (e) {
+    const err = e as Error & { status?: number };
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+export const postReopenTicketProration = asyncHandler(async (req: Request, res: Response) => {
+  const ticketId = String(req.params.id);
+  try {
+    await reopenTicketProration(tid(req), ticketId);
+    res.json({ ok: true });
+  } catch (e) {
+    const err = e as Error & { status?: number };
+    res.status(err.status ?? 500).json({ error: err.message });
+  }
+});
+
+export const deleteConfirmedTicketProrationHandler = asyncHandler(async (req: Request, res: Response) => {
+  const ticketId = String(req.params.id);
+  try {
+    await deleteConfirmedTicketProration(tid(req), ticketId);
     res.json({ ok: true });
   } catch (e) {
     const err = e as Error & { status?: number };

@@ -296,6 +296,18 @@ r.post(
   requirePermission("combustibles.crear"),
   fuelProrationC.postConfirmTicketProration,
 );
+r.post(
+  "/fuel-tickets/:id/reopen-proration",
+  authenticateJwt,
+  requirePermission("combustibles.eliminar"),
+  fuelProrationC.postReopenTicketProration,
+);
+r.delete(
+  "/fuel-tickets/:id/confirmed-proration",
+  authenticateJwt,
+  requirePermission("usuarios.gestionar"),
+  fuelProrationC.deleteConfirmedTicketProrationHandler,
+);
 r.get("/fuel-tickets", authenticateJwt, requirePermission("combustibles.ver"), fuelTicketC.listFuelTickets);
 r.post("/fuel-tickets", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.createFuelTicket);
 r.patch("/fuel-tickets/:id", authenticateJwt, requirePermission("combustibles.crear"), fuelTicketC.patchFuelTicket);

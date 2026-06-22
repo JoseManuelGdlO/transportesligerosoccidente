@@ -5,11 +5,13 @@ import {
   autoProrateFuel,
   confirmFuelTicketProration,
   createFuelTicket,
+  deleteConfirmedFuelTicketProration,
   deleteFuelTicket,
   fetchFuelProration,
   fetchFuelSummary,
   fetchFuelTickets,
   previewFuelImport,
+  reopenFuelTicketProration,
   saveFuelTicketProrationAssignments,
   syncFuelTickets,
   updateFuelTicket,
@@ -276,6 +278,7 @@ export default function Combustibles() {
   const canCreate = hasPermission("combustibles.crear");
   const canImport = hasPermission("combustibles.importar");
   const canDelete = hasPermission("combustibles.eliminar");
+  const isAdmin = hasPermission("usuarios.gestionar");
 
   const defaultRange = monthRange();
   const [inicio, setInicio] = useState(defaultRange.inicio);
@@ -307,6 +310,10 @@ export default function Combustibles() {
   const [assignContext, setAssignContext] = useState<TicketAssignContext | null>(null);
   const [assignTripIds, setAssignTripIds] = useState<Set<string>>(new Set());
   const [savingAssign, setSavingAssign] = useState(false);
+  const [reopenConfirmTicketId, setReopenConfirmTicketId] = useState<string | null>(null);
+  const [reopeningTicketId, setReopeningTicketId] = useState<string | null>(null);
+  const [deleteConfirmedTicketId, setDeleteConfirmedTicketId] = useState<string | null>(null);
+  const [deletingConfirmedTicketId, setDeletingConfirmedTicketId] = useState<string | null>(null);
   const [confirmTicketId, setConfirmTicketId] = useState<string | null>(null);
   const [confirmingTicket, setConfirmingTicket] = useState(false);
   const [importReviewItems, setImportReviewItems] = useState<ImportReviewItem[]>([]);
@@ -460,6 +467,41 @@ export default function Combustibles() {
       toast.error(e instanceof Error ? e.message : "No se pudo confirmar el ticket");
     } finally {
       setConfirmingTicket(false);
+    }
+  };
+
+  const runReopenConfirmed = async () => {
+    if (!reopenConfirmTicketId) return;
+    setReopeningTicketId(reopenConfirmTicketId);
+    try {
+      await reopenFuelTicketProration(reopenConfirmTicketId);
+      setReopenConfirmTicketId(null);
+      setActiveTab("prorrateo");
+      await loadPendingProration();
+      void loadConfirmedProration();
+      toast.success("Ticket reabierto. Puede modificar el prorrateo en la pestaña Prorrateo.");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo reabrir el prorrateo");
+    } finally {
+      setReopeningTicketId(null);
+    }
+  };
+
+  const runDeleteConfirmed = async () => {
+    if (!deleteConfirmedTicketId) return;
+    setDeletingConfirmedTicketId(deleteConfirmedTicketId);
+    try {
+      await deleteConfirmedFuelTicketProration(deleteConfirmedTicketId);
+      toast.success("Ticket y prorrateo eliminados");
+      setDeleteConfirmedTicketId(null);
+      await loadConfirmedProration();
+      void loadPendingProration();
+      void loadTickets();
+      void loadSummary();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo eliminar el ticket");
+    } finally {
+      setDeletingConfirmedTicketId(null);
     }
   };
 
@@ -1147,13 +1189,34 @@ export default function Combustibles() {
                           </p>
                         )}
                       </div>
-                      <div className="flex gap-3">
+                      <div className="flex flex-wrap items-center gap-3">
                         <span>{fmtNumber(block.km_total_periodo)} km</span>
                         <span className="font-medium">
                           {block.rendimiento_periodo != null
                             ? `${fmtNumber(block.rendimiento_periodo, 2)} km/L`
                             : "—"}
                         </span>
+                        {canDelete && (
+                          <Button
+                            variant="outline"
+                            size="sm"
+                            disabled={reopeningTicketId === block.ticket_id}
+                            onClick={() => setReopenConfirmTicketId(block.ticket_id)}
+                          >
+                            <Pencil className="h-4 w-4 mr-1.5" />
+                            Editar
+                          </Button>
+                        )}
+                        {isAdmin && (
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            disabled={deletingConfirmedTicketId === block.ticket_id}
+                            onClick={() => setDeleteConfirmedTicketId(block.ticket_id)}
+                          >
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        )}
                       </div>
                     </div>
                     {block.viajes.length > 0 && (
@@ -1549,6 +1612,52 @@ export default function Combustibles() {
             <AlertDialogCancel>Cancelar</AlertDialogCancel>
             <Button variant="destructive" onClick={() => void runDelete()}>
               Eliminar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!reopenConfirmTicketId}
+        onOpenChange={(o) => !o && !reopeningTicketId && setReopenConfirmTicketId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Reabrir prorrateo confirmado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              El ticket volverá a la pestaña Prorrateo como pendiente. Podrá modificar las asignaciones de viajes y
+              guardar los cambios antes de confirmarlo de nuevo.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!reopeningTicketId}>Cancelar</AlertDialogCancel>
+            <Button onClick={() => void runReopenConfirmed()} disabled={!!reopeningTicketId}>
+              {reopeningTicketId ? "Reabriendo…" : "Reabrir y editar"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={!!deleteConfirmedTicketId}
+        onOpenChange={(o) => !o && !deletingConfirmedTicketId && setDeleteConfirmedTicketId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar ticket y prorrateo confirmado?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se eliminará el ticket de combustible, las cargas registradas en los viajes y las asignaciones de
+              prorrateo. Esta acción no se puede deshacer.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={!!deletingConfirmedTicketId}>Cancelar</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() => void runDeleteConfirmed()}
+              disabled={!!deletingConfirmedTicketId}
+            >
+              {deletingConfirmedTicketId ? "Eliminando…" : "Eliminar ticket"}
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>
