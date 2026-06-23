@@ -3,6 +3,7 @@
  * @module pac/sicofi/buildFactura40Payload
  */
 import type { CartaPorte, Trip } from "../../../models";
+import { localDateTimeSatStr } from "../../../utils/localDates";
 import { num } from "../../../utils/numbers";
 import type { TimbradoContext } from "../types";
 import type { Factura40PayloadBody } from "./types";
@@ -28,16 +29,19 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
   };
 }
 
+/** Folio inicial cuando aún no hay `folio_cfdi` timbrado (Sicofi no auto-asigna con 0). */
+const DEFAULT_SICOFI_FOLIO = 1;
+
 /**
- * Folio numérico para Sicofi; `0` indica auto-asignación por el PAC.
- * Usa `cartaPorte.folio_cfdi` si ya existe.
+ * Folio para Sicofi. Usa `cartaPorte.folio_cfdi` si ya existe y es > 0.
  */
-function folioNumber(cartaPorte: CartaPorte, trip: Trip): number | string {
-  if (cartaPorte.folio_cfdi) {
+function folioNumber(cartaPorte: CartaPorte, _trip: Trip): number | string {
+  if (cartaPorte.folio_cfdi != null && cartaPorte.folio_cfdi !== "") {
     const n = Number(cartaPorte.folio_cfdi);
-    return Number.isFinite(n) ? n : cartaPorte.folio_cfdi;
+    if (Number.isFinite(n)) return n > 0 ? n : DEFAULT_SICOFI_FOLIO;
+    return cartaPorte.folio_cfdi;
   }
-  return 0;
+  return DEFAULT_SICOFI_FOLIO;
 }
 
 /**
@@ -66,7 +70,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const datosCfdi: Factura40PayloadBody["DatosCFDI40"] = {
     Serie: serie,
     Folio: folioNumber(cartaPorte, trip),
-    Fecha: "0001-01-01T00:00:00",
+    Fecha: localDateTimeSatStr(),
     FormadePago: opts.formaPago ?? tenant.forma_pago_default ?? "99",
     CondicionesDePago: opts.condicionesPago ?? tenant.condiciones_pago_default ?? null,
     Subtotal: conceptBlock.subtotal,

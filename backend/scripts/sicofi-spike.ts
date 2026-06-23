@@ -9,6 +9,9 @@ import { sicofiPostFactura40 } from "../src/services/pac/sicofi/sicofiClient";
 import { resolveSicofiBaseUrl, SICOFI_AUTH_TOKEN_PATH } from "../src/services/pac/sicofi/config";
 import { getSicofiAccessToken } from "../src/services/pac/sicofi/sicofiAuth";
 import type { SicofiFactura40Request } from "../src/services/pac/sicofi/types";
+import { localDateTimeSatStr } from "../src/utils/localDates";
+
+const cfdiFecha = localDateTimeSatStr();
 
 function arg(name: string): string | undefined {
   const i = process.argv.indexOf(name);
@@ -31,8 +34,8 @@ const sampleIngreso: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
   EmisorCFDI40: null,
   DatosCFDI40: {
     Serie: "A",
-    Folio: 0,
-    Fecha: "0001-01-01T00:00:00",
+    Folio: 1,
+    Fecha: cfdiFecha,
     FormadePago: "99",
     CondicionesDePago: "CREDITO 30 DIAS",
     Subtotal: 250,
@@ -81,8 +84,8 @@ const sampleTraslado: Omit<SicofiFactura40Request, "Usuario" | "Contrasena"> = {
   EmisorCFDI40: null,
   DatosCFDI40: {
     Serie: "CP",
-    Folio: 0,
-    Fecha: "0001-01-01T00:00:00",
+    Folio: 1,
+    Fecha: cfdiFecha,
     FormadePago: "99",
     Subtotal: 0,
     Descuento: 0,
