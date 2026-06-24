@@ -2,15 +2,30 @@
 /**
  * Crea viajes de prueba para timbrado Sicofi (ingreso y traslado con mercancía).
  *
- * Uso: npx tsx scripts/carta-porte-test-setup.ts [--timbrar]
+ * Uso:
+ *   npx tsx scripts/carta-porte-test-setup.ts [--timbrar]
+ *   npx tsx scripts/carta-porte-test-setup.ts --digifact [--timbrar]
+ *
+ * `--digifact` crea un viaje de ingreso alineado al JSON de prueba Sicofi (digifact517)
+ * para timbrar vía API con `tipo: "ingreso"`.
  */
 import "dotenv/config";
 import "../src/models/index";
 import { randomUUID } from "node:crypto";
-import { sequelize, Tenant, Truck, Driver, Client, TripStatus, TripUbicacion, TripMercancia } from "../src/models";
+import {
+  sequelize,
+  Tenant,
+  Truck,
+  Driver,
+  Client,
+  TripStatus,
+  TripUbicacion,
+  TripMercancia,
+} from "../src/models";
 import * as tripService from "../src/services/tripService";
 import * as tripFiscalService from "../src/services/tripFiscalService";
 import * as cartaPorteService from "../src/services/cartaPorteService";
+import type { TimbradoOpts } from "../src/services/pac/types";
 import {
   PUBLICO_GENERAL_NOMBRE,
   PUBLICO_GENERAL_REGIMEN,
@@ -25,6 +40,90 @@ import {
 
 const TENANT_ID = "ba2e46fb-b4d9-47d0-8e0e-a1c84c5e7fed";
 const TIMBRAR = process.argv.includes("--timbrar");
+const SOLO_DIGIFACT = process.argv.includes("--digifact");
+
+/** Payload Sicofi de referencia (Factura FA + Carta Porte 3.1). */
+const DIGIFACT = {
+  lugarExpedicion: "22455",
+  tarifa: 2500,
+  idCcp: "232909e4-56a1-4df8-98be-3b8985df8973",
+  receptor: {
+    rfc: "CCM080101IL8",
+    razonSocial: "CERVECERIA CUAUHTEMOC MOCTEZUMA",
+    cp: "64410",
+    regimen: "601",
+    usoCfdi: "G03",
+  },
+  formaPago: "01",
+  metodoPago: "PUE",
+  ivaTasa: 0.16,
+  /** Sin retención: total = 2500 + 400 IVA = 2900 (como el JSON de Sicofi). */
+  retencionTasa: 0,
+  operador: {
+    rfc: "REVR8704224B7",
+    nombre: "DEL REAL VARGAS RUBEN ALFONSO",
+    licenciaFederal: "LF-TEST-001",
+    tipoFigura: "01",
+  },
+  camion: {
+    placas: "98AA1A",
+    anio: 2026,
+    configVehicular: "C2",
+    permSct: "TPAF01",
+    numPermisoSct: "SCT-C2 998877",
+    pesoBrutoVehicular: "3500.00",
+    aseguradora: "GNP Seguros",
+    poliza: "GNP-M2 003450",
+  },
+  mercancia: {
+    descripcion: "Mercancía general de prueba",
+    cantidad: 1,
+    unidad: "H87",
+    peso_kg: 500,
+    clave_prod_serv: "50192100",
+    material_peligroso: false,
+  },
+  ubicaciones: [
+    {
+      orden: 1,
+      rfc: "CCM080101IL8",
+      nombre: "CERVECERIA CUAUHTEMOC MOCTEZUMA",
+      fecha_hora: "2026-06-23T15:11:04",
+      calle: "Blvd. Defensores de Baja California 150",
+      numero_exterior: "1",
+      colonia_clave: "0251",
+      localidad_clave: "03",
+      municipio_clave: "003",
+      estado: "BCN",
+      cp: "21460",
+      pais: "MEX",
+    },
+    {
+      orden: 2,
+      rfc: "CCM080101IL8",
+      nombre: "CERVECERIA CUAUHTEMOC MOCTEZUMA",
+      fecha_hora: "2026-06-23T16:11:04",
+      distancia_km: 15,
+      calle: "Blvd. a Sta. Anita Km.3-200",
+      numero_exterior: "1",
+      colonia_clave: "2123",
+      localidad_clave: "03",
+      municipio_clave: "003",
+      estado: "BCN",
+      cp: "21482",
+      pais: "MEX",
+    },
+  ],
+} as const;
+
+const DIGIFACT_TIMBRADO_OPTS: TimbradoOpts = {
+  formaPago: DIGIFACT.formaPago,
+  metodoPago: DIGIFACT.metodoPago,
+  usoCfdi: DIGIFACT.receptor.usoCfdi,
+  moneda: "MXN",
+  ivaTasa: DIGIFACT.ivaTasa,
+  retencionTasa: DIGIFACT.retencionTasa,
+};
 /** Cliente en ubicaciones Carta Porte (remitente/destinatario) para traslado. */
 const TEST_UBIC_CLIENT_RFC = PUBLICO_GENERAL_RFC;
 const TEST_UBIC_CLIENT_RAZON = PUBLICO_GENERAL_NOMBRE;
@@ -280,6 +379,277 @@ async function closeTripForReuse(tenantId: string, tripId: string, kmInicial: nu
   });
 }
 
+async function ensureDigifactTenant(tenant: Tenant) {
+  const patch: Record<string, string> = {};
+  if (tenant.cp_fiscal !== DIGIFACT.lugarExpedicion) {
+    patch.cp_fiscal = DIGIFACT.lugarExpedicion;
+  }
+  if (Object.keys(patch).length > 0) {
+    await tenant.update(patch as never);
+    console.log(`Tenant cp_fiscal → ${DIGIFACT.lugarExpedicion}`);
+  }
+}
+
+async function ensureDigifactClient(tenantId: string): Promise<Client> {
+  const { rfc, razonSocial, cp, regimen } = DIGIFACT.receptor;
+  let client = await Client.findOne({ where: { tenant_id: tenantId, rfc } });
+  if (!client) {
+    client = await Client.create({
+      id: randomUUID(),
+      tenant_id: tenantId,
+      razon_social: razonSocial,
+      rfc,
+      contacto: "Contacto Digifact",
+      telefono: "3312345678",
+      calle: "Blvd. a Sta. Anita Km.3-200",
+      colonia: "Industrial",
+      municipio: "Tijuana",
+      estado: "BCN",
+      cp,
+      pais: "MEX",
+      regimen_fiscal: regimen,
+      estatus: "activo",
+    } as never);
+    console.log(`Cliente Digifact creado: ${client.id}`);
+    return client;
+  }
+  await client.update({
+    razon_social: razonSocial,
+    cp,
+    regimen_fiscal: regimen,
+    estado: "BCN",
+    estatus: "activo",
+  } as never);
+  return client;
+}
+
+async function ensureDigifactDriver(tenantId: string, truckId: string): Promise<Driver> {
+  const { rfc, nombre, licenciaFederal, tipoFigura } = DIGIFACT.operador;
+  let driver = await Driver.findOne({ where: { tenant_id: tenantId, rfc } });
+  if (!driver) {
+    driver = await Driver.create({
+      id: randomUUID(),
+      tenant_id: tenantId,
+      nombre,
+      telefono: "3312345678",
+      licencia: licenciaFederal,
+      licencia_federal: licenciaFederal,
+      tipo_figura: tipoFigura,
+      rfc,
+      fecha_ingreso: "2025-01-01",
+      comision_tipo: "porcentaje",
+      comision_valor: 10,
+      comision_valor_local: 10,
+      comision_valor_foraneo: 12,
+      estatus: "activo",
+      truck_id: truckId,
+    } as never);
+    console.log(`Operador Digifact creado: ${driver.id}`);
+    return driver;
+  }
+  await driver.update({
+    nombre,
+    licencia: licenciaFederal,
+    licencia_federal: licenciaFederal,
+    tipo_figura: tipoFigura,
+    truck_id: truckId,
+    estatus: "activo",
+  } as never);
+  return driver;
+}
+
+async function ensureDigifactTruck(tenantId: string): Promise<Truck> {
+  const c = DIGIFACT.camion;
+  let truck = await Truck.findOne({ where: { tenant_id: tenantId, placas: c.placas } });
+  if (!truck) {
+    truck = await Truck.findOne({ where: { tenant_id: tenantId, estatus: "activo" } });
+    if (!truck) {
+      truck = await Truck.findOne({ where: { tenant_id: tenantId } });
+      if (truck) await truck.update({ estatus: "activo" } as never);
+    }
+    if (!truck) throw new Error("No hay camiones en el tenant; crea al menos uno en catálogos");
+  }
+  await truck.update({
+    placas: c.placas,
+    anio: c.anio,
+    config_vehicular: c.configVehicular,
+    perm_sct: c.permSct,
+    num_permiso_sct: c.numPermisoSct,
+    peso_bruto_vehicular: c.pesoBrutoVehicular,
+    aseguradora_resp_civil: c.aseguradora,
+    poliza_resp_civil: c.poliza,
+    estatus: "activo",
+  } as never);
+  return truck;
+}
+
+async function setupDigifactTrip(tenantId: string, truckId: string, driverId: string, clientId: string) {
+  const trip = await tripService.createTrip(tenantId, {
+    truck_id: truckId,
+    driver_id: driverId,
+    client_id: clientId,
+    origen: "Zapopan, JAL",
+    destino: "Guadalajara, JAL",
+    fecha_salida: "2026-06-23T14:50:00",
+    km_inicial: 100000,
+    tarifa: DIGIFACT.tarifa,
+    tipo_viaje: "local",
+  });
+
+  for (const u of DIGIFACT.ubicaciones) {
+    await tripFiscalService.upsertUbicacion(tenantId, trip.id, u.orden, { ...u });
+  }
+
+  await tripFiscalService.addMercancia(tenantId, trip.id, { ...DIGIFACT.mercancia });
+
+  const cp = await cartaPorteService.getCartaPorteForTrip(tenantId, trip.id);
+  await cp.update({
+    id_ccp: DIGIFACT.idCcp,
+    transporte_internacional: false,
+  } as never);
+
+  return trip;
+}
+
+function printDigifactApiCurl(tripId: string) {
+  const body = JSON.stringify({ tipo: "ingreso", ...apiTimbradoBodyFromOpts() }, null, 2);
+  console.log("\n--- Timbrar vía API (mismo escenario Digifact) ---");
+  console.log(
+    `curl -X POST 'http://localhost:4000/api/v1/trips/${tripId}/carta-porte/timbrar' \\\n` +
+      `  -H 'Authorization: Bearer <JWT>' \\\n` +
+      `  -H 'Content-Type: application/json' \\\n` +
+      `  -d '${body.replace(/'/g, "'\\''")}'`,
+  );
+  console.log("\nPreview:");
+  console.log(
+    `curl -X POST 'http://localhost:4000/api/v1/trips/${tripId}/carta-porte/preview' \\\n` +
+      `  -H 'Authorization: Bearer <JWT>' \\\n` +
+      `  -H 'Content-Type: application/json' \\\n` +
+      `  -d '${body.replace(/'/g, "'\\''")}'`,
+  );
+}
+
+function apiTimbradoBodyFromOpts() {
+  return {
+    forma_pago: DIGIFACT_TIMBRADO_OPTS.formaPago,
+    metodo_pago: DIGIFACT_TIMBRADO_OPTS.metodoPago,
+    uso_cfdi: DIGIFACT_TIMBRADO_OPTS.usoCfdi,
+    moneda: DIGIFACT_TIMBRADO_OPTS.moneda,
+    iva_tasa: DIGIFACT_TIMBRADO_OPTS.ivaTasa,
+    retencion_tasa: DIGIFACT_TIMBRADO_OPTS.retencionTasa,
+  };
+}
+
+type ResultEntry = {
+  label: string;
+  tripId: string;
+  folio: string;
+  tipo: string;
+  previewValid: boolean;
+  previewIssues: string[];
+  timbrado?: { uuid?: string; error?: string };
+};
+
+async function runCaso(
+  tenantId: string,
+  entry: {
+    label: string;
+    tipo: "ingreso" | "traslado";
+    tripId: string;
+    folio: string;
+    timbradoOpts?: TimbradoOpts;
+  },
+): Promise<ResultEntry> {
+  const preview = await cartaPorteService.previewCartaPorte(
+    tenantId,
+    entry.tripId,
+    entry.tipo,
+    entry.timbradoOpts,
+  );
+  console.log(`  Viaje ${entry.folio} (${entry.tripId})`);
+  console.log(`  Preview valid=${preview.valid}`);
+  if (preview.issues.length) {
+    console.log(`  Issues: ${preview.issues.join("; ")}`);
+  } else {
+    const payload = preview.payload_preview as {
+      DatosCFDI40?: { TipodeComprobante?: string; Total?: number; Subtotal?: number };
+      ReceptorCFDI40?: { RFC?: string };
+    };
+    console.log(
+      `  Payload: tipo=${payload?.DatosCFDI40?.TipodeComprobante ?? "?"} ` +
+        `receptor=${payload?.ReceptorCFDI40?.RFC ?? "?"} ` +
+        `subtotal=${payload?.DatosCFDI40?.Subtotal ?? "?"} ` +
+        `total=${payload?.DatosCFDI40?.Total ?? "?"}`,
+    );
+  }
+
+  const result: ResultEntry = {
+    label: entry.label,
+    tripId: entry.tripId,
+    folio: entry.folio,
+    tipo: entry.tipo,
+    previewValid: preview.valid,
+    previewIssues: preview.issues,
+  };
+
+  if (TIMBRAR && preview.valid) {
+    try {
+      const cp = await cartaPorteService.timbrarCartaPorte(
+        tenantId,
+        entry.tripId,
+        entry.tipo,
+        entry.timbradoOpts,
+      );
+      result.timbrado = { uuid: cp.uuid ?? undefined };
+      console.log(`  Timbrado OK: UUID=${cp.uuid} serie=${cp.serie} folio=${cp.folio_cfdi}`);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      result.timbrado = { error: msg };
+      console.log(`  Timbrado ERROR: ${msg}`);
+    }
+  } else if (TIMBRAR && !preview.valid) {
+    console.log(`  Timbrado omitido (preview inválido)`);
+  }
+
+  return result;
+}
+
+async function runDigifactScenario(tenant: Tenant): Promise<ResultEntry> {
+  console.log("--- digifact-ingreso (JSON Sicofi FA) ---");
+  await ensureDigifactTenant(tenant);
+
+  const truck = await ensureDigifactTruck(tenant.id);
+  const client = await ensureDigifactClient(tenant.id);
+  const driver = await ensureDigifactDriver(tenant.id, truck.id);
+
+  console.log(`  Cliente: ${client.razon_social} (${client.rfc})`);
+  console.log(`  Operador: ${driver.nombre} (${driver.rfc})`);
+  console.log(`  Camión: ${truck.placas} (${truck.id})`);
+  console.log(`  IdCCP: CCC${DIGIFACT.idCcp}`);
+
+  const trip = await setupDigifactTrip(tenant.id, truck.id, driver.id, client.id);
+  const result = await runCaso(tenant.id, {
+    label: "digifact-ingreso",
+    tipo: "ingreso",
+    tripId: trip.id,
+    folio: trip.folio,
+    timbradoOpts: DIGIFACT_TIMBRADO_OPTS,
+  });
+
+  printDigifactApiCurl(trip.id);
+
+  if (!result.timbrado?.uuid) {
+    try {
+      await closeTripForReuse(tenant.id, trip.id, 100000, "DIGIFACT-PEND");
+    } catch (e) {
+      console.log(`  Aviso: no se pudo cerrar viaje: ${e instanceof Error ? e.message : e}`);
+    }
+  }
+
+  console.log("");
+  return result;
+}
+
 async function main() {
   await sequelize.authenticate();
 
@@ -290,6 +660,15 @@ async function main() {
   console.log(`PAC: ${tenant.pac_proveedor} | Usuario: ${tenant.pac_usuario ?? "(vacío)"}`);
 
   await ensureSystemTripStatuses(TENANT_ID);
+
+  const results: ResultEntry[] = [];
+
+  if (SOLO_DIGIFACT) {
+    results.push(await runDigifactScenario(tenant));
+    printResumen(results);
+    await sequelize.close();
+    return;
+  }
 
   const truck = await ensureTruck(TENANT_ID);
   const ubicClient = await ensureTestClient(tenant, false);
@@ -309,16 +688,6 @@ async function main() {
   }
   console.log("");
 
-  const results: Array<{
-    label: string;
-    tripId: string;
-    folio: string;
-    tipo: string;
-    previewValid: boolean;
-    previewIssues: string[];
-    timbrado?: { uuid?: string; error?: string };
-  }> = [];
-
   for (const caso of CASOS) {
     console.log(`--- ${caso.label} ---`);
     const tripClient = caso.tipo === "ingreso"
@@ -335,38 +704,12 @@ async function main() {
 
     await tripFiscalService.addMercancia(TENANT_ID, trip.id, MERCANCIA);
 
-    const preview = await cartaPorteService.previewCartaPorte(TENANT_ID, trip.id, caso.tipo);
-    console.log(`  Viaje ${trip.folio} (${trip.id})`);
-    console.log(`  Preview valid=${preview.valid}`);
-    if (preview.issues.length) {
-      console.log(`  Issues: ${preview.issues.join("; ")}`);
-    } else {
-      console.log(`  Payload tipo: ${(preview.payload_preview as { DatosCFDI40?: { TipodeComprobante?: string } })?.DatosCFDI40?.TipodeComprobante ?? "?"}`);
-    }
-
-    const entry: (typeof results)[number] = {
+    const entry = await runCaso(TENANT_ID, {
       label: caso.label,
+      tipo: caso.tipo,
       tripId: trip.id,
       folio: trip.folio,
-      tipo: caso.tipo,
-      previewValid: preview.valid,
-      previewIssues: preview.issues,
-    };
-
-    if (TIMBRAR && preview.valid) {
-      try {
-        const cp = await cartaPorteService.timbrarCartaPorte(TENANT_ID, trip.id, caso.tipo);
-        entry.timbrado = { uuid: cp.uuid ?? undefined };
-        console.log(`  Timbrado OK: UUID=${cp.uuid} serie=${cp.serie} folio=${cp.folio_cfdi}`);
-      } catch (e) {
-        const msg = e instanceof Error ? e.message : String(e);
-        entry.timbrado = { error: msg };
-        console.log(`  Timbrado ERROR: ${msg}`);
-      }
-    } else if (TIMBRAR && !preview.valid) {
-      console.log(`  Timbrado omitido (preview inválido)`);
-    }
-
+    });
     results.push(entry);
 
     const facturaCierre = entry.timbrado?.uuid
@@ -381,14 +724,21 @@ async function main() {
     console.log("");
   }
 
+  printResumen(results);
+  await sequelize.close();
+}
+
+function printResumen(results: ResultEntry[]) {
   console.log("\n=== RESUMEN ===");
   for (const r of results) {
     const previewStatus = r.previewValid ? "OK preview" : "FAIL preview";
-    const stamp = r.timbrado?.uuid ? ` | timbrado ${r.timbrado.uuid}` : r.timbrado?.error ? ` | error: ${r.timbrado.error}` : "";
+    const stamp = r.timbrado?.uuid
+      ? ` | timbrado ${r.timbrado.uuid}`
+      : r.timbrado?.error
+        ? ` | error: ${r.timbrado.error}`
+        : "";
     console.log(`${r.label}: ${r.folio} (${r.tripId}) [${r.tipo}] — ${previewStatus}${stamp}`);
   }
-
-  await sequelize.close();
 }
 
 void main().catch((e) => {

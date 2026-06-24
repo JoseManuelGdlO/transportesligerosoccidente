@@ -144,13 +144,16 @@ describe("buildFactura40Payload", () => {
     assert.equal(autotransporte?.permsct, "TPAF01");
   });
 
-  it("incluye CantidadTransporta en mercancías Carta Porte", () => {
+  it("incluye CantidadTransporta y omite idubicacion en ubicaciones", () => {
     const payload = buildFactura40Payload(baseCtx());
-    const merc = (
-      payload.CartaPorte31 as {
-        MercanciasCartaPorte30?: { Mercancia30?: Array<{ CantidadTransporta?: unknown[] }> };
-      }
-    ).MercanciasCartaPorte30?.Mercancia30?.[0];
+    const cp31 = payload.CartaPorte31 as {
+      Ubicaciones20?: { ubicaciones?: Array<Record<string, unknown>> };
+      MercanciasCartaPorte30?: { Mercancia30?: Array<{ CantidadTransporta?: unknown[] }> };
+    };
+    for (const u of cp31.Ubicaciones20?.ubicaciones ?? []) {
+      assert.equal("idubicacion" in u, false);
+    }
+    const merc = cp31.MercanciasCartaPorte30?.Mercancia30?.[0];
     assert.ok(merc?.CantidadTransporta?.length);
     const ct = merc?.CantidadTransporta?.[0] as { IDOrigen?: string; IDDestino?: string };
     assert.ok(ct.IDOrigen?.startsWith("OR"));

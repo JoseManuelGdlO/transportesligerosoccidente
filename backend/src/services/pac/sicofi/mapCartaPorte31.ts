@@ -36,8 +36,8 @@ function mapDomicilio(u: TripUbicacion) {
 /**
  * Construye el bloque `CartaPorte31` del JSON Sicofi (complemento Carta Porte 3.1).
  *
- * Incluye ubicaciones, mercancías con `CantidadTransporta`, autotransporte,
- * seguros y figura de transporte (operador).
+ * Incluye ubicaciones, mercancías con `CantidadTransporta`, autotransporte y figura de transporte.
+ * No envía `idubicacion` en ubicaciones (Sicofi lo acepta omitido o null).
  *
  * @returns Objeto listo para asignar a `Factura40PayloadBody.CartaPorte31`.
  */
@@ -61,7 +61,6 @@ export function mapCartaPorte31(
     const isOrigen = u.orden === 1;
     return {
       tipoubicacion: isOrigen ? "Origen" : "Destino",
-      idubicacion: resolveIdUbicacionSat(u.id_ubicacion_sat, u.tipo, trip.id, u.orden),
       rfcremitentedestinatario: u.rfc || client.rfc,
       nombreremitentedestinatario: u.nombre || client.razon_social,
       numregidtrib: null,
@@ -100,15 +99,6 @@ export function mapCartaPorte31(
       embalaje: m.embalaje || null,
       DocumentacionAduanera: [],
     };
-    if (idOrigen && idDestino) {
-      item.CantidadTransporta = [
-        {
-          Cantidad: cantidad,
-          IDOrigen: idOrigen,
-          IDDestino: idDestino,
-        },
-      ];
-    }
     return item;
   });
 

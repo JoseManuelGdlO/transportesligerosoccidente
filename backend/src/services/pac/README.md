@@ -240,7 +240,7 @@ TLO valida en `previewCartaPorte` y devuelve `issues[]` sin timbrar:
 |--------|--------------|--------|
 | **CP107** | En traslado el receptor CFDI ≠ RFC del CSD en Sicofi | Alinear `tenant.rfc`, razón social y CP con el certificado en Sicofi |
 | **CFDI40106** | CSD del PAC no corresponde al emisor del XML | Recargar CSD correcto en Sicofi o corregir datos fiscales del tenant |
-| **CP131** | Falta `CantidadTransporta` en mercancías | Verificar origen/destino y que `mapCartaPorte31` envíe `IDOrigen`/`IDDestino` |
+| **CP131** | `CantidadTransporta` sin `IDUbicacion` coherente en ubicaciones | TLO no envía `idubicacion` en ubicaciones; sí envía `CantidadTransporta` en mercancías |
 
 Más síntomas XSD (serie no dada de alta, catálogos mezclados, etc.) en [docs/sicofi-factura40.md](../../../../docs/sicofi-factura40.md).
 

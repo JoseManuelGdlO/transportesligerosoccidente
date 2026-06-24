@@ -64,7 +64,7 @@ Sicofi devuelve `Error: 301 - No cumple con el estándar de XML` cuando algún c
 | `CFDI40106` CSD no corresponde a emisor | CSD del PAC ≠ emisor del XML | Alinear `tenant.rfc`, razón social y CP con el CSD cargado en Sicofi |
 | Ingreso + Carta Porte con `XAXX010101000` | SAT no admite público en general con complemento | Cliente con RFC real inscrito en el SAT |
 | Ingreso a público en general sin CP `CFDI40130` | Falta nodo global | `InformacionGlobal` + régimen `616` + CP = lugar expedición (solo sin Carta Porte) |
-| Ingreso + Carta Porte `CP131` | Falta `CantidadTransporta` en mercancías | TLO envía `Cantidad`, `IDOrigen`, `IDDestino` por mercancía |
+| Ingreso + Carta Porte `CP131` | `CantidadTransporta` sin `IDUbicacion` en ubicaciones | TLO omite `idubicacion` en ubicaciones; `CantidadTransporta` usa `IDOrigen`/`IDDestino` internos |
 
 ### Dos catálogos distintos (no intercambiables)
 
