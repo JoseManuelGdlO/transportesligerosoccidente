@@ -354,31 +354,41 @@ export default function Combustibles() {
   const loadPendingProration = useCallback(async () => {
     setLoadingProration(true);
     try {
-      const report = await fetchFuelProration(inicio, fin, "pendiente");
+      const report = await fetchFuelProration(
+        inicio,
+        fin,
+        "pendiente",
+        truckFilter === "all" ? undefined : truckFilter,
+      );
       setProration(report);
     } catch {
       toast.error("No se pudieron cargar los tickets pendientes");
     } finally {
       setLoadingProration(false);
     }
-  }, [inicio, fin]);
+  }, [inicio, fin, truckFilter]);
 
   const loadConfirmedProration = useCallback(async () => {
     setLoadingConfirmedProration(true);
     try {
-      const report = await fetchFuelProration(inicio, fin, "confirmado");
+      const report = await fetchFuelProration(
+        inicio,
+        fin,
+        "confirmado",
+        truckFilter === "all" ? undefined : truckFilter,
+      );
       setConfirmedProration(report);
     } catch {
       toast.error("No se pudieron cargar los prorrateos confirmados");
     } finally {
       setLoadingConfirmedProration(false);
     }
-  }, [inicio, fin]);
+  }, [inicio, fin, truckFilter]);
 
   useEffect(() => {
     if (activeTab === "prorrateo") void loadPendingProration();
     if (activeTab === "confirmados") void loadConfirmedProration();
-  }, [activeTab, loadPendingProration, loadConfirmedProration]);
+  }, [activeTab, loadPendingProration, loadConfirmedProration, truckFilter]);
 
   const loadSummary = useCallback(async () => {
     setLoadingSummary(true);
@@ -395,6 +405,11 @@ export default function Combustibles() {
   useEffect(() => {
     void loadSummary();
   }, [loadSummary]);
+
+  const filteredSummary = useMemo(
+    () => (truckFilter === "all" ? summary : summary.filter((r) => r.truck_id === truckFilter)),
+    [summary, truckFilter],
+  );
 
   const openAssignDialog = (unit: FuelProrationUnitReport, block: ProratedTicketBlock) => {
     const selected = new Set(block.viajes.map((v) => v.trip_id));
@@ -799,6 +814,25 @@ export default function Combustibles() {
     </div>
   );
 
+  const truckFilterSelect = (
+    <div className="space-y-1 min-w-[160px]">
+      <Label className="text-xs text-muted-foreground">Unidad</Label>
+      <Select value={truckFilter} onValueChange={setTruckFilter}>
+        <SelectTrigger>
+          <SelectValue placeholder="Todas" />
+        </SelectTrigger>
+        <SelectContent>
+          <SelectItem value="all">Todas las unidades</SelectItem>
+          {activeTrucks.map((t) => (
+            <SelectItem key={t.id} value={t.id}>
+              {t.numero_economico} — {t.placas}
+            </SelectItem>
+          ))}
+        </SelectContent>
+      </Select>
+    </div>
+  );
+
   return (
     <div className="space-y-4">
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
@@ -845,22 +879,7 @@ export default function Combustibles() {
           <Card className="p-4 space-y-3">
             <div className="flex flex-wrap gap-3 items-end">
               {dateFilters}
-              <div className="space-y-1 min-w-[160px]">
-                <Label className="text-xs text-muted-foreground">Unidad</Label>
-                <Select value={truckFilter} onValueChange={setTruckFilter}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Todas" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="all">Todas las unidades</SelectItem>
-                    {activeTrucks.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.numero_economico} — {t.placas}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
+              {truckFilterSelect}
               <Button variant="secondary" onClick={() => void loadTickets()} disabled={loadingTickets}>
                 Actualizar
               </Button>
@@ -940,6 +959,7 @@ export default function Combustibles() {
           <Card className="p-4">
             <div className="flex flex-wrap gap-3 items-end">
               {dateFilters}
+              {truckFilterSelect}
               <Button variant="secondary" onClick={() => void loadPendingProration()} disabled={loadingProration}>
                 Actualizar
               </Button>
@@ -1124,6 +1144,7 @@ export default function Combustibles() {
         <TabsContent value="confirmados" className="space-y-4 mt-4">
           <Card className="p-4 flex flex-wrap gap-3 items-end">
             {dateFilters}
+            {truckFilterSelect}
             <Button
               variant="secondary"
               onClick={() => void loadConfirmedProration()}
@@ -1254,6 +1275,7 @@ export default function Combustibles() {
         <TabsContent value="resumen" className="space-y-4 mt-4">
           <Card className="p-4 flex flex-wrap gap-3 items-end">
             {dateFilters}
+            {truckFilterSelect}
             <Button variant="secondary" onClick={() => void loadSummary()} disabled={loadingSummary}>
               Actualizar
             </Button>
@@ -1277,14 +1299,14 @@ export default function Combustibles() {
                       Cargando…
                     </TableCell>
                   </TableRow>
-                ) : summary.length === 0 ? (
+                ) : filteredSummary.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
                       Sin datos en el período
                     </TableCell>
                   </TableRow>
                 ) : (
-                  summary.map((row) => (
+                  filteredSummary.map((row) => (
                     <TableRow key={row.truck_id}>
                       <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
                       <TableCell>{row.placas}</TableCell>

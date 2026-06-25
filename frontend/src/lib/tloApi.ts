@@ -840,8 +840,10 @@ export async function fetchFuelProration(
   inicio: string,
   fin: string,
   estado: "pendiente" | "confirmado" = "pendiente",
+  truckId?: string,
 ): Promise<FuelProrationReport> {
   const q = new URLSearchParams({ inicio, fin, estado });
+  if (truckId) q.set("truck_id", truckId);
   const res = await apiFetch(`/reports/fuel/proration?${q}`);
   return readJson<FuelProrationReport>(res);
 }
