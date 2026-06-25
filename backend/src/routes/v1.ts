@@ -197,6 +197,42 @@ r.get(
   requirePermission("cartaporte.ver"),
   satCatalogC.getClaveProducto,
 );
+r.get(
+  "/sat/municipios",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.searchMunicipios,
+);
+r.get(
+  "/sat/municipios/:estado/:clave",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.getMunicipio,
+);
+r.get(
+  "/sat/localidades",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.searchLocalidades,
+);
+r.get(
+  "/sat/localidades/:estado/:clave",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.getLocalidad,
+);
+r.get(
+  "/sat/colonias",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.searchColonias,
+);
+r.get(
+  "/sat/colonias/:cp/:clave",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.getColonia,
+);
 
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);

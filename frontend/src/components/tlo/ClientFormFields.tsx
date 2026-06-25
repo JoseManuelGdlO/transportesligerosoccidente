@@ -6,6 +6,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import type { Client, ClientStatus } from "@/types/tlo";
 import type { ClientFormErrors } from "@/lib/validateClientForm";
 import { cn } from "@/lib/utils";
+import { DomicilioSatFields } from "@/components/tlo/DomicilioSatFields";
 
 interface ClientFormFieldsProps {
   form: Client;
@@ -130,70 +131,7 @@ export function ClientFormFields({ form, onChange, fieldErrors, onClearError }: 
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Domicilio fiscal (Carta Porte)
         </p>
-        <div>
-          <Label htmlFor="calle">Calle</Label>
-          <Input id="calle" value={form.calle ?? ""} onChange={(e) => onChange({ calle: e.target.value })} />
-        </div>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label htmlFor="numero_exterior">No. exterior</Label>
-            <Input
-              id="numero_exterior"
-              value={form.numero_exterior ?? ""}
-              onChange={(e) => onChange({ numero_exterior: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="numero_interior">No. interior</Label>
-            <Input
-              id="numero_interior"
-              value={form.numero_interior ?? ""}
-              onChange={(e) => onChange({ numero_interior: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="colonia">Colonia</Label>
-            <Input id="colonia" value={form.colonia ?? ""} onChange={(e) => onChange({ colonia: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="localidad">Localidad</Label>
-            <Input
-              id="localidad"
-              value={form.localidad ?? ""}
-              onChange={(e) => onChange({ localidad: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="municipio">Municipio</Label>
-            <Input
-              id="municipio"
-              value={form.municipio ?? ""}
-              onChange={(e) => onChange({ municipio: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label htmlFor="estado">Estado</Label>
-            <Input id="estado" value={form.estado ?? ""} onChange={(e) => onChange({ estado: e.target.value })} />
-          </div>
-          <div>
-            <Label htmlFor="cp">C.P.</Label>
-            <Input
-              id="cp"
-              value={form.cp ?? ""}
-              onChange={(e) => onChange({ cp: e.target.value })}
-              maxLength={5}
-            />
-          </div>
-          <div>
-            <Label htmlFor="pais">País</Label>
-            <Input
-              id="pais"
-              value={form.pais ?? "MEX"}
-              onChange={(e) => onChange({ pais: e.target.value })}
-              maxLength={3}
-            />
-          </div>
-        </div>
+        <DomicilioSatFields value={form} onChange={onChange} />
       </div>
       <div>
         <Label htmlFor="observaciones">Observaciones</Label>

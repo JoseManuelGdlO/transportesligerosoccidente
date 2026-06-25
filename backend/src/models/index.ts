@@ -31,6 +31,9 @@ import { TripStatus, initTripStatus } from "./TripStatus";
 import { TripStatusAssignment, initTripStatusAssignment } from "./TripStatusAssignment";
 import { FuelProrationAssignment, initFuelProrationAssignment } from "./FuelProrationAssignment";
 import { SatClaveProducto, initSatClaveProducto } from "./SatClaveProducto";
+import { SatMunicipio, initSatMunicipio } from "./SatMunicipio";
+import { SatLocalidad, initSatLocalidad } from "./SatLocalidad";
+import { SatColonia, initSatColonia } from "./SatColonia";
 
 export function initModels() {
   initTenant(sequelize);
@@ -65,6 +68,9 @@ export function initModels() {
   initMaintenanceSchedule(sequelize);
   initMaintenanceRecord(sequelize);
   initSatClaveProducto(sequelize);
+  initSatMunicipio(sequelize);
+  initSatLocalidad(sequelize);
+  initSatColonia(sequelize);
 
   Role.belongsToMany(Permission, {
     through: RolePermission,
@@ -236,6 +242,9 @@ export {
   TripStatusAssignment,
   FuelProrationAssignment,
   SatClaveProducto,
+  SatMunicipio,
+  SatLocalidad,
+  SatColonia,
 };
 
 initModels();

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { ClientFormFields } from "@/components/tlo/ClientFormFields";
+import { DomicilioSatFields } from "@/components/tlo/DomicilioSatFields";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -370,94 +371,15 @@ export default function Clientes() {
                 </Select>
               </div>
             </div>
-            <div>
-              <Label htmlFor="ubic_calle">Calle</Label>
-              <Input
-                id="ubic_calle"
-                value={ubicForm.calle ?? ""}
-                onChange={(e) => setUbicForm({ ...ubicForm, calle: e.target.value })}
-              />
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label htmlFor="ubic_numero_exterior">No. exterior</Label>
-                <Input
-                  id="ubic_numero_exterior"
-                  value={ubicForm.numero_exterior ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, numero_exterior: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_numero_interior">No. interior</Label>
-                <Input
-                  id="ubic_numero_interior"
-                  value={ubicForm.numero_interior ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, numero_interior: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_colonia">Colonia</Label>
-                <Input
-                  id="ubic_colonia"
-                  value={ubicForm.colonia ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, colonia: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_localidad">Localidad</Label>
-                <Input
-                  id="ubic_localidad"
-                  value={ubicForm.localidad ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, localidad: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_municipio">Municipio</Label>
-                <Input
-                  id="ubic_municipio"
-                  value={ubicForm.municipio ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, municipio: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_estado">Estado</Label>
-                <Input
-                  id="ubic_estado"
-                  value={ubicForm.estado ?? ""}
-                  onChange={(e) => setUbicForm({ ...ubicForm, estado: e.target.value })}
-                />
-              </div>
-              <div>
-                <Label htmlFor="ubic_cp">C.P.</Label>
-                <Input
-                  id="ubic_cp"
-                  value={ubicForm.cp ?? ""}
-                  maxLength={5}
-                  aria-invalid={!!ubicFieldErrors.cp}
-                  className={cn(ubicFieldErrors.cp && "border-destructive")}
-                  onChange={(e) => {
-                    setUbicForm({ ...ubicForm, cp: e.target.value });
-                    clearUbicFieldError("cp");
-                  }}
-                />
-                {ubicFieldErrors.cp && <p className="text-sm text-destructive mt-1">{ubicFieldErrors.cp}</p>}
-              </div>
-              <div>
-                <Label htmlFor="ubic_pais">País</Label>
-                <Input
-                  id="ubic_pais"
-                  value={ubicForm.pais ?? "MEX"}
-                  maxLength={3}
-                  aria-invalid={!!ubicFieldErrors.pais}
-                  className={cn(ubicFieldErrors.pais && "border-destructive")}
-                  onChange={(e) => {
-                    setUbicForm({ ...ubicForm, pais: e.target.value });
-                    clearUbicFieldError("pais");
-                  }}
-                />
-                {ubicFieldErrors.pais && <p className="text-sm text-destructive mt-1">{ubicFieldErrors.pais}</p>}
-              </div>
-            </div>
+            <DomicilioSatFields
+              idPrefix="ubic"
+              value={ubicForm}
+              onChange={(patch) => setUbicForm({ ...ubicForm, ...patch })}
+              cpError={ubicFieldErrors.cp}
+              paisError={ubicFieldErrors.pais}
+              onClearCpError={() => clearUbicFieldError("cp")}
+              onClearPaisError={() => clearUbicFieldError("pais")}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => handleUbicDialogOpenChange(false)} disabled={ubicSaving}>

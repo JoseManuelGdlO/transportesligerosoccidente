@@ -135,7 +135,18 @@ Importación (después de migrar):
 cd backend
 npm run db:migrate
 npm run db:import:sat-claves -- /ruta/CatalogosCartaPorte31.xls
+npm run db:import:sat-ubicaciones -- /ruta/CatalogosCartaPorte31.xls
 ```
+
+### Tablas `sat_municipios`, `sat_localidades`, `sat_colonias`
+
+Catálogos globales de domicilio SAT importados desde las hojas `c_Municipio`, `c_Localidad` y `c_Colonia_1/2/3` del mismo Excel. Las claves se guardan en `colonia_clave`, `municipio_clave` y `localidad_clave` en clientes y ubicaciones de cliente.
+
+API de búsqueda (requiere `cartaporte.ver`):
+
+- `GET /sat/municipios?q=&estado=BCN`
+- `GET /sat/localidades?q=&estado=BCN`
+- `GET /sat/colonias?q=&cp=21482`
 
 ### Catálogos extendidos (migración fiscal)
 

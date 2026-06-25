@@ -133,6 +133,24 @@ export interface SatClaveProducto {
   material_peligroso: SatMaterialPeligroso;
 }
 
+export interface SatMunicipio {
+  clave: string;
+  estado: string;
+  descripcion: string;
+}
+
+export interface SatLocalidad {
+  clave: string;
+  estado: string;
+  descripcion: string;
+}
+
+export interface SatColonia {
+  clave: string;
+  codigo_postal: string;
+  nombre: string;
+}
+
 export interface CartaPorteRecord {
   id: string;
   trip_id: string;
@@ -468,13 +486,16 @@ export interface Client {
   telefono: string;
   calle?: string;
   colonia?: string;
+  colonia_clave?: string;
   municipio?: string;
+  municipio_clave?: string;
   estado?: string;
   cp?: string;
   pais?: string;
   numero_exterior?: string;
   numero_interior?: string;
   localidad?: string;
+  localidad_clave?: string;
   email?: string;
   regimen_fiscal?: string;
   estatus?: ClientStatus;
@@ -490,8 +511,11 @@ export interface ClientUbicacion {
   numero_exterior?: string;
   numero_interior?: string;
   colonia?: string;
+  colonia_clave?: string;
   localidad?: string;
+  localidad_clave?: string;
   municipio?: string;
+  municipio_clave?: string;
   estado?: string;
   cp?: string;
   pais?: string;

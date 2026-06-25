@@ -22,8 +22,11 @@ export class ClientUbicacion extends Model<
   declare numero_exterior: CreationOptional<string | null>;
   declare numero_interior: CreationOptional<string | null>;
   declare colonia: CreationOptional<string | null>;
+  declare colonia_clave: CreationOptional<string | null>;
   declare localidad: CreationOptional<string | null>;
+  declare localidad_clave: CreationOptional<string | null>;
   declare municipio: CreationOptional<string | null>;
+  declare municipio_clave: CreationOptional<string | null>;
   declare estado: CreationOptional<string | null>;
   declare pais: CreationOptional<string | null>;
   declare cp: CreationOptional<string | null>;
@@ -48,8 +51,11 @@ export function initClientUbicacion(sequelize: Sequelize) {
       numero_exterior: { type: DataTypes.STRING(32), allowNull: true },
       numero_interior: { type: DataTypes.STRING(32), allowNull: true },
       colonia: { type: DataTypes.STRING(128), allowNull: true },
+      colonia_clave: { type: DataTypes.STRING(16), allowNull: true },
       localidad: { type: DataTypes.STRING(128), allowNull: true },
+      localidad_clave: { type: DataTypes.STRING(16), allowNull: true },
       municipio: { type: DataTypes.STRING(128), allowNull: true },
+      municipio_clave: { type: DataTypes.STRING(16), allowNull: true },
       estado: { type: DataTypes.STRING(64), allowNull: true },
       pais: { type: DataTypes.STRING(3), allowNull: true, defaultValue: "MEX" },
       cp: { type: DataTypes.STRING(5), allowNull: true },

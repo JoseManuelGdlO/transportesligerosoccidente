@@ -32,6 +32,9 @@ import type {
   DocTypeRow,
   TripStatusRef,
   SatClaveProducto,
+  SatColonia,
+  SatLocalidad,
+  SatMunicipio,
 } from "@/types/tlo";
 import {
   SYSTEM_STATUS_CERRADO,
@@ -288,13 +291,16 @@ export function normalizeClient(raw: Record<string, unknown>): Client {
     telefono: String(raw.telefono ?? ""),
     calle: raw.calle != null ? String(raw.calle) : undefined,
     colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    colonia_clave: raw.colonia_clave != null ? String(raw.colonia_clave) : undefined,
     municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    municipio_clave: raw.municipio_clave != null ? String(raw.municipio_clave) : undefined,
     estado: raw.estado != null ? String(raw.estado) : undefined,
     cp: raw.cp != null ? String(raw.cp) : undefined,
     pais: raw.pais != null ? String(raw.pais) : undefined,
     numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
     numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
     localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    localidad_clave: raw.localidad_clave != null ? String(raw.localidad_clave) : undefined,
     email: raw.email != null ? String(raw.email) : undefined,
     regimen_fiscal: raw.regimen_fiscal != null ? String(raw.regimen_fiscal) : undefined,
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
@@ -314,8 +320,11 @@ export function normalizeClientUbicacion(raw: Record<string, unknown>): ClientUb
     numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
     numero_interior: raw.numero_interior != null ? String(raw.numero_interior) : undefined,
     colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    colonia_clave: raw.colonia_clave != null ? String(raw.colonia_clave) : undefined,
     localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    localidad_clave: raw.localidad_clave != null ? String(raw.localidad_clave) : undefined,
     municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    municipio_clave: raw.municipio_clave != null ? String(raw.municipio_clave) : undefined,
     estado: raw.estado != null ? String(raw.estado) : undefined,
     cp: raw.cp != null ? String(raw.cp) : undefined,
     pais: raw.pais != null ? String(raw.pais) : undefined,
@@ -1063,5 +1072,103 @@ export async function lookupSatClaveProducto(clave: string): Promise<SatClavePro
   }
   const j = await readJson<Record<string, unknown>>(res);
   return normalizeSatClaveProducto(j);
+}
+
+function normalizeSatMunicipio(raw: Record<string, unknown>): SatMunicipio {
+  return {
+    clave: String(raw.clave ?? ""),
+    estado: String(raw.estado ?? ""),
+    descripcion: String(raw.descripcion ?? ""),
+  };
+}
+
+function normalizeSatLocalidad(raw: Record<string, unknown>): SatLocalidad {
+  return {
+    clave: String(raw.clave ?? ""),
+    estado: String(raw.estado ?? ""),
+    descripcion: String(raw.descripcion ?? ""),
+  };
+}
+
+function normalizeSatColonia(raw: Record<string, unknown>): SatColonia {
+  return {
+    clave: String(raw.clave ?? ""),
+    codigo_postal: String(raw.codigo_postal ?? ""),
+    nombre: String(raw.nombre ?? ""),
+  };
+}
+
+export async function searchSatMunicipios(
+  q: string,
+  estado: string,
+  limit = 20,
+): Promise<SatMunicipio[]> {
+  const params = new URLSearchParams({ q, estado, limit: String(limit) });
+  const res = await apiFetch(`/sat/municipios?${params}`);
+  const j = await readJson<{ items: Record<string, unknown>[] }>(res);
+  return (j.items ?? []).map(normalizeSatMunicipio);
+}
+
+export async function lookupSatMunicipio(
+  estado: string,
+  clave: string,
+): Promise<SatMunicipio | null> {
+  const estadoNorm = estado.trim().toUpperCase();
+  const claveNorm = clave.trim();
+  if (!estadoNorm || !claveNorm) return null;
+  const res = await apiFetch(`/sat/municipios/${encodeURIComponent(estadoNorm)}/${encodeURIComponent(claveNorm)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    await readJson(res);
+    return null;
+  }
+  return normalizeSatMunicipio(await readJson<Record<string, unknown>>(res));
+}
+
+export async function searchSatLocalidades(
+  q: string,
+  estado: string,
+  limit = 20,
+): Promise<SatLocalidad[]> {
+  const params = new URLSearchParams({ q, estado, limit: String(limit) });
+  const res = await apiFetch(`/sat/localidades?${params}`);
+  const j = await readJson<{ items: Record<string, unknown>[] }>(res);
+  return (j.items ?? []).map(normalizeSatLocalidad);
+}
+
+export async function lookupSatLocalidad(
+  estado: string,
+  clave: string,
+): Promise<SatLocalidad | null> {
+  const estadoNorm = estado.trim().toUpperCase();
+  const claveNorm = clave.trim();
+  if (!estadoNorm || !claveNorm) return null;
+  const res = await apiFetch(`/sat/localidades/${encodeURIComponent(estadoNorm)}/${encodeURIComponent(claveNorm)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    await readJson(res);
+    return null;
+  }
+  return normalizeSatLocalidad(await readJson<Record<string, unknown>>(res));
+}
+
+export async function searchSatColonias(q: string, cp: string, limit = 20): Promise<SatColonia[]> {
+  const params = new URLSearchParams({ q, cp, limit: String(limit) });
+  const res = await apiFetch(`/sat/colonias?${params}`);
+  const j = await readJson<{ items: Record<string, unknown>[] }>(res);
+  return (j.items ?? []).map(normalizeSatColonia);
+}
+
+export async function lookupSatColonia(cp: string, clave: string): Promise<SatColonia | null> {
+  const cpNorm = cp.trim();
+  const claveNorm = clave.trim();
+  if (!/^\d{5}$/.test(cpNorm) || !claveNorm) return null;
+  const res = await apiFetch(`/sat/colonias/${cpNorm}/${encodeURIComponent(claveNorm)}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    await readJson(res);
+    return null;
+  }
+  return normalizeSatColonia(await readJson<Record<string, unknown>>(res));
 }
 
