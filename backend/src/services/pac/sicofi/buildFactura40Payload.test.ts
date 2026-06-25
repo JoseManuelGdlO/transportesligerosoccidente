@@ -93,8 +93,12 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.DatosCFDI40.Total, 0);
     assert.equal(payload.DatosCFDI40.Moneda, "XXX");
     assert.equal(payload.DatosCFDI40.TipoCambio, undefined);
+    assert.equal(payload.DatosCFDI40.FormadePago, undefined);
+    assert.equal(payload.DatosCFDI40.MetodoPago, undefined);
     assert.equal(payload.ReceptorCFDI40.UsoCfdi, "S01");
     assert.equal(payload.ReceptorCFDI40.RFC, "EMI010101AB1");
+    assert.equal(payload.ReceptorCFDI40.RazonSocial, "Emisor Transporte SA");
+    assert.equal(payload.ReceptorCFDI40.DomicilioFiscalReceptor, "44100");
     assert.ok(payload.CartaPorte31);
     const idCcp = (payload.CartaPorte31 as { IdCCP?: string }).IdCCP;
     assert.equal(idCcp, "CCCabc-123");
@@ -109,8 +113,35 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.DatosCFDI40.Folio, 1);
   });
 
-  it("genera ingreso tipo FA con impuestos", () => {
+  it("traslado usa solo datos del tenant como receptor, no del cliente", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        tenant: {
+          rfc: "EMI010101AB1",
+          razon_social: "Emisor Transporte SA",
+          cp_fiscal: "44100",
+          regimen_fiscal: "601",
+          cfdi_serie: "CP",
+        } as TimbradoContext["tenant"],
+        client: {
+          rfc: "CLI010101AAA",
+          razon_social: "Cliente SA",
+          cp: "99999",
+          regimen_fiscal: "616",
+        } as TimbradoContext["client"],
+      }),
+    );
+    assert.equal(payload.ReceptorCFDI40.RFC, "EMI010101AB1");
+    assert.equal(payload.ReceptorCFDI40.RazonSocial, "Emisor Transporte SA");
+    assert.equal(payload.ReceptorCFDI40.DomicilioFiscalReceptor, "44100");
+    assert.equal(payload.ReceptorCFDI40.RegimenFiscalReceptor, "601");
+    assert.equal(payload.ReceptorCFDI40.Email, null);
+  });
+
+  it("ingreso incluye FormadePago y MetodoPago", () => {
     const payload = buildFactura40Payload(baseCtx({ tipo: "ingreso" }));
+    assert.equal(payload.DatosCFDI40.FormadePago, "99");
+    assert.equal(payload.DatosCFDI40.MetodoPago, "PPD");
     assert.equal(payload.DatosCFDI40.TipodeComprobante, "FA");
     assert.equal(payload.DatosCFDI40.Subtotal, 1500);
     assert.equal(payload.DatosCFDI40.Total, 1680);

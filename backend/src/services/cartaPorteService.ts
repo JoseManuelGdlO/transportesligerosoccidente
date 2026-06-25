@@ -234,12 +234,13 @@ export function buildCartaPorteXml(
 
   const tipoFigura = driver.tipo_figura || "01";
 
-  const regimenReceptor = client.regimen_fiscal || "601";
+  const regimenReceptor = tenant.regimen_fiscal || "601";
+  const cpReceptor = tenant.cp_fiscal || "00000";
 
   return `<?xml version="1.0" encoding="UTF-8"?>
-<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Serie="${esc(tenant.cfdi_serie || "CP")}" Folio="${esc(folio)}" Fecha="${now}" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" Exportacion="01" LugarExpedicion="${esc(tenant.cp_fiscal || "00000")}" MetodoPago="PUE" FormaPago="99">
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:cartaporte31="http://www.sat.gob.mx/CartaPorte31" Version="4.0" Serie="${esc(tenant.cfdi_serie || "CP")}" Folio="${esc(folio)}" Fecha="${now}" SubTotal="0" Moneda="XXX" Total="0" TipoDeComprobante="T" Exportacion="01" LugarExpedicion="${esc(cpReceptor)}">
   <cfdi:Emisor Rfc="${esc(tenant.rfc!)}" Nombre="${esc(tenant.razon_social!)}" RegimenFiscal="${esc(tenant.regimen_fiscal!)}" />
-  <cfdi:Receptor Rfc="${esc(client.rfc)}" Nombre="${esc(client.razon_social)}" DomicilioFiscalReceptor="${esc(client.cp || ultimo.cp || "00000")}" RegimenFiscalReceptor="${esc(regimenReceptor)}" UsoCFDI="S01" />
+  <cfdi:Receptor Rfc="${esc(tenant.rfc!)}" Nombre="${esc(tenant.razon_social!)}" DomicilioFiscalReceptor="${esc(cpReceptor)}" RegimenFiscalReceptor="${esc(regimenReceptor)}" UsoCFDI="S01" />
   <cfdi:Conceptos>
     <cfdi:Concepto ClaveProdServ="78101800" Cantidad="1" ClaveUnidad="E48" Descripcion="Transporte de carga" ValorUnitario="0" Importe="0" ObjetoImp="01" />
   </cfdi:Conceptos>

@@ -71,14 +71,14 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     Serie: serie,
     Folio: folioNumber(cartaPorte, trip),
     Fecha: localDateTimeSatStr(),
-    FormadePago: opts.formaPago ?? tenant.forma_pago_default ?? "99",
-    CondicionesDePago: opts.condicionesPago ?? tenant.condiciones_pago_default ?? null,
+    CondicionesDePago: isTraslado
+      ? null
+      : (opts.condicionesPago ?? tenant.condiciones_pago_default ?? null),
     Subtotal: conceptBlock.subtotal,
     Descuento: 0,
     Moneda: moneda,
     Total: conceptBlock.total,
     TipodeComprobante: isTraslado ? "T" : "FA",
-    MetodoPago: isTraslado ? "PUE" : (opts.metodoPago ?? tenant.metodo_pago_default ?? "PPD"),
     LugarDeExpedicion: lugarExpedicion,
     Exportacion: "01",
     DatosAdicionales: null,
@@ -87,6 +87,11 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     Transaccion: trip.folio || trip.id,
     complementos: null,
   };
+
+  if (!isTraslado) {
+    datosCfdi.FormadePago = opts.formaPago ?? tenant.forma_pago_default ?? "99";
+    datosCfdi.MetodoPago = opts.metodoPago ?? tenant.metodo_pago_default ?? "PPD";
+  }
 
   // SAT: TipoCambio solo aplica si moneda ≠ MXN y ≠ XXX. Sicofi (.NET) rechaza null en el campo.
   if (moneda !== "MXN" && moneda !== "XXX") {
@@ -102,9 +107,9 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
       ? "S01"
       : (opts.usoCfdi ?? tenant.uso_cfdi_default ?? "G03");
 
-  const receptorRfc = isTraslado ? (tenant.rfc || client.rfc) : client.rfc;
+  const receptorRfc = isTraslado ? tenant.rfc! : client.rfc;
   const receptorNombre = isTraslado
-    ? (tenant.razon_social || client.razon_social)
+    ? tenant.razon_social!
     : publicoGeneral
       ? PUBLICO_GENERAL_NOMBRE
       : client.razon_social;
@@ -132,7 +137,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
       DomicilioFiscalReceptor: receptorCp,
       RegimenFiscalReceptor: receptorRegimen,
       NoCliente: null,
-      Email: client.email ?? null,
+      Email: isTraslado ? null : (client.email ?? null),
       Calle: null,
       NumExt: null,
       NumInt: null,

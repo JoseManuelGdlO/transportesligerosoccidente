@@ -39,7 +39,8 @@ export interface DatosCFDI40 {
   Serie: string;
   Folio: number | string;
   Fecha: string;
-  FormadePago: string;
+  /** Omitir en comprobante tipo T (traslado). */
+  FormadePago?: string;
   CondicionesDePago?: string | null;
   Subtotal: number;
   Descuento: number;
@@ -47,7 +48,8 @@ export interface DatosCFDI40 {
   TipoCambio?: number | null;
   Total: number;
   TipodeComprobante: string;
-  MetodoPago: string;
+  /** Omitir en comprobante tipo T (traslado). */
+  MetodoPago?: string;
   LugarDeExpedicion: string;
   Exportacion: string;
   DatosAdicionales?: null;
