@@ -150,6 +150,7 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
     error_mensaje: raw.error_mensaje != null ? String(raw.error_mensaje) : undefined,
     timbrado_at: raw.timbrado_at != null ? String(raw.timbrado_at) : undefined,
     has_xml: Boolean(raw.has_xml),
+    has_pdf: Boolean(raw.has_pdf),
     id_ccp: raw.id_ccp != null ? String(raw.id_ccp) : undefined,
     transporte_internacional:
       raw.transporte_internacional != null ? Boolean(raw.transporte_internacional) : undefined,
@@ -950,6 +951,25 @@ export async function downloadCartaPorteXml(tripId: string, suggestedName?: stri
     parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
     suggestedName ||
     `carta-porte-${tripId}.xml`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
+}
+
+export async function downloadCartaPortePdf(tripId: string, suggestedName?: string): Promise<void> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/pdf`);
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(typeof j.error === "string" ? j.error : "No se pudo descargar el PDF");
+  }
+  const blob = await res.blob();
+  const filename =
+    parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
+    suggestedName ||
+    `carta-porte-${tripId}.pdf`;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;

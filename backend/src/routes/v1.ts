@@ -149,6 +149,7 @@ r.delete("/trips/:id/expenses/:expenseId", authenticateJwt, requirePermission("v
 
 r.get("/trips/:id/carta-porte", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPorte);
 r.get("/trips/:id/carta-porte/xml", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPorteXml);
+r.get("/trips/:id/carta-porte/pdf", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPortePdf);
 r.post("/trips/:id/carta-porte/preview", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postPreview);
 r.post("/trips/:id/carta-porte/timbrar", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postTimbrar);
 r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);

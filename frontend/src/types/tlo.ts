@@ -144,6 +144,7 @@ export interface CartaPorteRecord {
   error_mensaje?: string;
   timbrado_at?: string;
   has_xml?: boolean;
+  has_pdf?: boolean;
   id_ccp?: string;
   transporte_internacional?: boolean;
   tipo_comprobante?: "ingreso" | "traslado";

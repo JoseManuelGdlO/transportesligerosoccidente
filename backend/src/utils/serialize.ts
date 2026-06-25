@@ -172,6 +172,7 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
     error_mensaje: p.error_mensaje ?? undefined,
     timbrado_at: p.timbrado_at ? iso(p.timbrado_at) : undefined,
     has_xml: !!p.xml_timbrado,
+    has_pdf: Boolean(p.pdf_path),
     id_ccp: p.id_ccp ?? undefined,
     transporte_internacional: p.transporte_internacional != null ? !!p.transporte_internacional : undefined,
     tipo_comprobante: p.tipo_comprobante ?? undefined,

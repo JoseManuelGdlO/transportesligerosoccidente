@@ -10,6 +10,7 @@ import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { apiFetch, readJson } from "@/lib/api";
 import {
+  downloadCartaPortePdf,
   downloadCartaPorteXml,
   fetchClientUbicaciones,
   lookupSatClaveProducto,
@@ -492,12 +493,30 @@ export function TripCartaPorte({
     [trip.folio],
   );
 
+  const suggestedPdfFilename = useCallback(
+    (serie?: string, folioCfdi?: string) => {
+      if (serie && folioCfdi) return `${serie}-${folioCfdi}.pdf`;
+      if (trip.folio?.trim()) return `${trip.folio.replace(/[^A-Za-z0-9._-]/g, "_")}-carta-porte.pdf`;
+      return undefined;
+    },
+    [trip.folio],
+  );
+
   const handleDownloadXml = async (serie?: string, folioCfdi?: string) => {
     try {
       await downloadCartaPorteXml(trip.id, suggestedXmlFilename(serie, folioCfdi));
       toast.success("XML descargado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el XML");
+    }
+  };
+
+  const handleDownloadPdf = async (serie?: string, folioCfdi?: string) => {
+    try {
+      await downloadCartaPortePdf(trip.id, suggestedPdfFilename(serie, folioCfdi));
+      toast.success("PDF descargado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF");
     }
   };
 
@@ -533,13 +552,13 @@ export function TripCartaPorte({
       const timbrado = await readJson<{ serie?: string; folio_cfdi?: string }>(r);
       toast.success("Carta porte timbrada");
       try {
-        await downloadCartaPorteXml(
+        await downloadCartaPortePdf(
           trip.id,
-          suggestedXmlFilename(timbrado.serie, timbrado.folio_cfdi),
+          suggestedPdfFilename(timbrado.serie, timbrado.folio_cfdi),
         );
       } catch (e) {
         toast.warning(
-          e instanceof Error ? e.message : "Timbrado correcto, pero no se pudo descargar el XML",
+          e instanceof Error ? e.message : "Timbrado correcto, pero no se pudo descargar el PDF",
         );
       }
       setPreviewIssues([]);
@@ -721,6 +740,16 @@ export function TripCartaPorte({
                 onClick={() => void handleDownloadXml(cp?.serie, cp?.folio_cfdi)}
               >
                 <Download className="h-4 w-4 mr-1" /> XML
+              </Button>
+            )}
+            {canViewCartaPorte && (cp?.has_pdf || cpTimbrada) && (
+              <Button
+                variant="outline"
+                size="sm"
+                disabled={loading}
+                onClick={() => void handleDownloadPdf(cp?.serie, cp?.folio_cfdi)}
+              >
+                <Download className="h-4 w-4 mr-1" /> PDF
               </Button>
             )}
           </div>

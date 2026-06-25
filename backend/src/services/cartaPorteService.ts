@@ -26,6 +26,7 @@ import {
   resolveIdUbicacionSat,
 } from "./tripFiscalService";
 import { num } from "../utils/numbers";
+import { renderCfdiPdfFromXml } from "./cfdiPdf";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -401,12 +402,26 @@ export async function timbrarCartaPorte(
     await mkdir(dir, { recursive: true });
     const xmlPath = path.join(dir, `${tripId}.xml`);
     await writeFile(xmlPath, result.xmlTimbrado, "utf8");
+    const pdfRelPath = cartaPortePdfRelPath(tenantId, tripId);
+    const pdfPath = uploadAbsFromRel(pdfRelPath);
+    let pdfStored: string | null = null;
+    try {
+      const pdfBuffer = await renderCfdiPdfFromXml(result.xmlTimbrado, tenant);
+      await writeFile(pdfPath, pdfBuffer);
+      pdfStored = pdfRelPath;
+    } catch (pdfErr) {
+      console.warn(
+        "[cartaPorte] Timbrado OK pero falló generación de PDF:",
+        pdfErr instanceof Error ? pdfErr.message : pdfErr,
+      );
+    }
     const serie = result.serie || tenant.cfdi_serie || "CP";
     const folioCfdi = result.folio || cp.folio_cfdi;
     await cp.update({
       estatus: "timbrada",
       uuid: result.uuid,
       xml_timbrado: result.xmlTimbrado,
+      pdf_path: pdfStored,
       pac_proveedor: pac.name,
       pac_response: result.pacResponse ?? null,
       error_mensaje: null,
@@ -430,6 +445,20 @@ function safeFilenamePart(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
 }
 
+/** Ruta relativa al upload root, siempre con `/` (portable entre OS). */
+function cartaPortePdfRelPath(tenantId: string, tripId: string): string {
+  return `${tenantId}/cartas-porte/${tripId}.pdf`;
+}
+
+function normalizeUploadRelPath(rel: string): string {
+  return rel.replace(/\\/g, "/");
+}
+
+function uploadAbsFromRel(rel: string): string {
+  const normalized = normalizeUploadRelPath(rel);
+  return path.join(uploadRootDir(), ...normalized.split("/"));
+}
+
 function cartaPorteXmlFilename(cp: CartaPorte, trip: Trip): string {
   if (cp.serie && cp.folio_cfdi) {
     return `${safeFilenamePart(cp.serie)}-${safeFilenamePart(String(cp.folio_cfdi))}.xml`;
@@ -441,6 +470,53 @@ function cartaPorteXmlFilename(cp: CartaPorte, trip: Trip): string {
     return `${safeFilenamePart(cp.uuid)}.xml`;
   }
   return `carta-porte-${trip.id}.xml`;
+}
+
+function cartaPortePdfFilename(cp: CartaPorte, trip: Trip): string {
+  if (cp.serie && cp.folio_cfdi) {
+    return `${safeFilenamePart(cp.serie)}-${safeFilenamePart(String(cp.folio_cfdi))}.pdf`;
+  }
+  if (trip.folio?.trim()) {
+    return `${safeFilenamePart(trip.folio)}-carta-porte.pdf`;
+  }
+  if (cp.uuid) {
+    return `${safeFilenamePart(cp.uuid)}.pdf`;
+  }
+  return `carta-porte-${trip.id}.pdf`;
+}
+
+export async function getCartaPortePdf(
+  tenantId: string,
+  tripId: string,
+): Promise<{ pdf: Buffer; filename: string }> {
+  await getTripOrThrow(tenantId, tripId, false);
+  const cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
+  if (!cp) throw err("Carta porte no encontrada", 404);
+  if (cp.estatus !== "timbrada" && cp.estatus !== "cancelada") {
+    throw err("El PDF solo está disponible para cartas timbradas o canceladas", 404);
+  }
+  const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
+  if (!trip) throw err("Viaje no encontrado", 404);
+
+  const defaultRel = cartaPortePdfRelPath(tenantId, tripId);
+  const relPath = normalizeUploadRelPath(cp.pdf_path || defaultRel);
+  const absPath = uploadAbsFromRel(relPath);
+
+  if (existsSync(absPath)) {
+    const pdf = await readFile(absPath);
+    return { pdf, filename: cartaPortePdfFilename(cp, trip) };
+  }
+
+  const { xml } = await getCartaPorteXml(tenantId, tripId);
+  const tenant = await Tenant.findByPk(tenantId);
+  const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant);
+  const dir = path.dirname(absPath);
+  await mkdir(dir, { recursive: true });
+  await writeFile(absPath, pdfBuffer);
+  if (!cp.pdf_path || cp.pdf_path !== relPath) {
+    await cp.update({ pdf_path: relPath } as never);
+  }
+  return { pdf: pdfBuffer, filename: cartaPortePdfFilename(cp, trip) };
 }
 
 export async function getCartaPorteXml(
