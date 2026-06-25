@@ -10,6 +10,7 @@
     "db:migrate:undo": "sequelize-cli db:migrate:undo",
     "db:seed": "sequelize-cli db:seed:all",
     "db:seed:undo": "sequelize-cli db:seed:undo:all",
+    "db:import:sat-claves": "tsx scripts/import-sat-claves-productos.ts",
     "job:fuel-sync": "tsx src/scripts/runFuelSync.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",

@@ -77,6 +77,7 @@ function baseCtx(overrides: Partial<TimbradoContext> = {}): TimbradoContext {
       cp: "44100",
       regimen_fiscal: "601",
     } as TimbradoContext["client"],
+    satMaterialPeligrosoByClave: { "50192100": "0" },
     ...overrides,
   };
 }
@@ -144,20 +145,99 @@ describe("buildFactura40Payload", () => {
     assert.equal(autotransporte?.permsct, "TPAF01");
   });
 
-  it("incluye CantidadTransporta y omite idubicacion en ubicaciones", () => {
+  it("omite materialpeligroso si catálogo SAT es 0", () => {
+    const payload = buildFactura40Payload(baseCtx());
+    const merc = (
+      payload.CartaPorte31 as {
+        MercanciasCartaPorte30?: { Mercancia30?: Array<Record<string, unknown>> };
+      }
+    ).MercanciasCartaPorte30?.Mercancia30?.[0];
+    assert.ok(merc);
+    assert.equal("materialpeligroso" in merc, false);
+  });
+
+  it("envía materialpeligroso Sí si catálogo SAT es 1", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        mercancias: [
+          {
+            descripcion: "Explosivos",
+            cantidad: "1",
+            unidad: "H87",
+            peso_kg: "100",
+            clave_prod_serv: "12131500",
+            material_peligroso: false,
+          },
+        ] as TimbradoContext["mercancias"],
+        satMaterialPeligrosoByClave: { "12131500": "1" },
+      }),
+    );
+    const merc = (
+      payload.CartaPorte31 as {
+        MercanciasCartaPorte30?: { Mercancia30?: Array<{ materialpeligroso?: string }> };
+      }
+    ).MercanciasCartaPorte30?.Mercancia30?.[0];
+    assert.equal(merc?.materialpeligroso, "Sí");
+  });
+
+  it("respeta elección del usuario si catálogo SAT es 0,1", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        mercancias: [
+          {
+            descripcion: "Producto dual",
+            cantidad: "1",
+            unidad: "H87",
+            peso_kg: "100",
+            clave_prod_serv: "01010101",
+            material_peligroso: true,
+          },
+        ] as TimbradoContext["mercancias"],
+        satMaterialPeligrosoByClave: { "01010101": "0,1" },
+      }),
+    );
+    const merc = (
+      payload.CartaPorte31 as {
+        MercanciasCartaPorte30?: { Mercancia30?: Array<{ materialpeligroso?: string }> };
+      }
+    ).MercanciasCartaPorte30?.Mercancia30?.[0];
+    assert.equal(merc?.materialpeligroso, "Sí");
+
+    const payloadNo = buildFactura40Payload(
+      baseCtx({
+        mercancias: [
+          {
+            descripcion: "Producto dual",
+            cantidad: "1",
+            unidad: "H87",
+            peso_kg: "100",
+            clave_prod_serv: "01010101",
+            material_peligroso: false,
+          },
+        ] as TimbradoContext["mercancias"],
+        satMaterialPeligrosoByClave: { "01010101": "0,1" },
+      }),
+    );
+    const mercNo = (
+      payloadNo.CartaPorte31 as {
+        MercanciasCartaPorte30?: { Mercancia30?: Array<{ materialpeligroso?: string }> };
+      }
+    ).MercanciasCartaPorte30?.Mercancia30?.[0];
+    assert.equal(mercNo?.materialpeligroso, "No");
+  });
+
+  it("omite idubicacion y CantidadTransporta (opcionales en Sicofi)", () => {
     const payload = buildFactura40Payload(baseCtx());
     const cp31 = payload.CartaPorte31 as {
       Ubicaciones20?: { ubicaciones?: Array<Record<string, unknown>> };
-      MercanciasCartaPorte30?: { Mercancia30?: Array<{ CantidadTransporta?: unknown[] }> };
+      MercanciasCartaPorte30?: { Mercancia30?: Array<Record<string, unknown>> };
     };
     for (const u of cp31.Ubicaciones20?.ubicaciones ?? []) {
       assert.equal("idubicacion" in u, false);
     }
-    const merc = cp31.MercanciasCartaPorte30?.Mercancia30?.[0];
-    assert.ok(merc?.CantidadTransporta?.length);
-    const ct = merc?.CantidadTransporta?.[0] as { IDOrigen?: string; IDDestino?: string };
-    assert.ok(ct.IDOrigen?.startsWith("OR"));
-    assert.ok(ct.IDDestino?.startsWith("DE"));
+    for (const merc of cp31.MercanciasCartaPorte30?.Mercancia30 ?? []) {
+      assert.equal("CantidadTransporta" in merc, false);
+    }
   });
 
   it("ingreso con Carta Porte no incluye InformacionGlobal", () => {

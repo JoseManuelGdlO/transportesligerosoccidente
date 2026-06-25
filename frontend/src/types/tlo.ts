@@ -124,6 +124,15 @@ export interface TripMercancia {
   cantidad_transportada?: number;
 }
 
+/** Entrada del catálogo SAT c_ClaveProdServCP. */
+export type SatMaterialPeligroso = "0" | "1" | "0,1";
+
+export interface SatClaveProducto {
+  clave: string;
+  descripcion: string;
+  material_peligroso: SatMaterialPeligroso;
+}
+
 export interface CartaPorteRecord {
   id: string;
   trip_id: string;

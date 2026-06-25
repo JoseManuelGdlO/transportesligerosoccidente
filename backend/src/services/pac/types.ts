@@ -8,6 +8,7 @@ import type {
   Driver,
   Client,
 } from "../../models";
+import type { SatMaterialPeligroso } from "../../utils/cartaPorteSat";
 
 /** Variante de comprobante a timbrar: factura de ingreso (`FA`) o traslado (`T`). */
 export type TipoComprobanteTimbrado = "ingreso" | "traslado";
@@ -55,6 +56,8 @@ export interface TimbradoContext {
   driver: Driver;
   client: Client;
   opts?: TimbradoOpts;
+  /** Columna Material Peligroso del catálogo c_ClaveProdServCP por clave de mercancía. */
+  satMaterialPeligrosoByClave?: Record<string, SatMaterialPeligroso>;
 }
 
 /**

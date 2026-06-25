@@ -225,7 +225,8 @@ TLO valida en `previewCartaPorte` y devuelve `issues[]` sin timbrar:
 - Credenciales PAC faltantes (`pac_usuario`, `pac_token_enc`).
 - RFC inválido en cliente, operador o ubicaciones.
 - Ubicaciones sin colonia/municipio (o clave SAT).
-- Mercancías sin clave `c_ClaveProdServCP`, unidad o peso.
+- Mercancías sin clave `c_ClaveProdServCP` válida en catálogo importado, unidad o peso.
+- `material_peligroso` incoherente con el catálogo SAT (clave con valor `0`/`1`/`0,1`).
 - Ingreso con tarifa ≤ 0.
 - Ingreso + Carta Porte con RFC `XAXX010101000` (público en general no permitido).
 - Traslado sin RFC/razón social/CP fiscal del tenant.
@@ -263,6 +264,7 @@ Más síntomas XSD (serie no dada de alta, catálogos mezclados, etc.) en [docs/
 
 ## Notas
 
+- **Catálogo c_ClaveProdServCP**: tras `npm run db:migrate`, importar con `npm run db:import:sat-claves -- /ruta/CatalogosCartaPorte31.xls` (hoja `c_ClaveProdServCP`). Sin datos importados, el alta de mercancías y el preview fallarán por clave inexistente.
 - **Cancelación Sicofi** no implementada (`SicofiPacProvider.cancelar` lanza error).
 - **`buildCartaPorteXml`** solo se usa para preview/debug legacy (CFDI tipo T manual); el timbrado real usa `buildFactura40Payload` + Sicofi.
 - **Un solo PAC productivo**: Sicofi. Otros proveedores requerirían nueva implementación de `PacProvider`.

@@ -7,6 +7,51 @@ export const DEFAULT_BIENES_TRANSP_CP = "50192100";
 /** c_ClaveProdServCP: 8 dígitos. La validación XSD completa la hace el PAC. */
 export const BIENES_TRANSP_CP_PATTERN = /^\d{8}$/;
 
+/** Valor de columna Material Peligroso en c_ClaveProdServCP. */
+export type SatMaterialPeligroso = "0" | "1" | "0,1";
+
+export type MaterialPeligrosoUiMode = "hidden" | "forced_yes" | "optional";
+
+export function materialPeligrosoUiMode(mp: SatMaterialPeligroso): MaterialPeligrosoUiMode {
+  if (mp === "1") return "forced_yes";
+  if (mp === "0,1") return "optional";
+  return "hidden";
+}
+
+/** Valor booleano de material peligroso según catálogo y elección del usuario. */
+export function resolveMaterialPeligrosoBoolean(
+  catalog: SatMaterialPeligroso,
+  userValue: boolean | undefined,
+): boolean {
+  if (catalog === "1") return true;
+  if (catalog === "0") return false;
+  return userValue ?? false;
+}
+
+export function materialPeligrosoCoherenceIssue(
+  label: string,
+  catalog: SatMaterialPeligroso,
+  userValue: boolean,
+): string | null {
+  if (catalog === "0" && userValue) {
+    return `${label}: la clave no admite material peligroso según catálogo SAT`;
+  }
+  if (catalog === "1" && !userValue) {
+    return `${label}: la clave exige material peligroso según catálogo SAT`;
+  }
+  return null;
+}
+
+/** Valor Sicofi para `materialpeligroso`. `undefined` = no enviar el campo (catálogo `0`). */
+export function mapMaterialPeligrosoSicofi(
+  catalog: SatMaterialPeligroso,
+  userValue: boolean,
+): "Sí" | "No" | undefined {
+  if (catalog === "0") return undefined;
+  if (catalog === "1") return "Sí";
+  return userValue ? "Sí" : "No";
+}
+
 export function isLikelyCfdiTransportClave(clave: string): boolean {
   const c = clave.trim();
   return CFDI_TRANSPORT_CLAVE_PROD_SERV.has(c) || /^7810\d{4}$/.test(c);

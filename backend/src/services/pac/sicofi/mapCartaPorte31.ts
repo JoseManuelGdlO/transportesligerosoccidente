@@ -1,6 +1,11 @@
 import type { Trip, CartaPorte, TripUbicacion, TripMercancia, Truck, Driver, Client } from "../../../models";
 import { num } from "../../../utils/numbers";
-import { DEFAULT_BIENES_TRANSP_CP, normalizePermSct } from "../../../utils/cartaPorteSat";
+import {
+  DEFAULT_BIENES_TRANSP_CP,
+  mapMaterialPeligrosoSicofi,
+  normalizePermSct,
+  type SatMaterialPeligroso,
+} from "../../../utils/cartaPorteSat";
 import { resolveIdUbicacionSat, normalizeFiscalUbicaciones } from "../../tripFiscalService";
 
 /** Formatea fecha/hora para Carta Porte (`YYYY-MM-DDTHH:mm:ss`). */
@@ -36,7 +41,7 @@ function mapDomicilio(u: TripUbicacion) {
 /**
  * Construye el bloque `CartaPorte31` del JSON Sicofi (complemento Carta Porte 3.1).
  *
- * Incluye ubicaciones, mercancías con `CantidadTransporta`, autotransporte y figura de transporte.
+ * Incluye ubicaciones, autotransporte y figura de transporte.
  * No envía `idubicacion` en ubicaciones (Sicofi lo acepta omitido o null).
  *
  * @returns Objeto listo para asignar a `Factura40PayloadBody.CartaPorte31`.
@@ -49,6 +54,7 @@ export function mapCartaPorte31(
   truck: Truck,
   driver: Driver,
   client: Client,
+  satMaterialPeligrosoByClave?: Record<string, SatMaterialPeligroso>,
 ): Record<string, unknown> {
   const sorted = normalizeFiscalUbicaciones(ubicaciones);
   const destinos = sorted.filter((u) => u.orden > 1);
@@ -86,19 +92,28 @@ export function mapCartaPorte31(
 
   const mercancia30 = mercancias.map((m) => {
     const cantidad = String(m.cantidad);
+    const clave = (m.clave_prod_serv || DEFAULT_BIENES_TRANSP_CP).trim();
     const item: Record<string, unknown> = {
       SectorCOFEPRIS: null,
-      bienestransp: m.clave_prod_serv || DEFAULT_BIENES_TRANSP_CP,
+      bienestransp: clave,
       descripcion_mercancia: m.descripcion,
       cantidad_mercancia: cantidad,
       claveunidad_mercancia: m.unidad,
       unidad_mercancia: m.unidad,
-      materialpeligroso: m.material_peligroso ? "Sí" : "No",
       pesoenkg: String(m.peso_kg),
       cvematerialpeligroso: null,
       embalaje: m.embalaje || null,
       DocumentacionAduanera: [],
     };
+
+    const catalogMp = satMaterialPeligrosoByClave?.[clave];
+    if (catalogMp) {
+      const materialpeligroso = mapMaterialPeligrosoSicofi(catalogMp, !!m.material_peligroso);
+      if (materialpeligroso !== undefined) {
+        item.materialpeligroso = materialpeligroso;
+      }
+    }
+
     return item;
   });
 

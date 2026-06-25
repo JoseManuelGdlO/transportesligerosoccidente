@@ -171,7 +171,7 @@ const mercanciaSchema = z.object({
   cantidad: z.number().positive(),
   unidad: z.string().optional(),
   peso_kg: z.number().positive(),
-  clave_prod_serv: z.string().optional(),
+  clave_prod_serv: z.string().regex(/^\d{8}$/, "Clave BienesTransp debe ser 8 dígitos"),
   material_peligroso: z.boolean().optional(),
   embalaje: z.string().optional(),
   cantidad_transportada: z.number().positive().optional(),
@@ -183,8 +183,12 @@ export const postMercancia = asyncHandler(async (req: Request, res: Response) =>
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const row = await tripFiscalService.addMercancia(tid(req), req.params.id, parsed.data);
-  res.status(201).json(tripMercanciaToJson(row));
+  try {
+    const row = await tripFiscalService.addMercancia(tid(req), req.params.id, parsed.data);
+    res.status(201).json(tripMercanciaToJson(row));
+  } catch (e) {
+    res.status(400).json({ error: e instanceof Error ? e.message : "No se pudo agregar mercancía" });
+  }
 });
 
 export const deleteMercancia = asyncHandler(async (req: Request, res: Response) => {

@@ -3,6 +3,7 @@ import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia } from "../
 import type { UbicacionTipo } from "../models/TripUbicacion";
 import { getTripOrThrow, assertTripAllowsFiscalEdit } from "./tripService";
 import { listTripStops, type ParadaInput } from "./tripStopService";
+import { resolveMercanciaCatalog } from "./satCatalogService";
 
 /** Carta Porte 3.1: IDUbicacion = (OR|DE) + 6 dígitos. */
 export const SAT_ID_UBICACION_PATTERN = /^(OR|DE)[0-9]{6}$/;
@@ -432,7 +433,7 @@ export async function addMercancia(
     cantidad: number;
     unidad?: string;
     peso_kg: number;
-    clave_prod_serv?: string;
+    clave_prod_serv: string;
     material_peligroso?: boolean;
     embalaje?: string;
     cantidad_transportada?: number;
@@ -440,6 +441,11 @@ export async function addMercancia(
 ) {
   const trip = await getTripOrThrow(tenantId, tripId, false);
   await assertTripAllowsFiscalEdit(trip);
+  const catalog = await resolveMercanciaCatalog(
+    data.clave_prod_serv,
+    data.material_peligroso,
+    data.descripcion,
+  );
   return TripMercancia.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -448,8 +454,8 @@ export async function addMercancia(
     cantidad: data.cantidad,
     unidad: data.unidad ?? "H87",
     peso_kg: data.peso_kg,
-    clave_prod_serv: data.clave_prod_serv ?? null,
-    material_peligroso: data.material_peligroso ?? false,
+    clave_prod_serv: catalog.clave_prod_serv,
+    material_peligroso: catalog.material_peligroso,
     embalaje: data.embalaje ?? null,
     cantidad_transportada: data.cantidad_transportada ?? null,
   } as never);

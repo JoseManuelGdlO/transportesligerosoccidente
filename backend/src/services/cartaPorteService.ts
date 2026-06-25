@@ -18,6 +18,7 @@ import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
 import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
+import { loadSatMaterialPeligrosoByClaves, validateMercanciasCatalog } from "./satCatalogService";
 import type { TimbradoContext, TimbradoOpts } from "./pac/types";
 import {
   ensureUbicacionesFromClient,
@@ -272,6 +273,7 @@ function buildTimbradoContext(
   client: Client,
   tipo: "ingreso" | "traslado",
   opts?: TimbradoOpts,
+  satMaterialPeligrosoByClave?: TimbradoContext["satMaterialPeligrosoByClave"],
 ): TimbradoContext {
   return {
     tipo,
@@ -284,7 +286,17 @@ function buildTimbradoContext(
     driver,
     client,
     opts,
+    satMaterialPeligrosoByClave,
   };
+}
+
+async function satMaterialPeligrosoForMercancias(
+  mercancias: TripMercancia[],
+): Promise<TimbradoContext["satMaterialPeligrosoByClave"]> {
+  const claves = mercancias
+    .map((m) => m.clave_prod_serv?.trim())
+    .filter((c): c is string => !!c);
+  return loadSatMaterialPeligrosoByClaves(claves);
 }
 
 export async function previewCartaPorte(
@@ -303,6 +315,8 @@ export async function previewCartaPorte(
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const isSicofi = (tenant.pac_proveedor || "").toLowerCase() === "sicofi";
   let issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver, client);
+  const catalogIssues = await validateMercanciasCatalog(mercancias);
+  issues = [...issues, ...catalogIssues];
   if (isSicofi) {
     issues = issues.filter((i) => !i.includes("Certificados CSD"));
   }
@@ -310,6 +324,7 @@ export async function previewCartaPorte(
   const folio = cp.folio_cfdi || trip.folio.replace(/[^0-9]/g, "").slice(-8) || "1";
   let payload_preview: Record<string, unknown> | undefined;
   if (truck && driver && client) {
+    const satMaterialPeligrosoByClave = await satMaterialPeligrosoForMercancias(mercancias);
     const ctx = buildTimbradoContext(
       trip,
       tenant,
@@ -321,6 +336,7 @@ export async function previewCartaPorte(
       client,
       tipo,
       opts,
+      satMaterialPeligrosoByClave,
     );
     if (isSicofi) {
       const sicofiIssues = validateSicofiFactura40(ctx);
@@ -365,6 +381,7 @@ export async function timbrarCartaPorte(
     throw err("La carta porte ya está timbrada");
   }
   const pac = getPacProvider(tenant);
+  const satMaterialPeligrosoByClave = await satMaterialPeligrosoForMercancias(mercancias);
   const ctx = buildTimbradoContext(
     trip,
     tenant,
@@ -376,6 +393,7 @@ export async function timbrarCartaPorte(
     client,
     tipo,
     opts,
+    satMaterialPeligrosoByClave,
   );
   try {
     const result = await pac.timbrar(ctx);

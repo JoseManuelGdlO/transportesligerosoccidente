@@ -31,6 +31,7 @@ import type {
   DocumentDashboardSummary,
   DocTypeRow,
   TripStatusRef,
+  SatClaveProducto,
 } from "@/types/tlo";
 import {
   SYSTEM_STATUS_CERRADO,
@@ -1010,3 +1011,35 @@ export async function putTripUbicaciones(
   const rows = await readJson<Record<string, unknown>[]>(res);
   return rows.map(normalizeTripUbicacion);
 }
+
+function normalizeSatClaveProducto(raw: Record<string, unknown>): SatClaveProducto {
+  const mp = String(raw.material_peligroso ?? "0");
+  const material_peligroso =
+    mp === "1" || mp === "0,1" ? mp : "0";
+  return {
+    clave: String(raw.clave ?? ""),
+    descripcion: String(raw.descripcion ?? ""),
+    material_peligroso,
+  };
+}
+
+export async function searchSatClavesProducto(q: string, limit = 20): Promise<SatClaveProducto[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  const res = await apiFetch(`/sat/claves-productos?${params}`);
+  const j = await readJson<{ items: Record<string, unknown>[] }>(res);
+  return (j.items ?? []).map(normalizeSatClaveProducto);
+}
+
+export async function lookupSatClaveProducto(clave: string): Promise<SatClaveProducto | null> {
+  const normalized = clave.trim();
+  if (!/^\d{8}$/.test(normalized)) return null;
+  const res = await apiFetch(`/sat/claves-productos/${normalized}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    await readJson(res);
+    return null;
+  }
+  const j = await readJson<Record<string, unknown>>(res);
+  return normalizeSatClaveProducto(j);
+}
+

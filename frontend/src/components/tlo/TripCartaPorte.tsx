@@ -12,16 +12,18 @@ import { apiFetch, readJson } from "@/lib/api";
 import {
   downloadCartaPorteXml,
   fetchClientUbicaciones,
+  lookupSatClaveProducto,
   normalizeTrip,
   putTripUbicaciones,
 } from "@/lib/tloApi";
+import { materialPeligrosoForCatalog, materialPeligrosoUiMode } from "@/lib/satCatalog";
 import {
   cardHighlightClass,
   classifyCartaPorteIssues,
   fieldHighlightClass,
   firstErrorSection,
 } from "@/lib/cartaPorteIssues";
-import type { ClientUbicacion, Driver, Trip, TripMercancia, Truck } from "@/types/tlo";
+import type { ClientUbicacion, Driver, SatClaveProducto, Trip, TripMercancia, Truck } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { driverById, truckById } from "@/lib/calc";
@@ -39,6 +41,7 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
+import { SatClaveProductoCombobox } from "@/components/tlo/SatClaveProductoCombobox";
 
 /** c_ClaveProdServCP (Carta Porte). No usar 78101800 (eso es CFDI servicio de transporte). */
 const DEFAULT_CLAVE_BIENES_TRANSP = "50192100";
@@ -181,6 +184,7 @@ export function TripCartaPorte({
     clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
     material_peligroso: false,
   });
+  const [mercCatalog, setMercCatalog] = useState<SatClaveProducto | null>(null);
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
   const [validationAttempted, setValidationAttempted] = useState(false);
   const [loading, setLoading] = useState(false);
@@ -206,6 +210,41 @@ export function TripCartaPorte({
     () => classifyCartaPorteIssues(previewIssues, fiscalStopCount),
     [previewIssues, fiscalStopCount],
   );
+
+  const materialPeligrosoMode = mercCatalog
+    ? materialPeligrosoUiMode(mercCatalog.material_peligroso)
+    : "hidden";
+
+  const applyMercCatalog = useCallback((item: SatClaveProducto) => {
+    setMercCatalog(item);
+    setMerc((prev) => ({
+      ...prev,
+      clave_prod_serv: item.clave,
+      descripcion: prev.descripcion.trim() ? prev.descripcion : item.descripcion,
+      material_peligroso: materialPeligrosoForCatalog(item, prev.material_peligroso),
+    }));
+  }, []);
+
+  const resetMercForm = useCallback(() => {
+    setMerc({
+      descripcion: "",
+      cantidad: 1,
+      unidad: "H87",
+      peso_kg: 0,
+      clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
+      material_peligroso: false,
+    });
+    void lookupSatClaveProducto(DEFAULT_CLAVE_BIENES_TRANSP).then((row) => {
+      if (row) applyMercCatalog(row);
+      else setMercCatalog(null);
+    });
+  }, [applyMercCatalog]);
+
+  useEffect(() => {
+    void lookupSatClaveProducto(DEFAULT_CLAVE_BIENES_TRANSP).then((row) => {
+      if (row) applyMercCatalog(row);
+    });
+  }, [applyMercCatalog]);
 
   useEffect(() => {
     setDriverFiscal({
@@ -402,25 +441,38 @@ export function TripCartaPorte({
       toast.error("Captura descripción y peso");
       return;
     }
-    const r = await apiFetch(`/trips/${trip.id}/mercancias`, {
-      method: "POST",
-      body: JSON.stringify({
-        ...merc,
-        cantidad_transportada: merc.cantidad,
-      }),
-    });
-    if (!r.ok) {
-      toast.error("No se pudo agregar mercancía");
+    if (!/^\d{8}$/.test(merc.clave_prod_serv.trim())) {
+      toast.error("Selecciona una clave BienesTransp válida del catálogo SAT");
       return;
     }
-    setMerc({
-      descripcion: "",
-      cantidad: 1,
-      unidad: "H87",
-      peso_kg: 0,
-      clave_prod_serv: DEFAULT_CLAVE_BIENES_TRANSP,
-      material_peligroso: false,
+    if (!mercCatalog || mercCatalog.clave !== merc.clave_prod_serv.trim()) {
+      toast.error("La clave debe existir en el catálogo c_ClaveProdServCP");
+      return;
+    }
+    const payload: Record<string, unknown> = {
+      descripcion: merc.descripcion,
+      cantidad: merc.cantidad,
+      unidad: merc.unidad,
+      peso_kg: merc.peso_kg,
+      clave_prod_serv: merc.clave_prod_serv.trim(),
+      cantidad_transportada: merc.cantidad,
+    };
+    if (mercCatalog.material_peligroso === "1") {
+      payload.material_peligroso = true;
+    } else if (mercCatalog.material_peligroso === "0,1") {
+      payload.material_peligroso = merc.material_peligroso;
+    }
+
+    const r = await apiFetch(`/trips/${trip.id}/mercancias`, {
+      method: "POST",
+      body: JSON.stringify(payload),
     });
+    if (!r.ok) {
+      const j = await readJson<{ error?: string }>(r).catch((): { error?: string } => ({}));
+      toast.error(j.error || "No se pudo agregar mercancía");
+      return;
+    }
+    resetMercForm();
     toast.success("Mercancía agregada");
     await reloadTrip();
   };
@@ -1040,9 +1092,17 @@ export function TripCartaPorte({
               </div>
               <div>
                 <Label>Clave bienes transp. (CP)</Label>
-                <Input
+                <SatClaveProductoCombobox
                   value={merc.clave_prod_serv}
-                  onChange={(e) => setMerc({ ...merc, clave_prod_serv: e.target.value })}
+                  onSelect={applyMercCatalog}
+                  onClear={() => {
+                    setMercCatalog(null);
+                    setMerc((prev) => ({
+                      ...prev,
+                      clave_prod_serv: "",
+                      material_peligroso: false,
+                    }));
+                  }}
                 />
               </div>
               <div>
@@ -1074,13 +1134,19 @@ export function TripCartaPorte({
                   Agregar
                 </Button>
               </div>
-              <label className="flex items-center gap-2 text-sm md:col-span-6">
-                <Checkbox
-                  checked={merc.material_peligroso}
-                  onCheckedChange={(c) => setMerc({ ...merc, material_peligroso: !!c })}
-                />
-                Material peligroso
-              </label>
+              {materialPeligrosoMode !== "hidden" ? (
+                <label className="flex items-center gap-2 text-sm md:col-span-6">
+                  <Checkbox
+                    checked={merc.material_peligroso}
+                    disabled={materialPeligrosoMode === "forced_yes"}
+                    onCheckedChange={(c) => setMerc({ ...merc, material_peligroso: !!c })}
+                  />
+                  Material peligroso
+                  {materialPeligrosoMode === "forced_yes" ? (
+                    <span className="text-xs text-muted-foreground">(obligatorio según catálogo SAT)</span>
+                  ) : null}
+                </label>
+              ) : null}
             </div>
           )}
           <Table>

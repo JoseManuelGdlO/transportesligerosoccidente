@@ -151,7 +151,16 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     ConceptosCFDI40: { Conceptos: conceptBlock.conceptos },
     CartaPorte20: null,
     CartaPorte30: null,
-    CartaPorte31: mapCartaPorte31(trip, cartaPorte, ubicaciones, mercancias, truck, driver, client),
+    CartaPorte31: mapCartaPorte31(
+      trip,
+      cartaPorte,
+      ubicaciones,
+      mercancias,
+      truck,
+      driver,
+      client,
+      ctx.satMaterialPeligrosoByClave,
+    ),
     Addenda: null,
   };
 }

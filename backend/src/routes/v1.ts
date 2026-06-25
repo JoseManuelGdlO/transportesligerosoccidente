@@ -29,6 +29,7 @@ import * as docTypeC from "../controllers/documentTypeController";
 import * as docC from "../controllers/documentController";
 import * as notifC from "../controllers/notificationController";
 import * as pushC from "../controllers/pushController";
+import * as satCatalogC from "../controllers/satCatalogController";
 import { uploadDriverDocument, uploadTruckDocument } from "../middlewares/uploadDocument";
 import { loadDocumentForPatch, uploadDocumentPatch } from "../middlewares/documentPatchUpload";
 import { uploadPdfLogo } from "../middlewares/uploadPdfLogo";
@@ -181,6 +182,19 @@ r.delete(
   authenticateJwt,
   requirePermission("viajes.crear", "cartaporte.timbrar"),
   cartaPorteC.deleteMercancia,
+);
+
+r.get(
+  "/sat/claves-productos",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.searchClavesProductos,
+);
+r.get(
+  "/sat/claves-productos/:clave",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.getClaveProducto,
 );
 
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);

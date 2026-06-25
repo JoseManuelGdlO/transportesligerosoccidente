@@ -115,7 +115,27 @@ Si el viaje tiene **paradas** (`trip_stops`), `ensureUbicacionesFromClient` sinc
 
 ### Tabla `trip_mercancias`
 
-Mercancías transportadas: descripción, cantidad, unidad (default `H87`), `peso_kg`, `clave_prod_serv`, `material_peligroso`, `cantidad_transportada`, etc.
+Mercancías transportadas: descripción, cantidad, unidad (default `H87`), `peso_kg`, `clave_prod_serv` (**obligatoria**, catálogo `c_ClaveProdServCP`), `material_peligroso`, `cantidad_transportada`, etc.
+
+La clave `clave_prod_serv` debe existir en la tabla global `sat_claves_productos`, importada desde el Excel oficial del SAT (hoja `c_ClaveProdServCP`). Según la columna **Material peligroso** del catálogo:
+
+| Valor SAT | Comportamiento en UI |
+|-----------|----------------------|
+| `0` | No se muestra el checkbox; no se envía `materialpeligroso` en el payload Sicofi |
+| `1` | Checkbox marcado y no editable; Sicofi recibe `materialpeligroso: "Sí"` |
+| `0,1` | Checkbox visible y editable; Sicofi recibe `"Sí"` o `"No"` según el usuario |
+
+### Tabla `sat_claves_productos`
+
+Catálogo global (sin `tenant_id`) con columnas: `clave` (PK, 8 dígitos), `descripcion`, `palabras_similares`, `material_peligroso` (`0` / `1` / `0,1`), vigencia y metadatos de importación.
+
+Importación (después de migrar):
+
+```bash
+cd backend
+npm run db:migrate
+npm run db:import:sat-claves -- /ruta/CatalogosCartaPorte31.xls
+```
 
 ### Catálogos extendidos (migración fiscal)
 
@@ -167,6 +187,15 @@ Base: `/api/v1`. Todas requieren `Authorization: Bearer <token>`.
 | `DELETE` | `/trips/:id/mercancias/:mercanciaId` | `viajes.crear` o `cartaporte.timbrar` |
 
 `PUT .../ubicaciones` espera `{ "ubicaciones": [ { "orden": 1, ... }, ... ] }` con al menos 2 elementos.
+
+### Catálogo SAT c_ClaveProdServCP
+
+| Método | Ruta | Permiso |
+|--------|------|---------|
+| `GET` | `/sat/claves-productos?q=botana&limit=20` | `cartaporte.ver` |
+| `GET` | `/sat/claves-productos/:clave` | `cartaporte.ver` |
+
+La búsqueda admite prefijo numérico de clave o texto en descripción/palabras similares. El lookup por clave devuelve `404` si no existe en el catálogo importado.
 
 ### Configuración fiscal (empresa)
 
@@ -337,7 +366,7 @@ Documentados también en `backend/src/services/pac/README.md`:
 1. **Tipo de CFDI**: definir con contador si es traslado independiente o complemento en factura de ingreso.
 2. **PAC productivo**: implementar adaptador real en `pac/index.ts`.
 3. **Ambiente SAT**: certificados de prueba vs producción.
-4. **Catálogos SAT**: validación estricta de claves (`c_ClaveProdServ`, `c_ConfigAutotransporte`, …).
+4. **Catálogos SAT**: tabla `sat_claves_productos` importada desde Excel oficial (`npm run db:import:sat-claves`); validación de `c_ClaveProdServCP` y coherencia de material peligroso; además `c_ConfigAutotransporte`, permisos SCT, etc.
 5. **Cancelación en UI**: permiso y endpoint existen; falta pantalla.
 6. **PDF fiscal del CFDI**: campo `pdf_path` sin flujo automático.
 7. **Timbrado real**: el stub no valida ante el SAT; solo sirve para probar el flujo de la aplicación.
