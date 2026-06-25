@@ -40,6 +40,15 @@ export function tripIsOpen(trip: Trip): boolean {
   return tripHasStatusSlug(trip, "en_curso");
 }
 
+export function tripIsLiquidated(trip: Trip): boolean {
+  return Boolean(trip.settlement_id);
+}
+
+/** Prorrateo confirmado: carga de diesel ligada a un ticket de combustible. */
+export function tripIsProrated(trip: Trip): boolean {
+  return (trip.fuel ?? []).some((f) => Boolean(f.fuel_ticket_id));
+}
+
 export function tripHasStatusId(trip: Trip, id: string): boolean {
   return (trip.statuses ?? []).some((s) => s.id === id);
 }

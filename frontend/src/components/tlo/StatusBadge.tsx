@@ -12,7 +12,11 @@ import {
 import { cn } from "@/lib/utils";
 import { hasApiConfigured } from "@/lib/api";
 import { setTripStatuses } from "@/lib/tloApi";
-import { customStatusesFromTrip } from "@/lib/tripStatus";
+import {
+  customStatusesFromTrip,
+  tripIsLiquidated,
+  tripIsProrated,
+} from "@/lib/tripStatus";
 import type { Trip, TripStatusRef } from "@/types/tlo";
 import { toast } from "sonner";
 
@@ -44,13 +48,46 @@ export const TripStatusChip = ({ status }: { status: TripStatusRef }) => (
   </Badge>
 );
 
-export const TripStatusesBadges = ({ statuses }: { statuses: TripStatusRef[] }) => {
-  if (!statuses.length) return <span className="text-muted-foreground text-xs">—</span>;
+const TripFinanceBadges = ({ trip }: { trip: Trip }) => {
+  const liquidado = tripIsLiquidated(trip);
+  const prorrateado = tripIsProrated(trip);
+  if (!liquidado && !prorrateado) return null;
+  return (
+    <>
+      {liquidado && (
+        <Badge
+          variant="outline"
+          className="font-medium text-[10px] bg-primary/10 text-primary border-primary/30"
+        >
+          Liquidado
+        </Badge>
+      )}
+      {prorrateado && (
+        <Badge variant="secondary" className="text-[10px]">
+          Prorrateado
+        </Badge>
+      )}
+    </>
+  );
+};
+
+export const TripStatusesBadges = ({
+  statuses,
+  trip,
+}: {
+  statuses: TripStatusRef[];
+  trip?: Trip;
+}) => {
+  const financeBadges = trip ? <TripFinanceBadges trip={trip} /> : null;
+  if (!statuses.length && !financeBadges) {
+    return <span className="text-muted-foreground text-xs">—</span>;
+  }
   return (
     <div className="flex flex-wrap gap-1">
       {statuses.map((s) => (
         <TripStatusChip key={s.id} status={s} />
       ))}
+      {financeBadges}
     </div>
   );
 };
@@ -120,7 +157,7 @@ export const TripStatusesPicker = ({
           className="inline-flex rounded-md focus:outline-none focus-visible:ring-2 focus-visible:ring-ring"
           onClick={(e) => e.stopPropagation()}
         >
-          <TripStatusesBadges statuses={trip.statuses ?? []} />
+          <TripStatusesBadges statuses={trip.statuses ?? []} trip={trip} />
         </button>
       </DropdownMenuTrigger>
       <DropdownMenuContent
