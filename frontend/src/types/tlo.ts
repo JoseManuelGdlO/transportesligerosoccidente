@@ -151,6 +151,13 @@ export interface SatColonia {
   nombre: string;
 }
 
+export interface SatEstado {
+  clave: string;
+  descripcion: string;
+  municipio_clave?: string;
+  municipio?: string;
+}
+
 export interface CartaPorteRecord {
   id: string;
   trip_id: string;

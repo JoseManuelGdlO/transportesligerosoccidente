@@ -33,6 +33,7 @@ import type {
   TripStatusRef,
   SatClaveProducto,
   SatColonia,
+  SatEstado,
   SatLocalidad,
   SatMunicipio,
 } from "@/types/tlo";
@@ -1170,5 +1171,41 @@ export async function lookupSatColonia(cp: string, clave: string): Promise<SatCo
     return null;
   }
   return normalizeSatColonia(await readJson<Record<string, unknown>>(res));
+}
+
+function normalizeSatEstado(raw: Record<string, unknown>): SatEstado {
+  const municipio_clave = raw.municipio_clave != null ? String(raw.municipio_clave) : undefined;
+  const municipio = raw.municipio != null ? String(raw.municipio) : undefined;
+  return {
+    clave: String(raw.clave ?? ""),
+    descripcion: String(raw.descripcion ?? ""),
+    ...(municipio_clave ? { municipio_clave } : {}),
+    ...(municipio ? { municipio } : {}),
+  };
+}
+
+export async function searchSatEstados(q: string, limit = 20): Promise<SatEstado[]> {
+  const params = new URLSearchParams({ q, limit: String(limit) });
+  const res = await apiFetch(`/sat/estados?${params}`);
+  const j = await readJson<{ items: Record<string, unknown>[] }>(res);
+  return (j.items ?? []).map(normalizeSatEstado);
+}
+
+export async function lookupSatEstado(
+  clave: string,
+  municipioClave?: string,
+): Promise<SatEstado | null> {
+  const claveNorm = clave.trim().toUpperCase();
+  if (!claveNorm) return null;
+  const params = municipioClave?.trim()
+    ? `?municipio_clave=${encodeURIComponent(municipioClave.trim())}`
+    : "";
+  const res = await apiFetch(`/sat/estados/${encodeURIComponent(claveNorm)}${params}`);
+  if (res.status === 404) return null;
+  if (!res.ok) {
+    await readJson(res);
+    return null;
+  }
+  return normalizeSatEstado(await readJson<Record<string, unknown>>(res));
 }
 

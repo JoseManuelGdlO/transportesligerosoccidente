@@ -50,11 +50,11 @@ export function DomicilioSatFields({
   const patchAddress = (p: Partial<DomicilioSatValue>) => {
     if (p.estado != null && p.estado !== estado) {
       onChange({
-        ...p,
-        municipio: undefined,
-        municipio_clave: undefined,
         localidad: undefined,
         localidad_clave: undefined,
+        municipio: undefined,
+        municipio_clave: undefined,
+        ...p,
       });
       return;
     }
@@ -101,16 +101,27 @@ export function DomicilioSatFields({
             Estado (clave SAT)
             {requiredFields?.estado && <span className="text-destructive ml-0.5">*</span>}
           </Label>
-          <Input
-            id={id("estado")}
+          <SatUbicacionCombobox
+            kind="estado"
             value={estado}
-            onChange={(e) => {
-              patchAddress({ estado: e.target.value.toUpperCase() });
+            estadoMunicipioHint={
+              value.municipio_clave && value.municipio
+                ? { municipio_clave: value.municipio_clave, municipio: value.municipio }
+                : undefined
+            }
+            onSelect={(item) => {
+              patchAddress({
+                estado: item.clave,
+                ...(item.municipio_clave
+                  ? {
+                      municipio_clave: item.municipio_clave,
+                      municipio: item.municipio ?? item.descripcion,
+                    }
+                  : {}),
+              });
               onClearEstadoError?.();
             }}
-            placeholder="BCN"
-            maxLength={8}
-            aria-invalid={!!estadoError}
+            onClear={() => patchAddress({ estado: "" })}
             className={cn(estadoError && "border-destructive")}
           />
           {estadoError && <p className="text-sm text-destructive mt-1">{estadoError}</p>}

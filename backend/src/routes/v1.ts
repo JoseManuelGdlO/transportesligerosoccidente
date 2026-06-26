@@ -233,6 +233,18 @@ r.get(
   requirePermission("cartaporte.ver"),
   satCatalogC.getColonia,
 );
+r.get(
+  "/sat/estados",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.searchEstados,
+);
+r.get(
+  "/sat/estados/:clave",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  satCatalogC.getEstado,
+);
 
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);

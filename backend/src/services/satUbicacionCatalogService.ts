@@ -19,6 +19,13 @@ export type SatColoniaDto = {
   nombre: string;
 };
 
+export type SatEstadoDto = {
+  clave: string;
+  descripcion: string;
+  municipio_clave?: string;
+  municipio?: string;
+};
+
 function capLimit(limit: number): number {
   return Math.min(Math.max(limit, 1), 50);
 }
@@ -165,4 +172,73 @@ export async function getColonia(cp: string, clave: string): Promise<SatColoniaD
     where: { clave: claveNorm, codigo_postal: cpNorm },
   });
   return row ? toColoniaDto(row) : null;
+}
+
+function toEstadoDto(row: SatMunicipio): SatEstadoDto {
+  return {
+    clave: row.estado,
+    descripcion: row.descripcion,
+    municipio_clave: row.clave,
+    municipio: row.descripcion,
+  };
+}
+
+export async function searchEstados(q: string, limit = 20): Promise<SatEstadoDto[]> {
+  const term = q.trim();
+  const capped = capLimit(limit);
+
+  if (!term) {
+    const rows = await SatMunicipio.findAll({
+      order: [
+        ["estado", "ASC"],
+        ["descripcion", "ASC"],
+      ],
+      limit: capped,
+    });
+    return rows.map(toEstadoDto);
+  }
+
+  const termUpper = term.toUpperCase();
+  const where =
+    term.length >= 2
+      ? {
+          [Op.or]: [
+            { estado: { [Op.like]: `${termUpper}%` } },
+            { descripcion: { [Op.like]: `%${term}%` } },
+          ],
+        }
+      : { estado: { [Op.like]: `${termUpper}%` } };
+
+  const rows = await SatMunicipio.findAll({
+    where,
+    order: [
+      ["estado", "ASC"],
+      ["descripcion", "ASC"],
+    ],
+    limit: capped,
+  });
+
+  return rows.map(toEstadoDto);
+}
+
+export async function getEstado(
+  clave: string,
+  municipioClave?: string,
+): Promise<SatEstadoDto | null> {
+  const claveNorm = clave.trim().toUpperCase();
+  if (!claveNorm) return null;
+
+  const municipioNorm = municipioClave?.trim();
+  if (municipioNorm) {
+    const row = await SatMunicipio.findOne({
+      where: { estado: claveNorm, clave: municipioNorm },
+    });
+    return row ? toEstadoDto(row) : null;
+  }
+
+  const row = await SatMunicipio.findOne({
+    where: { estado: claveNorm },
+    order: [["descripcion", "ASC"]],
+  });
+  return row ? toEstadoDto(row) : null;
 }

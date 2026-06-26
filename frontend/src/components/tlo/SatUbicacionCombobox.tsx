@@ -13,18 +13,22 @@ import {
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   lookupSatColonia,
+  lookupSatEstado,
   lookupSatLocalidad,
   lookupSatMunicipio,
   searchSatColonias,
+  searchSatEstados,
   searchSatLocalidades,
   searchSatMunicipios,
 } from "@/lib/tloApi";
 
-export type SatUbicacionKind = "municipio" | "localidad" | "colonia";
+export type SatUbicacionKind = "estado" | "municipio" | "localidad" | "colonia";
 
 export type SatUbicacionSelection = {
   clave: string;
   descripcion: string;
+  municipio_clave?: string;
+  municipio?: string;
 };
 
 type Props = {
@@ -32,6 +36,7 @@ type Props = {
   value: string;
   estado?: string;
   cp?: string;
+  estadoMunicipioHint?: { municipio_clave: string; municipio: string };
   onSelect: (item: SatUbicacionSelection) => void;
   onClear?: () => void;
   disabled?: boolean;
@@ -43,6 +48,7 @@ export function SatUbicacionCombobox({
   value,
   estado,
   cp,
+  estadoMunicipioHint,
   onSelect,
   onClear,
   disabled,
@@ -56,19 +62,36 @@ export function SatUbicacionCombobox({
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const filterReady =
-    kind === "colonia" ? /^\d{5}$/.test((cp ?? "").trim()) : !!(estado ?? "").trim();
+    kind === "estado"
+      ? true
+      : kind === "colonia"
+        ? /^\d{5}$/.test((cp ?? "").trim())
+        : !!(estado ?? "").trim();
 
   useEffect(() => {
     if (!value.trim()) {
       setSelected(null);
       return;
     }
-    if (selected?.clave === value.trim()) return;
+    if (selected?.clave === value.trim()) {
+      if (kind !== "estado" || !estadoMunicipioHint?.municipio_clave) return;
+      if (selected.municipio_clave === estadoMunicipioHint.municipio_clave) return;
+    }
 
     let cancelled = false;
     void (async () => {
       let row: SatUbicacionSelection | null = null;
-      if (kind === "municipio" && estado) {
+      if (kind === "estado") {
+        const hit = await lookupSatEstado(value, estadoMunicipioHint?.municipio_clave);
+        row = hit
+          ? {
+              clave: hit.clave,
+              descripcion: hit.descripcion,
+              municipio_clave: hit.municipio_clave,
+              municipio: hit.municipio,
+            }
+          : null;
+      } else if (kind === "municipio" && estado) {
         const hit = await lookupSatMunicipio(estado, value);
         row = hit ? { clave: hit.clave, descripcion: hit.descripcion } : null;
       } else if (kind === "localidad" && estado) {
@@ -84,7 +107,7 @@ export function SatUbicacionCombobox({
     return () => {
       cancelled = true;
     };
-  }, [value, selected?.clave, kind, estado, cp]);
+  }, [value, selected?.clave, selected?.municipio_clave, kind, estado, cp, estadoMunicipioHint]);
 
   useEffect(() => {
     if (!open || !filterReady) return;
@@ -95,11 +118,13 @@ export function SatUbicacionCombobox({
     debounceRef.current = setTimeout(() => {
       setLoading(true);
       const searchPromise =
-        kind === "municipio"
-          ? searchSatMunicipios(term, estado ?? "")
-          : kind === "localidad"
-            ? searchSatLocalidades(term, estado ?? "")
-            : searchSatColonias(term, cp ?? "");
+        kind === "estado"
+          ? searchSatEstados(term)
+          : kind === "municipio"
+            ? searchSatMunicipios(term, estado ?? "")
+            : kind === "localidad"
+              ? searchSatLocalidades(term, estado ?? "")
+              : searchSatColonias(term, cp ?? "");
 
       void searchPromise
         .then((rows) =>
@@ -107,7 +132,13 @@ export function SatUbicacionCombobox({
             rows.map((row) =>
               kind === "colonia"
                 ? { clave: row.clave, descripcion: row.nombre }
-                : { clave: row.clave, descripcion: row.descripcion },
+                : {
+                    clave: row.clave,
+                    descripcion: row.descripcion,
+                    municipio_clave:
+                      "municipio_clave" in row ? row.municipio_clave : undefined,
+                    municipio: "municipio" in row ? row.municipio : undefined,
+                  },
             ),
           ),
         )
@@ -128,11 +159,13 @@ export function SatUbicacionCombobox({
       ? `${selected.clave} — ${selected.descripcion}`
       : value.trim()
         ? value.trim()
-        : kind === "colonia"
-          ? "Buscar colonia…"
-          : kind === "localidad"
-            ? "Buscar localidad…"
-            : "Buscar municipio…";
+        : kind === "estado"
+          ? "Buscar estado…"
+          : kind === "colonia"
+            ? "Buscar colonia…"
+            : kind === "localidad"
+              ? "Buscar localidad…"
+              : "Buscar municipio…";
 
   const pick = (item: SatUbicacionSelection) => {
     setSelected(item);
@@ -180,14 +213,18 @@ export function SatUbicacionCombobox({
             <CommandGroup>
               {items.map((item) => (
                 <CommandItem
-                  key={`${item.clave}-${item.descripcion}`}
+                  key={`${item.clave}-${item.municipio_clave ?? item.descripcion}`}
                   value={`${item.clave} ${item.descripcion}`}
                   onSelect={() => pick(item)}
                 >
                   <Check
                     className={cn(
                       "mr-2 h-4 w-4",
-                      value === item.clave ? "opacity-100" : "opacity-0",
+                      value === item.clave &&
+                        (!estadoMunicipioHint?.municipio_clave ||
+                          estadoMunicipioHint.municipio_clave === item.municipio_clave)
+                        ? "opacity-100"
+                        : "opacity-0",
                     )}
                   />
                   <span className="font-mono text-xs">{item.clave}</span>

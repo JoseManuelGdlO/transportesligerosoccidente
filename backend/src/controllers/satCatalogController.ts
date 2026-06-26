@@ -88,3 +88,22 @@ export const getColonia = asyncHandler(async (req: Request, res: Response) => {
   }
   res.json(row);
 });
+
+export const searchEstados = asyncHandler(async (req: Request, res: Response) => {
+  const q = typeof req.query.q === "string" ? req.query.q : "";
+  const limitRaw = typeof req.query.limit === "string" ? Number(req.query.limit) : 20;
+  const limit = Number.isFinite(limitRaw) ? limitRaw : 20;
+  const items = await satUbicacionCatalogService.searchEstados(q, limit);
+  res.json({ items });
+});
+
+export const getEstado = asyncHandler(async (req: Request, res: Response) => {
+  const municipioClave =
+    typeof req.query.municipio_clave === "string" ? req.query.municipio_clave : undefined;
+  const row = await satUbicacionCatalogService.getEstado(req.params.clave, municipioClave);
+  if (!row) {
+    res.status(404).json({ error: "Estado no encontrado en catálogo SAT" });
+    return;
+  }
+  res.json(row);
+});
