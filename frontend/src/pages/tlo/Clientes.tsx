@@ -19,6 +19,7 @@ import {
   updateClientUbicacion,
 } from "@/lib/tloApi";
 import {
+  CLIENT_FORM_DOMICILIO_REQUIRED_TOAST,
   CLIENT_FORM_REQUIRED_TOAST,
   hasFormErrors,
   validateClientForm,
@@ -110,10 +111,15 @@ export default function Clientes() {
   };
 
   const save = async () => {
-    const errors = validateClientForm(form);
+    const isEditing = !!form.id;
+    const errors = validateClientForm(form, { requireDomicilio: isEditing });
     setFieldErrors(errors);
     if (hasFormErrors(errors)) {
-      toast.error(CLIENT_FORM_REQUIRED_TOAST);
+      toast.error(
+        errors.pais || errors.estado || errors.cp
+          ? CLIENT_FORM_DOMICILIO_REQUIRED_TOAST
+          : CLIENT_FORM_REQUIRED_TOAST,
+      );
       return;
     }
     setSaving(true);
@@ -252,6 +258,7 @@ export default function Clientes() {
             <TabsContent value="datos" className="pt-4">
               <ClientFormFields
                 form={form}
+                isEditing={!!form.id}
                 onChange={(patch) => setForm({ ...form, ...patch })}
                 fieldErrors={fieldErrors}
                 onClearError={clearClientFieldError}

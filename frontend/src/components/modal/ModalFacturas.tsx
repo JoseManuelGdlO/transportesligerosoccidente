@@ -6,6 +6,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import type { Client } from "@/types/tlo";
 import { fetchClient } from "@/lib/tloApi";
 import {
+  CLIENT_FORM_DOMICILIO_REQUIRED_TOAST,
   CLIENT_FORM_REQUIRED_TOAST,
   hasFormErrors,
   validateClientForm,
@@ -62,10 +63,14 @@ export function ModalFacturas({ open, onOpenChange, clientId }: ModalFacturasPro
 
   const save = async () => {
     if (!form) return;
-    const errors = validateClientForm(form);
+    const errors = validateClientForm(form, { requireDomicilio: true });
     setFieldErrors(errors);
     if (hasFormErrors(errors)) {
-      toast.error(CLIENT_FORM_REQUIRED_TOAST);
+      toast.error(
+        errors.pais || errors.estado || errors.cp
+          ? CLIENT_FORM_DOMICILIO_REQUIRED_TOAST
+          : CLIENT_FORM_REQUIRED_TOAST,
+      );
       return;
     }
     setSaving(true);
@@ -92,6 +97,7 @@ export function ModalFacturas({ open, onOpenChange, clientId }: ModalFacturasPro
         ) : (
           <ClientFormFields
             form={form}
+            isEditing
             onChange={(patch) => setForm({ ...form, ...patch })}
             fieldErrors={fieldErrors}
             onClearError={clearFieldError}

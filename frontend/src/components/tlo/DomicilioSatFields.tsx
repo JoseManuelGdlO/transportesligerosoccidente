@@ -23,9 +23,12 @@ type Props = {
   onChange: (patch: Partial<DomicilioSatValue>) => void;
   idPrefix?: string;
   cpError?: string;
+  estadoError?: string;
   paisError?: string;
   onClearCpError?: () => void;
+  onClearEstadoError?: () => void;
   onClearPaisError?: () => void;
+  requiredFields?: Partial<Record<"estado" | "cp" | "pais", boolean>>;
 };
 
 export function DomicilioSatFields({
@@ -33,9 +36,12 @@ export function DomicilioSatFields({
   onChange,
   idPrefix = "",
   cpError,
+  estadoError,
   paisError,
   onClearCpError,
+  onClearEstadoError,
   onClearPaisError,
+  requiredFields,
 }: Props) {
   const id = (name: string) => (idPrefix ? `${idPrefix}_${name}` : name);
   const estado = value.estado ?? "";
@@ -91,17 +97,29 @@ export function DomicilioSatFields({
           />
         </div>
         <div>
-          <Label htmlFor={id("estado")}>Estado (clave SAT)</Label>
+          <Label htmlFor={id("estado")}>
+            Estado (clave SAT)
+            {requiredFields?.estado && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
           <Input
             id={id("estado")}
             value={estado}
-            onChange={(e) => patchAddress({ estado: e.target.value.toUpperCase() })}
+            onChange={(e) => {
+              patchAddress({ estado: e.target.value.toUpperCase() });
+              onClearEstadoError?.();
+            }}
             placeholder="BCN"
             maxLength={8}
+            aria-invalid={!!estadoError}
+            className={cn(estadoError && "border-destructive")}
           />
+          {estadoError && <p className="text-sm text-destructive mt-1">{estadoError}</p>}
         </div>
         <div>
-          <Label htmlFor={id("cp")}>C.P.</Label>
+          <Label htmlFor={id("cp")}>
+            C.P.
+            {requiredFields?.cp && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
           <Input
             id={id("cp")}
             value={cp}
@@ -152,7 +170,10 @@ export function DomicilioSatFields({
           />
         </div>
         <div>
-          <Label htmlFor={id("pais")}>País</Label>
+          <Label htmlFor={id("pais")}>
+            País
+            {requiredFields?.pais && <span className="text-destructive ml-0.5">*</span>}
+          </Label>
           <Input
             id={id("pais")}
             value={value.pais ?? "MEX"}

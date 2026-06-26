@@ -13,6 +13,7 @@ interface ClientFormFieldsProps {
   onChange: (patch: Partial<Client>) => void;
   fieldErrors?: ClientFormErrors;
   onClearError?: (field: keyof ClientFormErrors) => void;
+  isEditing?: boolean;
 }
 
 function ValidatedField({
@@ -40,7 +41,13 @@ function ValidatedField({
   );
 }
 
-export function ClientFormFields({ form, onChange, fieldErrors, onClearError }: ClientFormFieldsProps) {
+export function ClientFormFields({
+  form,
+  onChange,
+  fieldErrors,
+  onClearError,
+  isEditing = false,
+}: ClientFormFieldsProps) {
   const patch = (p: Partial<Client>, clearField?: keyof ClientFormErrors) => {
     onChange(p);
     if (clearField) onClearError?.(clearField);
@@ -131,7 +138,21 @@ export function ClientFormFields({ form, onChange, fieldErrors, onClearError }: 
         <p className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
           Domicilio fiscal (Carta Porte)
         </p>
-        <DomicilioSatFields value={form} onChange={onChange} />
+        <DomicilioSatFields
+          value={form}
+          onChange={(patch) => {
+            onChange(patch);
+            if (patch.cp != null) onClearError?.("cp");
+            if (patch.estado != null) onClearError?.("estado");
+            if (patch.pais != null) onClearError?.("pais");
+          }}
+          cpError={fieldErrors?.cp}
+          estadoError={fieldErrors?.estado}
+          paisError={fieldErrors?.pais}
+          requiredFields={
+            isEditing ? { pais: true, estado: true, cp: true } : undefined
+          }
+        />
       </div>
       <div>
         <Label htmlFor="observaciones">Observaciones</Label>
