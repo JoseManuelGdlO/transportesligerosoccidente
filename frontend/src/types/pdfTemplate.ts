@@ -269,8 +269,8 @@ export const BLOCK_CATALOG: Record<BlockType, BlockCatalogEntry> = {
     kinds: ["trip"],
   },
   viaticos_summary: {
-    label: "Viáticos, anticipos y descuentos",
-    description: "Resumen de viáticos, detalle de anticipos/descuentos y totales del periodo",
+    label: "Viáticos, anticipos, descuentos y compensaciones",
+    description: "Resumen de viáticos, detalle de anticipos/descuentos/compensaciones y totales del periodo",
     zones: ["body"],
     kinds: ["settlement"],
   },

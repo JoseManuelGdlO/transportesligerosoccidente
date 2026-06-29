@@ -7,7 +7,7 @@ import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
-import type { Driver, DiscountType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
+import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -79,6 +79,17 @@ export default function Liquidaciones() {
     fecha: defaultFechaEnPeriodo(),
     descripcion: "",
   });
+  const [compForm, setCompForm] = useState<{
+    tipo: CompensationType;
+    monto: number;
+    fecha: string;
+    descripcion: string;
+  }>({
+    tipo: "bono",
+    monto: 0,
+    fecha: defaultFechaEnPeriodo(),
+    descripcion: "",
+  });
 
   const resetToLiveMode = useCallback(() => {
     setActiveDraftId(null);
@@ -88,6 +99,7 @@ export default function Liquidaciones() {
   useEffect(() => {
     setAdvForm((a) => ({ ...a, fecha: clampDate(a.fecha, inicio, fin) }));
     setDiscForm((d) => ({ ...d, fecha: clampDate(d.fecha, inicio, fin) }));
+    setCompForm((c) => ({ ...c, fecha: clampDate(c.fecha, inicio, fin) }));
   }, [inicio, fin]);
 
   useEffect(() => {
@@ -254,6 +266,37 @@ export default function Liquidaciones() {
     }
   };
 
+  const addCompensation = async () => {
+    if (!driverId) return;
+    if (compForm.monto <= 0) {
+      toast.error("Captura un monto mayor a cero");
+      return;
+    }
+    const fecha = clampDate(compForm.fecha, inicio, fin);
+    try {
+      const res = await apiFetch(`/drivers/${driverId}/compensations`, {
+        method: "POST",
+        body: JSON.stringify({
+          ...compForm,
+          fecha,
+          descripcion: compForm.descripcion.trim() || "Compensación",
+        }),
+      });
+      await readJson(res);
+      setCompForm({
+        tipo: "bono",
+        monto: 0,
+        fecha: clampDate(isoDay(today), inicio, fin),
+        descripcion: "",
+      });
+      toast.success("Compensación registrada");
+      setSummarySource("live");
+      await loadSummary();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al registrar compensación");
+    }
+  };
+
   const removeAdvance = async (id: string) => {
     try {
       await apiFetch(`/drivers/${driverId}/advances/${id}`, { method: "DELETE" });
@@ -267,6 +310,16 @@ export default function Liquidaciones() {
   const removeDiscount = async (id: string) => {
     try {
       await apiFetch(`/drivers/${driverId}/discounts/${id}`, { method: "DELETE" });
+      setSummarySource("live");
+      await loadSummary();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
+    }
+  };
+
+  const removeCompensation = async (id: string) => {
+    try {
+      await apiFetch(`/drivers/${driverId}/compensations/${id}`, { method: "DELETE" });
       setSummarySource("live");
       await loadSummary();
     } catch (e) {
@@ -496,12 +549,16 @@ export default function Liquidaciones() {
                 }}
                 advForm={advForm}
                 discForm={discForm}
+                compForm={compForm}
                 onAdvFormChange={setAdvForm}
                 onDiscFormChange={setDiscForm}
+                onCompFormChange={setCompForm}
                 onAddAdvance={addAdvance}
                 onAddDiscount={addDiscount}
+                onAddCompensation={addCompensation}
                 onRemoveAdvance={removeAdvance}
                 onRemoveDiscount={removeDiscount}
+                onRemoveCompensation={removeCompensation}
                 onEditTrip={(tripId) => nav(`/viajes/${tripId}`)}
               />
 

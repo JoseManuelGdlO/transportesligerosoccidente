@@ -873,6 +873,7 @@ const renderViaticosSummary: BlockRenderer = (state) => {
   const colors = setHeaderColors(state);
   const advances = summary.advances ?? [];
   const discounts = summary.discounts ?? [];
+  const compensations = summary.compensations ?? [];
   const viaticosDeduccion = Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados);
   const saldoLabel =
     summary.saldo_viaticos >= 0 ? "A favor del operador" : "Saldo viáticos (no comprobado)";
@@ -897,6 +898,13 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       fmtMXN(d.monto),
       d.en_periodo === false ? "No" : "Sí",
     ]),
+    ...compensations.map((c) => [
+      `Compensación (${c.tipo})`,
+      fmtDatePdf(c.fecha),
+      c.descripcion,
+      fmtMXN(c.monto),
+      c.en_periodo === false ? "No" : "Sí",
+    ]),
   ];
 
   const foot: UserOptions["foot"] = [];
@@ -914,11 +922,18 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       "",
     ]);
   }
+  if ((summary.total_compensaciones ?? 0) > 0) {
+    foot.push([
+      { content: "Compensaciones (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: fmtMXN(summary.total_compensaciones ?? 0), styles: { ...footRight, fontStyle: "bold" } },
+      "",
+    ]);
+  }
 
   ensureSpace(state, 24);
   state.doc.setFont("helvetica", "bold");
   state.doc.setFontSize(11);
-  state.doc.text("Viáticos, anticipos y descuentos", state.margin, state.y);
+  state.doc.text("Viáticos, anticipos, descuentos y compensaciones", state.margin, state.y);
   state.y += 4;
   pdfAutoTable(state.doc, {
     startY: state.y,

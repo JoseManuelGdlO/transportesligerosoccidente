@@ -1,6 +1,14 @@
 import { computeTrip } from "@/lib/calc";
 import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
-import type { Driver, DriverAdvance, DriverDiscount, DiscountType, SettlementSummaryApi } from "@/types/tlo";
+import type {
+  Driver,
+  DriverAdvance,
+  DriverDiscount,
+  DriverCompensation,
+  DiscountType,
+  CompensationType,
+  SettlementSummaryApi,
+} from "@/types/tlo";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -9,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil } from "lucide-react";
+import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift } from "lucide-react";
 
 export interface AdvanceFormState {
   monto: number;
@@ -24,6 +32,13 @@ export interface DiscountFormState {
   descripcion: string;
 }
 
+export interface CompensationFormState {
+  tipo: CompensationType;
+  monto: number;
+  fecha: string;
+  descripcion: string;
+}
+
 interface SettlementSummaryPanelProps {
   summary: SettlementSummaryApi;
   driver: Driver;
@@ -31,12 +46,16 @@ interface SettlementSummaryPanelProps {
   canEditFinance?: boolean;
   advForm?: AdvanceFormState;
   discForm?: DiscountFormState;
+  compForm?: CompensationFormState;
   onAdvFormChange?: (form: AdvanceFormState) => void;
   onDiscFormChange?: (form: DiscountFormState) => void;
+  onCompFormChange?: (form: CompensationFormState) => void;
   onAddAdvance?: () => void;
   onAddDiscount?: () => void;
+  onAddCompensation?: () => void;
   onRemoveAdvance?: (id: string) => void;
   onRemoveDiscount?: (id: string) => void;
+  onRemoveCompensation?: (id: string) => void;
   onEditTrip?: (tripId: string) => void;
   canSelectTrips?: boolean;
   tripInclusions?: Record<string, boolean>;
@@ -51,12 +70,16 @@ export function SettlementSummaryPanel({
   canEditFinance = false,
   advForm,
   discForm,
+  compForm,
   onAdvFormChange,
   onDiscFormChange,
+  onCompFormChange,
   onAddAdvance,
   onAddDiscount,
+  onAddCompensation,
   onRemoveAdvance,
   onRemoveDiscount,
+  onRemoveCompensation,
   onEditTrip,
   canSelectTrips = false,
   tripInclusions,
@@ -91,9 +114,15 @@ export function SettlementSummaryPanel({
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
         <KpiCard label="Viajes" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
         <KpiCard label="Comisiones" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
+        <KpiCard
+          label="Compensaciones"
+          value={fmtMXN(summary.total_compensaciones ?? 0)}
+          icon={Gift}
+          tone="success"
+        />
         <KpiCard
           label="Descuentos + anticipos"
           value={fmtMXN(summary.total_descuentos + summary.total_anticipos)}
@@ -108,7 +137,7 @@ export function SettlementSummaryPanel({
         />
       </div>
 
-      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="tlo-shadow-md">
           <CardHeader><CardTitle className="text-base">Anticipos del periodo</CardTitle></CardHeader>
           <CardContent className="space-y-3">
@@ -220,6 +249,70 @@ export function SettlementSummaryPanel({
                     {showFinanceForms && !d.settlement_id && onRemoveDiscount && (
                       <TableCell>
                         <Button variant="ghost" size="sm" onClick={() => onRemoveDiscount(d.id)}>
+                          <Trash2 className="h-4 w-4 text-destructive" />
+                        </Button>
+                      </TableCell>
+                    )}
+                  </TableRow>
+                ))}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+
+        <Card className="tlo-shadow-md">
+          <CardHeader><CardTitle className="text-base">Compensaciones del periodo</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {showFinanceForms && compForm && onCompFormChange && onAddCompensation && (
+              <div className="grid grid-cols-3 gap-2">
+                <Select
+                  value={compForm.tipo}
+                  onValueChange={(v) => onCompFormChange({ ...compForm, tipo: v as CompensationType })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="bono">Bono</SelectItem>
+                    <SelectItem value="espera">Espera</SelectItem>
+                    <SelectItem value="incentivo">Incentivo</SelectItem>
+                    <SelectItem value="otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  value={compForm.monto || ""}
+                  onChange={(e) => onCompFormChange({ ...compForm, monto: +e.target.value })}
+                />
+                <Button size="sm" onClick={onAddCompensation}><Plus className="h-4 w-4" /></Button>
+                <Input
+                  className="col-span-3"
+                  placeholder="Descripción"
+                  value={compForm.descripcion}
+                  onChange={(e) => onCompFormChange({ ...compForm, descripcion: e.target.value })}
+                />
+              </div>
+            )}
+            <Table>
+              <TableBody>
+                {(summary.compensations ?? []).length === 0 && (
+                  <TableRow>
+                    <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
+                      Sin compensaciones pendientes de liquidar
+                    </TableCell>
+                  </TableRow>
+                )}
+                {(summary.compensations ?? []).map((c: DriverCompensation) => (
+                  <TableRow key={c.id}>
+                    <TableCell>{c.tipo}</TableCell>
+                    <TableCell className="text-sm">
+                      {c.descripcion}
+                      {c.en_periodo === false && (
+                        <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">{fmtMXN(c.monto)}</TableCell>
+                    {showFinanceForms && !c.settlement_id && onRemoveCompensation && (
+                      <TableCell>
+                        <Button variant="ghost" size="sm" onClick={() => onRemoveCompensation(c.id)}>
                           <Trash2 className="h-4 w-4 text-destructive" />
                         </Button>
                       </TableCell>

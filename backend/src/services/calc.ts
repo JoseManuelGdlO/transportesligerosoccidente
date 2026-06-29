@@ -112,6 +112,7 @@ export interface SettlementSummary {
   saldo_viaticos: number;
   total_descuentos: number;
   total_anticipos: number;
+  total_compensaciones: number;
   neto_pagar: number;
 }
 
@@ -141,7 +142,7 @@ export function filterEligibleSettlementTrips(
 export function computeSettlementTotals(
   driver: Driver,
   trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
-  opts?: { total_descuentos?: number; total_anticipos?: number },
+  opts?: { total_descuentos?: number; total_anticipos?: number; total_compensaciones?: number },
 ): Omit<SettlementSummary, "trips"> {
   let total_ingresos = 0;
   let total_comisiones = 0;
@@ -160,7 +161,9 @@ export function computeSettlementTotals(
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
   const total_descuentos = opts?.total_descuentos ?? 0;
   const total_anticipos = opts?.total_anticipos ?? 0;
-  const neto_pagar = total_comisiones - no_comprobado - total_descuentos - total_anticipos;
+  const total_compensaciones = opts?.total_compensaciones ?? 0;
+  const neto_pagar =
+    total_comisiones + total_compensaciones - no_comprobado - total_descuentos - total_anticipos;
   return {
     total_ingresos,
     total_comisiones,
@@ -170,6 +173,7 @@ export function computeSettlementTotals(
     saldo_viaticos,
     total_descuentos,
     total_anticipos,
+    total_compensaciones,
     neto_pagar,
   };
 }
@@ -179,7 +183,7 @@ export function computeSettlement(
   trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
   inicio: Date,
   fin: Date,
-  opts?: { total_descuentos?: number; total_anticipos?: number },
+  opts?: { total_descuentos?: number; total_anticipos?: number; total_compensaciones?: number },
 ): SettlementSummary {
   const eligible = filterEligibleSettlementTrips(driver, trips, inicio, fin);
   const includedTrips = eligible.map((e) => e.trip);

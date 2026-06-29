@@ -447,7 +447,10 @@ export function TripCartaPorte({
     form: typeof origenForm,
     tipo: "origen" | "destino",
   ): Partial<Omit<ClientUbicacion, "id" | "client_id">> => ({
-    nombre: "",
+    nombre:
+      form.calle.trim() ||
+      form.nombre.trim() ||
+      (tipo === "origen" ? "Origen" : "Destino"),
     rfc: form.rfc,
     razon_social: form.nombre,
     tipo: tipo === "origen" ? "Origen" : "Destino",

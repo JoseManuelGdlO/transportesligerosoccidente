@@ -38,7 +38,11 @@ export function applyTripInclusions(
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
   const neto_pagar =
-    total_comisiones - no_comprobado - summary.total_descuentos - summary.total_anticipos;
+    total_comisiones +
+    (summary.total_compensaciones ?? 0) -
+    no_comprobado -
+    summary.total_descuentos -
+    summary.total_anticipos;
 
   return {
     ...summary,
@@ -67,9 +71,11 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
       saldo_viaticos: snapshot.saldo_viaticos,
       total_descuentos: snapshot.total_descuentos,
       total_anticipos: snapshot.total_anticipos,
+      total_compensaciones: snapshot.total_compensaciones ?? 0,
       neto_pagar: snapshot.neto_pagar,
       advances: snapshot.advances ?? [],
       discounts: snapshot.discounts ?? [],
+      compensations: snapshot.compensations ?? [],
     };
   }
 
@@ -90,7 +96,11 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
   const neto_pagar =
-    total_comisiones - no_comprobado - snapshot.total_descuentos - snapshot.total_anticipos;
+    total_comisiones +
+    (snapshot.total_compensaciones ?? 0) -
+    no_comprobado -
+    snapshot.total_descuentos -
+    snapshot.total_anticipos;
 
   return {
     trips: includedTrips,
@@ -102,9 +112,11 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     saldo_viaticos,
     total_descuentos: snapshot.total_descuentos,
     total_anticipos: snapshot.total_anticipos,
+    total_compensaciones: snapshot.total_compensaciones ?? 0,
     neto_pagar,
     advances: snapshot.advances ?? [],
     discounts: snapshot.discounts ?? [],
+    compensations: snapshot.compensations ?? [],
   };
 }
 

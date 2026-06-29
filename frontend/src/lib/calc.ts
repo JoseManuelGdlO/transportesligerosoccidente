@@ -98,9 +98,11 @@ export interface SettlementSummary {
   saldo_viaticos: number; // positivo = saldo a favor del operador
   total_descuentos: number;
   total_anticipos: number;
+  total_compensaciones: number;
   neto_pagar: number;
   advances?: { id: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
   discounts?: { id: string; tipo: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
+  compensations?: { id: string; tipo: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
 }
 
 export const computeSettlement = (
@@ -108,7 +110,7 @@ export const computeSettlement = (
   trips: Trip[],
   inicio: Date,
   fin: Date,
-  opts?: { total_descuentos?: number; total_anticipos?: number },
+  opts?: { total_descuentos?: number; total_anticipos?: number; total_compensaciones?: number },
 ): SettlementSummary => {
   const inRange = trips.filter(t => {
     if (t.driver_id !== driver.id) return false;
@@ -132,7 +134,9 @@ export const computeSettlement = (
   const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
   const total_descuentos = opts?.total_descuentos ?? 0;
   const total_anticipos = opts?.total_anticipos ?? 0;
-  const neto_pagar = total_comisiones - no_comprobado - total_descuentos - total_anticipos;
+  const total_compensaciones = opts?.total_compensaciones ?? 0;
+  const neto_pagar =
+    total_comisiones + total_compensaciones - no_comprobado - total_descuentos - total_anticipos;
   return {
     trips: inRange,
     total_ingresos,
@@ -143,6 +147,7 @@ export const computeSettlement = (
     saldo_viaticos,
     total_descuentos,
     total_anticipos,
+    total_compensaciones,
     neto_pagar,
   };
 };

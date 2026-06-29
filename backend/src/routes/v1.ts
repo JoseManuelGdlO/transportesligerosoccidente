@@ -306,6 +306,25 @@ r.delete(
   driverFinanceC.deleteDiscount,
 );
 
+r.get(
+  "/drivers/:id/compensations",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.listCompensations,
+);
+r.post(
+  "/drivers/:id/compensations",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createCompensation,
+);
+r.delete(
+  "/drivers/:id/compensations/:compensationId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.deleteCompensation,
+);
+
 r.get("/maintenance/overview", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.getOverview);
 r.get("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listSchedules);
 r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.upsertSchedule);

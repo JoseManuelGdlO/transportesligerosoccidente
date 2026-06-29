@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { Driver, Trip, Settlement, DriverAdvance, DriverDiscount } from "../models";
+import { Driver, Trip, Settlement, DriverAdvance, DriverDiscount, DriverCompensation } from "../models";
 import {
   createDraftSettlement,
   updateDraftSettlement,
@@ -30,7 +30,8 @@ function mockSummaryDeps() {
   const tripFindAll = mock.method(Trip, "findAll", async () => [] as never);
   const advanceFindAll = mock.method(DriverAdvance, "findAll", async () => [] as never);
   const discountFindAll = mock.method(DriverDiscount, "findAll", async () => [] as never);
-  return { driverFindOne, tripFindAll, advanceFindAll, discountFindAll };
+  const compensationFindAll = mock.method(DriverCompensation, "findAll", async () => [] as never);
+  return { driverFindOne, tripFindAll, advanceFindAll, discountFindAll, compensationFindAll };
 }
 
 function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
@@ -38,6 +39,7 @@ function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
   deps.tripFindAll.mock.restore();
   deps.advanceFindAll.mock.restore();
   deps.discountFindAll.mock.restore();
+  deps.compensationFindAll.mock.restore();
 }
 
 describe("createDraftSettlement", () => {
@@ -243,6 +245,37 @@ describe("settlementSummary trip inclusions", () => {
     assert.equal(trips.find((t) => t.id === "trip-a")?.included, true);
     assert.equal(trips.find((t) => t.id === "trip-b")?.included, false);
     assert.equal(summary.total_comisiones, 100);
+
+    restoreSummaryDeps(deps);
+  });
+});
+
+describe("settlementSummary compensations", () => {
+  it("suma compensaciones del periodo al neto a pagar", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.compensationFindAll.mock.mockImplementation(
+      async () =>
+        [
+          {
+            id: "comp-1",
+            tipo: "bono",
+            monto: "250",
+            fecha: "2026-06-04",
+            descripcion: "Bono puntualidad",
+            settlement_id: null,
+          },
+        ] as never,
+    );
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(summary.total_compensaciones, 250);
+    assert.equal(summary.neto_pagar, 350);
+    const compensations = summary.compensations as { id: string; en_periodo?: boolean }[];
+    assert.equal(compensations.length, 1);
+    assert.equal(compensations[0]?.en_periodo, true);
 
     restoreSummaryDeps(deps);
   });

@@ -21,6 +21,7 @@ import { TripMercancia, initTripMercancia } from "./TripMercancia";
 import { CartaPorte, initCartaPorte } from "./CartaPorte";
 import { DriverAdvance, initDriverAdvance } from "./DriverAdvance";
 import { DriverDiscount, initDriverDiscount } from "./DriverDiscount";
+import { DriverCompensation, initDriverCompensation } from "./DriverCompensation";
 import { MaintenanceSchedule, initMaintenanceSchedule } from "./MaintenanceSchedule";
 import { MaintenanceRecord, initMaintenanceRecord } from "./MaintenanceRecord";
 import { ClientUbicacion, initClientUbicacion } from "./ClientUbicacion";
@@ -65,6 +66,7 @@ export function initModels() {
   initCartaPorte(sequelize);
   initDriverAdvance(sequelize);
   initDriverDiscount(sequelize);
+  initDriverCompensation(sequelize);
   initMaintenanceSchedule(sequelize);
   initMaintenanceRecord(sequelize);
   initSatClaveProducto(sequelize);
@@ -179,8 +181,11 @@ export function initModels() {
   DriverAdvance.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(DriverDiscount, { foreignKey: "driver_id", as: "discounts" });
   DriverDiscount.belongsTo(Driver, { foreignKey: "driver_id" });
+  Driver.hasMany(DriverCompensation, { foreignKey: "driver_id", as: "compensations" });
+  DriverCompensation.belongsTo(Driver, { foreignKey: "driver_id" });
   Settlement.hasMany(DriverAdvance, { foreignKey: "settlement_id" });
   Settlement.hasMany(DriverDiscount, { foreignKey: "settlement_id" });
+  Settlement.hasMany(DriverCompensation, { foreignKey: "settlement_id" });
 
   Truck.hasMany(MaintenanceSchedule, { foreignKey: "truck_id", as: "maintenanceSchedules" });
   MaintenanceSchedule.belongsTo(Truck, { foreignKey: "truck_id" });
@@ -236,6 +241,7 @@ export {
   CartaPorte,
   DriverAdvance,
   DriverDiscount,
+  DriverCompensation,
   MaintenanceSchedule,
   MaintenanceRecord,
   TripStatus,

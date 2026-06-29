@@ -81,7 +81,8 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
   saldo_viaticos: -700,
   total_descuentos: 500,
   total_anticipos: 1000,
-  neto_pagar: 1220,
+  total_compensaciones: 300,
+  neto_pagar: 1520,
   advances: [
     {
       id: "a1",
@@ -98,6 +99,16 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
       fecha: "2025-05-11",
       descripcion: "Retraso en entrega",
       monto: 500,
+      en_periodo: true,
+    },
+  ],
+  compensations: [
+    {
+      id: "c1",
+      tipo: "bono",
+      fecha: "2025-05-12",
+      descripcion: "Bono puntualidad",
+      monto: 300,
       en_periodo: true,
     },
   ],

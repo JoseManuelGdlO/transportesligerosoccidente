@@ -7,6 +7,7 @@ export type TripType = "local" | "foraneo";
 export type CommissionType = "porcentaje" | "fijo";
 export type MaintenanceType = "menor" | "intermedio" | "correctivo";
 export type DiscountType = "prestamo" | "dano" | "multa" | "otro";
+export type CompensationType = "bono" | "espera" | "incentivo" | "otro";
 export type ExpenseCategory = "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
 export type ExpenseTipo = "gasto" | "ingreso";
 export type UserRole = "admin" | "capturista";
@@ -616,6 +617,16 @@ export interface DriverDiscount {
   en_periodo?: boolean;
 }
 
+export interface DriverCompensation {
+  id: string;
+  tipo: CompensationType;
+  monto: number;
+  fecha: string;
+  descripcion: string;
+  settlement_id?: string;
+  en_periodo?: boolean;
+}
+
 export interface SettlementSummaryApi {
   driver: Driver;
   periodo: { inicio: string; fin: string };
@@ -627,9 +638,11 @@ export interface SettlementSummaryApi {
   saldo_viaticos: number;
   total_descuentos: number;
   total_anticipos: number;
+  total_compensaciones: number;
   neto_pagar: number;
   advances: DriverAdvance[];
   discounts: DriverDiscount[];
+  compensations: DriverCompensation[];
   trips: Trip[];
 }
 
