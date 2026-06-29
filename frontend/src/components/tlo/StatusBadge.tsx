@@ -11,6 +11,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { cn } from "@/lib/utils";
 import { hasApiConfigured } from "@/lib/api";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { setTripStatuses } from "@/lib/tloApi";
 import {
   customStatusesFromTrip,
@@ -51,7 +52,8 @@ export const TripStatusChip = ({ status }: { status: TripStatusRef }) => (
 const TripFinanceBadges = ({ trip }: { trip: Trip }) => {
   const liquidado = tripIsLiquidated(trip);
   const prorrateado = tripIsProrated(trip);
-  if (!liquidado && !prorrateado) return null;
+  const cpTimbrada = FEATURE_CARTA_PORTE && trip.carta_porte?.estatus === "timbrada";
+  if (!liquidado && !prorrateado && !cpTimbrada) return null;
   return (
     <>
       {liquidado && (
@@ -65,6 +67,21 @@ const TripFinanceBadges = ({ trip }: { trip: Trip }) => {
       {prorrateado && (
         <Badge variant="secondary" className="text-[10px]">
           Prorrateado
+        </Badge>
+      )}
+      {cpTimbrada && (
+        <Badge
+          variant="outline"
+          title={
+            trip.carta_porte?.serie && trip.carta_porte?.folio_cfdi
+              ? `CFDI ${trip.carta_porte.serie}-${trip.carta_porte.folio_cfdi}`
+              : trip.carta_porte?.uuid
+                ? `UUID ${trip.carta_porte.uuid}`
+                : undefined
+          }
+          className="font-medium text-[10px] bg-success/10 text-success border-success/30"
+        >
+          Timbrada
         </Badge>
       )}
     </>
