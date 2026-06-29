@@ -1,4 +1,4 @@
-import { computeTrip } from "@/lib/calc";
+import { computeTrip, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
 import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
 import type {
   Driver,
@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift } from "lucide-react";
+import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins } from "lucide-react";
 
 export interface AdvanceFormState {
   monto: number;
@@ -112,9 +112,11 @@ export function SettlementSummaryPanel({
           ? false
           : "indeterminate";
 
+  const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
+
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-3">
+      <div className={`grid grid-cols-2 gap-3 ${viaticosFavor > 0 ? "md:grid-cols-6" : "md:grid-cols-5"}`}>
         <KpiCard label="Viajes" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
         <KpiCard label="Comisiones" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
         <KpiCard
@@ -123,6 +125,14 @@ export function SettlementSummaryPanel({
           icon={Gift}
           tone="success"
         />
+        {viaticosFavor > 0 ? (
+          <KpiCard
+            label="Viáticos a favor"
+            value={fmtMXN(viaticosFavor)}
+            icon={HandCoins}
+            tone="success"
+          />
+        ) : null}
         <KpiCard
           label="Descuentos + anticipos"
           value={fmtMXN(summary.total_descuentos + summary.total_anticipos)}
@@ -136,6 +146,11 @@ export function SettlementSummaryPanel({
           tone={summary.neto_pagar >= 0 ? "success" : "destructive"}
         />
       </div>
+      {viaticosFavor > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          El neto incluye {fmtMXN(viaticosFavor)} por viáticos comprobados en exceso de lo entregado.
+        </p>
+      ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <Card className="tlo-shadow-md">

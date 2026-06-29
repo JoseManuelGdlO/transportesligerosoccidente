@@ -116,6 +116,35 @@ export interface SettlementSummary {
   neto_pagar: number;
 }
 
+/** Monto comprobado en exceso de viáticos entregados (suma al neto). */
+export function viaticosAFavor(saldoViaticos: number): number {
+  return Math.max(0, saldoViaticos);
+}
+
+/** Viáticos entregados sin comprobar (solo para etiquetas/PDF). */
+export function viaticosNoComprobado(saldoViaticos: number): number {
+  return Math.max(0, -saldoViaticos);
+}
+
+export function computeNetoPagar(opts: {
+  total_comisiones: number;
+  saldo_viaticos: number;
+  total_compensaciones?: number;
+  total_descuentos?: number;
+  total_anticipos?: number;
+}): number {
+  const total_compensaciones = opts.total_compensaciones ?? 0;
+  const total_descuentos = opts.total_descuentos ?? 0;
+  const total_anticipos = opts.total_anticipos ?? 0;
+  return (
+    opts.total_comisiones +
+    total_compensaciones +
+    opts.saldo_viaticos -
+    total_descuentos -
+    total_anticipos
+  );
+}
+
 export interface EligibleSettlementTrip {
   trip: Trip & { fuel?: unknown[]; expenses?: unknown[] };
   en_periodo: boolean;
@@ -158,12 +187,16 @@ export function computeSettlementTotals(
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t.expenses ?? []);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
   const total_descuentos = opts?.total_descuentos ?? 0;
   const total_anticipos = opts?.total_anticipos ?? 0;
   const total_compensaciones = opts?.total_compensaciones ?? 0;
-  const neto_pagar =
-    total_comisiones + total_compensaciones - no_comprobado - total_descuentos - total_anticipos;
+  const neto_pagar = computeNetoPagar({
+    total_comisiones,
+    saldo_viaticos,
+    total_compensaciones,
+    total_descuentos,
+    total_anticipos,
+  });
   return {
     total_ingresos,
     total_comisiones,

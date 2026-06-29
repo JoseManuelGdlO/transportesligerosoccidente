@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
-import { computeTrip, ingresosComprobadosLiquidacion } from "@/lib/calc";
+import { computeTrip, ingresosComprobadosLiquidacion, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
@@ -874,16 +874,19 @@ const renderViaticosSummary: BlockRenderer = (state) => {
   const advances = summary.advances ?? [];
   const discounts = summary.discounts ?? [];
   const compensations = summary.compensations ?? [];
-  const viaticosDeduccion = Math.max(0, summary.viaticos_entregados - summary.viaticos_comprobados);
-  const saldoLabel =
-    summary.saldo_viaticos >= 0 ? "A favor del operador" : "Saldo viáticos (no comprobado)";
+  const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
+  const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
   const footRight = { halign: "right" as const };
 
   const body: string[][] = [
     ["Viáticos", "", "Entregados", fmtMXN(summary.viaticos_entregados), ""],
     ["Viáticos", "", "Comprobados", fmtMXN(summary.viaticos_comprobados), ""],
-    ["Viáticos", "", saldoLabel, fmtMXN(Math.abs(summary.saldo_viaticos)), ""],
-    ["Viáticos", "", "No comprobados (deducción)", fmtMXN(viaticosDeduccion), ""],
+    ...(viaticosFavor > 0
+      ? [["Viáticos", "", "A favor (suma al neto)", fmtMXN(viaticosFavor), ""]]
+      : []),
+    ...(viaticosDeduccion > 0
+      ? [["Viáticos", "", "No comprobados (deducción)", fmtMXN(viaticosDeduccion), ""]]
+      : []),
     ...advances.map((a) => [
       "Anticipo",
       fmtDatePdf(a.fecha),

@@ -82,6 +82,7 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
   total_descuentos: 500,
   total_anticipos: 1000,
   total_compensaciones: 300,
+  // neto = comisiones + compensaciones + saldo_viaticos - descuentos - anticipos
   neto_pagar: 1520,
   advances: [
     {
@@ -112,6 +113,21 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
       en_periodo: true,
     },
   ],
+};
+
+/** Ejemplo con viáticos comprobados por encima de lo entregado (saldo a favor suma al neto). */
+export const SAMPLE_SETTLEMENT_VIATICOS_SURPLUS: SettlementSummary = {
+  ...SAMPLE_SETTLEMENT_SUMMARY,
+  viaticos_entregados: 500,
+  viaticos_comprobados: 700,
+  saldo_viaticos: 200,
+  total_descuentos: 0,
+  total_anticipos: 0,
+  total_compensaciones: 0,
+  advances: [],
+  discounts: [],
+  compensations: [],
+  neto_pagar: 3620,
 };
 
 export const SAMPLE_PERIOD = { inicio: "2025-05-12", fin: "2025-05-18" };

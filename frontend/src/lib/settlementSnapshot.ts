@@ -1,4 +1,9 @@
-import { computeTrip, ingresosComprobadosLiquidacion, type SettlementSummary } from "@/lib/calc";
+import {
+  computeNetoPagar,
+  computeTrip,
+  ingresosComprobadosLiquidacion,
+  type SettlementSummary,
+} from "@/lib/calc";
 import type { Driver, SettlementSummaryApi } from "@/types/tlo";
 
 export type TripInclusionPayload = { id: string; included: boolean };
@@ -36,13 +41,13 @@ export function applyTripInclusions(
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
-  const neto_pagar =
-    total_comisiones +
-    (summary.total_compensaciones ?? 0) -
-    no_comprobado -
-    summary.total_descuentos -
-    summary.total_anticipos;
+  const neto_pagar = computeNetoPagar({
+    total_comisiones,
+    saldo_viaticos,
+    total_compensaciones: summary.total_compensaciones ?? 0,
+    total_descuentos: summary.total_descuentos,
+    total_anticipos: summary.total_anticipos,
+  });
 
   return {
     ...summary,
@@ -94,13 +99,13 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  const no_comprobado = Math.max(0, viaticos_entregados - viaticos_comprobados);
-  const neto_pagar =
-    total_comisiones +
-    (snapshot.total_compensaciones ?? 0) -
-    no_comprobado -
-    snapshot.total_descuentos -
-    snapshot.total_anticipos;
+  const neto_pagar = computeNetoPagar({
+    total_comisiones,
+    saldo_viaticos,
+    total_compensaciones: snapshot.total_compensaciones ?? 0,
+    total_descuentos: snapshot.total_descuentos,
+    total_anticipos: snapshot.total_anticipos,
+  });
 
   return {
     trips: includedTrips,
