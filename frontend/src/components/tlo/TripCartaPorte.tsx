@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ClientUbicacionDialog } from "@/components/tlo/ClientUbicacionDialog";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -33,6 +34,7 @@ import {
   FileCheck,
   Plus,
   Trash2,
+  Save,
   Stamp,
   AlertCircle,
   Download,
@@ -92,6 +94,7 @@ export function TripCartaPorte({
   const { drivers, trucks, upsertDriver, upsertTruck } = useTlo();
   const canTimbrar = hasPermission("cartaporte.timbrar");
   const canViewCartaPorte = hasPermission("cartaporte.ver");
+  const canEditCatalog = hasPermission("catalogos.editar");
   const cp = trip.carta_porte;
   const cpTimbrada = cp?.estatus === "timbrada";
   const tripFiscalReady = tripIsOpen(trip) || tripIsClosed(trip);
@@ -177,6 +180,11 @@ export function TripCartaPorte({
     fecha_hora: destino?.fecha_hora?.slice(0, 16) || "",
   });
   const [catalogUbicaciones, setCatalogUbicaciones] = useState<ClientUbicacion[]>([]);
+  const [ubicDialogOpen, setUbicDialogOpen] = useState(false);
+  const [ubicDialogTipo, setUbicDialogTipo] = useState<"origen" | "destino">("origen");
+  const [ubicDialogInitialValues, setUbicDialogInitialValues] = useState<
+    Partial<Omit<ClientUbicacion, "id" | "client_id">>
+  >({});
   const [merc, setMerc] = useState({
     descripcion: "",
     cantidad: 1,
@@ -285,6 +293,36 @@ export function TripCartaPorte({
   }, [clientId]);
 
   useEffect(() => {
+    if (!catalogUbicaciones.length) return;
+    const enrichFromCatalog = (
+      prev: typeof origenForm,
+    ): typeof origenForm => {
+      if (!prev.client_ubicacion_id) return prev;
+      const u = catalogUbicaciones.find((c) => c.id === prev.client_ubicacion_id);
+      if (!u) return prev;
+      return {
+        ...prev,
+        rfc: u.rfc || prev.rfc,
+        nombre: u.razon_social || prev.nombre,
+        calle: u.calle || prev.calle,
+        colonia: u.colonia || prev.colonia,
+        colonia_clave: u.colonia_clave || prev.colonia_clave,
+        municipio: u.municipio || prev.municipio,
+        municipio_clave: u.municipio_clave || prev.municipio_clave,
+        localidad: u.localidad || prev.localidad,
+        localidad_clave: u.localidad_clave || prev.localidad_clave,
+        estado: u.estado || prev.estado,
+        cp: u.cp || prev.cp,
+        numero_exterior: u.numero_exterior || prev.numero_exterior,
+        numero_interior: u.numero_interior || prev.numero_interior,
+        pais: u.pais || prev.pais,
+      };
+    };
+    setOrigenForm((prev) => enrichFromCatalog(prev));
+    setDestinoForm((prev) => enrichFromCatalog(prev));
+  }, [catalogUbicaciones]);
+
+  useEffect(() => {
     lastSavedSnapshotRef.current = buildUbicSnapshot(origenForm, destinoForm);
   }, [trip.id, trip.ubicaciones]);
 
@@ -373,15 +411,23 @@ export function TripCartaPorte({
     void flushPendingSaves();
   };
 
-  const applyCatalogUbicacion = (tipo: "origen" | "destino", ubicacionId: string) => {
-    const u = catalogUbicaciones.find((x) => x.id === ubicacionId);
+  const applyCatalogUbicacion = (
+    tipo: "origen" | "destino",
+    ubicacionId: string,
+    catalog = catalogUbicaciones,
+  ) => {
+    const u = catalog.find((x) => x.id === ubicacionId);
     if (!u) return;
     const patch = {
-      nombre: u.nombre,
+      rfc: u.rfc || clientRfc || "",
+      nombre: u.razon_social || clientName || "",
       calle: u.calle || "",
       colonia: u.colonia || "",
+      colonia_clave: u.colonia_clave || "",
       municipio: u.municipio || "",
+      municipio_clave: u.municipio_clave || "",
       localidad: u.localidad || "",
+      localidad_clave: u.localidad_clave || "",
       estado: u.estado || "",
       cp: u.cp || "",
       numero_exterior: u.numero_exterior || "",
@@ -395,6 +441,48 @@ export function TripCartaPorte({
       setDestinoForm((prev) => ({ ...prev, ...patch }));
     }
     schedulePersistUbicaciones();
+  };
+
+  const tripUbicFormToCatalogInitial = (
+    form: typeof origenForm,
+    tipo: "origen" | "destino",
+  ): Partial<Omit<ClientUbicacion, "id" | "client_id">> => ({
+    nombre: "",
+    rfc: form.rfc,
+    razon_social: form.nombre,
+    tipo: tipo === "origen" ? "Origen" : "Destino",
+    calle: form.calle,
+    colonia: form.colonia,
+    colonia_clave: form.colonia_clave,
+    municipio: form.municipio,
+    municipio_clave: form.municipio_clave,
+    localidad: form.localidad,
+    localidad_clave: form.localidad_clave,
+    estado: form.estado,
+    cp: form.cp,
+    numero_exterior: form.numero_exterior,
+    numero_interior: form.numero_interior,
+    pais: form.pais,
+    estatus: "activo",
+  });
+
+  const openSaveUbicacionDialog = (tipo: "origen" | "destino") => {
+    if (!clientId) {
+      toast.error("El viaje no tiene cliente asignado");
+      return;
+    }
+    const form = tipo === "origen" ? origenForm : destinoForm;
+    setUbicDialogTipo(tipo);
+    setUbicDialogInitialValues(tripUbicFormToCatalogInitial(form, tipo));
+    setUbicDialogOpen(true);
+  };
+
+  const onUbicacionCatalogSaved = async (ubicacion: ClientUbicacion) => {
+    if (!clientId) return;
+    const refreshed = await fetchClientUbicaciones(clientId);
+    setCatalogUbicaciones(refreshed);
+    applyCatalogUbicacion(ubicDialogTipo, ubicacion.id, refreshed);
+    await flushPendingSaves();
   };
 
   const saveDriverFiscal = () => {
@@ -591,6 +679,11 @@ export function TripCartaPorte({
     setDestinoForm((prev) => ({ ...prev, ...patch }));
     schedulePersistUbicaciones();
   };
+
+  const origenLinkedCatalog = !!origenForm.client_ubicacion_id;
+  const destinoLinkedCatalog = !!destinoForm.client_ubicacion_id;
+  const showSaveOrigenUbic = canFiscalEdit && canEditCatalog && !origenLinkedCatalog;
+  const showSaveDestinoUbic = canFiscalEdit && canEditCatalog && !destinoLinkedCatalog;
 
   return (
     <div className="space-y-4">
@@ -959,14 +1052,27 @@ export function TripCartaPorte({
                 </Select>
               </div>
             ) : null}
+            {showSaveOrigenUbic ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => openSaveUbicacionDialog("origen")}
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Guardar ubicación
+              </Button>
+            ) : null}
             <div>
               <Label>RFC</Label>
               <Input
                 value={origenForm.rfc}
                 onChange={(e) => patchOrigen({ rfc: e.target.value })}
                 onBlur={onUbicFieldBlur}
-                disabled={!canFiscalEdit}
-                className={fh(issueFlags.origen.rfc)}
+                disabled={!canFiscalEdit || origenLinkedCatalog}
+                readOnly={origenLinkedCatalog}
+                className={cn(fh(issueFlags.origen.rfc), origenLinkedCatalog && "bg-muted")}
               />
             </div>
             <div>
@@ -975,8 +1081,9 @@ export function TripCartaPorte({
                 value={origenForm.nombre}
                 onChange={(e) => patchOrigen({ nombre: e.target.value })}
                 onBlur={onUbicFieldBlur}
-                disabled={!canFiscalEdit}
-                className={fh(issueFlags.origen.nombre)}
+                disabled={!canFiscalEdit || origenLinkedCatalog}
+                readOnly={origenLinkedCatalog}
+                className={cn(fh(issueFlags.origen.nombre), origenLinkedCatalog && "bg-muted")}
               />
             </div>
             <div>
@@ -1042,14 +1149,30 @@ export function TripCartaPorte({
                 </Select>
               </div>
             ) : null}
+            {showSaveDestinoUbic ? (
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="w-full"
+                onClick={() => openSaveUbicacionDialog("destino")}
+              >
+                <Save className="h-4 w-4 mr-2" />
+                Guardar ubicación
+              </Button>
+            ) : null}
             <div>
               <Label>RFC</Label>
               <Input
                 value={destinoForm.rfc}
                 onChange={(e) => patchDestino({ rfc: e.target.value })}
                 onBlur={onUbicFieldBlur}
-                disabled={!canFiscalEdit}
-                className={fh(issueFlags.stops[fiscalStopCount]?.rfc ?? false)}
+                disabled={!canFiscalEdit || destinoLinkedCatalog}
+                readOnly={destinoLinkedCatalog}
+                className={cn(
+                  fh(issueFlags.stops[fiscalStopCount]?.rfc ?? false),
+                  destinoLinkedCatalog && "bg-muted",
+                )}
               />
             </div>
             <div>
@@ -1058,8 +1181,12 @@ export function TripCartaPorte({
                 value={destinoForm.nombre}
                 onChange={(e) => patchDestino({ nombre: e.target.value })}
                 onBlur={onUbicFieldBlur}
-                disabled={!canFiscalEdit}
-                className={fh(issueFlags.stops[fiscalStopCount]?.nombre ?? false)}
+                disabled={!canFiscalEdit || destinoLinkedCatalog}
+                readOnly={destinoLinkedCatalog}
+                className={cn(
+                  fh(issueFlags.stops[fiscalStopCount]?.nombre ?? false),
+                  destinoLinkedCatalog && "bg-muted",
+                )}
               />
             </div>
             <div>
@@ -1215,6 +1342,16 @@ export function TripCartaPorte({
           </Table>
         </CardContent>
       </Card>
+
+      {clientId ? (
+        <ClientUbicacionDialog
+          open={ubicDialogOpen}
+          onOpenChange={setUbicDialogOpen}
+          clientId={clientId}
+          initialValues={ubicDialogInitialValues}
+          onSaved={(ubicacion) => void onUbicacionCatalogSaved(ubicacion)}
+        />
+      ) : null}
     </div>
   );
 }

@@ -329,6 +329,8 @@ export function clientUbicacionToJson(u: ClientUbicacion): Record<string, unknow
     id: p.id,
     client_id: p.client_id,
     nombre: p.nombre,
+    rfc: p.rfc ?? undefined,
+    razon_social: p.razon_social ?? undefined,
     tipo: p.tipo,
     calle: p.calle ?? undefined,
     numero_exterior: p.numero_exterior ?? undefined,

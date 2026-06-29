@@ -316,6 +316,8 @@ export function normalizeClientUbicacion(raw: Record<string, unknown>): ClientUb
     id: String(raw.id),
     client_id: String(raw.client_id ?? ""),
     nombre: String(raw.nombre ?? ""),
+    rfc: raw.rfc != null ? String(raw.rfc) : undefined,
+    razon_social: raw.razon_social != null ? String(raw.razon_social) : undefined,
     tipo,
     calle: raw.calle != null ? String(raw.calle) : undefined,
     numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,

@@ -513,6 +513,8 @@ export interface ClientUbicacion {
   id: string;
   client_id: string;
   nombre: string;
+  rfc?: string;
+  razon_social?: string;
   tipo: ClientUbicacionTipo;
   calle?: string;
   numero_exterior?: string;

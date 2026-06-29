@@ -17,6 +17,8 @@ export class ClientUbicacion extends Model<
   declare tenant_id: string;
   declare client_id: string;
   declare nombre: string;
+  declare rfc: CreationOptional<string | null>;
+  declare razon_social: CreationOptional<string | null>;
   declare tipo: ClientUbicacionTipo;
   declare calle: CreationOptional<string | null>;
   declare numero_exterior: CreationOptional<string | null>;
@@ -42,6 +44,8 @@ export function initClientUbicacion(sequelize: Sequelize) {
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       client_id: { type: DataTypes.CHAR(36), allowNull: false },
       nombre: { type: DataTypes.STRING(255), allowNull: false },
+      rfc: { type: DataTypes.STRING(13), allowNull: true },
+      razon_social: { type: DataTypes.STRING(255), allowNull: true },
       tipo: {
         type: DataTypes.ENUM("Origen", "Destino", "Ambos"),
         allowNull: false,

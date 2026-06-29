@@ -1,23 +1,15 @@
 import { useCallback, useEffect, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { ClientFormFields } from "@/components/tlo/ClientFormFields";
-import { DomicilioSatFields } from "@/components/tlo/DomicilioSatFields";
+import { ClientUbicacionDialog, emptyClientUbicacionForm } from "@/components/tlo/ClientUbicacionDialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
-import { Input } from "@/components/ui/input";
-import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Plus, Pencil, Trash2 } from "lucide-react";
-import type { Client, ClientStatus, ClientUbicacion, ClientUbicacionTipo } from "@/types/tlo";
-import {
-  createClientUbicacion,
-  deleteClientUbicacion,
-  fetchClientUbicaciones,
-  updateClientUbicacion,
-} from "@/lib/tloApi";
+import type { Client, ClientUbicacion } from "@/types/tlo";
+import { deleteClientUbicacion, fetchClientUbicaciones } from "@/lib/tloApi";
 import {
   CLIENT_FORM_DOMICILIO_REQUIRED_TOAST,
   CLIENT_FORM_REQUIRED_TOAST,
@@ -25,12 +17,6 @@ import {
   validateClientForm,
   type ClientFormErrors,
 } from "@/lib/validateClientForm";
-import {
-  UBICACION_FORM_REQUIRED_TOAST,
-  validateClientUbicacionForm,
-  type ClientUbicacionFormErrors,
-} from "@/lib/validateClientUbicacionForm";
-import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const empty: Client = {
@@ -43,13 +29,6 @@ const empty: Client = {
   estatus: "activo",
 };
 
-const emptyUbic: Omit<ClientUbicacion, "id" | "client_id"> = {
-  nombre: "",
-  tipo: "Ambos",
-  pais: "MEX",
-  estatus: "activo",
-};
-
 export default function Clientes() {
   const { clients, upsertClient } = useTlo();
   const [open, setOpen] = useState(false);
@@ -58,9 +37,9 @@ export default function Clientes() {
   const [saving, setSaving] = useState(false);
   const [ubicaciones, setUbicaciones] = useState<ClientUbicacion[]>([]);
   const [ubicOpen, setUbicOpen] = useState(false);
-  const [ubicForm, setUbicForm] = useState<Omit<ClientUbicacion, "id" | "client_id">>(emptyUbic);
-  const [ubicFieldErrors, setUbicFieldErrors] = useState<ClientUbicacionFormErrors>({});
-  const [ubicSaving, setUbicSaving] = useState(false);
+  const [ubicInitialValues, setUbicInitialValues] = useState<
+    Partial<Omit<ClientUbicacion, "id" | "client_id">>
+  >({});
   const [editingUbicId, setEditingUbicId] = useState<string | null>(null);
 
   const loadUbicaciones = useCallback(async (clientId: string) => {
@@ -85,22 +64,9 @@ export default function Clientes() {
     });
   };
 
-  const clearUbicFieldError = (field: keyof ClientUbicacionFormErrors) => {
-    setUbicFieldErrors((prev) => {
-      const next = { ...prev };
-      delete next[field];
-      return next;
-    });
-  };
-
   const handleClientDialogOpenChange = (next: boolean) => {
     setOpen(next);
     if (!next) setFieldErrors({});
-  };
-
-  const handleUbicDialogOpenChange = (next: boolean) => {
-    setUbicOpen(next);
-    if (!next) setUbicFieldErrors({});
   };
 
   const openClientDialog = (client?: Client) => {
@@ -136,11 +102,12 @@ export default function Clientes() {
   };
 
   const openUbicDialog = (row?: ClientUbicacion) => {
-    setUbicFieldErrors({});
     if (row) {
       setEditingUbicId(row.id);
-      setUbicForm({
+      setUbicInitialValues({
         nombre: row.nombre,
+        rfc: row.rfc,
+        razon_social: row.razon_social,
         tipo: row.tipo,
         calle: row.calle,
         numero_exterior: row.numero_exterior,
@@ -155,39 +122,9 @@ export default function Clientes() {
       });
     } else {
       setEditingUbicId(null);
-      setUbicForm(emptyUbic);
+      setUbicInitialValues(emptyClientUbicacionForm());
     }
     setUbicOpen(true);
-  };
-
-  const saveUbicacion = async () => {
-    if (!form.id) {
-      toast.error("Guarda el cliente antes de agregar ubicaciones");
-      return;
-    }
-    const errors = validateClientUbicacionForm(ubicForm);
-    setUbicFieldErrors(errors);
-    if (hasFormErrors(errors)) {
-      toast.error(errors.nombre ? UBICACION_FORM_REQUIRED_TOAST : "Revisa los datos de la ubicación");
-      return;
-    }
-    setUbicSaving(true);
-    try {
-      if (editingUbicId) {
-        await updateClientUbicacion(form.id, editingUbicId, ubicForm);
-        toast.success("Ubicación actualizada");
-      } else {
-        await createClientUbicacion(form.id, ubicForm);
-        toast.success("Ubicación registrada");
-      }
-      setUbicOpen(false);
-      setUbicFieldErrors({});
-      await loadUbicaciones(form.id);
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error al guardar ubicación");
-    } finally {
-      setUbicSaving(false);
-    }
   };
 
   const removeUbicacion = async (id: string) => {
@@ -278,6 +215,8 @@ export default function Clientes() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nombre</TableHead>
+                        <TableHead>RFC</TableHead>
+                        <TableHead>Razón social</TableHead>
                         <TableHead>Tipo</TableHead>
                         <TableHead>CP</TableHead>
                         <TableHead></TableHead>
@@ -287,6 +226,8 @@ export default function Clientes() {
                       {ubicaciones.map((u) => (
                         <TableRow key={u.id}>
                           <TableCell>{u.nombre}</TableCell>
+                          <TableCell className="font-mono text-sm">{u.rfc || "—"}</TableCell>
+                          <TableCell>{u.razon_social || "—"}</TableCell>
                           <TableCell>{u.tipo}</TableCell>
                           <TableCell className="font-mono text-sm">{u.cp || "—"}</TableCell>
                           <TableCell className="text-right space-x-1">
@@ -320,84 +261,16 @@ export default function Clientes() {
         </DialogContent>
       </Dialog>
 
-      <Dialog open={ubicOpen} onOpenChange={handleUbicDialogOpenChange}>
-        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
-          <DialogHeader>
-            <DialogTitle>{editingUbicId ? "Editar ubicación" : "Nueva ubicación"}</DialogTitle>
-          </DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label htmlFor="ubic_nombre">
-                Nombre<span className="text-destructive ml-0.5">*</span>
-              </Label>
-              <Input
-                id="ubic_nombre"
-                required
-                value={ubicForm.nombre}
-                aria-invalid={!!ubicFieldErrors.nombre}
-                className={cn(ubicFieldErrors.nombre && "border-destructive")}
-                onChange={(e) => {
-                  setUbicForm({ ...ubicForm, nombre: e.target.value });
-                  clearUbicFieldError("nombre");
-                }}
-              />
-              {ubicFieldErrors.nombre && (
-                <p className="text-sm text-destructive mt-1">{ubicFieldErrors.nombre}</p>
-              )}
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <Label>Tipo</Label>
-                <Select
-                  value={ubicForm.tipo}
-                  onValueChange={(v: ClientUbicacionTipo) => setUbicForm({ ...ubicForm, tipo: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="Origen">Origen</SelectItem>
-                    <SelectItem value="Destino">Destino</SelectItem>
-                    <SelectItem value="Ambos">Ambos</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label>Estatus</Label>
-                <Select
-                  value={ubicForm.estatus ?? "activo"}
-                  onValueChange={(v: ClientStatus) => setUbicForm({ ...ubicForm, estatus: v })}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="activo">Activo</SelectItem>
-                    <SelectItem value="inactivo">Inactivo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-            </div>
-            <DomicilioSatFields
-              idPrefix="ubic"
-              value={ubicForm}
-              onChange={(patch) => setUbicForm({ ...ubicForm, ...patch })}
-              cpError={ubicFieldErrors.cp}
-              paisError={ubicFieldErrors.pais}
-              onClearCpError={() => clearUbicFieldError("cp")}
-              onClearPaisError={() => clearUbicFieldError("pais")}
-            />
-          </div>
-          <DialogFooter>
-            <Button variant="outline" onClick={() => handleUbicDialogOpenChange(false)} disabled={ubicSaving}>
-              Cancelar
-            </Button>
-            <Button onClick={() => void saveUbicacion()} disabled={ubicSaving}>
-              {ubicSaving ? "Guardando…" : "Guardar ubicación"}
-            </Button>
-          </DialogFooter>
-        </DialogContent>
-      </Dialog>
+      {form.id ? (
+        <ClientUbicacionDialog
+          open={ubicOpen}
+          onOpenChange={setUbicOpen}
+          clientId={form.id}
+          initialValues={ubicInitialValues}
+          editingId={editingUbicId}
+          onSaved={() => void loadUbicaciones(form.id)}
+        />
+      ) : null}
     </div>
   );
 }

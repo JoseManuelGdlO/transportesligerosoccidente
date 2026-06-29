@@ -220,8 +220,8 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
     const payload = {
       orden: fiscalOrden,
       tipo,
-      rfc: row?.rfc ?? clientDefaults?.rfc ?? null,
-      nombre: row?.nombre ?? clientDefaults?.nombre ?? null,
+      rfc: row?.rfc ?? catalog?.rfc ?? clientDefaults?.rfc ?? null,
+      nombre: row?.nombre ?? catalog?.razon_social ?? clientDefaults?.nombre ?? null,
       calle: row?.calle ?? addr?.calle ?? stop.etiqueta,
       numero_exterior: row?.numero_exterior ?? addr?.numero_exterior ?? null,
       numero_interior: row?.numero_interior ?? addr?.numero_interior ?? null,
@@ -294,8 +294,8 @@ async function resolveUbicacionPayload(
   const addr = addressFromClientUbicacion(catalog);
   return {
     ...data,
-    rfc: data.rfc ?? client?.rfc ?? null,
-    nombre: data.nombre ?? client?.razon_social ?? catalog.nombre,
+    rfc: data.rfc ?? catalog.rfc ?? client?.rfc ?? null,
+    nombre: data.nombre ?? catalog.razon_social ?? client?.razon_social ?? catalog.nombre,
     calle: data.calle ?? addr.calle,
     numero_exterior: data.numero_exterior ?? addr.numero_exterior,
     numero_interior: data.numero_interior ?? addr.numero_interior,

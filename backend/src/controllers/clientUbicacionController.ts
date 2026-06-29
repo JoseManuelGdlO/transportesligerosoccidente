@@ -9,6 +9,8 @@ const tid = (req: Request) => req.user!.tenantId;
 
 const bodySchema = z.object({
   nombre: z.string().min(1),
+  rfc: z.string().max(13).optional(),
+  razon_social: z.string().max(255).optional(),
   tipo: z.enum(["Origen", "Destino", "Ambos"]).optional(),
   calle: z.string().optional(),
   numero_exterior: z.string().optional(),
