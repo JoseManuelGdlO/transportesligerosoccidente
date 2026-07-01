@@ -104,9 +104,13 @@ export function DomicilioSatFields({
           <SatUbicacionCombobox
             kind="estado"
             value={estado}
+            descriptionHint={value.municipio}
             estadoMunicipioHint={
-              value.municipio_clave && value.municipio
-                ? { municipio_clave: value.municipio_clave, municipio: value.municipio }
+              value.municipio
+                ? {
+                    municipio_clave: value.municipio_clave,
+                    municipio: value.municipio,
+                  }
                 : undefined
             }
             onSelect={(item) => {
@@ -120,6 +124,14 @@ export function DomicilioSatFields({
                   : {}),
               });
               onClearEstadoError?.();
+            }}
+            onResolve={(item) => {
+              if (!value.municipio_clave && item.municipio_clave) {
+                onChange({
+                  municipio_clave: item.municipio_clave,
+                  municipio: item.municipio ?? item.descripcion,
+                });
+              }
             }}
             onClear={() => patchAddress({ estado: "" })}
             className={cn(estadoError && "border-destructive")}
@@ -149,10 +161,16 @@ export function DomicilioSatFields({
           <SatUbicacionCombobox
             kind="municipio"
             value={value.municipio_clave ?? ""}
+            descriptionHint={value.municipio}
             estado={estado}
             onSelect={(item) =>
               patchAddress({ municipio_clave: item.clave, municipio: item.descripcion })
             }
+            onResolve={(item) => {
+              if (!value.municipio_clave) {
+                onChange({ municipio_clave: item.clave, municipio: item.descripcion });
+              }
+            }}
             onClear={() => patchAddress({ municipio_clave: undefined, municipio: undefined })}
           />
         </div>
@@ -161,10 +179,16 @@ export function DomicilioSatFields({
           <SatUbicacionCombobox
             kind="localidad"
             value={value.localidad_clave ?? ""}
+            descriptionHint={value.localidad}
             estado={estado}
             onSelect={(item) =>
               patchAddress({ localidad_clave: item.clave, localidad: item.descripcion })
             }
+            onResolve={(item) => {
+              if (!value.localidad_clave) {
+                onChange({ localidad_clave: item.clave, localidad: item.descripcion });
+              }
+            }}
             onClear={() => patchAddress({ localidad_clave: undefined, localidad: undefined })}
           />
         </div>
@@ -173,10 +197,16 @@ export function DomicilioSatFields({
           <SatUbicacionCombobox
             kind="colonia"
             value={value.colonia_clave ?? ""}
+            descriptionHint={value.colonia}
             cp={cp}
             onSelect={(item) =>
               patchAddress({ colonia_clave: item.clave, colonia: item.descripcion })
             }
+            onResolve={(item) => {
+              if (!value.colonia_clave) {
+                onChange({ colonia_clave: item.clave, colonia: item.descripcion });
+              }
+            }}
             onClear={() => patchAddress({ colonia_clave: undefined, colonia: undefined })}
           />
         </div>
