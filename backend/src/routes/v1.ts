@@ -92,6 +92,13 @@ r.patch("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), 
 r.delete("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.deleteClient);
 
 r.get(
+  "/ubicaciones",
+  authenticateJwt,
+  requirePermission("catalogos.ver"),
+  clientUbicacionC.listTenantUbicaciones,
+);
+
+r.get(
   "/clients/:clientId/ubicaciones",
   authenticateJwt,
   requirePermission("catalogos.ver"),

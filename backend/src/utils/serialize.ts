@@ -323,8 +323,11 @@ export function clientToJson(c: Client): Record<string, unknown> {
   };
 }
 
-export function clientUbicacionToJson(u: ClientUbicacion): Record<string, unknown> {
+export function clientUbicacionToJson(
+  u: ClientUbicacion & { Client?: Client },
+): Record<string, unknown> {
   const p = u.get({ plain: true }) as Record<string, unknown>;
+  const clientRazonSocial = u.Client?.razon_social ?? undefined;
   return {
     id: p.id,
     client_id: p.client_id,
@@ -345,6 +348,7 @@ export function clientUbicacionToJson(u: ClientUbicacion): Record<string, unknow
     cp: p.cp ?? undefined,
     pais: p.pais ?? undefined,
     estatus: p.estatus ?? undefined,
+    ...(clientRazonSocial ? { client_razon_social: clientRazonSocial } : {}),
   };
 }
 

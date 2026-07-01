@@ -318,6 +318,8 @@ export function normalizeClientUbicacion(raw: Record<string, unknown>): ClientUb
     nombre: String(raw.nombre ?? ""),
     rfc: raw.rfc != null ? String(raw.rfc) : undefined,
     razon_social: raw.razon_social != null ? String(raw.razon_social) : undefined,
+    client_razon_social:
+      raw.client_razon_social != null ? String(raw.client_razon_social) : undefined,
     tipo,
     calle: raw.calle != null ? String(raw.calle) : undefined,
     numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
@@ -611,6 +613,12 @@ export async function fetchClient(id: string): Promise<Client> {
 
 export async function fetchClientUbicaciones(clientId: string): Promise<ClientUbicacion[]> {
   const res = await apiFetch(`/clients/${clientId}/ubicaciones`);
+  const rows = await readJson<unknown[]>(res);
+  return Array.isArray(rows) ? rows.map((x) => normalizeClientUbicacion(x as Record<string, unknown>)) : [];
+}
+
+export async function fetchTenantUbicaciones(): Promise<ClientUbicacion[]> {
+  const res = await apiFetch("/ubicaciones");
   const rows = await readJson<unknown[]>(res);
   return Array.isArray(rows) ? rows.map((x) => normalizeClientUbicacion(x as Record<string, unknown>)) : [];
 }

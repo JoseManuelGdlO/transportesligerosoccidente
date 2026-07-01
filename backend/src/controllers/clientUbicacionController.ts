@@ -48,6 +48,15 @@ export const listClientUbicaciones = asyncHandler(async (req: Request, res: Resp
   res.json(rows.map(clientUbicacionToJson));
 });
 
+export const listTenantUbicaciones = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await ClientUbicacion.findAll({
+    where: { tenant_id: tid(req), estatus: "activo" },
+    include: [{ model: Client, attributes: ["razon_social"] }],
+    order: [["nombre", "ASC"]],
+  });
+  res.json(rows.map(clientUbicacionToJson));
+});
+
 export const createClientUbicacion = asyncHandler(async (req: Request, res: Response) => {
   const client = await getClientOr404(req, res);
   if (!client) return;

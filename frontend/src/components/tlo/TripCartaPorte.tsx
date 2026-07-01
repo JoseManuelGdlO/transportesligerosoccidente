@@ -13,7 +13,7 @@ import { apiFetch, readJson } from "@/lib/api";
 import {
   downloadCartaPortePdf,
   downloadCartaPorteXml,
-  fetchClientUbicaciones,
+  fetchTenantUbicaciones,
   lookupSatClaveProducto,
   normalizeTrip,
   putTripUbicaciones,
@@ -104,7 +104,7 @@ export function TripCartaPorte({
     (hasPermission("viajes.crear") || hasPermission("cartaporte.timbrar"));
   const canCatalogEdit = hasPermission("catalogos.editar");
 
-  const [tipoTimbrado, setTipoTimbrado] = useState<"ingreso" | "traslado">("traslado");
+  const [tipoTimbrado, setTipoTimbrado] = useState<"ingreso" | "traslado">("ingreso");
   const [usoCfdi, setUsoCfdi] = useState("G03");
   const [moneda, setMoneda] = useState("MXN");
   const [tipoCambio, setTipoCambio] = useState("");
@@ -283,14 +283,10 @@ export function TripCartaPorte({
   ]);
 
   useEffect(() => {
-    if (!clientId) {
-      setCatalogUbicaciones([]);
-      return;
-    }
-    void fetchClientUbicaciones(clientId)
+    void fetchTenantUbicaciones()
       .then(setCatalogUbicaciones)
       .catch(() => setCatalogUbicaciones([]));
-  }, [clientId]);
+  }, []);
 
   useEffect(() => {
     if (!catalogUbicaciones.length) return;
@@ -339,6 +335,11 @@ export function TripCartaPorte({
   const catalogForDestino = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Destino" || u.tipo === "Ambos"),
   );
+
+  const catalogUbicacionLabel = (u: ClientUbicacion) => {
+    const owner = u.razon_social || u.client_razon_social;
+    return owner ? `${u.nombre} — ${owner}` : u.nombre;
+  };
 
   const reloadTrip = async () => {
     const r = await apiFetch(`/trips/${trip.id}`);
@@ -481,8 +482,7 @@ export function TripCartaPorte({
   };
 
   const onUbicacionCatalogSaved = async (ubicacion: ClientUbicacion) => {
-    if (!clientId) return;
-    const refreshed = await fetchClientUbicaciones(clientId);
+    const refreshed = await fetchTenantUbicaciones();
     setCatalogUbicaciones(refreshed);
     applyCatalogUbicacion(ubicDialogTipo, ubicacion.id, refreshed);
     await flushPendingSaves();
@@ -1048,7 +1048,7 @@ export function TripCartaPorte({
                     <SelectItem value="none">Manual</SelectItem>
                     {catalogForOrigen.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
-                        {u.nombre}
+                        {catalogUbicacionLabel(u)}
                       </SelectItem>
                     ))}
                   </SelectContent>
@@ -1145,7 +1145,7 @@ export function TripCartaPorte({
                     <SelectItem value="none">Manual</SelectItem>
                     {catalogForDestino.map((u) => (
                       <SelectItem key={u.id} value={u.id}>
-                        {u.nombre}
+                        {catalogUbicacionLabel(u)}
                       </SelectItem>
                     ))}
                   </SelectContent>
