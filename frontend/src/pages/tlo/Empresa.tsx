@@ -20,6 +20,8 @@ export default function Empresa() {
   const [fiscal, setFiscal] = useState<TenantFiscal>({});
   const [pacToken, setPacToken] = useState("");
   const [csdPassword, setCsdPassword] = useState("");
+  const [pacTokenEditable, setPacTokenEditable] = useState(false);
+  const [csdPasswordEditable, setCsdPasswordEditable] = useState(false);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -72,8 +74,16 @@ export default function Empresa() {
     setLoading(true);
     try {
       const body: Record<string, unknown> = { ...fiscal };
-      if (pacToken) body.pac_token = pacToken;
-      if (csdPassword) body.csd_password = csdPassword;
+      delete body.has_pac_token;
+      delete body.has_csd;
+      delete body.pac_proveedor;
+      delete body.pac_url;
+      body.pac_proveedor = "sicofi";
+      body.pac_url = "";
+      const pacTokenTrimmed = pacToken.trim();
+      const csdPasswordTrimmed = csdPassword.trim();
+      if (pacTokenTrimmed) body.pac_token = pacTokenTrimmed;
+      if (csdPasswordTrimmed) body.csd_password = csdPasswordTrimmed;
       const res = await apiFetch("/tenant/fiscal", { method: "PATCH", body: JSON.stringify(body) });
       if (!res.ok) {
         toast.error("No se pudo guardar configuración fiscal");
@@ -82,6 +92,8 @@ export default function Empresa() {
       setFiscal((await res.json()) as TenantFiscal);
       setPacToken("");
       setCsdPassword("");
+      setPacTokenEditable(false);
+      setCsdPasswordEditable(false);
       toast.success("Configuración fiscal guardada");
     } finally {
       setLoading(false);
@@ -154,22 +166,6 @@ export default function Empresa() {
               <p className="text-sm font-medium">PAC Sicofi</p>
               <div className="grid grid-cols-2 gap-3">
                 <div>
-                  <Label>Proveedor</Label>
-                  <Input
-                    value={fiscal.pac_proveedor || "stub"}
-                    onChange={(e) => setFiscal({ ...fiscal, pac_proveedor: e.target.value })}
-                    placeholder="stub | sicofi"
-                  />
-                </div>
-                <div>
-                  <Label>URL API base</Label>
-                  <Input
-                    value={fiscal.pac_url || ""}
-                    onChange={(e) => setFiscal({ ...fiscal, pac_url: e.target.value })}
-                    placeholder="https://demo.sicofi.com.mx/DFWSR/api"
-                  />
-                </div>
-                <div>
                   <Label>Usuario Sicofi</Label>
                   <Input
                     value={fiscal.pac_usuario || ""}
@@ -180,10 +176,17 @@ export default function Empresa() {
                   <Label>Contraseña Sicofi</Label>
                   <Input
                     type="password"
+                    autoComplete="new-password"
+                    readOnly={!pacTokenEditable}
+                    onFocus={() => setPacTokenEditable(true)}
                     value={pacToken}
                     onChange={(e) => setPacToken(e.target.value)}
-                    placeholder={fiscal.has_pac_token ? "•••••• (dejar vacío para no cambiar)" : ""}
                   />
+                  {fiscal.has_pac_token && !pacToken && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Contraseña configurada. Deja vacío para no cambiar.
+                    </p>
+                  )}
                 </div>
                 <div>
                   <Label>Método pago default</Label>
@@ -253,7 +256,22 @@ export default function Empresa() {
               <div className="grid grid-cols-2 gap-3">
                 <div><Label>Archivo .cer</Label><Input type="file" accept=".cer" onChange={e => void uploadCsd(e)} /></div>
                 <div><Label>Archivo .key</Label><Input id="csd-key" type="file" accept=".key" /></div>
-                <div className="col-span-2"><Label>Contraseña llave</Label><Input type="password" value={csdPassword} onChange={e => setCsdPassword(e.target.value)} placeholder="Contraseña del CSD" /></div>
+                <div className="col-span-2">
+                  <Label>Contraseña llave</Label>
+                  <Input
+                    type="password"
+                    autoComplete="new-password"
+                    readOnly={!csdPasswordEditable}
+                    onFocus={() => setCsdPasswordEditable(true)}
+                    value={csdPassword}
+                    onChange={(e) => setCsdPassword(e.target.value)}
+                  />
+                  {fiscal.has_csd && !csdPassword && (
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Contraseña configurada. Deja vacío para no cambiar.
+                    </p>
+                  )}
+                </div>
               </div>
             </div>
             <Button onClick={() => void saveFiscal()} disabled={loading}>Guardar datos fiscales</Button>
