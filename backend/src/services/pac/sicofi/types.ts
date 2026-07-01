@@ -36,7 +36,7 @@ export interface ConceptoCFDI40 {
 
 /** Encabezado fiscal del comprobante (`DatosCFDI40`). */
 export interface DatosCFDI40 {
-  Serie: string;
+  Serie?: string;
   Folio: number | string;
   Fecha: string;
   /** Omitir en comprobante tipo T (traslado). */

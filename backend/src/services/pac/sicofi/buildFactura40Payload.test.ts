@@ -295,6 +295,6 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.InformacionGlobal?.Año, String(new Date().getFullYear()));
     assert.equal(payload.ReceptorCFDI40.DomicilioFiscalReceptor, "45640");
     assert.equal(payload.ReceptorCFDI40.RegimenFiscalReceptor, "616");
-    assert.equal(payload.DatosCFDI40.Serie, "A");
+    assert.equal(payload.DatosCFDI40.Serie, undefined);
   });
 });

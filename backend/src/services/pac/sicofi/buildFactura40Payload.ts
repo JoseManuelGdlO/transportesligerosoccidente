@@ -64,11 +64,9 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const lugarExpedicion = tenant.cp_fiscal || "00000";
 
   const moneda = isTraslado ? "XXX" : (opts.moneda ?? conceptBlock.moneda);
-  const serie = isTraslado ? (tenant.cfdi_serie || "CP") : "A";
   const hasCartaPorte = mercancias.length > 0 || ubicaciones.length > 0;
 
   const datosCfdi: Factura40PayloadBody["DatosCFDI40"] = {
-    Serie: serie,
     Folio: folioNumber(cartaPorte, trip),
     Fecha: localDateTimeSatStr(),
     CondicionesDePago: isTraslado

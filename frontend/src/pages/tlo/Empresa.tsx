@@ -149,7 +149,6 @@ export default function Empresa() {
               <div><Label>Régimen fiscal</Label><Input value={fiscal.regimen_fiscal || ""} onChange={e => setFiscal({ ...fiscal, regimen_fiscal: e.target.value })} placeholder="601" /></div>
               <div className="col-span-2"><Label>Razón social</Label><Input value={fiscal.razon_social || ""} onChange={e => setFiscal({ ...fiscal, razon_social: e.target.value })} /></div>
               <div><Label>CP fiscal</Label><Input value={fiscal.cp_fiscal || ""} onChange={e => setFiscal({ ...fiscal, cp_fiscal: e.target.value })} maxLength={5} placeholder="44100" /></div>
-              <div><Label>Serie CFDI</Label><Input value={fiscal.cfdi_serie || "CP"} onChange={e => setFiscal({ ...fiscal, cfdi_serie: e.target.value })} /></div>
             </div>
             <div className="pt-3 border-t space-y-3">
               <p className="text-sm font-medium">PAC Sicofi</p>
