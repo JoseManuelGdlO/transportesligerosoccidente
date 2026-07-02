@@ -35,14 +35,14 @@ import {
   drawMercanciasSummary6Col,
   drawIdentificacionVehicularInline,
   drawSellosCartaPorte,
-  PAGE2_SEAL_RESERVE,
+  PAGE2_BOTTOM_RESERVE,
   type PdfDoc,
 } from "./pdfLayout";
 import { catalogDescription, formatCatalogCode } from "./satCatalogLabels";
 
 type CatalogLookup = Record<string, string>;
 
-const PAGE2_CONTENT_BOTTOM = PAGE_H - MARGIN - PAGE2_SEAL_RESERVE;
+const PAGE2_CONTENT_BOTTOM = PAGE_H - MARGIN - PAGE2_BOTTOM_RESERVE;
 
 function tipoLabel(tipo: string): string {
   if (tipo === "I" || tipo === "FA") return "I - Factura";
@@ -639,7 +639,7 @@ async function renderPage2(
     );
   }
 
-  const sealTop = PAGE_H - MARGIN - PAGE2_SEAL_RESERVE;
+  const sealTop = PAGE_H - MARGIN - PAGE2_BOTTOM_RESERVE;
   doc.switchToPage(cartaPortePageIndex);
   drawSellosCartaPorte(doc, cfdi, sealTop);
 }

@@ -10,7 +10,10 @@ export const MARGIN = 36;
 export const CONTENT_W = PAGE_W - MARGIN * 2;
 export const FOOTER_H = 36;
 export const BOTTOM_RESERVE = 200;
+/** Altura de los 3 sellos Carta Porte (sin pie de página). */
 export const PAGE2_SEAL_RESERVE = 118;
+/** Reserva inferior en página Carta Porte: sellos + pie Sicofi. */
+export const PAGE2_BOTTOM_RESERVE = PAGE2_SEAL_RESERVE + FOOTER_H;
 
 export const BLACK: [number, number, number] = [0, 0, 0];
 export const WHITE: [number, number, number] = [255, 255, 255];
