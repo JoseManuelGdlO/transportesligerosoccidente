@@ -3,10 +3,12 @@ import { XMLParser } from "fast-xml-parser";
 export interface CfdiConcepto {
   cantidad: string;
   claveUnidad: string;
+  unidad?: string;
   descripcion: string;
   valorUnitario: string;
   importe: string;
   claveProdServ?: string;
+  noIdentificacion?: string;
 }
 
 export interface CfdiImpuesto {
@@ -34,6 +36,12 @@ export interface CfdiUbicacion {
   idUbicacion?: string;
   rfcRemitenteDestinatario?: string;
   nombreRemitenteDestinatario?: string;
+  numRegIdTrib?: string;
+  residenciaFiscal?: string;
+  numEstacion?: string;
+  nombreEstacion?: string;
+  tipoEstacion?: string;
+  navegacionTrafico?: string;
   fechaHoraSalidaLlegada?: string;
   distanciaRecorrida?: string;
   domicilio?: CfdiDomicilio;
@@ -41,10 +49,13 @@ export interface CfdiUbicacion {
 
 export interface CfdiMercancia {
   bienesTransp?: string;
+  claveSTCC?: string;
   descripcion?: string;
   cantidad?: string;
   claveUnidad?: string;
+  unidad?: string;
   pesoEnKg?: string;
+  materialPeligroso?: string;
   cantidadTransporta?: { cantidad: string; idOrigen: string; idDestino: string }[];
 }
 
@@ -53,6 +64,10 @@ export interface CfdiFigura {
   rfcFigura?: string;
   numLicencia?: string;
   nombreFigura?: string;
+  numRegIdTribFigura?: string;
+  residenciaFiscalFigura?: string;
+  partesTransporte?: string;
+  domicilio?: CfdiDomicilio;
 }
 
 export interface CfdiAutotransporte {
@@ -64,19 +79,32 @@ export interface CfdiAutotransporte {
   pesoBrutoVehicular?: string;
   aseguraRespCivil?: string;
   polizaRespCivil?: string;
+  aseguraMedAmbiente?: string;
+  polizaMedAmbiente?: string;
   aseguraCarga?: string;
   polizaCarga?: string;
+  primaSeguro?: string;
 }
 
 export interface CfdiCartaPorte {
   version: string;
   idCCP?: string;
+  entradaSalidaMerc?: string;
+  paisOrigenDestino?: string;
+  registroISTMO?: string;
+  viaEntradaSalida?: string;
+  ubicacionPoloOrigen?: string;
+  ubicacionPoloDestino?: string;
   transpInternac?: string;
   totalDistRec?: string;
+  regimenesAduaneros: string[];
   ubicaciones: CfdiUbicacion[];
   pesoBrutoTotal?: string;
+  pesoNetoTotal?: string;
   unidadPeso?: string;
   numTotalMercancias?: string;
+  cargoPorTasacion?: string;
+  logisticaInversaRecoleccionDevolucion?: string;
   mercancias: CfdiMercancia[];
   autotransporte?: CfdiAutotransporte;
   figuras: CfdiFigura[];
@@ -166,15 +194,38 @@ function formatDomicilio(d: CfdiDomicilio): string {
   return parts.join(", ");
 }
 
-export { formatDomicilio };
+/** Formato abreviado Sicofi para domicilios en Carta Porte (Col, Loc, Mupio, Edo). */
+function formatDomicilioCartaPorte(d: CfdiDomicilio): string {
+  const parts = [
+    d.calle ? `Calle: ${d.calle}` : "",
+    d.numeroExterior !== undefined ? `No. Ext: ${d.numeroExterior || "SN"}` : "",
+    d.numeroInterior !== undefined ? `No. Int: ${d.numeroInterior || ""}` : "",
+    d.colonia ? `Col: ${d.colonia}` : "",
+    d.localidad ? `Loc: ${d.localidad}` : "",
+    d.municipio ? `Mupio: ${d.municipio}` : "",
+    d.estado ? `Edo: ${d.estado}` : "",
+    d.pais ? `Pais: ${d.pais}` : "",
+    d.codigoPostal ? `Codigo Postal: ${d.codigoPostal}` : "",
+    d.referencia !== undefined ? `Referencia: ${d.referencia || ""}` : "",
+  ].filter((p) => p !== "");
+  return parts.join(", ");
+}
+
+export { formatDomicilio, formatDomicilioCartaPorte };
 
 function parseUbicacion(node: Record<string, unknown>): CfdiUbicacion {
   const domNode = node.Domicilio as Record<string, unknown> | undefined;
   return {
     tipoUbicacion: attr(node, "TipoUbicacion"),
-    idUbicacion: attr(node, "IDUbicacion") || undefined,
+    idUbicacion: attr(node, "IDUbicacion") || attr(node, "IdUbicacion") || undefined,
     rfcRemitenteDestinatario: attr(node, "RFCRemitenteDestinatario") || undefined,
     nombreRemitenteDestinatario: attr(node, "NombreRemitenteDestinatario") || undefined,
+    numRegIdTrib: attr(node, "NumRegIdTrib") || undefined,
+    residenciaFiscal: attr(node, "ResidenciaFiscal") || undefined,
+    numEstacion: attr(node, "NumEstacion") || undefined,
+    nombreEstacion: attr(node, "NombreEstacion") || undefined,
+    tipoEstacion: attr(node, "TipoEstacion") || undefined,
+    navegacionTrafico: attr(node, "NavegacionTrafico") || undefined,
     fechaHoraSalidaLlegada: attr(node, "FechaHoraSalidaLlegada") || undefined,
     distanciaRecorrida: attr(node, "DistanciaRecorrida") || undefined,
     domicilio: parseDomicilio(domNode),
@@ -182,13 +233,21 @@ function parseUbicacion(node: Record<string, unknown>): CfdiUbicacion {
 }
 
 function parseMercancia(node: Record<string, unknown>): CfdiMercancia {
-  const cantNodes = asArray(node.CantidadTransporta as Record<string, unknown> | Record<string, unknown>[]);
+  const cantRaw =
+    node.CantidadTransporta ||
+    node.CantidadTransportada ||
+    node["cartaporte31:CantidadTransporta"] ||
+    node["cartaporte31:CantidadTransportada"];
+  const cantNodes = asArray(cantRaw as Record<string, unknown> | Record<string, unknown>[]);
   return {
     bienesTransp: attr(node, "BienesTransp") || undefined,
+    claveSTCC: attr(node, "ClaveSTCC") || undefined,
     descripcion: attr(node, "Descripcion") || undefined,
     cantidad: attr(node, "Cantidad") || undefined,
     claveUnidad: attr(node, "ClaveUnidad") || undefined,
+    unidad: attr(node, "Unidad") || undefined,
     pesoEnKg: attr(node, "PesoEnKg") || undefined,
+    materialPeligroso: attr(node, "MaterialPeligroso") || undefined,
     cantidadTransporta: cantNodes.map((c) => ({
       cantidad: attr(c, "Cantidad"),
       idOrigen: attr(c, "IDOrigen"),
@@ -197,11 +256,32 @@ function parseMercancia(node: Record<string, unknown>): CfdiMercancia {
   };
 }
 
+function parseFigura(node: Record<string, unknown>): CfdiFigura {
+  const partesNode = node.PartesTransporte as Record<string, unknown> | undefined;
+  const parte = asRecordArray(partesNode?.ParteTransporte)[0];
+  const partesTransporte = parte
+    ? [attr(parte, "ParteTransporte"), attr(parte, "Descripcion")].filter(Boolean).join(" - ")
+    : undefined;
+
+  return {
+    tipoFigura: attr(node, "TipoFigura") || undefined,
+    rfcFigura: attr(node, "RFCFigura") || undefined,
+    numLicencia: attr(node, "NumLicencia") || undefined,
+    nombreFigura: attr(node, "NombreFigura") || undefined,
+    numRegIdTribFigura: attr(node, "NumRegIdTribFigura") || undefined,
+    residenciaFiscalFigura: attr(node, "ResidenciaFiscalFigura") || undefined,
+    partesTransporte: partesTransporte || undefined,
+    domicilio: parseDomicilio(node.Domicilio as Record<string, unknown> | undefined),
+  };
+}
+
 function parseCartaPorte(node: Record<string, unknown>): CfdiCartaPorte {
   const ubicacionesNode = (node.Ubicaciones as Record<string, unknown> | undefined)?.Ubicacion;
   const mercanciasNode = (node.Mercancias as Record<string, unknown> | undefined)?.Mercancia;
   const mercanciasWrapper = node.Mercancias as Record<string, unknown> | undefined;
   const autoNode =
+    (mercanciasWrapper?.Autotransporte as Record<string, unknown> | undefined) ||
+    (mercanciasWrapper?.AutotransporteFederal as Record<string, unknown> | undefined) ||
     (node.Autotransporte as Record<string, unknown> | undefined) ||
     (node.AutotransporteFederal as Record<string, unknown> | undefined);
   const figuraNode = (node.FiguraTransporte as Record<string, unknown> | undefined)?.TiposFigura;
@@ -219,28 +299,41 @@ function parseCartaPorte(node: Record<string, unknown>): CfdiCartaPorte {
       pesoBrutoVehicular: idVeh ? attr(idVeh, "PesoBrutoVehicular") || undefined : undefined,
       aseguraRespCivil: seguros ? attr(seguros, "AseguraRespCivil") || undefined : undefined,
       polizaRespCivil: seguros ? attr(seguros, "PolizaRespCivil") || undefined : undefined,
+      aseguraMedAmbiente: seguros ? attr(seguros, "AseguraMedAmbiente") || undefined : undefined,
+      polizaMedAmbiente: seguros ? attr(seguros, "PolizaMedAmbiente") || undefined : undefined,
       aseguraCarga: seguros ? attr(seguros, "AseguraCarga") || undefined : undefined,
       polizaCarga: seguros ? attr(seguros, "PolizaCarga") || undefined : undefined,
+      primaSeguro: seguros ? attr(seguros, "PrimaSeguro") || undefined : undefined,
     };
   }
+
+  const regimenesNode = node.RegimenesAduaneros as Record<string, unknown> | undefined;
+  const regimenesAduaneros = asRecordArray(regimenesNode?.RegimenAduanero).map((r) => attr(r, "RegimenAduanero"));
 
   return {
     version: attr(node, "Version") || "3.1",
     idCCP: attr(node, "IdCCP") || undefined,
+    entradaSalidaMerc: attr(node, "EntradaSalidaMerc") || undefined,
+    paisOrigenDestino: attr(node, "PaisOrigenDestino") || undefined,
+    registroISTMO: attr(node, "RegistroISTMO") || undefined,
+    viaEntradaSalida: attr(node, "ViaEntradaSalida") || undefined,
+    ubicacionPoloOrigen: attr(node, "UbicacionPoloOrigen") || undefined,
+    ubicacionPoloDestino: attr(node, "UbicacionPoloDestino") || undefined,
     transpInternac: attr(node, "TranspInternac") || undefined,
     totalDistRec: attr(node, "TotalDistRec") || undefined,
+    regimenesAduaneros,
     ubicaciones: asRecordArray(ubicacionesNode).map(parseUbicacion),
     pesoBrutoTotal: mercanciasWrapper ? attr(mercanciasWrapper, "PesoBrutoTotal") || undefined : undefined,
+    pesoNetoTotal: mercanciasWrapper ? attr(mercanciasWrapper, "PesoNetoTotal") || undefined : undefined,
     unidadPeso: mercanciasWrapper ? attr(mercanciasWrapper, "UnidadPeso") || undefined : undefined,
     numTotalMercancias: mercanciasWrapper ? attr(mercanciasWrapper, "NumTotalMercancias") || undefined : undefined,
+    cargoPorTasacion: mercanciasWrapper ? attr(mercanciasWrapper, "CargoPorTasacion") || undefined : undefined,
+    logisticaInversaRecoleccionDevolucion: mercanciasWrapper
+      ? attr(mercanciasWrapper, "LogisticaInversaRecoleccionDevolucion") || undefined
+      : undefined,
     mercancias: asRecordArray(mercanciasNode).map(parseMercancia),
     autotransporte,
-    figuras: asRecordArray(figuraNode).map((f) => ({
-      tipoFigura: attr(f, "TipoFigura") || undefined,
-      rfcFigura: attr(f, "RFCFigura") || undefined,
-      numLicencia: attr(f, "NumLicencia") || undefined,
-      nombreFigura: attr(f, "NombreFigura") || undefined,
-    })),
+    figuras: asRecordArray(figuraNode).map(parseFigura),
   };
 }
 
@@ -289,7 +382,7 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     attributeNamePrefix: "@_",
     removeNSPrefix: true,
     isArray: (name) =>
-      ["Concepto", "Ubicacion", "Mercancia", "CantidadTransporta", "TiposFigura", "Traslado", "Retencion"].includes(
+      ["Concepto", "Ubicacion", "Mercancia", "CantidadTransporta", "CantidadTransportada", "TiposFigura", "Traslado", "Retencion", "RegimenAduanero"].includes(
         name,
       ),
   });
@@ -319,10 +412,12 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     return {
       cantidad: attr(c, "Cantidad"),
       claveUnidad: attr(c, "ClaveUnidad"),
+      unidad: attr(c, "Unidad") || undefined,
       descripcion: attr(c, "Descripcion"),
       valorUnitario: attr(c, "ValorUnitario"),
       importe: attr(c, "Importe"),
       claveProdServ: attr(c, "ClaveProdServ") || undefined,
+      noIdentificacion: attr(c, "NoIdentificacion") || undefined,
       impuestos: parseImpuestos(impConcepto),
     };
   });

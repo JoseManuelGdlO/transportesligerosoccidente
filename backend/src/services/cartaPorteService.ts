@@ -503,11 +503,6 @@ export async function getCartaPortePdf(
   const relPath = normalizeUploadRelPath(cp.pdf_path || defaultRel);
   const absPath = uploadAbsFromRel(relPath);
 
-  if (existsSync(absPath)) {
-    const pdf = await readFile(absPath);
-    return { pdf, filename: cartaPortePdfFilename(cp, trip) };
-  }
-
   const { xml } = await getCartaPorteXml(tenantId, tripId);
   const tenant = await Tenant.findByPk(tenantId);
   const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant);
