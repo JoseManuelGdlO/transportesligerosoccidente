@@ -434,6 +434,22 @@ export interface ReportsCostBreakdown {
   gastos: number;
 }
 
+export interface ReportsNegativeTripRow {
+  trip_id: string;
+  folio: string;
+  fecha_salida: string;
+  origen: string;
+  destino: string;
+  razon_social: string | null;
+  operador: string;
+  numero_economico: string;
+  ingreso: number;
+  costo_total: number;
+  utilidad: number;
+  margen: number;
+  km: number;
+}
+
 export interface ReportsOverview {
   periodo: { desde: string | null; hasta: string | null };
   periodo_anterior: { desde: string; hasta: string } | null;
@@ -447,6 +463,7 @@ export interface ReportsOverview {
   by_route: ReportsRouteRow[];
   by_expense_category: ReportsExpenseCategoryRow[];
   cost_breakdown: ReportsCostBreakdown;
+  negative_trips: ReportsNegativeTripRow[];
 }
 
 export interface FuelImportResult {

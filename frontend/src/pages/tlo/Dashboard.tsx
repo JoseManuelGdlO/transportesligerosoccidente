@@ -10,7 +10,7 @@ import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
+import { TripStatusesBadges, MarginBadge } from "@/components/tlo/StatusBadge";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 import {
   Truck,
@@ -50,7 +50,7 @@ function tripChartDay(t: Trip, wStart: Date, wEnd: Date): string {
 }
 
 export default function Dashboard() {
-  const { trips, drivers, trucks, catalogLoading, catalogError } = useTlo();
+  const { trips, drivers, trucks, clients, catalogLoading, catalogError } = useTlo();
   const { hasPermission, apiMode } = useAuth();
   const nav = useNavigate();
   const [docDash, setDocDash] = useState<DocumentDashboardSummary | null>(null);
@@ -93,6 +93,9 @@ export default function Dashboard() {
   const negativos = enriched.filter(
     (e) => tripClosedInWeek(e.trip, wStart, wEnd) && e.fin.utilidad < 0,
   ).length;
+  const viajesNegativos = enriched
+    .filter((e) => tripClosedInWeek(e.trip, wStart, wEnd) && e.fin.utilidad < 0)
+    .sort((a, b) => a.fin.utilidad - b.fin.utilidad);
 
   // mini gráfico utilidad por día de la semana
   const days: { day: string; utilidad: number }[] = [];
@@ -138,6 +141,61 @@ export default function Dashboard() {
         <KpiCard label="Viajes negativos" value={String(negativos)} icon={AlertTriangle} tone={negativos > 0 ? "destructive" : "success"} />
         <KpiCard label="Operadores activos" value={String(drivers.filter(d => d.estatus === "activo").length)} icon={Users} tone="default" />
       </div>
+
+      {viajesNegativos.length > 0 && (
+        <Card className="tlo-shadow-md border-destructive/30">
+          <CardHeader>
+            <CardTitle className="text-base flex items-center gap-2">
+              <AlertTriangle className="h-4 w-4 text-destructive" />
+              Viajes negativos esta semana ({viajesNegativos.length})
+            </CardTitle>
+            <p className="text-xs text-muted-foreground">
+              Viajes cerrados en la semana cuyo costo superó el ingreso
+            </p>
+          </CardHeader>
+          <CardContent className="p-0">
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-secondary/50">
+                  <TableHead>Folio</TableHead>
+                  <TableHead>Ruta</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Unidad</TableHead>
+                  <TableHead className="text-right">Ingreso</TableHead>
+                  <TableHead className="text-right">Costo</TableHead>
+                  <TableHead className="text-right">Utilidad</TableHead>
+                  <TableHead className="text-right">Margen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {viajesNegativos.map(({ trip, fin }) => {
+                  const dr = driverById(drivers, trip.driver_id);
+                  const tk = truckById(trucks, trip.truck_id);
+                  const cl = trip.client_id ? clients.find((c) => c.id === trip.client_id) : undefined;
+                  return (
+                    <TableRow
+                      key={trip.id}
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() => nav(`/viajes/${trip.id}`)}
+                    >
+                      <TableCell className="font-mono font-semibold">{trip.folio}</TableCell>
+                      <TableCell className="text-sm">{formatTripRoute(trip)}</TableCell>
+                      <TableCell className="text-sm">{cl?.razon_social ?? "—"}</TableCell>
+                      <TableCell className="text-sm">{dr?.nombre ?? "—"}</TableCell>
+                      <TableCell className="text-sm font-mono">{tk?.numero_economico ?? "—"}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(fin.ingreso)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(fin.costo_total)}</TableCell>
+                      <TableCell className="text-right font-semibold text-destructive">{fmtMXN(fin.utilidad)}</TableCell>
+                      <TableCell className="text-right"><MarginBadge pct={fin.margen_pct} /></TableCell>
+                    </TableRow>
+                  );
+                })}
+              </TableBody>
+            </Table>
+          </CardContent>
+        </Card>
+      )}
 
       {docDash && hasPermission("documentos.ver") && (
         <>

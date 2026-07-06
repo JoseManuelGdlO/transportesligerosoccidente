@@ -287,6 +287,41 @@ function buildCostBreakdown(totales: ReturnType<typeof buildTotals>) {
   };
 }
 
+function buildNegativeTrips(
+  enriched: TripWithFin[],
+  trucks: Truck[],
+  drivers: Driver[],
+  clients: Client[],
+) {
+  const truckById = (id: string) => trucks.find((t) => t.id === id);
+  const driverById = (id: string) => drivers.find((d) => d.id === id);
+  const clientById = (id: string) => clients.find((c) => c.id === id);
+
+  return enriched
+    .filter(({ fin }) => fin.utilidad < 0)
+    .map(({ trip, fin }) => {
+      const tk = truckById(trip.truck_id);
+      const dr = driverById(trip.driver_id);
+      const cl = trip.client_id ? clientById(trip.client_id) : undefined;
+      return {
+        trip_id: trip.id,
+        folio: trip.folio,
+        fecha_salida: tripSalidaIso(trip).slice(0, 10),
+        origen: trip.origen,
+        destino: trip.destino,
+        razon_social: cl?.razon_social ?? null,
+        operador: dr?.nombre ?? "—",
+        numero_economico: tk?.numero_economico ?? "—",
+        ingreso: fin.ingreso,
+        costo_total: fin.costo_total,
+        utilidad: fin.utilidad,
+        margen: fin.margen_pct,
+        km: fin.km_recorridos,
+      };
+    })
+    .sort((a, b) => a.utilidad - b.utilidad);
+}
+
 function buildOverview(
   trips: Trip[],
   trucks: Truck[],
@@ -308,6 +343,7 @@ function buildOverview(
     by_route: buildByRoute(enriched),
     by_expense_category: buildByExpenseCategory(enriched),
     cost_breakdown: buildCostBreakdown(totales),
+    negative_trips: buildNegativeTrips(enriched, trucks, drivers, clients),
   };
 }
 
@@ -409,5 +445,6 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
     by_route: current.by_route,
     by_expense_category: current.by_expense_category,
     cost_breakdown: current.cost_breakdown,
+    negative_trips: current.negative_trips,
   });
 });

@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { fetchFuelSummary, fetchReportsOverview } from "@/lib/tloApi";
@@ -48,6 +49,7 @@ import { toast } from "sonner";
 type DateRange = { desde: string; hasta: string };
 type ReportTab =
   | "resumen"
+  | "negativos"
   | "camion"
   | "operador"
   | "cliente"
@@ -119,6 +121,7 @@ function variationTone(pct: number | null | undefined, invert = false): "success
 export default function Reportes() {
   const { hasPermission, apiMode } = useAuth();
   const { trucks } = useTlo();
+  const nav = useNavigate();
 
   const [range, setRange] = useState<DateRange>(monthRange);
   const [overview, setOverview] = useState<ReportsOverview | null>(null);
@@ -195,6 +198,24 @@ export default function Reportes() {
 
     const filename = `reportes_${range.desde}_${range.hasta}`;
 
+    if (activeTab === "negativos") {
+      exportCsv(filename, [
+        { key: "folio", label: "Folio" },
+        { key: "fecha_salida", label: "Fecha salida" },
+        { key: "origen", label: "Origen" },
+        { key: "destino", label: "Destino" },
+        { key: "razon_social", label: "Cliente" },
+        { key: "operador", label: "Operador" },
+        { key: "numero_economico", label: "Unidad" },
+        { key: "ingreso", label: "Ingreso" },
+        { key: "costo_total", label: "Costo" },
+        { key: "utilidad", label: "Utilidad" },
+        { key: "margen", label: "Margen %" },
+        { key: "km", label: "Km" },
+      ], overview.negative_trips ?? []);
+      toast.success("Exportado a CSV");
+      return;
+    }
     if (activeTab === "camion") {
       exportCsv(filename, [
         { key: "numero_economico", label: "No. económico" },
@@ -385,7 +406,13 @@ export default function Reportes() {
           <KpiCard label="Margen" value={fmtPct(t.margen)} hint={variationHint(v?.margen_pct)} icon={BarChart3} tone={variationTone(v?.margen_pct)} />
           <KpiCard label="Viajes cerrados" value={String(t.viajes)} hint={variationHint(v?.viajes_pct)} icon={Activity} />
           <KpiCard label="Km totales" value={fmtNumber(t.km)} hint={variationHint(v?.km_pct)} icon={Route} />
-          <KpiCard label="Viajes negativos" value={String(t.viajes_negativos)} icon={AlertTriangle} tone={t.viajes_negativos > 0 ? "destructive" : "success"} />
+          <KpiCard
+            label="Viajes negativos"
+            value={String(t.viajes_negativos)}
+            hint={t.viajes_negativos > 0 ? "Ver detalle en pestaña Viajes negativos" : undefined}
+            icon={AlertTriangle}
+            tone={t.viajes_negativos > 0 ? "destructive" : "success"}
+          />
         </div>
       )}
 
@@ -422,6 +449,14 @@ export default function Reportes() {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ReportTab)}>
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          <TabsTrigger value="negativos" className="relative">
+            Viajes negativos
+            {(overview?.negative_trips?.length ?? 0) > 0 && (
+              <Badge variant="destructive" className="ml-1.5 h-5 min-w-5 px-1 text-[10px]">
+                {overview!.negative_trips!.length}
+              </Badge>
+            )}
+          </TabsTrigger>
           <TabsTrigger value="camion">Por camión</TabsTrigger>
           <TabsTrigger value="operador">Por operador</TabsTrigger>
           <TabsTrigger value="cliente">Por cliente</TabsTrigger>
@@ -478,6 +513,62 @@ export default function Reportes() {
               </Table>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Viajes negativos */}
+        <TabsContent value="negativos" className="mt-4">
+          <Card className="tlo-shadow-md overflow-hidden">
+            <CardHeader>
+              <CardTitle className="text-base">Viajes con utilidad negativa</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Viajes cerrados en el periodo cuyo costo superó el ingreso
+              </p>
+            </CardHeader>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-secondary/50">
+                  <TableHead>Folio</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Ruta</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Unidad</TableHead>
+                  <TableHead className="text-right">Ingreso</TableHead>
+                  <TableHead className="text-right">Costo</TableHead>
+                  <TableHead className="text-right">Utilidad</TableHead>
+                  <TableHead className="text-right">Margen</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(overview?.negative_trips ?? []).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={10} className="text-center text-muted-foreground py-8">
+                      Sin viajes negativos en el periodo
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  overview?.negative_trips.map((row) => (
+                    <TableRow
+                      key={row.trip_id}
+                      className="cursor-pointer hover:bg-muted/30"
+                      onClick={() => nav(`/viajes/${row.trip_id}`)}
+                    >
+                      <TableCell className="font-mono font-semibold">{row.folio}</TableCell>
+                      <TableCell className="text-sm">{formatIsoDateEs(row.fecha_salida)}</TableCell>
+                      <TableCell className="text-sm">{row.origen} → {row.destino}</TableCell>
+                      <TableCell className="text-sm">{row.razon_social ?? "—"}</TableCell>
+                      <TableCell className="text-sm">{row.operador}</TableCell>
+                      <TableCell className="text-sm font-mono">{row.numero_economico}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(row.ingreso)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(row.costo_total)}</TableCell>
+                      <TableCell className="text-right font-semibold text-destructive">{fmtMXN(row.utilidad)}</TableCell>
+                      <TableCell className="text-right"><MarginBadge pct={row.margen} /></TableCell>
+                    </TableRow>
+                  ))
+                )}
+              </TableBody>
+            </Table>
+          </Card>
         </TabsContent>
 
         {/* Por camión */}
