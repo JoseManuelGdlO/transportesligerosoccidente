@@ -348,6 +348,7 @@ r.get("/roles", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.
 r.put("/roles/:slug/permissions", authenticateJwt, requirePermission("usuarios.gestionar"), roleC.putRolePermissions);
 
 r.get("/reports/aggregates", authenticateJwt, requirePermission("reportes.ver"), reportsC.getAggregates);
+r.get("/reports/overview", authenticateJwt, requirePermission("reportes.ver"), reportsC.getOverview);
 r.get(
   "/reports/fuel/proration",
   authenticateJwt,

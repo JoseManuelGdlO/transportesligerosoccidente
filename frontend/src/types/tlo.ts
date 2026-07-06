@@ -336,6 +336,119 @@ export interface FuelSummaryRow {
   rendimiento: number | null;
 }
 
+export interface ReportsOverviewTotals {
+  viajes: number;
+  ingreso: number;
+  costo_total: number;
+  utilidad: number;
+  margen: number;
+  km: number;
+  viajes_negativos: number;
+  diesel_total: number;
+  comision_total: number;
+}
+
+export interface ReportsOverviewVariation {
+  ingreso_pct: number | null;
+  costo_pct: number | null;
+  utilidad_pct: number | null;
+  margen_pct: number | null;
+  viajes_pct: number | null;
+  km_pct: number | null;
+}
+
+export interface ReportsTimeBucket {
+  fecha: string;
+  ingreso: number;
+  costo: number;
+  utilidad: number;
+  viajes: number;
+}
+
+export interface ReportsTruckRow {
+  truck_id: string;
+  numero_economico: string;
+  marca: string;
+  modelo: string;
+  viajes: number;
+  ingreso: number;
+  utilidad: number;
+  km: number;
+  diesel_total: number;
+  margen: number;
+  costo_por_km: number;
+  ingreso_por_km: number;
+}
+
+export interface ReportsDriverRow {
+  driver_id: string;
+  nombre: string;
+  viajes: number;
+  ingreso: number;
+  utilidad: number;
+  comision: number;
+  km: number;
+  margen: number;
+  costo_por_km: number;
+  ingreso_por_km: number;
+}
+
+export interface ReportsClientRow {
+  client_id: string;
+  razon_social: string;
+  viajes: number;
+  ingreso: number;
+  utilidad: number;
+  km: number;
+  margen: number;
+}
+
+export interface ReportsTipoViajeRow {
+  tipo_viaje: TripType;
+  viajes: number;
+  ingreso: number;
+  utilidad: number;
+  km: number;
+  margen: number;
+}
+
+export interface ReportsRouteRow {
+  origen: string;
+  destino: string;
+  viajes: number;
+  ingreso: number;
+  utilidad: number;
+  km: number;
+  margen: number;
+}
+
+export interface ReportsExpenseCategoryRow {
+  categoria: ExpenseCategory;
+  monto: number;
+  pct: number;
+}
+
+export interface ReportsCostBreakdown {
+  diesel: number;
+  comisiones: number;
+  gastos: number;
+}
+
+export interface ReportsOverview {
+  periodo: { desde: string | null; hasta: string | null };
+  periodo_anterior: { desde: string; hasta: string } | null;
+  totales: ReportsOverviewTotals;
+  variacion: ReportsOverviewVariation | null;
+  by_time: ReportsTimeBucket[];
+  by_truck: ReportsTruckRow[];
+  by_driver: ReportsDriverRow[];
+  by_client: ReportsClientRow[];
+  by_tipo_viaje: ReportsTipoViajeRow[];
+  by_route: ReportsRouteRow[];
+  by_expense_category: ReportsExpenseCategoryRow[];
+  cost_breakdown: ReportsCostBreakdown;
+}
+
 export interface FuelImportResult {
   creados: number;
   duplicados: number;

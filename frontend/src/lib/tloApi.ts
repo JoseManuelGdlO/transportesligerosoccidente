@@ -13,6 +13,7 @@ import type {
   FuelProrationAssignmentInput,
   FuelSummaryRow,
   FuelImportResult,
+  ReportsOverview,
   FuelImportPreviewResult,
   Trip,
   TripMercancia,
@@ -937,6 +938,12 @@ export async function fetchFuelSummary(
   const q = new URLSearchParams({ inicio, fin });
   const res = await apiFetch(`/reports/fuel/summary?${q}`);
   return readJson(res);
+}
+
+export async function fetchReportsOverview(desde: string, hasta: string): Promise<ReportsOverview> {
+  const q = new URLSearchParams({ desde, hasta });
+  const res = await apiFetch(`/reports/overview?${q}`);
+  return readJson<ReportsOverview>(res);
 }
 
 function parseContentDispositionFilename(header: string | null): string | undefined {

@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import { fetchDocumentDashboard } from "@/lib/tloApi";
-import type { DocumentDashboardSummary } from "@/types/tlo";
+import type { DocumentDashboardSummary, Trip } from "@/types/tlo";
 import { computeTrip, driverById, truckById } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay, formatTripRoute } from "@/lib/format";
 import { KpiCard } from "@/components/tlo/KpiCard";
@@ -26,6 +26,28 @@ import {
   FileWarning,
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+
+/** Viajes relevantes a la semana: salieron, cerraron o siguen abiertos en el periodo. */
+function tripInWeekScope(t: Trip, wStart: Date, wEnd: Date): boolean {
+  const salida = new Date(t.fecha_salida);
+  if (salida >= wStart && salida <= wEnd) return true;
+  if (t.fecha_llegada) {
+    const llegada = new Date(t.fecha_llegada);
+    if (llegada >= wStart && llegada <= wEnd) return true;
+  }
+  return tripIsOpen(t) && salida <= wEnd;
+}
+
+function tripClosedInWeek(t: Trip, wStart: Date, wEnd: Date): boolean {
+  if (!tripIsClosed(t) || !t.fecha_llegada) return false;
+  const llegada = new Date(t.fecha_llegada);
+  return llegada >= wStart && llegada <= wEnd;
+}
+
+function tripChartDay(t: Trip, wStart: Date, wEnd: Date): string {
+  if (tripClosedInWeek(t, wStart, wEnd)) return isoDay(new Date(t.fecha_llegada!));
+  return isoDay(new Date(t.fecha_salida));
+}
 
 export default function Dashboard() {
   const { trips, drivers, trucks, catalogLoading, catalogError } = useTlo();
@@ -59,19 +81,18 @@ export default function Dashboard() {
   const wStart = startOfWeek(now);
   const wEnd = endOfWeek(now);
 
-  const weekTrips = trips.filter(t => {
-    const d = new Date(t.fecha_salida);
-    return d >= wStart && d <= wEnd;
-  });
+  const weekTrips = trips.filter((t) => tripInWeekScope(t, wStart, wEnd));
 
   const enriched = weekTrips.map(t => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
-  const enCurso = enriched.filter((e) => tripIsOpen(e.trip)).length;
-  const cerrados = enriched.filter((e) => tripIsClosed(e.trip)).length;
+  const enCurso = trips.filter((t) => tripIsOpen(t)).length;
+  const cerrados = trips.filter((t) => tripClosedInWeek(t, wStart, wEnd)).length;
   const ingresos = enriched.reduce((a, e) => a + e.fin.ingreso, 0);
   const costos = enriched.reduce((a, e) => a + e.fin.costo_total, 0);
   const utilidad = ingresos - costos;
   const margen = ingresos > 0 ? (utilidad / ingresos) * 100 : 0;
-  const negativos = enriched.filter((e) => tripIsClosed(e.trip) && e.fin.utilidad < 0).length;
+  const negativos = enriched.filter(
+    (e) => tripClosedInWeek(e.trip, wStart, wEnd) && e.fin.utilidad < 0,
+  ).length;
 
   // mini gráfico utilidad por día de la semana
   const days: { day: string; utilidad: number }[] = [];
@@ -79,7 +100,7 @@ export default function Dashboard() {
     const d = new Date(wStart); d.setDate(wStart.getDate() + i);
     const key = isoDay(d);
     const u = enriched
-      .filter(e => isoDay(new Date(e.trip.fecha_salida)) === key)
+      .filter(e => tripChartDay(e.trip, wStart, wEnd) === key)
       .reduce((a, e) => a + e.fin.utilidad, 0);
     days.push({ day: d.toLocaleDateString("es-MX", { weekday: "short" }), utilidad: Math.round(u) });
   }
@@ -108,10 +129,10 @@ export default function Dashboard() {
       </div>
 
       <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-        <KpiCard label="Viajes en curso" value={String(enCurso)} icon={Activity} tone="accent" />
-        <KpiCard label="Viajes cerrados" value={String(cerrados)} icon={CheckCircle2} tone="success" />
-        <KpiCard label="Ingresos" value={fmtMXN(ingresos)} icon={DollarSign} tone="default" />
-        <KpiCard label="Costos" value={fmtMXN(costos)} icon={Truck} tone="default" />
+        <KpiCard label="Viajes en curso" value={String(enCurso)} hint="Activos ahora" icon={Activity} tone="accent" />
+        <KpiCard label="Viajes cerrados" value={String(cerrados)} hint="Cerrados esta semana" icon={CheckCircle2} tone="success" />
+        <KpiCard label="Ingresos" value={fmtMXN(ingresos)} hint="Semana actual" icon={DollarSign} tone="default" />
+        <KpiCard label="Costos" value={fmtMXN(costos)} hint="Semana actual" icon={Truck} tone="default" />
         <KpiCard label="Utilidad neta" value={fmtMXN(utilidad)} hint={`Margen ${margen.toFixed(1)}%`} icon={TrendingUp} tone={utilidad >= 0 ? "success" : "destructive"} />
         <KpiCard label="Margen promedio" value={`${margen.toFixed(1)}%`} icon={TrendingUp} tone={margen >= 15 ? "success" : margen >= 5 ? "warning" : "destructive"} />
         <KpiCard label="Viajes negativos" value={String(negativos)} icon={AlertTriangle} tone={negativos > 0 ? "destructive" : "success"} />
