@@ -384,7 +384,7 @@ describe("applyManualAssignments", () => {
     ]);
     const blocks = applyManualAssignments(autoBlocks, [ticket], manualMap, trips);
 
-    assert.deepEqual(blocks[0]!.viajes.map((v) => v.trip_id), ["v3", "v4", "v1", "v2"]);
+    assert.deepEqual(blocks[0]!.viajes.map((v) => v.trip_id), ["v1", "v2", "v3", "v4"]);
     assert.equal(blocks[0]!.viajes.find((v) => v.trip_id === "v1")?.asignacion_manual, true);
     assert.equal(blocks[0]!.viajes.find((v) => v.trip_id === "v3")?.asignacion_manual, undefined);
     assert.equal(blocks[0]!.km_total_periodo, 330);
@@ -451,6 +451,62 @@ describe("buildProratedBlock", () => {
     assert.equal(block.prorrateo_confirmado_at, confirmedAt.toISOString());
     assert.equal(block.viajes.length, 1);
     assert.equal(block.viajes[0]!.litros_asignados, 100);
+  });
+
+  it("ordena viajes por fecha de salida y folio (caso TL007)", () => {
+    const ticket = mockTicket({
+      id: "tk1",
+      truck_id: "t1",
+      fecha: "2026-07-03",
+      litros: "299.06",
+    });
+    const trips = [
+      mockTrip({
+        id: "v19",
+        truck_id: "t1",
+        folio: "TL007-19",
+        fecha_salida: "2026-07-01T00:00:00.000Z",
+        km_inicial: 0,
+        km_final: 133,
+      }),
+      mockTrip({
+        id: "v17",
+        truck_id: "t1",
+        folio: "TL007-17",
+        fecha_salida: "2026-06-30T00:00:00.000Z",
+        km_inicial: 133,
+        km_final: 235,
+      }),
+      mockTrip({
+        id: "v21",
+        truck_id: "t1",
+        folio: "TL007-21",
+        fecha_salida: "2026-07-03T00:00:00.000Z",
+        km_inicial: 235,
+        km_final: 447,
+      }),
+      mockTrip({
+        id: "v20",
+        truck_id: "t1",
+        folio: "TL007-20",
+        fecha_salida: "2026-07-02T00:00:00.000Z",
+        km_inicial: 447,
+        km_final: 515,
+      }),
+      mockTrip({
+        id: "v18",
+        truck_id: "t1",
+        folio: "TL007-18",
+        fecha_salida: "2026-06-30T00:00:00.000Z",
+        km_inicial: 515,
+        km_final: 581,
+      }),
+    ];
+    const block = buildProratedBlock(ticket, trips);
+    assert.deepEqual(
+      block.viajes.map((v) => v.folio),
+      ["TL007-17", "TL007-18", "TL007-19", "TL007-20", "TL007-21"],
+    );
   });
 });
 

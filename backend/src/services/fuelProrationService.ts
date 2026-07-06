@@ -31,6 +31,18 @@ function compareTicketOrder(a: FuelTicketModel, b: FuelTicketModel): number {
   return ha.localeCompare(hb);
 }
 
+function compareTripOrder(a: TripModel, b: TripModel): number {
+  const ta = tripTimestampMs(a);
+  const tb = tripTimestampMs(b);
+  if (ta !== tb) return ta - tb;
+  return a.folio.localeCompare(b.folio);
+}
+
+function compareProratedTripRow(a: ProratedTripRow, b: ProratedTripRow): number {
+  if (a.fecha_salida !== b.fecha_salida) return a.fecha_salida < b.fecha_salida ? -1 : 1;
+  return a.folio.localeCompare(b.folio);
+}
+
 /** Fecha+hora como reloj UTC (convención compartida tickets/viajes). */
 export function utcWallClockMs(dateStr: string, timeStr = "00:00:00"): number {
   const h = timeStr.slice(0, 8);
@@ -139,7 +151,8 @@ export function buildProratedBlock(
   const precio = num(ticket.precio_litro);
   const withKm = tripsInWindow
     .map((t) => ({ trip: t, km: tripKmRecorridos(t) }))
-    .filter((x) => x.km > 0);
+    .filter((x) => x.km > 0)
+    .sort((a, b) => compareTripOrder(a.trip, b.trip));
   const kmTotal = withKm.reduce((s, x) => s + x.km, 0);
 
   const viajes: ProratedTripRow[] = withKm.map(({ trip, km }) => {
@@ -247,6 +260,7 @@ async function buildConfirmedBlocks(
         costo_asignado: costo,
       });
     }
+    viajes.sort(compareProratedTripRow);
 
     const litros = num(ticket.litros);
     blocks.push({

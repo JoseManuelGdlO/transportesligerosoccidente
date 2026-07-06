@@ -25,6 +25,7 @@ import type {
   FuelSummaryRow,
   FuelTicket,
   ProratedTicketBlock,
+  ProratedTripRow,
 } from "@/types/tlo";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -52,7 +53,8 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { fmtMXN, fmtNumber, formatTripRoute } from "@/lib/format";
-import { Check, Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { ArrowDown, ArrowUp, ArrowUpDown, Check, Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 function monthRange(): { inicio: string; fin: string } {
@@ -73,6 +75,208 @@ type TicketAssignContext = {
   unit: FuelProrationUnitReport;
   block: ProratedTicketBlock;
 };
+
+type SortDirection = "asc" | "desc";
+
+type ProrationTripSortColumn = "folio" | "ruta" | "fecha" | "km" | "litros" | "costo";
+
+type ExtraTripSortColumn = "folio" | "ruta" | "fecha" | "km";
+
+function compareSortValues(
+  a: string | number | null,
+  b: string | number | null,
+  direction: SortDirection,
+): number {
+  const aNull = a === null;
+  const bNull = b === null;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+
+  let cmp: number;
+  if (typeof a === "number" && typeof b === "number") {
+    cmp = a - b;
+  } else {
+    cmp = String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" });
+  }
+  return direction === "asc" ? cmp : -cmp;
+}
+
+function getProratedTripSortValue(row: ProratedTripRow, column: ProrationTripSortColumn): string | number {
+  switch (column) {
+    case "folio":
+      return row.folio;
+    case "ruta":
+      return formatTripRoute(row);
+    case "fecha":
+      return row.fecha_salida;
+    case "km":
+      return row.km_recorridos;
+    case "litros":
+      return row.litros_asignados;
+    case "costo":
+      return row.costo_asignado;
+  }
+}
+
+function getExtraTripSortValue(row: FuelProrationTripRef, column: ExtraTripSortColumn): string | number {
+  switch (column) {
+    case "folio":
+      return row.folio;
+    case "ruta":
+      return formatTripRoute(row);
+    case "fecha":
+      return row.fecha_salida;
+    case "km":
+      return row.km_recorridos;
+  }
+}
+
+function SortableTableHead<C extends string>({
+  label,
+  column,
+  activeColumn,
+  direction,
+  onSort,
+  className,
+}: {
+  label: string;
+  column: C;
+  activeColumn: C | null;
+  direction: SortDirection;
+  onSort: (column: C) => void;
+  className?: string;
+}) {
+  const active = activeColumn === column;
+  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const alignRight = className?.includes("text-right");
+
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "inline-flex items-center gap-1 font-medium hover:text-foreground",
+          alignRight && "w-full justify-end",
+        )}
+      >
+        {label}
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", !active && "text-muted-foreground opacity-60")} />
+      </button>
+    </TableHead>
+  );
+}
+
+function useColumnSort<C extends string>(defaultColumn: C | null = null) {
+  const [sortColumn, setSortColumn] = useState<C | null>(defaultColumn);
+  const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+
+  const onSort = useCallback((column: C) => {
+    setSortColumn((prev) => {
+      if (prev === column) {
+        setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+        return prev;
+      }
+      setSortDirection("asc");
+      return column;
+    });
+  }, []);
+
+  return { sortColumn, sortDirection, onSort };
+}
+
+function ProrationTripsTable({
+  viajes,
+  showManualBadge = false,
+}: {
+  viajes: ProratedTripRow[];
+  showManualBadge?: boolean;
+}) {
+  const { sortColumn, sortDirection, onSort } = useColumnSort<ProrationTripSortColumn>();
+
+  const sortedViajes = useMemo(() => {
+    if (!sortColumn) return viajes;
+    return [...viajes].sort((a, b) => {
+      const va = getProratedTripSortValue(a, sortColumn);
+      const vb = getProratedTripSortValue(b, sortColumn);
+      return compareSortValues(va, vb, sortDirection);
+    });
+  }, [viajes, sortColumn, sortDirection]);
+
+  return (
+    <Table>
+      <TableHeader>
+        <TableRow>
+          <SortableTableHead
+            label="Folio"
+            column="folio"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+          />
+          <SortableTableHead
+            label="Ruta"
+            column="ruta"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+          />
+          <SortableTableHead
+            label="Fecha"
+            column="fecha"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+          />
+          <SortableTableHead
+            label="Km"
+            column="km"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+            className="text-right"
+          />
+          <SortableTableHead
+            label="L asignados"
+            column="litros"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+            className="text-right"
+          />
+          <SortableTableHead
+            label="Costo"
+            column="costo"
+            activeColumn={sortColumn}
+            direction={sortDirection}
+            onSort={onSort}
+            className="text-right"
+          />
+        </TableRow>
+      </TableHeader>
+      <TableBody>
+        {sortedViajes.map((v) => (
+          <TableRow key={v.trip_id}>
+            <TableCell className="font-mono">
+              <span>{v.folio}</span>
+              {showManualBadge && v.asignacion_manual && (
+                <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">
+                  Manual
+                </Badge>
+              )}
+            </TableCell>
+            <TableCell>{formatTripRoute(v)}</TableCell>
+            <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
+            <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
+            <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
+            <TableCell className="text-right">{fmtMXN(v.costo_asignado)}</TableCell>
+          </TableRow>
+        ))}
+      </TableBody>
+    </Table>
+  );
+}
 
 function eligibleTripsForTicket(unit: FuelProrationUnitReport, block: ProratedTicketBlock): FuelProrationTripRef[] {
   const seen = new Set<string>();
@@ -185,6 +389,17 @@ function ProrationExtraTripsTable({
   rows: FuelProrationTripRef[];
   variant: "warning" | "muted";
 }) {
+  const { sortColumn, sortDirection, onSort } = useColumnSort<ExtraTripSortColumn>();
+
+  const sortedRows = useMemo(() => {
+    if (!sortColumn) return rows;
+    return [...rows].sort((a, b) => {
+      const va = getExtraTripSortValue(a, sortColumn);
+      const vb = getExtraTripSortValue(b, sortColumn);
+      return compareSortValues(va, vb, sortDirection);
+    });
+  }, [rows, sortColumn, sortDirection]);
+
   if (rows.length === 0) return null;
   return (
     <Card className={`overflow-hidden ml-2 border-l-4 ${variant === "warning" ? "border-l-amber-500" : "border-l-muted-foreground/40"}`}>
@@ -195,14 +410,39 @@ function ProrationExtraTripsTable({
       <Table>
         <TableHeader>
           <TableRow>
-            <TableHead>Folio</TableHead>
-            <TableHead>Ruta</TableHead>
-            <TableHead>Fecha</TableHead>
-            <TableHead className="text-right">Km</TableHead>
+            <SortableTableHead
+              label="Folio"
+              column="folio"
+              activeColumn={sortColumn}
+              direction={sortDirection}
+              onSort={onSort}
+            />
+            <SortableTableHead
+              label="Ruta"
+              column="ruta"
+              activeColumn={sortColumn}
+              direction={sortDirection}
+              onSort={onSort}
+            />
+            <SortableTableHead
+              label="Fecha"
+              column="fecha"
+              activeColumn={sortColumn}
+              direction={sortDirection}
+              onSort={onSort}
+            />
+            <SortableTableHead
+              label="Km"
+              column="km"
+              activeColumn={sortColumn}
+              direction={sortDirection}
+              onSort={onSort}
+              className="text-right"
+            />
           </TableRow>
         </TableHeader>
         <TableBody>
-          {rows.map((v) => (
+          {sortedRows.map((v) => (
             <TableRow key={v.trip_id}>
               <TableCell className="font-mono">{v.folio}</TableCell>
               <TableCell>{formatTripRoute(v)}</TableCell>
@@ -1087,39 +1327,7 @@ export default function Combustibles() {
                       </div>
                     </div>
                     {block.viajes.length > 0 && (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Folio</TableHead>
-                            <TableHead>Ruta</TableHead>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead className="text-right">Km</TableHead>
-                            <TableHead className="text-right">L asignados</TableHead>
-                            <TableHead className="text-right">Costo</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {block.viajes.map((v) => (
-                            <TableRow key={v.trip_id}>
-                              <TableCell className="font-mono">
-                                <span>{v.folio}</span>
-                                {v.asignacion_manual && (
-                                  <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">
-                                    Manual
-                                  </Badge>
-                                )}
-                              </TableCell>
-                              <TableCell>
-                                {formatTripRoute(v)}
-                              </TableCell>
-                              <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
-                              <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
-                              <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
-                              <TableCell className="text-right">{fmtMXN(v.costo_asignado)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
+                      <ProrationTripsTable viajes={block.viajes} showManualBadge />
                     )}
                   </Card>
                 ))}
@@ -1240,32 +1448,7 @@ export default function Combustibles() {
                         )}
                       </div>
                     </div>
-                    {block.viajes.length > 0 && (
-                      <Table>
-                        <TableHeader>
-                          <TableRow>
-                            <TableHead>Folio</TableHead>
-                            <TableHead>Ruta</TableHead>
-                            <TableHead>Fecha</TableHead>
-                            <TableHead className="text-right">Km</TableHead>
-                            <TableHead className="text-right">L asignados</TableHead>
-                            <TableHead className="text-right">Costo</TableHead>
-                          </TableRow>
-                        </TableHeader>
-                        <TableBody>
-                          {block.viajes.map((v) => (
-                            <TableRow key={v.trip_id}>
-                              <TableCell className="font-mono">{v.folio}</TableCell>
-                              <TableCell>{formatTripRoute(v)}</TableCell>
-                              <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
-                              <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
-                              <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
-                              <TableCell className="text-right">{fmtMXN(v.costo_asignado)}</TableCell>
-                            </TableRow>
-                          ))}
-                        </TableBody>
-                      </Table>
-                    )}
+                    {block.viajes.length > 0 && <ProrationTripsTable viajes={block.viajes} />}
                   </Card>
                 ))}
               </div>
