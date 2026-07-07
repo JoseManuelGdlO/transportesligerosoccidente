@@ -4,11 +4,13 @@ import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { fetchFuelSummary, fetchReportsOverview } from "@/lib/tloApi";
 import { exportCsv, exportCsvSections } from "@/lib/exportCsv";
-import { fmtMXN, fmtNumber, fmtPct, fmtDate } from "@/lib/format";
+import { fmtMXN, fmtNumber, fmtPct, fmtDate, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import type {
   ExpenseCategory,
   FuelSummaryRow,
+  ReportsCriterioFecha,
   ReportsOverview,
+  ReportsTripRow,
 } from "@/types/tlo";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { MarginBadge } from "@/components/tlo/StatusBadge";
@@ -17,6 +19,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Badge } from "@/components/ui/badge";
 import {
@@ -28,6 +31,8 @@ import {
   BarChart3,
   Activity,
   Route,
+  Info,
+  Truck,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -49,6 +54,7 @@ import { toast } from "sonner";
 type DateRange = { desde: string; hasta: string };
 type ReportTab =
   | "resumen"
+  | "viajes"
   | "negativos"
   | "camion"
   | "operador"
@@ -95,6 +101,38 @@ function thisYear(): DateRange {
   return { desde: `${y}-01-01`, hasta: `${y}-12-31` };
 }
 
+function currentWeek(): DateRange {
+  const today = new Date();
+  return { desde: isoDay(startOfWeek(today)), hasta: isoDay(endOfWeek(today)) };
+}
+
+function previousWeek(): DateRange {
+  const today = new Date();
+  const prev = new Date(today);
+  prev.setDate(prev.getDate() - 7);
+  return { desde: isoDay(startOfWeek(prev)), hasta: isoDay(endOfWeek(prev)) };
+}
+
+const VIAJES_CSV_COLUMNS: { key: keyof ReportsTripRow | string; label: string }[] = [
+  { key: "folio", label: "Folio" },
+  { key: "fecha_ref", label: "Fecha" },
+  { key: "fecha_salida", label: "Fecha salida" },
+  { key: "fecha_llegada", label: "Fecha llegada" },
+  { key: "origen", label: "Origen" },
+  { key: "destino", label: "Destino" },
+  { key: "razon_social", label: "Cliente" },
+  { key: "operador", label: "Operador" },
+  { key: "numero_economico", label: "Unidad" },
+  { key: "ingreso", label: "Ingreso" },
+  { key: "diesel_total", label: "Diesel" },
+  { key: "gastos_total", label: "Gastos" },
+  { key: "comision", label: "Comisión" },
+  { key: "costo_total", label: "Costo total" },
+  { key: "utilidad", label: "Utilidad" },
+  { key: "margen", label: "Margen %" },
+  { key: "km", label: "Km" },
+];
+
 function formatIsoDateEs(iso: string): string {
   const [y, m, d] = iso.split("-");
   if (!y || !m || !d) return iso;
@@ -124,6 +162,7 @@ export default function Reportes() {
   const nav = useNavigate();
 
   const [range, setRange] = useState<DateRange>(monthRange);
+  const [criterioFecha, setCriterioFecha] = useState<ReportsCriterioFecha>("salida");
   const [overview, setOverview] = useState<ReportsOverview | null>(null);
   const [fuelSummary, setFuelSummary] = useState<FuelSummaryRow[]>([]);
   const [loading, setLoading] = useState(false);
@@ -133,12 +172,12 @@ export default function Reportes() {
 
   const truckById = useMemo(() => new Map(trucks.map((t) => [t.id, t])), [trucks]);
 
-  const loadOverview = useCallback(async (r: DateRange) => {
+  const loadOverview = useCallback(async (r: DateRange, criterio: ReportsCriterioFecha) => {
     if (!apiMode) return;
     setLoading(true);
     setError(null);
     try {
-      const data = await fetchReportsOverview(r.desde, r.hasta);
+      const data = await fetchReportsOverview(r.desde, r.hasta, criterio);
       setOverview(data);
     } catch (e) {
       setError(e instanceof Error ? e.message : "Error al cargar reportes");
@@ -163,8 +202,8 @@ export default function Reportes() {
 
   useEffect(() => {
     if (!apiMode || !hasPermission("reportes.ver")) return;
-    void loadOverview(range);
-  }, [apiMode, hasPermission, range, loadOverview]);
+    void loadOverview(range, criterioFecha);
+  }, [apiMode, hasPermission, range, criterioFecha, loadOverview]);
 
   useEffect(() => {
     if (!apiMode || !hasPermission("reportes.ver") || activeTab !== "combustible") return;
@@ -198,6 +237,33 @@ export default function Reportes() {
 
     const filename = `reportes_${range.desde}_${range.hasta}`;
 
+    if (activeTab === "viajes") {
+      const rows = overview.by_trip ?? [];
+      const { totales, cost_breakdown } = overview;
+      const totalsRow: ReportsTripRow = {
+        trip_id: "",
+        folio: "TOTALES",
+        fecha_salida: "",
+        fecha_llegada: null,
+        fecha_ref: "",
+        origen: "",
+        destino: "",
+        razon_social: null,
+        operador: "",
+        numero_economico: String(totales.viajes),
+        ingreso: totales.ingreso,
+        diesel_total: totales.diesel_total,
+        gastos_total: cost_breakdown.gastos,
+        comision: totales.comision_total,
+        costo_total: totales.costo_total,
+        utilidad: totales.utilidad,
+        margen: totales.margen,
+        km: totales.km,
+      };
+      exportCsv(`viajes_${range.desde}_${range.hasta}`, VIAJES_CSV_COLUMNS, [...rows, totalsRow]);
+      toast.success("Exportado a CSV");
+      return;
+    }
     if (activeTab === "negativos") {
       exportCsv(filename, [
         { key: "folio", label: "Folio" },
@@ -382,10 +448,24 @@ export default function Reportes() {
             </div>
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button variant="outline" size="sm" onClick={() => setRange(currentWeek())}>Semana actual</Button>
+            <Button variant="outline" size="sm" onClick={() => setRange(previousWeek())}>Semana anterior</Button>
             <Button variant="outline" size="sm" onClick={() => setRange(monthRange())}>Este mes</Button>
             <Button variant="outline" size="sm" onClick={() => setRange(monthRange(-1))}>Mes anterior</Button>
             <Button variant="outline" size="sm" onClick={() => setRange(last30Days())}>Últimos 30 días</Button>
             <Button variant="outline" size="sm" onClick={() => setRange(thisYear())}>Este año</Button>
+          </div>
+          <div className="flex flex-col gap-1 min-w-[200px]">
+            <Label className="text-xs">Contar viajes por</Label>
+            <Select value={criterioFecha} onValueChange={(v) => setCriterioFecha(v as ReportsCriterioFecha)}>
+              <SelectTrigger className="h-9">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="salida">Fecha de salida</SelectItem>
+                <SelectItem value="llegada">Fecha de llegada (cierre)</SelectItem>
+              </SelectContent>
+            </Select>
           </div>
           <div className="lg:ml-auto">
             <Button variant="outline" onClick={handleExport} disabled={!overview || loading}>
@@ -449,6 +529,7 @@ export default function Reportes() {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as ReportTab)}>
         <TabsList className="flex flex-wrap h-auto gap-1">
           <TabsTrigger value="resumen">Resumen</TabsTrigger>
+          <TabsTrigger value="viajes">Viajes</TabsTrigger>
           <TabsTrigger value="negativos" className="relative">
             Viajes negativos
             {(overview?.negative_trips?.length ?? 0) > 0 && (
@@ -513,6 +594,122 @@ export default function Reportes() {
               </Table>
             </Card>
           </div>
+        </TabsContent>
+
+        {/* Viajes — rentabilidad por viaje */}
+        <TabsContent value="viajes" className="mt-4 space-y-4">
+          <div className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground flex gap-2">
+            <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
+            <div>
+              <p className="font-medium text-foreground">Cómo se calcula la utilidad neta</p>
+              <p className="mt-1">
+                <strong>Ingreso</strong> = tarifa del viaje + ingresos extra registrados.
+                Se restan <strong>diesel</strong> (cargas del viaje), <strong>gastos operativos</strong> (casetas, comidas, hospedaje, etc.) y <strong>comisión</strong> del operador.
+                Resultado: <strong>utilidad neta</strong> en pesos.
+              </p>
+              <p className="mt-1 text-xs">
+                Solo viajes cerrados. No incluye viáticos entregados, liquidaciones ni mantenimiento de unidades.
+                Criterio actual: {criterioFecha === "llegada" ? "fecha de llegada/cierre" : "fecha de salida"}.
+              </p>
+            </div>
+          </div>
+
+          {t && (
+            <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+              <KpiCard label="Viajes" value={String(t.viajes)} icon={Activity} />
+              <KpiCard label="Ingresos" value={fmtMXN(t.ingreso)} icon={DollarSign} />
+              <KpiCard label="Diesel" value={fmtMXN(t.diesel_total)} icon={Truck} tone="default" />
+              <KpiCard label="Gastos" value={fmtMXN(overview?.cost_breakdown.gastos ?? 0)} icon={TrendingDown} tone="default" />
+              <KpiCard label="Comisiones" value={fmtMXN(t.comision_total)} icon={BarChart3} tone="default" />
+              <KpiCard
+                label="Utilidad neta"
+                value={fmtMXN(t.utilidad)}
+                hint={`Margen ${t.margen.toFixed(1)}%`}
+                icon={TrendingUp}
+                tone={t.utilidad >= 0 ? "success" : "destructive"}
+              />
+              <KpiCard label="Km" value={fmtNumber(t.km)} icon={Route} />
+            </div>
+          )}
+
+          <Card className="tlo-shadow-md overflow-hidden">
+            <CardHeader>
+              <CardTitle className="text-base">Rentabilidad por viaje</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                {fmtDate(range.desde)} – {fmtDate(range.hasta)}
+                {" · "}
+                Por {criterioFecha === "llegada" ? "fecha de llegada" : "fecha de salida"}
+              </p>
+            </CardHeader>
+            <Table>
+              <TableHeader>
+                <TableRow className="bg-secondary/50">
+                  <TableHead>Folio</TableHead>
+                  <TableHead>Fecha</TableHead>
+                  <TableHead>Ruta</TableHead>
+                  <TableHead>Cliente</TableHead>
+                  <TableHead>Operador</TableHead>
+                  <TableHead>Unidad</TableHead>
+                  <TableHead className="text-right">Ingreso</TableHead>
+                  <TableHead className="text-right">Diesel</TableHead>
+                  <TableHead className="text-right">Gastos</TableHead>
+                  <TableHead className="text-right">Comisión</TableHead>
+                  <TableHead className="text-right">Utilidad</TableHead>
+                  <TableHead className="text-right">Margen</TableHead>
+                  <TableHead className="text-right">Km</TableHead>
+                </TableRow>
+              </TableHeader>
+              <TableBody>
+                {(overview?.by_trip ?? []).length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                      Sin viajes cerrados en el periodo seleccionado
+                    </TableCell>
+                  </TableRow>
+                ) : (
+                  <>
+                    {overview?.by_trip.map((row) => (
+                      <TableRow
+                        key={row.trip_id}
+                        className="cursor-pointer hover:bg-muted/30"
+                        onClick={() => nav(`/viajes/${row.trip_id}`)}
+                      >
+                        <TableCell className="font-mono font-semibold">{row.folio}</TableCell>
+                        <TableCell className="text-sm">{formatIsoDateEs(row.fecha_ref)}</TableCell>
+                        <TableCell className="text-sm">{row.origen} → {row.destino}</TableCell>
+                        <TableCell className="text-sm">{row.razon_social ?? "—"}</TableCell>
+                        <TableCell className="text-sm">{row.operador}</TableCell>
+                        <TableCell className="text-sm font-mono">{row.numero_economico}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(row.ingreso)}</TableCell>
+                        <TableCell className="text-right text-warning">{fmtMXN(row.diesel_total)}</TableCell>
+                        <TableCell className="text-right text-warning">{fmtMXN(row.gastos_total)}</TableCell>
+                        <TableCell className="text-right text-warning">{fmtMXN(row.comision)}</TableCell>
+                        <TableCell className={`text-right font-semibold ${row.utilidad >= 0 ? "text-success" : "text-destructive"}`}>
+                          {fmtMXN(row.utilidad)}
+                        </TableCell>
+                        <TableCell className="text-right"><MarginBadge pct={row.margen} /></TableCell>
+                        <TableCell className="text-right font-mono">{fmtNumber(row.km)}</TableCell>
+                      </TableRow>
+                    ))}
+                    {t && (
+                      <TableRow className="bg-secondary/30 font-semibold border-t-2">
+                        <TableCell colSpan={6}>TOTALES ({t.viajes} viajes)</TableCell>
+                        <TableCell className="text-right">{fmtMXN(t.ingreso)}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(t.diesel_total)}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(overview?.cost_breakdown.gastos ?? 0)}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(t.comision_total)}</TableCell>
+                        <TableCell className={`text-right ${t.utilidad >= 0 ? "text-success" : "text-destructive"}`}>
+                          {fmtMXN(t.utilidad)}
+                        </TableCell>
+                        <TableCell className="text-right">{fmtPct(t.margen)}</TableCell>
+                        <TableCell className="text-right font-mono">{fmtNumber(t.km)}</TableCell>
+                      </TableRow>
+                    )}
+                  </>
+                )}
+              </TableBody>
+            </Table>
+          </Card>
         </TabsContent>
 
         {/* Viajes negativos */}

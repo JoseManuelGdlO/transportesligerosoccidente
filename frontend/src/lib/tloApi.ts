@@ -940,8 +940,12 @@ export async function fetchFuelSummary(
   return readJson(res);
 }
 
-export async function fetchReportsOverview(desde: string, hasta: string): Promise<ReportsOverview> {
-  const q = new URLSearchParams({ desde, hasta });
+export async function fetchReportsOverview(
+  desde: string,
+  hasta: string,
+  criterioFecha: "salida" | "llegada" = "salida",
+): Promise<ReportsOverview> {
+  const q = new URLSearchParams({ desde, hasta, criterio_fecha: criterioFecha });
   const res = await apiFetch(`/reports/overview?${q}`);
   return readJson<ReportsOverview>(res);
 }

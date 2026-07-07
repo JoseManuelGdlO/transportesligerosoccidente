@@ -450,8 +450,31 @@ export interface ReportsNegativeTripRow {
   km: number;
 }
 
+export type ReportsCriterioFecha = "salida" | "llegada";
+
+export interface ReportsTripRow {
+  trip_id: string;
+  folio: string;
+  fecha_salida: string;
+  fecha_llegada: string | null;
+  fecha_ref: string;
+  origen: string;
+  destino: string;
+  razon_social: string | null;
+  operador: string;
+  numero_economico: string;
+  ingreso: number;
+  diesel_total: number;
+  gastos_total: number;
+  comision: number;
+  costo_total: number;
+  utilidad: number;
+  margen: number;
+  km: number;
+}
+
 export interface ReportsOverview {
-  periodo: { desde: string | null; hasta: string | null };
+  periodo: { desde: string | null; hasta: string | null; criterio_fecha: ReportsCriterioFecha };
   periodo_anterior: { desde: string; hasta: string } | null;
   totales: ReportsOverviewTotals;
   variacion: ReportsOverviewVariation | null;
@@ -464,6 +487,7 @@ export interface ReportsOverview {
   by_expense_category: ReportsExpenseCategoryRow[];
   cost_breakdown: ReportsCostBreakdown;
   negative_trips: ReportsNegativeTripRow[];
+  by_trip: ReportsTripRow[];
 }
 
 export interface FuelImportResult {

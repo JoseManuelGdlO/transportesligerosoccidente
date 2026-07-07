@@ -5,10 +5,15 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { computeTrip } from "../services/calc";
 import { tripIsClosed } from "../services/tripStatusService";
 
+const criterioFechaSchema = z.enum(["salida", "llegada"]).default("salida");
+
 const querySchema = z.object({
   desde: z.string().optional(),
   hasta: z.string().optional(),
+  criterio_fecha: criterioFechaSchema.optional(),
 });
+
+type CriterioFecha = z.infer<typeof criterioFechaSchema>;
 
 const EXPENSE_CATS = ["casetas", "refacciones", "hospedaje", "comidas", "otros"] as const;
 type ExpenseCat = (typeof EXPENSE_CATS)[number];
@@ -24,10 +29,24 @@ function tripSalidaIso(t: Trip): string {
   return t.fecha_salida instanceof Date ? t.fecha_salida.toISOString() : String(t.fecha_salida);
 }
 
-function filterClosed(trips: Trip[], desde?: string, hasta?: string): Trip[] {
+function tripLlegadaIso(t: Trip): string {
+  if (!t.fecha_llegada) return tripSalidaIso(t);
+  return t.fecha_llegada instanceof Date ? t.fecha_llegada.toISOString() : String(t.fecha_llegada);
+}
+
+function tripFechaIso(t: Trip, criterio: CriterioFecha): string {
+  return criterio === "llegada" ? tripLlegadaIso(t) : tripSalidaIso(t);
+}
+
+function filterClosed(
+  trips: Trip[],
+  desde?: string,
+  hasta?: string,
+  criterio: CriterioFecha = "salida",
+): Trip[] {
   return trips.filter((t) => {
     if (!tripIsClosed(t)) return false;
-    return inRange(tripSalidaIso(t), desde, hasta);
+    return inRange(tripFechaIso(t, criterio), desde, hasta);
   });
 }
 
@@ -90,7 +109,12 @@ function buildTotals(enriched: TripWithFin[]) {
   };
 }
 
-function buildByTime(enriched: TripWithFin[], desde?: string, hasta?: string) {
+function buildByTime(
+  enriched: TripWithFin[],
+  desde?: string,
+  hasta?: string,
+  criterio: CriterioFecha = "salida",
+) {
   const buckets = new Map<string, { ingreso: number; costo: number; utilidad: number; viajes: number }>();
 
   if (desde && hasta) {
@@ -102,7 +126,7 @@ function buildByTime(enriched: TripWithFin[], desde?: string, hasta?: string) {
   }
 
   for (const { trip, fin } of enriched) {
-    const key = tripSalidaIso(trip).slice(0, 10);
+    const key = tripFechaIso(trip, criterio).slice(0, 10);
     const b = buckets.get(key) ?? { ingreso: 0, costo: 0, utilidad: 0, viajes: 0 };
     b.ingreso += fin.ingreso;
     b.costo += fin.costo_total;
@@ -322,6 +346,47 @@ function buildNegativeTrips(
     .sort((a, b) => a.utilidad - b.utilidad);
 }
 
+function buildByTrip(
+  enriched: TripWithFin[],
+  trucks: Truck[],
+  drivers: Driver[],
+  clients: Client[],
+  criterio: CriterioFecha = "salida",
+) {
+  const truckById = (id: string) => trucks.find((t) => t.id === id);
+  const driverById = (id: string) => drivers.find((d) => d.id === id);
+  const clientById = (id: string) => clients.find((c) => c.id === id);
+
+  return enriched
+    .map(({ trip, fin }) => {
+      const tk = truckById(trip.truck_id);
+      const dr = driverById(trip.driver_id);
+      const cl = trip.client_id ? clientById(trip.client_id) : undefined;
+      const fechaRef = tripFechaIso(trip, criterio).slice(0, 10);
+      return {
+        trip_id: trip.id,
+        folio: trip.folio,
+        fecha_salida: tripSalidaIso(trip).slice(0, 10),
+        fecha_llegada: trip.fecha_llegada ? tripLlegadaIso(trip).slice(0, 10) : null,
+        fecha_ref: fechaRef,
+        origen: trip.origen,
+        destino: trip.destino,
+        razon_social: cl?.razon_social ?? null,
+        operador: dr?.nombre ?? "—",
+        numero_economico: tk?.numero_economico ?? "—",
+        ingreso: fin.ingreso,
+        diesel_total: fin.diesel_total,
+        gastos_total: fin.gastos_total,
+        comision: fin.comision,
+        costo_total: fin.costo_total,
+        utilidad: fin.utilidad,
+        margen: fin.margen_pct,
+        km: fin.km_recorridos,
+      };
+    })
+    .sort((a, b) => a.fecha_ref.localeCompare(b.fecha_ref) || a.folio.localeCompare(b.folio));
+}
+
 function buildOverview(
   trips: Trip[],
   trucks: Truck[],
@@ -329,13 +394,14 @@ function buildOverview(
   clients: Client[],
   desde?: string,
   hasta?: string,
+  criterio: CriterioFecha = "salida",
 ) {
-  const closed = filterClosed(trips, desde, hasta);
+  const closed = filterClosed(trips, desde, hasta, criterio);
   const enriched = enrichTrips(closed, drivers);
   const totales = buildTotals(enriched);
   return {
     totales,
-    by_time: buildByTime(enriched, desde, hasta),
+    by_time: buildByTime(enriched, desde, hasta, criterio),
     by_truck: buildByTruck(enriched, trucks),
     by_driver: buildByDriver(enriched, drivers),
     by_client: buildByClient(enriched, clients),
@@ -344,6 +410,7 @@ function buildOverview(
     by_expense_category: buildByExpenseCategory(enriched),
     cost_breakdown: buildCostBreakdown(totales),
     negative_trips: buildNegativeTrips(enriched, trucks, drivers, clients),
+    by_trip: buildByTrip(enriched, trucks, drivers, clients, criterio),
   };
 }
 
@@ -383,13 +450,14 @@ export const getAggregates = asyncHandler(async (req: Request, res: Response) =>
   }
   const desde = parsed.data.desde;
   const hasta = parsed.data.hasta;
+  const criterio_fecha = parsed.data.criterio_fecha ?? "salida";
   const tenantId = req.user!.tenantId;
 
   const { trips, trucks, drivers, clients } = await loadReportData(tenantId);
-  const overview = buildOverview(trips, trucks, drivers, clients, desde, hasta);
+  const overview = buildOverview(trips, trucks, drivers, clients, desde, hasta, criterio_fecha);
 
   res.json({
-    filtros: { desde: desde ?? null, hasta: hasta ?? null },
+    filtros: { desde: desde ?? null, hasta: hasta ?? null, criterio_fecha },
     by_truck: overview.by_truck,
     by_driver: overview.by_driver,
     by_client: overview.by_client,
@@ -404,10 +472,11 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
   }
   const desde = parsed.data.desde;
   const hasta = parsed.data.hasta;
+  const criterio_fecha = parsed.data.criterio_fecha ?? "salida";
   const tenantId = req.user!.tenantId;
 
   const { trips, trucks, drivers, clients } = await loadReportData(tenantId);
-  const current = buildOverview(trips, trucks, drivers, clients, desde, hasta);
+  const current = buildOverview(trips, trucks, drivers, clients, desde, hasta, criterio_fecha);
 
   let variacion: Record<string, number | null> | null = null;
   let periodo_anterior: { desde: string; hasta: string } | null = null;
@@ -421,6 +490,7 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
       clients,
       periodo_anterior.desde,
       periodo_anterior.hasta,
+      criterio_fecha,
     );
     variacion = {
       ingreso_pct: pctChange(current.totales.ingreso, prev.totales.ingreso),
@@ -433,7 +503,7 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
   }
 
   res.json({
-    periodo: { desde: desde ?? null, hasta: hasta ?? null },
+    periodo: { desde: desde ?? null, hasta: hasta ?? null, criterio_fecha },
     periodo_anterior,
     totales: current.totales,
     variacion,
@@ -446,5 +516,6 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
     by_expense_category: current.by_expense_category,
     cost_breakdown: current.cost_breakdown,
     negative_trips: current.negative_trips,
+    by_trip: current.by_trip,
   });
 });
