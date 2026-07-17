@@ -7,7 +7,15 @@ import {
   type Sequelize,
 } from "sequelize";
 
-export type DiscountType = "prestamo" | "dano" | "multa" | "otro";
+export type DiscountType =
+  | "prestamo"
+  | "dano"
+  | "multa"
+  | "nomina"
+  | "caja"
+  | "ahorro"
+  | "fianza"
+  | "otro";
 
 export class DriverDiscount extends Model<
   InferAttributes<DriverDiscount>,
@@ -32,7 +40,16 @@ export function initDriverDiscount(sequelize: Sequelize) {
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       driver_id: { type: DataTypes.CHAR(36), allowNull: false },
       tipo: {
-        type: DataTypes.ENUM("prestamo", "dano", "multa", "otro"),
+        type: DataTypes.ENUM(
+          "prestamo",
+          "dano",
+          "multa",
+          "nomina",
+          "caja",
+          "ahorro",
+          "fianza",
+          "otro",
+        ),
         allowNull: false,
         defaultValue: "otro",
       },

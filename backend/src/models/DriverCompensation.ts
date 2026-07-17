@@ -7,7 +7,15 @@ import {
   type Sequelize,
 } from "sequelize";
 
-export type CompensationType = "bono" | "espera" | "incentivo" | "otro";
+export type CompensationType =
+  | "bono"
+  | "espera"
+  | "incentivo"
+  | "nomina"
+  | "caja"
+  | "ahorro"
+  | "fianza"
+  | "otro";
 
 export class DriverCompensation extends Model<
   InferAttributes<DriverCompensation>,
@@ -32,7 +40,16 @@ export function initDriverCompensation(sequelize: Sequelize) {
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       driver_id: { type: DataTypes.CHAR(36), allowNull: false },
       tipo: {
-        type: DataTypes.ENUM("bono", "espera", "incentivo", "otro"),
+        type: DataTypes.ENUM(
+          "bono",
+          "espera",
+          "incentivo",
+          "nomina",
+          "caja",
+          "ahorro",
+          "fianza",
+          "otro",
+        ),
         allowNull: false,
         defaultValue: "otro",
       },

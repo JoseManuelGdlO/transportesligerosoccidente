@@ -6,8 +6,24 @@ export type TripStatus = TripLifecycleSlug;
 export type TripType = "local" | "foraneo";
 export type CommissionType = "porcentaje" | "fijo";
 export type MaintenanceType = "menor" | "intermedio" | "correctivo";
-export type DiscountType = "prestamo" | "dano" | "multa" | "otro";
-export type CompensationType = "bono" | "espera" | "incentivo" | "otro";
+export type DiscountType =
+  | "prestamo"
+  | "dano"
+  | "multa"
+  | "nomina"
+  | "caja"
+  | "ahorro"
+  | "fianza"
+  | "otro";
+export type CompensationType =
+  | "bono"
+  | "espera"
+  | "incentivo"
+  | "nomina"
+  | "caja"
+  | "ahorro"
+  | "fianza"
+  | "otro";
 export type ExpenseCategory = "casetas" | "refacciones" | "hospedaje" | "comidas" | "otros";
 export type ExpenseTipo = "gasto" | "ingreso";
 export type UserRole = "admin" | "capturista";

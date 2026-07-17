@@ -273,6 +273,10 @@ export function SettlementSummaryPanel({
                     <SelectItem value="prestamo">Préstamo</SelectItem>
                     <SelectItem value="dano">Daño</SelectItem>
                     <SelectItem value="multa">Multa</SelectItem>
+                    <SelectItem value="nomina">Nómina</SelectItem>
+                    <SelectItem value="caja">Caja</SelectItem>
+                    <SelectItem value="ahorro">Ahorro</SelectItem>
+                    <SelectItem value="fianza">Fianza</SelectItem>
                     <SelectItem value="otro">Otro</SelectItem>
                   </SelectContent>
                 </Select>
@@ -337,6 +341,10 @@ export function SettlementSummaryPanel({
                     <SelectItem value="bono">Bono</SelectItem>
                     <SelectItem value="espera">Espera</SelectItem>
                     <SelectItem value="incentivo">Incentivo</SelectItem>
+                    <SelectItem value="nomina">Nómina</SelectItem>
+                    <SelectItem value="caja">Caja</SelectItem>
+                    <SelectItem value="ahorro">Ahorro</SelectItem>
+                    <SelectItem value="fianza">Fianza</SelectItem>
                     <SelectItem value="otro">Otro</SelectItem>
                   </SelectContent>
                 </Select>

@@ -31,14 +31,18 @@ const advanceSchema = z.object({
 });
 
 const discountSchema = z.object({
-  tipo: z.enum(["prestamo", "dano", "multa", "otro"]).optional(),
+  tipo: z
+    .enum(["prestamo", "dano", "multa", "nomina", "caja", "ahorro", "fianza", "otro"])
+    .optional(),
   monto: z.number().positive(),
   fecha: z.string().min(1),
   descripcion: z.string().optional(),
 });
 
 const compensationSchema = z.object({
-  tipo: z.enum(["bono", "espera", "incentivo", "otro"]).optional(),
+  tipo: z
+    .enum(["bono", "espera", "incentivo", "nomina", "caja", "ahorro", "fianza", "otro"])
+    .optional(),
   monto: z.number().positive(),
   fecha: z.string().min(1),
   descripcion: z.string().optional(),

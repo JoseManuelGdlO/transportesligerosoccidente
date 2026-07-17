@@ -76,7 +76,7 @@ export default function Liquidaciones() {
     fecha: string;
     descripcion: string;
   }>({
-    tipo: "otro",
+    tipo: "nomina",
     monto: 0,
     fecha: defaultFechaEnPeriodo(),
     descripcion: "",
@@ -271,7 +271,7 @@ export default function Liquidaciones() {
       });
       await readJson(res);
       setDiscForm({
-        tipo: "otro",
+        tipo: "nomina",
         monto: 0,
         fecha: clampDate(isoDay(today), inicio, fin),
         descripcion: "",
