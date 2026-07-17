@@ -4,6 +4,7 @@ import { cn } from "@/lib/utils";
 
 interface KpiCardProps {
   label: string;
+  labelClassName?: string;
   value: string;
   hint?: string;
   icon?: LucideIcon;
@@ -18,12 +19,14 @@ const toneStyles: Record<string, string> = {
   accent: "bg-accent/15 text-accent",
 };
 
-export const KpiCard = ({ label, value, hint, icon: Icon, tone = "default" }: KpiCardProps) => (
+export const KpiCard = ({ label, labelClassName, value, hint, icon: Icon, tone = "default" }: KpiCardProps) => (
   <Card className="tlo-shadow-md border-border/60">
     <CardContent className="p-4">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="text-xs uppercase tracking-wider text-muted-foreground font-medium">{label}</p>
+          <p className={cn("text-xs uppercase tracking-wider text-muted-foreground font-medium", labelClassName)}>
+            {label}
+          </p>
           <p className="mt-1.5 text-2xl font-bold text-foreground tracking-tight truncate">{value}</p>
           {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
         </div>

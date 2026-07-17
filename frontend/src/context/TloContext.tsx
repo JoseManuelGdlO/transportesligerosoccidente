@@ -37,7 +37,7 @@ interface TloState {
   replaceTrip: (trip: Trip) => void;
   addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => void;
   removeFuel: (tripId: string, fuelId: string) => void;
-  addExpense: (tripId: string, e: Omit<Expense, "id">) => void;
+  addExpense: (tripId: string, e: Omit<Expense, "id">) => Promise<void>;
   removeExpense: (tripId: string, eid: string) => void;
   closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => void;
   /** Marca la unidad como baja (no borra el registro en base de datos). */
@@ -601,31 +601,30 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const addExpense = useCallback(
-    (tripId: string, e: Omit<Expense, "id">) => {
+    async (tripId: string, e: Omit<Expense, "id">) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const r = await apiFetch(`/trips/${tripId}/expenses`, {
-              method: "POST",
-              body: JSON.stringify({
-                categoria: e.categoria,
-                tipo: e.tipo ?? "gasto",
-                descripcion: e.descripcion,
-                monto: e.monto,
-                monto_comprobado: e.monto_comprobado,
-                visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
-                fecha: e.fecha,
-              }),
-            });
-            const j = await readJson<Record<string, unknown>>(r);
-            const row = normalizeExpense(j);
-            setTrips((prev) =>
-              prev.map((t) => (t.id === tripId ? { ...t, expenses: [...t.expenses, row] } : t)),
-            );
-          } catch (err) {
-            setCatalogError(err instanceof Error ? err.message : "Error al registrar gasto");
-          }
-        })();
+        try {
+          const r = await apiFetch(`/trips/${tripId}/expenses`, {
+            method: "POST",
+            body: JSON.stringify({
+              categoria: e.categoria,
+              tipo: e.tipo ?? "gasto",
+              descripcion: e.descripcion,
+              monto: e.monto,
+              monto_comprobado: e.monto_comprobado,
+              visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
+              fecha: e.fecha,
+            }),
+          });
+          const j = await readJson<Record<string, unknown>>(r);
+          const row = normalizeExpense(j);
+          setTrips((prev) =>
+            prev.map((t) => (t.id === tripId ? { ...t, expenses: [...t.expenses, row] } : t)),
+          );
+        } catch (err) {
+          setCatalogError(err instanceof Error ? err.message : "Error al registrar gasto");
+          throw err;
+        }
         return;
       }
       setTrips((prev) =>

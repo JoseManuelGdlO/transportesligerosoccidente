@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins } from "lucide-react";
+import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins, CircleMinus } from "lucide-react";
 
 export interface AdvanceFormState {
   monto: number;
@@ -113,14 +113,22 @@ export function SettlementSummaryPanel({
           : "indeterminate";
 
   const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
+  const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
+  const mdColsClass =
+    viaticosFavor > 0 && viaticosDeduccion > 0
+      ? "md:grid-cols-7"
+      : viaticosFavor > 0 || viaticosDeduccion > 0
+        ? "md:grid-cols-6"
+        : "md:grid-cols-5";
 
   return (
     <div className="space-y-4">
-      <div className={`grid grid-cols-2 gap-3 ${viaticosFavor > 0 ? "md:grid-cols-6" : "md:grid-cols-5"}`}>
-        <KpiCard label="Viajes" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
-        <KpiCard label="Comisiones" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
+      <div className={`grid grid-cols-2 gap-3 ${mdColsClass}`}>
+        <KpiCard label="Viajes" labelClassName="text-[10px] leading-tight" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
+        <KpiCard label="Comisiones" labelClassName="text-[10px] leading-tight" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
         <KpiCard
           label="Compensaciones"
+          labelClassName="text-[10px] leading-tight"
           value={fmtMXN(summary.total_compensaciones ?? 0)}
           icon={Gift}
           tone="success"
@@ -128,19 +136,31 @@ export function SettlementSummaryPanel({
         {viaticosFavor > 0 ? (
           <KpiCard
             label="Viáticos a favor"
+            labelClassName="text-[10px] leading-tight"
             value={fmtMXN(viaticosFavor)}
             icon={HandCoins}
             tone="success"
           />
         ) : null}
+        {viaticosDeduccion > 0 ? (
+          <KpiCard
+            label="Viáticos no comprobados"
+            labelClassName="text-[10px] leading-tight"
+            value={fmtMXN(viaticosDeduccion)}
+            icon={CircleMinus}
+            tone="destructive"
+          />
+        ) : null}
         <KpiCard
           label="Descuentos + anticipos"
+          labelClassName="text-[10px] leading-tight"
           value={fmtMXN(summary.total_descuentos + summary.total_anticipos)}
           icon={Receipt}
           tone="default"
         />
         <KpiCard
           label="Neto a pagar"
+          labelClassName="text-[10px] leading-tight"
           value={fmtMXN(summary.neto_pagar)}
           icon={TrendingUp}
           tone={summary.neto_pagar >= 0 ? "success" : "destructive"}
@@ -149,6 +169,11 @@ export function SettlementSummaryPanel({
       {viaticosFavor > 0 ? (
         <p className="text-sm text-muted-foreground">
           El neto incluye {fmtMXN(viaticosFavor)} por viáticos comprobados en exceso de lo entregado.
+        </p>
+      ) : null}
+      {viaticosDeduccion > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Se descontaron {fmtMXN(viaticosDeduccion)} al operador por viáticos entregados sin comprobar.
         </p>
       ) : null}
 

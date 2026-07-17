@@ -207,11 +207,15 @@ export default function ViajeDetalle() {
       visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
       fecha: new Date().toISOString(),
     };
-    addExpense(trip.id, payload);
-    setExp(defaultExpForm());
-    setExpOpen(false);
-    toast.success(exp.tipo === "ingreso" ? "Ingreso registrado" : "Gasto registrado");
-    await reloadTrip();
+    try {
+      await addExpense(trip.id, payload);
+      setExp(defaultExpForm());
+      setExpOpen(false);
+      toast.success(exp.tipo === "ingreso" ? "Ingreso registrado" : "Gasto registrado");
+      await reloadTrip();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al registrar gasto");
+    }
   };
   const onClose = () => {
     if (closeData.km_final <= trip.km_inicial) { toast.error("El km final debe ser mayor al inicial"); return; }

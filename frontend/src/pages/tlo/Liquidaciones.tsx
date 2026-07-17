@@ -193,20 +193,36 @@ export default function Liquidaciones() {
     }
   };
 
-  const openDraft = (draft: SettlementRecord) => {
+  const openDraft = async (draft: SettlementRecord) => {
     if (!draft.snapshot) {
       toast.error("La pre-liquidación no tiene datos guardados");
       return;
     }
-    setActiveDraftId(draft.id);
-    setSummarySource("snapshot");
-    setDriverId(draft.driver_id);
-    setInicio(draft.fecha_inicio);
-    setFin(draft.fecha_fin);
-    setSummary(draft.snapshot);
-    setTripInclusions(buildTripInclusionsFromTrips(draft.snapshot.trips));
-    setActiveTab("actual");
-    toast.success("Pre-liquidación cargada");
+    setLoading(true);
+    try {
+      const inclusions = buildTripInclusionsFromTrips(draft.snapshot.trips);
+      const res = await apiFetch(`/settlements/${draft.id}/draft`, {
+        method: "PATCH",
+        body: JSON.stringify({ trip_inclusions: tripInclusionsPayload(inclusions) }),
+      });
+      const row = await readJson<SettlementRecord>(res);
+      setActiveDraftId(row.id);
+      setSummarySource("snapshot");
+      setDriverId(row.driver_id);
+      setInicio(row.fecha_inicio);
+      setFin(row.fecha_fin);
+      if (row.snapshot) {
+        setSummary(row.snapshot);
+        setTripInclusions(buildTripInclusionsFromTrips(row.snapshot.trips));
+      }
+      setActiveTab("actual");
+      toast.success("Pre-liquidación cargada con datos actualizados");
+      await loadLists();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al cargar pre-liquidación");
+    } finally {
+      setLoading(false);
+    }
   };
 
   const addAdvance = async () => {

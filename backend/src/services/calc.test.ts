@@ -79,4 +79,15 @@ describe("computeSettlementTotals viaticos", () => {
     assert.equal(totals.total_comisiones, 100);
     assert.equal(totals.neto_pagar, -100);
   });
+
+  it("descuenta automáticamente 500 cuando entregó 3000 y comprobó 2500", () => {
+    const totals = computeSettlementTotals(driver, [tripWithExpenses(3000, 2500)]);
+
+    assert.equal(totals.viaticos_entregados, 3000);
+    assert.equal(totals.viaticos_comprobados, 2500);
+    assert.equal(totals.saldo_viaticos, -500);
+    assert.equal(viaticosNoComprobado(totals.saldo_viaticos), 500);
+    assert.equal(totals.total_comisiones, 100);
+    assert.equal(totals.neto_pagar, -400);
+  });
 });
