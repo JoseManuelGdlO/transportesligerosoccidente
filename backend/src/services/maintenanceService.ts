@@ -9,6 +9,7 @@ import {
   Notification,
 } from "../models";
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
+import { num } from "../utils/numbers";
 import { usersWithPermission } from "../utils/notifyUsers";
 import { getClosedStatusIds } from "./tripStatusService";
 
@@ -132,6 +133,86 @@ export async function listRecords(tenantId: string, truckId?: string) {
     where,
     order: [["fecha", "DESC"], ["km_odometro", "DESC"]],
   });
+}
+
+/** Suma costos de mantenimiento por camión en un rango de fechas (inclusive). */
+export function aggregateMaintenanceCostByTruck(
+  records: { truck_id: string; fecha: string; costo: unknown }[],
+  desde?: string,
+  hasta?: string,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const r of records) {
+    const fecha = String(r.fecha).slice(0, 10);
+    if (desde && fecha < desde) continue;
+    if (hasta && fecha > hasta) continue;
+    map.set(r.truck_id, (map.get(r.truck_id) ?? 0) + num(r.costo));
+  }
+  return map;
+}
+
+/** Suma costos de mantenimiento por mes (YYYY-MM) y camión. */
+export function aggregateMaintenanceCostByMonthTruck(
+  records: { truck_id: string; fecha: string; costo: unknown }[],
+  desde?: string,
+  hasta?: string,
+): Map<string, number> {
+  const map = new Map<string, number>();
+  for (const r of records) {
+    const fecha = String(r.fecha).slice(0, 10);
+    if (desde && fecha < desde) continue;
+    if (hasta && fecha > hasta) continue;
+    const month = fecha.slice(0, 7);
+    const key = `${month}|||${r.truck_id}`;
+    map.set(key, (map.get(key) ?? 0) + num(r.costo));
+  }
+  return map;
+}
+
+export async function listRecordsInRange(tenantId: string, desde?: string, hasta?: string) {
+  const where: Record<string, unknown> = { tenant_id: tenantId };
+  if (desde || hasta) {
+    where.fecha = {
+      ...(desde ? { [Op.gte]: desde } : {}),
+      ...(hasta ? { [Op.lte]: hasta } : {}),
+    };
+  }
+  return MaintenanceRecord.findAll({
+    where,
+    attributes: ["truck_id", "fecha", "costo"],
+    order: [["fecha", "ASC"]],
+  });
+}
+
+export async function maintenanceCostByTruck(
+  tenantId: string,
+  desde?: string,
+  hasta?: string,
+): Promise<Map<string, number>> {
+  const records = await listRecordsInRange(tenantId, desde, hasta);
+  return aggregateMaintenanceCostByTruck(records, desde, hasta);
+}
+
+export async function maintenanceCostByMonthTruck(
+  tenantId: string,
+  desde?: string,
+  hasta?: string,
+): Promise<Map<string, number>> {
+  const records = await listRecordsInRange(tenantId, desde, hasta);
+  return aggregateMaintenanceCostByMonthTruck(records, desde, hasta);
+}
+
+/** Una sola consulta: costos por camión y por mes×camión. */
+export async function maintenanceCostMaps(
+  tenantId: string,
+  desde?: string,
+  hasta?: string,
+): Promise<{ byTruck: Map<string, number>; byMonthTruck: Map<string, number> }> {
+  const records = await listRecordsInRange(tenantId, desde, hasta);
+  return {
+    byTruck: aggregateMaintenanceCostByTruck(records, desde, hasta),
+    byMonthTruck: aggregateMaintenanceCostByMonthTruck(records, desde, hasta),
+  };
 }
 
 export async function createRecord(

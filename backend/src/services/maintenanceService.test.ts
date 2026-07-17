@@ -9,7 +9,11 @@ import {
   FuelTicket,
   User,
 } from "../models";
-import { checkMaintenanceAlerts } from "./maintenanceService";
+import {
+  checkMaintenanceAlerts,
+  aggregateMaintenanceCostByTruck,
+  aggregateMaintenanceCostByMonthTruck,
+} from "./maintenanceService";
 
 const tenantId = "tenant-1";
 const truckId = "truck-1";
@@ -273,5 +277,42 @@ describe("checkMaintenanceAlerts", () => {
 
     assert.equal(alerts.length, 0);
     assert.equal(notificationCreate.mock.callCount(), 0);
+  });
+});
+
+describe("aggregateMaintenanceCostByTruck", () => {
+  const records = [
+    { truck_id: "t1", fecha: "2026-01-10", costo: "1000" },
+    { truck_id: "t1", fecha: "2026-01-20", costo: 500 },
+    { truck_id: "t2", fecha: "2026-02-05", costo: "200" },
+    { truck_id: "t1", fecha: "2025-12-31", costo: "999" },
+  ];
+
+  it("suma por camión dentro del rango", () => {
+    const map = aggregateMaintenanceCostByTruck(records, "2026-01-01", "2026-01-31");
+    assert.equal(map.get("t1"), 1500);
+    assert.equal(map.has("t2"), false);
+  });
+
+  it("incluye varios meses si el rango lo permite", () => {
+    const map = aggregateMaintenanceCostByTruck(records, "2026-01-01", "2026-02-28");
+    assert.equal(map.get("t1"), 1500);
+    assert.equal(map.get("t2"), 200);
+  });
+});
+
+describe("aggregateMaintenanceCostByMonthTruck", () => {
+  it("agrupa por mes y camión", () => {
+    const map = aggregateMaintenanceCostByMonthTruck(
+      [
+        { truck_id: "t1", fecha: "2026-01-10", costo: "100" },
+        { truck_id: "t1", fecha: "2026-01-15", costo: "50" },
+        { truck_id: "t1", fecha: "2026-02-01", costo: "30" },
+      ],
+      "2026-01-01",
+      "2026-02-28",
+    );
+    assert.equal(map.get("2026-01|||t1"), 150);
+    assert.equal(map.get("2026-02|||t1"), 30);
   });
 });

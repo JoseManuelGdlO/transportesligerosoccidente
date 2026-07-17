@@ -362,6 +362,10 @@ export interface ReportsOverviewTotals {
   viajes_negativos: number;
   diesel_total: number;
   comision_total: number;
+  utilidad_por_km: number;
+  gasto_mantenimiento: number;
+  costo_mnto_por_km: number;
+  utilidad_despues_operacion: number;
 }
 
 export interface ReportsOverviewVariation {
@@ -371,6 +375,7 @@ export interface ReportsOverviewVariation {
   margen_pct: number | null;
   viajes_pct: number | null;
   km_pct: number | null;
+  utilidad_despues_operacion_pct?: number | null;
 }
 
 export interface ReportsTimeBucket {
@@ -394,6 +399,29 @@ export interface ReportsTruckRow {
   margen: number;
   costo_por_km: number;
   ingreso_por_km: number;
+  utilidad_por_km: number;
+  gasto_mantenimiento: number;
+  costo_mnto_por_km: number;
+  utilidad_despues_operacion: number;
+}
+
+export interface ReportsMonthRow {
+  mes: string;
+  ingreso: number;
+  utilidad: number;
+  gasto_mantenimiento: number;
+  utilidad_despues_operacion: number;
+  utilidad_por_km: number;
+  costo_mnto_por_km: number;
+  viajes: number;
+  km: number;
+}
+
+export interface ReportsMonthTruckRow extends ReportsMonthRow {
+  truck_id: string;
+  numero_economico: string;
+  marca: string;
+  modelo: string;
 }
 
 export interface ReportsDriverRow {
@@ -504,6 +532,8 @@ export interface ReportsOverview {
   cost_breakdown: ReportsCostBreakdown;
   negative_trips: ReportsNegativeTripRow[];
   by_trip: ReportsTripRow[];
+  by_month: ReportsMonthRow[];
+  by_month_truck: ReportsMonthTruckRow[];
 }
 
 export interface FuelImportResult {

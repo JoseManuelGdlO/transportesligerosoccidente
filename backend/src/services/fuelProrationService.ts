@@ -752,6 +752,27 @@ export async function fuelSummaryByTruck(
     litrosByTruck.set(id, (litrosByTruck.get(id) ?? 0) + num(tk.litros));
   }
 
+  // Diesel foráneo capturado desde el viaje: no existe como FuelTicket, así que
+  // se suma aparte. Se excluyen cargas con fuel_ticket_id para no duplicar litros
+  // ya contados por los tickets de prorrateo confirmados.
+  const tripIds = trips.map((t) => String(t.id));
+  if (tripIds.length > 0) {
+    const foraneoLoads = await FuelLoad.findAll({
+      where: {
+        tenant_id: tenantId,
+        trip_id: { [Op.in]: tripIds },
+        es_foraneo: true,
+        fuel_ticket_id: null,
+      },
+    });
+    const truckByTrip = new Map(trips.map((t) => [String(t.id), String(t.truck_id)]));
+    for (const load of foraneoLoads) {
+      const truckId = truckByTrip.get(String(load.trip_id));
+      if (!truckId) continue;
+      litrosByTruck.set(truckId, (litrosByTruck.get(truckId) ?? 0) + num(load.litros));
+    }
+  }
+
   const rows: FuelSummaryRow[] = [];
   for (const truck of trucks) {
     const tid = String(truck.id);

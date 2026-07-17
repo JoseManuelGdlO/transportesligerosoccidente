@@ -4,6 +4,9 @@ import { Trip, Truck, Driver, Client } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { computeTrip } from "../services/calc";
 import { tripIsClosed } from "../services/tripStatusService";
+import {
+  maintenanceCostMaps,
+} from "../services/maintenanceService";
 
 const criterioFechaSchema = z.enum(["salida", "llegada"]).default("salida");
 
@@ -79,6 +82,29 @@ function enrichTrips(closed: Trip[], drivers: Driver[]): TripWithFin[] {
   }));
 }
 
+export function withMaintenanceTotals(
+  totals: {
+    viajes: number;
+    ingreso: number;
+    costo_total: number;
+    utilidad: number;
+    margen: number;
+    km: number;
+    viajes_negativos: number;
+    diesel_total: number;
+    comision_total: number;
+  },
+  gasto_mantenimiento: number,
+) {
+  return {
+    ...totals,
+    utilidad_por_km: totals.km > 0 ? totals.utilidad / totals.km : 0,
+    gasto_mantenimiento,
+    costo_mnto_por_km: totals.km > 0 ? gasto_mantenimiento / totals.km : 0,
+    utilidad_despues_operacion: totals.utilidad - gasto_mantenimiento,
+  };
+}
+
 function buildTotals(enriched: TripWithFin[]) {
   let ingreso = 0;
   let costo_total = 0;
@@ -140,7 +166,137 @@ function buildByTime(
     .map(([fecha, v]) => ({ fecha, ...v }));
 }
 
-function buildByTruck(enriched: TripWithFin[], trucks: Truck[]) {
+function monthKeysInRange(desde?: string, hasta?: string): string[] {
+  if (!desde || !hasta) return [];
+  const keys: string[] = [];
+  const start = new Date(`${desde.slice(0, 7)}-01T00:00:00`);
+  const end = new Date(`${hasta.slice(0, 7)}-01T00:00:00`);
+  for (let d = new Date(start); d <= end; d.setMonth(d.getMonth() + 1)) {
+    keys.push(d.toISOString().slice(0, 7));
+  }
+  return keys;
+}
+
+export function buildByMonth(
+  enriched: TripWithFin[],
+  maintenanceByMonthTruck: Map<string, number>,
+  trucks: Truck[],
+  desde?: string,
+  hasta?: string,
+  criterio: CriterioFecha = "salida",
+) {
+  type MonthBucket = {
+    mes: string;
+    ingreso: number;
+    utilidad: number;
+    gasto_mantenimiento: number;
+    viajes: number;
+    km: number;
+  };
+  type MonthTruckBucket = MonthBucket & {
+    truck_id: string;
+    numero_economico: string;
+    marca: string;
+    modelo: string;
+  };
+
+  const byMonth = new Map<string, MonthBucket>();
+  const byMonthTruck = new Map<string, MonthTruckBucket>();
+  const truckById = new Map(trucks.map((t) => [t.id, t]));
+
+  for (const mes of monthKeysInRange(desde, hasta)) {
+    byMonth.set(mes, { mes, ingreso: 0, utilidad: 0, gasto_mantenimiento: 0, viajes: 0, km: 0 });
+  }
+
+  for (const { trip, fin } of enriched) {
+    const mes = tripFechaIso(trip, criterio).slice(0, 7);
+    const month = byMonth.get(mes) ?? {
+      mes,
+      ingreso: 0,
+      utilidad: 0,
+      gasto_mantenimiento: 0,
+      viajes: 0,
+      km: 0,
+    };
+    month.ingreso += fin.ingreso;
+    month.utilidad += fin.utilidad;
+    month.viajes += 1;
+    month.km += fin.km_recorridos;
+    byMonth.set(mes, month);
+
+    const truck = truckById.get(trip.truck_id);
+    const key = `${mes}|||${trip.truck_id}`;
+    const row = byMonthTruck.get(key) ?? {
+      mes,
+      truck_id: trip.truck_id,
+      numero_economico: truck?.numero_economico ?? "—",
+      marca: truck?.marca ?? "",
+      modelo: truck?.modelo ?? "",
+      ingreso: 0,
+      utilidad: 0,
+      gasto_mantenimiento: 0,
+      viajes: 0,
+      km: 0,
+    };
+    row.ingreso += fin.ingreso;
+    row.utilidad += fin.utilidad;
+    row.viajes += 1;
+    row.km += fin.km_recorridos;
+    byMonthTruck.set(key, row);
+  }
+
+  for (const [key, gasto] of maintenanceByMonthTruck) {
+    const [mes, truck_id] = key.split("|||");
+    if (!mes || !truck_id) continue;
+    if (desde && mes < desde.slice(0, 7)) continue;
+    if (hasta && mes > hasta.slice(0, 7)) continue;
+
+    const month = byMonth.get(mes) ?? {
+      mes,
+      ingreso: 0,
+      utilidad: 0,
+      gasto_mantenimiento: 0,
+      viajes: 0,
+      km: 0,
+    };
+    month.gasto_mantenimiento += gasto;
+    byMonth.set(mes, month);
+
+    const truck = truckById.get(truck_id);
+    const row = byMonthTruck.get(key) ?? {
+      mes,
+      truck_id,
+      numero_economico: truck?.numero_economico ?? "—",
+      marca: truck?.marca ?? "",
+      modelo: truck?.modelo ?? "",
+      ingreso: 0,
+      utilidad: 0,
+      gasto_mantenimiento: 0,
+      viajes: 0,
+      km: 0,
+    };
+    row.gasto_mantenimiento += gasto;
+    byMonthTruck.set(key, row);
+  }
+
+  const finalize = <T extends MonthBucket>(row: T) => ({
+    ...row,
+    utilidad_despues_operacion: row.utilidad - row.gasto_mantenimiento,
+    utilidad_por_km: row.km > 0 ? row.utilidad / row.km : 0,
+    costo_mnto_por_km: row.km > 0 ? row.gasto_mantenimiento / row.km : 0,
+  });
+
+  return {
+    by_month: [...byMonth.values()]
+      .sort((a, b) => a.mes.localeCompare(b.mes))
+      .map(finalize),
+    by_month_truck: [...byMonthTruck.values()]
+      .sort((a, b) => a.mes.localeCompare(b.mes) || a.numero_economico.localeCompare(b.numero_economico))
+      .map(finalize),
+  };
+}
+
+function buildByTruck(enriched: TripWithFin[], trucks: Truck[], mntoByTruck: Map<string, number>) {
   return trucks
     .map((tk) => {
       const rows = enriched.filter((e) => e.trip.truck_id === tk.id);
@@ -156,6 +312,7 @@ function buildByTruck(enriched: TripWithFin[], trucks: Truck[]) {
         diesel_total += fin.diesel_total;
         costo_total += fin.costo_total;
       }
+      const gasto_mantenimiento = mntoByTruck.get(tk.id) ?? 0;
       return {
         truck_id: tk.id,
         numero_economico: tk.numero_economico,
@@ -169,6 +326,10 @@ function buildByTruck(enriched: TripWithFin[], trucks: Truck[]) {
         margen: ingreso > 0 ? (utilidad / ingreso) * 100 : 0,
         costo_por_km: km > 0 ? costo_total / km : 0,
         ingreso_por_km: km > 0 ? ingreso / km : 0,
+        utilidad_por_km: km > 0 ? utilidad / km : 0,
+        gasto_mantenimiento,
+        costo_mnto_por_km: km > 0 ? gasto_mantenimiento / km : 0,
+        utilidad_despues_operacion: utilidad - gasto_mantenimiento,
       };
     })
     .sort((a, b) => b.utilidad - a.utilidad);
@@ -392,25 +553,32 @@ function buildOverview(
   trucks: Truck[],
   drivers: Driver[],
   clients: Client[],
+  mntoByTruck: Map<string, number>,
+  mntoByMonthTruck: Map<string, number>,
   desde?: string,
   hasta?: string,
   criterio: CriterioFecha = "salida",
 ) {
   const closed = filterClosed(trips, desde, hasta, criterio);
   const enriched = enrichTrips(closed, drivers);
-  const totales = buildTotals(enriched);
+  const baseTotales = buildTotals(enriched);
+  const gasto_mantenimiento = [...mntoByTruck.values()].reduce((a, v) => a + v, 0);
+  const totales = withMaintenanceTotals(baseTotales, gasto_mantenimiento);
+  const monthly = buildByMonth(enriched, mntoByMonthTruck, trucks, desde, hasta, criterio);
   return {
     totales,
     by_time: buildByTime(enriched, desde, hasta, criterio),
-    by_truck: buildByTruck(enriched, trucks),
+    by_truck: buildByTruck(enriched, trucks, mntoByTruck),
     by_driver: buildByDriver(enriched, drivers),
     by_client: buildByClient(enriched, clients),
     by_tipo_viaje: buildByTipoViaje(enriched),
     by_route: buildByRoute(enriched),
     by_expense_category: buildByExpenseCategory(enriched),
-    cost_breakdown: buildCostBreakdown(totales),
+    cost_breakdown: buildCostBreakdown(baseTotales),
     negative_trips: buildNegativeTrips(enriched, trucks, drivers, clients),
     by_trip: buildByTrip(enriched, trucks, drivers, clients, criterio),
+    by_month: monthly.by_month,
+    by_month_truck: monthly.by_month_truck,
   };
 }
 
@@ -442,6 +610,11 @@ async function loadReportData(tenantId: string) {
   return { trips, trucks, drivers, clients };
 }
 
+async function loadMaintenanceMaps(tenantId: string, desde?: string, hasta?: string) {
+  const { byTruck, byMonthTruck } = await maintenanceCostMaps(tenantId, desde, hasta);
+  return { mntoByTruck: byTruck, mntoByMonthTruck: byMonthTruck };
+}
+
 export const getAggregates = asyncHandler(async (req: Request, res: Response) => {
   const parsed = querySchema.safeParse(req.query);
   if (!parsed.success) {
@@ -453,8 +626,21 @@ export const getAggregates = asyncHandler(async (req: Request, res: Response) =>
   const criterio_fecha = parsed.data.criterio_fecha ?? "salida";
   const tenantId = req.user!.tenantId;
 
-  const { trips, trucks, drivers, clients } = await loadReportData(tenantId);
-  const overview = buildOverview(trips, trucks, drivers, clients, desde, hasta, criterio_fecha);
+  const [{ trips, trucks, drivers, clients }, { mntoByTruck, mntoByMonthTruck }] = await Promise.all([
+    loadReportData(tenantId),
+    loadMaintenanceMaps(tenantId, desde, hasta),
+  ]);
+  const overview = buildOverview(
+    trips,
+    trucks,
+    drivers,
+    clients,
+    mntoByTruck,
+    mntoByMonthTruck,
+    desde,
+    hasta,
+    criterio_fecha,
+  );
 
   res.json({
     filtros: { desde: desde ?? null, hasta: hasta ?? null, criterio_fecha },
@@ -475,19 +661,39 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
   const criterio_fecha = parsed.data.criterio_fecha ?? "salida";
   const tenantId = req.user!.tenantId;
 
-  const { trips, trucks, drivers, clients } = await loadReportData(tenantId);
-  const current = buildOverview(trips, trucks, drivers, clients, desde, hasta, criterio_fecha);
+  const [{ trips, trucks, drivers, clients }, currentMnto] = await Promise.all([
+    loadReportData(tenantId),
+    loadMaintenanceMaps(tenantId, desde, hasta),
+  ]);
+  const current = buildOverview(
+    trips,
+    trucks,
+    drivers,
+    clients,
+    currentMnto.mntoByTruck,
+    currentMnto.mntoByMonthTruck,
+    desde,
+    hasta,
+    criterio_fecha,
+  );
 
   let variacion: Record<string, number | null> | null = null;
   let periodo_anterior: { desde: string; hasta: string } | null = null;
 
   if (desde && hasta) {
     periodo_anterior = previousPeriod(desde, hasta);
+    const prevMnto = await loadMaintenanceMaps(
+      tenantId,
+      periodo_anterior.desde,
+      periodo_anterior.hasta,
+    );
     const prev = buildOverview(
       trips,
       trucks,
       drivers,
       clients,
+      prevMnto.mntoByTruck,
+      prevMnto.mntoByMonthTruck,
       periodo_anterior.desde,
       periodo_anterior.hasta,
       criterio_fecha,
@@ -499,6 +705,10 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
       margen_pct: pctChange(current.totales.margen, prev.totales.margen),
       viajes_pct: pctChange(current.totales.viajes, prev.totales.viajes),
       km_pct: pctChange(current.totales.km, prev.totales.km),
+      utilidad_despues_operacion_pct: pctChange(
+        current.totales.utilidad_despues_operacion,
+        prev.totales.utilidad_despues_operacion,
+      ),
     };
   }
 
@@ -517,5 +727,7 @@ export const getOverview = asyncHandler(async (req: Request, res: Response) => {
     cost_breakdown: current.cost_breakdown,
     negative_trips: current.negative_trips,
     by_trip: current.by_trip,
+    by_month: current.by_month,
+    by_month_truck: current.by_month_truck,
   });
 });

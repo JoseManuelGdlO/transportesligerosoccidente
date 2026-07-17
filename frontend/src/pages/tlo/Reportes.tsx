@@ -33,6 +33,7 @@ import {
   Route,
   Info,
   Truck,
+  Wrench,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -57,6 +58,7 @@ type ReportTab =
   | "viajes"
   | "negativos"
   | "camion"
+  | "mensual"
   | "operador"
   | "cliente"
   | "rutas"
@@ -86,6 +88,13 @@ function monthRange(offsetMonths = 0): DateRange {
   const m = String(now.getMonth() + 1).padStart(2, "0");
   const last = new Date(y, now.getMonth() + 1, 0).getDate();
   return { desde: `${y}-${m}-01`, hasta: `${y}-${m}-${String(last).padStart(2, "0")}` };
+}
+
+function formatMonthLabel(mes: string): string {
+  const [y, m] = mes.split("-");
+  if (!y || !m) return mes;
+  const d = new Date(Number(y), Number(m) - 1, 1);
+  return d.toLocaleDateString("es-MX", { month: "short", year: "numeric" });
 }
 
 function last30Days(): DateRange {
@@ -223,6 +232,10 @@ export default function Reportes() {
       `Ingresos,${totales.ingreso}`,
       `Costos,${totales.costo_total}`,
       `Utilidad,${totales.utilidad}`,
+      `Utilidad/km,${totales.utilidad_por_km}`,
+      `Gasto mantenimiento,${totales.gasto_mantenimiento}`,
+      `Costo mnto/km,${totales.costo_mnto_por_km}`,
+      `Utilidad post-operación,${totales.utilidad_despues_operacion}`,
       `Margen %,${totales.margen.toFixed(2)}`,
       `Km,${totales.km}`,
       `Viajes negativos,${totales.viajes_negativos}`,
@@ -291,10 +304,43 @@ export default function Reportes() {
         { key: "ingreso", label: "Ingreso" },
         { key: "diesel_total", label: "Diesel" },
         { key: "utilidad", label: "Utilidad" },
+        { key: "utilidad_por_km", label: "Utilidad/km" },
+        { key: "gasto_mantenimiento", label: "Gasto mnto" },
+        { key: "costo_mnto_por_km", label: "Costo mnto/km" },
+        { key: "utilidad_despues_operacion", label: "Utilidad post-op" },
         { key: "margen", label: "Margen %" },
         { key: "costo_por_km", label: "Costo/km" },
         { key: "ingreso_por_km", label: "Ingreso/km" },
-      ], overview.by_truck.filter((r) => r.viajes > 0));
+      ], overview.by_truck.filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0));
+      toast.success("Exportado a CSV");
+      return;
+    }
+    if (activeTab === "mensual") {
+      exportCsvSections(
+        [
+          {
+            title: "Por mes",
+            lines: [
+              "Mes,Viajes,Km,Facturación,Utilidad,Gasto mnto,Utilidad post-op,Utilidad/km,Costo mnto/km",
+              ...(overview.by_month ?? []).map(
+                (r) =>
+                  `${r.mes},${r.viajes},${r.km},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion},${r.utilidad_por_km},${r.costo_mnto_por_km}`,
+              ),
+            ],
+          },
+          {
+            title: "Por unidad y mes",
+            lines: [
+              "Mes,No. económico,Viajes,Km,Facturación,Utilidad,Gasto mnto,Utilidad post-op,Utilidad/km,Costo mnto/km",
+              ...(overview.by_month_truck ?? []).map(
+                (r) =>
+                  `${r.mes},${r.numero_economico},${r.viajes},${r.km},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion},${r.utilidad_por_km},${r.costo_mnto_por_km}`,
+              ),
+            ],
+          },
+        ],
+        filename,
+      );
       toast.success("Exportado a CSV");
       return;
     }
@@ -377,6 +423,17 @@ export default function Reportes() {
             `Diesel,${overview.cost_breakdown.diesel}`,
             `Comisiones,${overview.cost_breakdown.comisiones}`,
             `Gastos,${overview.cost_breakdown.gastos}`,
+            `Mantenimiento,${overview.totales.gasto_mantenimiento}`,
+          ],
+        },
+        {
+          title: "Por mes",
+          lines: [
+            "Mes,Facturación,Utilidad,Gasto mnto,Utilidad post-op",
+            ...(overview.by_month ?? []).map(
+              (r) =>
+                `${r.mes},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion}`,
+            ),
           ],
         },
       ],
@@ -479,10 +536,19 @@ export default function Reportes() {
       {loading && !overview && <p className="text-sm text-muted-foreground">Cargando reportes…</p>}
 
       {t && (
-        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-7 gap-3">
+        <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3">
           <KpiCard label="Ingresos" value={fmtMXN(t.ingreso)} hint={variationHint(v?.ingreso_pct)} icon={DollarSign} tone={variationTone(v?.ingreso_pct)} />
           <KpiCard label="Costos" value={fmtMXN(t.costo_total)} hint={variationHint(v?.costo_pct)} icon={TrendingDown} tone={variationTone(v?.costo_pct, true)} />
           <KpiCard label="Utilidad neta" value={fmtMXN(t.utilidad)} hint={variationHint(v?.utilidad_pct)} icon={TrendingUp} tone={variationTone(v?.utilidad_pct)} />
+          <KpiCard
+            label="Utilidad post-op"
+            value={fmtMXN(t.utilidad_despues_operacion)}
+            hint={variationHint(v?.utilidad_despues_operacion_pct)}
+            icon={Wrench}
+            tone={variationTone(v?.utilidad_despues_operacion_pct)}
+          />
+          <KpiCard label="Utilidad/km" value={fmtMXN(t.utilidad_por_km)} icon={Route} tone={t.utilidad_por_km >= 0 ? "success" : "destructive"} />
+          <KpiCard label="Gasto mnto" value={fmtMXN(t.gasto_mantenimiento)} icon={Wrench} />
           <KpiCard label="Margen" value={fmtPct(t.margen)} hint={variationHint(v?.margen_pct)} icon={BarChart3} tone={variationTone(v?.margen_pct)} />
           <KpiCard label="Viajes cerrados" value={String(t.viajes)} hint={variationHint(v?.viajes_pct)} icon={Activity} />
           <KpiCard label="Km totales" value={fmtNumber(t.km)} hint={variationHint(v?.km_pct)} icon={Route} />
@@ -539,6 +605,7 @@ export default function Reportes() {
             )}
           </TabsTrigger>
           <TabsTrigger value="camion">Por camión</TabsTrigger>
+          <TabsTrigger value="mensual">Mensual</TabsTrigger>
           <TabsTrigger value="operador">Por operador</TabsTrigger>
           <TabsTrigger value="cliente">Por cliente</TabsTrigger>
           <TabsTrigger value="rutas">Rutas</TabsTrigger>
@@ -601,14 +668,17 @@ export default function Reportes() {
           <div className="rounded-md border border-border bg-muted/40 px-4 py-3 text-sm text-muted-foreground flex gap-2">
             <Info className="h-4 w-4 shrink-0 mt-0.5 text-primary" />
             <div>
-              <p className="font-medium text-foreground">Cómo se calcula la utilidad neta</p>
+              <p className="font-medium text-foreground">Cómo se calcula la utilidad</p>
               <p className="mt-1">
                 <strong>Ingreso</strong> = tarifa del viaje + ingresos extra registrados.
                 Se restan <strong>diesel</strong> (cargas del viaje), <strong>gastos operativos</strong> (casetas, comidas, hospedaje, etc.) y <strong>comisión</strong> del operador.
-                Resultado: <strong>utilidad neta</strong> en pesos.
+                Resultado: <strong>utilidad neta</strong> (solo viajes).
+              </p>
+              <p className="mt-1">
+                <strong>Utilidad post-operación</strong> = utilidad neta − gasto de mantenimiento de unidades en el periodo.
               </p>
               <p className="mt-1 text-xs">
-                Solo viajes cerrados. No incluye viáticos entregados, liquidaciones ni mantenimiento de unidades.
+                Solo viajes cerrados. No incluye viáticos entregados ni liquidaciones.
                 Criterio actual: {criterioFecha === "llegada" ? "fecha de llegada/cierre" : "fecha de salida"}.
               </p>
             </div>
@@ -774,47 +844,168 @@ export default function Reportes() {
             <CardHeader><CardTitle className="text-base">Utilidad por camión</CardTitle></CardHeader>
             <CardContent className="h-64">
               <ResponsiveContainer>
-                <BarChart data={(overview?.by_truck ?? []).filter((r) => r.viajes > 0).map((t) => ({ name: truckLabel(t), utilidad: Math.round(t.utilidad) }))}>
+                <BarChart data={(overview?.by_truck ?? []).filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0).map((t) => ({ name: truckLabel(t), utilidad: Math.round(t.utilidad_despues_operacion) }))}>
                   <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
                   <XAxis dataKey="name" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
                   <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
                   <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => fmtMXN(v)} />
-                  <Bar dataKey="utilidad" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
+                  <Bar dataKey="utilidad" name="Utilidad post-op" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             </CardContent>
           </Card>
           <Card className="tlo-shadow-md overflow-hidden">
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>No. económico</TableHead>
+                    <TableHead>Marca</TableHead>
+                    <TableHead className="text-right">Viajes</TableHead>
+                    <TableHead className="text-right">Km</TableHead>
+                    <TableHead className="text-right">Ingreso</TableHead>
+                    <TableHead className="text-right">Diesel</TableHead>
+                    <TableHead className="text-right">$/km</TableHead>
+                    <TableHead className="text-right">Utilidad</TableHead>
+                    <TableHead className="text-right">Utilidad/km</TableHead>
+                    <TableHead className="text-right">Gasto mnto</TableHead>
+                    <TableHead className="text-right">Mnto/km</TableHead>
+                    <TableHead className="text-right">Post-op</TableHead>
+                    <TableHead className="text-right">Margen</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(overview?.by_truck ?? []).filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0).map((t) => (
+                    <TableRow key={t.truck_id}>
+                      <TableCell className="font-mono font-semibold">{t.numero_economico}</TableCell>
+                      <TableCell>{t.marca}{t.modelo ? <span className="text-muted-foreground text-xs ml-1">{t.modelo}</span> : null}</TableCell>
+                      <TableCell className="text-right">{t.viajes}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtNumber(t.km)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(t.ingreso)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(t.diesel_total)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{fmtMXN(t.costo_por_km)}</TableCell>
+                      <TableCell className={`text-right font-semibold ${t.utilidad >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(t.utilidad)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{fmtMXN(t.utilidad_por_km)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(t.gasto_mantenimiento)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{fmtMXN(t.costo_mnto_por_km)}</TableCell>
+                      <TableCell className={`text-right font-semibold ${t.utilidad_despues_operacion >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(t.utilidad_despues_operacion)}</TableCell>
+                      <TableCell className="text-right"><MarginBadge pct={t.margen} /></TableCell>
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </Card>
+        </TabsContent>
+
+        {/* Mensual */}
+        <TabsContent value="mensual" className="mt-4 space-y-4">
+          <Card className="tlo-shadow-md">
+            <CardHeader>
+              <CardTitle className="text-base">Facturación y utilidad mensual</CardTitle>
+              <p className="text-xs text-muted-foreground">
+                Facturación = ingreso de viajes. Utilidad post-op = utilidad de viajes − mantenimiento del mes.
+              </p>
+            </CardHeader>
+            <CardContent className="h-72">
+              {(overview?.by_month?.length ?? 0) > 0 ? (
+                <ResponsiveContainer>
+                  <BarChart data={(overview?.by_month ?? []).map((r) => ({
+                    name: formatMonthLabel(r.mes),
+                    facturacion: Math.round(r.ingreso),
+                    postOp: Math.round(r.utilidad_despues_operacion),
+                  }))}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                    <XAxis dataKey="name" tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                    <YAxis tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`} />
+                    <Tooltip contentStyle={{ background: "hsl(var(--card))", border: "1px solid hsl(var(--border))", borderRadius: 8, fontSize: 12 }} formatter={(v: number) => fmtMXN(v)} />
+                    <Legend />
+                    <Bar dataKey="facturacion" name="Facturación" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+                    <Bar dataKey="postOp" name="Utilidad post-op" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
+                  </BarChart>
+                </ResponsiveContainer>
+              ) : (
+                <p className="text-sm text-muted-foreground text-center py-16">Sin datos mensuales en el periodo</p>
+              )}
+            </CardContent>
+          </Card>
+
+          <Card className="tlo-shadow-md overflow-hidden">
+            <CardHeader><CardTitle className="text-base">Totales por mes</CardTitle></CardHeader>
             <Table>
               <TableHeader>
                 <TableRow className="bg-secondary/50">
-                  <TableHead>No. económico</TableHead>
-                  <TableHead>Marca</TableHead>
+                  <TableHead>Mes</TableHead>
                   <TableHead className="text-right">Viajes</TableHead>
                   <TableHead className="text-right">Km</TableHead>
-                  <TableHead className="text-right">Ingreso</TableHead>
-                  <TableHead className="text-right">Diesel</TableHead>
-                  <TableHead className="text-right">$/km</TableHead>
+                  <TableHead className="text-right">Facturación</TableHead>
                   <TableHead className="text-right">Utilidad</TableHead>
-                  <TableHead className="text-right">Margen</TableHead>
+                  <TableHead className="text-right">Gasto mnto</TableHead>
+                  <TableHead className="text-right">Post-op</TableHead>
+                  <TableHead className="text-right">Utilidad/km</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {(overview?.by_truck ?? []).filter((r) => r.viajes > 0).map((t) => (
-                  <TableRow key={t.truck_id}>
-                    <TableCell className="font-mono font-semibold">{t.numero_economico}</TableCell>
-                    <TableCell>{t.marca}{t.modelo ? <span className="text-muted-foreground text-xs ml-1">{t.modelo}</span> : null}</TableCell>
-                    <TableCell className="text-right">{t.viajes}</TableCell>
-                    <TableCell className="text-right font-mono">{fmtNumber(t.km)}</TableCell>
-                    <TableCell className="text-right">{fmtMXN(t.ingreso)}</TableCell>
-                    <TableCell className="text-right">{fmtMXN(t.diesel_total)}</TableCell>
-                    <TableCell className="text-right font-mono text-xs">{fmtMXN(t.costo_por_km)}</TableCell>
-                    <TableCell className={`text-right font-semibold ${t.utilidad >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(t.utilidad)}</TableCell>
-                    <TableCell className="text-right"><MarginBadge pct={t.margen} /></TableCell>
-                  </TableRow>
-                ))}
+                {(overview?.by_month ?? []).length === 0 ? (
+                  <TableRow><TableCell colSpan={8} className="text-center text-muted-foreground py-8">Sin datos</TableCell></TableRow>
+                ) : (
+                  overview?.by_month.map((r) => (
+                    <TableRow key={r.mes}>
+                      <TableCell className="font-medium">{formatMonthLabel(r.mes)}</TableCell>
+                      <TableCell className="text-right">{r.viajes}</TableCell>
+                      <TableCell className="text-right font-mono">{fmtNumber(r.km)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(r.ingreso)}</TableCell>
+                      <TableCell className={`text-right ${r.utilidad >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(r.utilidad)}</TableCell>
+                      <TableCell className="text-right">{fmtMXN(r.gasto_mantenimiento)}</TableCell>
+                      <TableCell className={`text-right font-semibold ${r.utilidad_despues_operacion >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(r.utilidad_despues_operacion)}</TableCell>
+                      <TableCell className="text-right font-mono text-xs">{fmtMXN(r.utilidad_por_km)}</TableCell>
+                    </TableRow>
+                  ))
+                )}
               </TableBody>
             </Table>
+          </Card>
+
+          <Card className="tlo-shadow-md overflow-hidden">
+            <CardHeader>
+              <CardTitle className="text-base">Facturación por unidad y mes</CardTitle>
+            </CardHeader>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Mes</TableHead>
+                    <TableHead>Unidad</TableHead>
+                    <TableHead className="text-right">Viajes</TableHead>
+                    <TableHead className="text-right">Km</TableHead>
+                    <TableHead className="text-right">Facturación</TableHead>
+                    <TableHead className="text-right">Utilidad</TableHead>
+                    <TableHead className="text-right">Gasto mnto</TableHead>
+                    <TableHead className="text-right">Post-op</TableHead>
+                    <TableHead className="text-right">Mnto/km</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {(overview?.by_month_truck ?? []).filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0).length === 0 ? (
+                    <TableRow><TableCell colSpan={9} className="text-center text-muted-foreground py-8">Sin datos</TableCell></TableRow>
+                  ) : (
+                    overview?.by_month_truck.filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0).map((r) => (
+                      <TableRow key={`${r.mes}-${r.truck_id}`}>
+                        <TableCell>{formatMonthLabel(r.mes)}</TableCell>
+                        <TableCell className="font-mono font-semibold">{r.numero_economico}</TableCell>
+                        <TableCell className="text-right">{r.viajes}</TableCell>
+                        <TableCell className="text-right font-mono">{fmtNumber(r.km)}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(r.ingreso)}</TableCell>
+                        <TableCell className={`text-right ${r.utilidad >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(r.utilidad)}</TableCell>
+                        <TableCell className="text-right">{fmtMXN(r.gasto_mantenimiento)}</TableCell>
+                        <TableCell className={`text-right font-semibold ${r.utilidad_despues_operacion >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(r.utilidad_despues_operacion)}</TableCell>
+                        <TableCell className="text-right font-mono text-xs">{fmtMXN(r.costo_mnto_por_km)}</TableCell>
+                      </TableRow>
+                    ))
+                  )}
+                </TableBody>
+              </Table>
+            </div>
           </Card>
         </TabsContent>
 
