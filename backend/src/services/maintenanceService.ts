@@ -13,13 +13,27 @@ import { usersWithPermission } from "../utils/notifyUsers";
 import { getClosedStatusIds } from "./tripStatusService";
 
 const tipoLabel: Record<MaintenanceType, string> = {
+  preventivo: "Preventivo",
   menor: "Menor",
   intermedio: "Intermedio",
+  mayor: "Mayor",
   correctivo: "Correctivo",
 };
 
-function maintenancePendingKey(userId: string, truckId: string, tipo: string): string {
-  return `${userId}:${truckId}:${tipo}`;
+function maintenancePendingKey(userId: string, truckId: string, tipo: string, criterion: string): string {
+  return `${userId}:${truckId}:${tipo}:${criterion}`;
+}
+
+function addDays(dateIso: string, days: number): string {
+  const d = new Date(`${dateIso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
+
+function daysBetween(fromIso: string, toIso: string): number {
+  const from = new Date(`${fromIso}T12:00:00`).getTime();
+  const to = new Date(`${toIso}T12:00:00`).getTime();
+  return Math.floor((to - from) / (24 * 60 * 60 * 1000));
 }
 
 export async function getTruckOdometer(tenantId: string, truckId: string): Promise<number> {
@@ -62,6 +76,7 @@ export async function upsertSchedule(
     truck_id: string;
     tipo: MaintenanceType;
     intervalo_km?: number | null;
+    intervalo_dias?: number | null;
     ultimo_km?: number;
     ultima_fecha?: string | null;
   },
@@ -78,8 +93,9 @@ export async function upsertSchedule(
   if (existing) {
     await existing.update({
       intervalo_km: data.intervalo_km ?? null,
+      intervalo_dias: data.intervalo_dias ?? null,
       ultimo_km: data.ultimo_km ?? existing.ultimo_km,
-      ultima_fecha: data.ultima_fecha ?? existing.ultima_fecha,
+      ultima_fecha: data.ultima_fecha !== undefined ? data.ultima_fecha : existing.ultima_fecha,
       activo: true,
     } as never);
     return existing;
@@ -90,6 +106,7 @@ export async function upsertSchedule(
     truck_id: data.truck_id,
     tipo: data.tipo,
     intervalo_km: data.intervalo_km ?? null,
+    intervalo_dias: data.intervalo_dias ?? null,
     ultimo_km: data.ultimo_km ?? 0,
     ultima_fecha: data.ultima_fecha ?? null,
     activo: true,
@@ -155,11 +172,22 @@ export async function checkMaintenanceAlerts(tenantId: string) {
   const schedules = await MaintenanceSchedule.findAll({
     where: { tenant_id: tenantId, activo: true, tipo: { [Op.ne]: "correctivo" } },
   });
-  const alerts: { truck_id: string; tipo: MaintenanceType; km_actual: number; km_proximo: number }[] = [];
+  const alerts: {
+    truck_id: string;
+    tipo: MaintenanceType;
+    criterion: "km" | "tiempo";
+    km_actual?: number;
+    km_proximo?: number;
+    fecha_proxima?: string;
+  }[] = [];
 
   const [pending, users, trucks] = await Promise.all([
     Notification.findAll({
-      where: { tenant_id: tenantId, tipo: "mantenimiento_km", leida: false },
+      where: {
+        tenant_id: tenantId,
+        tipo: { [Op.in]: ["mantenimiento_km", "mantenimiento_tiempo"] },
+        leida: false,
+      },
     }),
     usersWithPermission(tenantId, "notificaciones.ver"),
     Truck.findAll({
@@ -172,49 +200,95 @@ export async function checkMaintenanceAlerts(tenantId: string) {
   const pendingKeys = new Set<string>();
   for (const n of pending) {
     const p = n.payload as { truck_id?: unknown; tipo?: unknown };
+    const criterion = n.tipo === "mantenimiento_tiempo" ? "tiempo" : "km";
     if (typeof p.truck_id === "string" && typeof p.tipo === "string") {
-      pendingKeys.add(maintenancePendingKey(n.user_id, p.truck_id, p.tipo));
+      pendingKeys.add(maintenancePendingKey(n.user_id, p.truck_id, p.tipo, criterion));
     }
   }
 
   const alertDate = new Date().toISOString().slice(0, 10);
 
   for (const s of schedules) {
-    if (!s.intervalo_km || s.intervalo_km <= 0) continue;
-    const kmActual = await getTruckOdometer(tenantId, s.truck_id);
-    const kmProximo = s.ultimo_km + s.intervalo_km;
-    if (kmActual >= kmProximo) {
-      alerts.push({ truck_id: s.truck_id, tipo: s.tipo, km_actual: kmActual, km_proximo: kmProximo });
-      if (users.length === 0) continue;
+    const unitLabel = truckLabel.get(s.truck_id) ?? s.truck_id;
+    const servicio = tipoLabel[s.tipo];
 
-      const unitLabel = truckLabel.get(s.truck_id) ?? s.truck_id;
-      const servicio = tipoLabel[s.tipo];
-      const title = `Mantenimiento vencido: ${servicio}`;
-      const body = `${unitLabel} — odómetro ${kmActual} km (programado a ${kmProximo} km)`;
+    if (s.intervalo_km && s.intervalo_km > 0) {
+      const kmActual = await getTruckOdometer(tenantId, s.truck_id);
+      const kmProximo = s.ultimo_km + s.intervalo_km;
+      if (kmActual >= kmProximo) {
+        alerts.push({
+          truck_id: s.truck_id,
+          tipo: s.tipo,
+          criterion: "km",
+          km_actual: kmActual,
+          km_proximo: kmProximo,
+        });
+        if (users.length > 0) {
+          const title = `Mantenimiento vencido por km: ${servicio}`;
+          const body = `${unitLabel} — odómetro ${kmActual} km (programado a ${kmProximo} km)`;
+          for (const u of users) {
+            const key = maintenancePendingKey(u.id, s.truck_id, s.tipo, "km");
+            if (pendingKeys.has(key)) continue;
+            await Notification.create({
+              id: randomUUID(),
+              tenant_id: tenantId,
+              user_id: u.id,
+              tipo: "mantenimiento_km",
+              document_id: null,
+              payload: {
+                truck_id: s.truck_id,
+                tipo: s.tipo,
+                km_actual: kmActual,
+                km_proximo: kmProximo,
+                title,
+                body,
+                url: "/mantenimiento",
+              },
+              alert_date: alertDate,
+              leida: false,
+            } as never);
+            pendingKeys.add(key);
+          }
+        }
+      }
+    }
 
-      for (const u of users) {
-        const key = maintenancePendingKey(u.id, s.truck_id, s.tipo);
-        if (pendingKeys.has(key)) continue;
-
-        await Notification.create({
-          id: randomUUID(),
-          tenant_id: tenantId,
-          user_id: u.id,
-          tipo: "mantenimiento_km",
-          document_id: null,
-          payload: {
-            truck_id: s.truck_id,
-            tipo: s.tipo,
-            km_actual: kmActual,
-            km_proximo: kmProximo,
-            title,
-            body,
-            url: "/mantenimiento",
-          },
-          alert_date: alertDate,
-          leida: false,
-        } as never);
-        pendingKeys.add(key);
+    if (s.intervalo_dias && s.intervalo_dias > 0 && s.ultima_fecha) {
+      const fechaProxima = addDays(s.ultima_fecha, s.intervalo_dias);
+      if (alertDate >= fechaProxima) {
+        alerts.push({
+          truck_id: s.truck_id,
+          tipo: s.tipo,
+          criterion: "tiempo",
+          fecha_proxima: fechaProxima,
+        });
+        if (users.length > 0) {
+          const title = `Mantenimiento vencido por tiempo: ${servicio}`;
+          const body = `${unitLabel} — programado para ${fechaProxima} (cada ${s.intervalo_dias} días)`;
+          for (const u of users) {
+            const key = maintenancePendingKey(u.id, s.truck_id, s.tipo, "tiempo");
+            if (pendingKeys.has(key)) continue;
+            await Notification.create({
+              id: randomUUID(),
+              tenant_id: tenantId,
+              user_id: u.id,
+              tipo: "mantenimiento_tiempo",
+              document_id: null,
+              payload: {
+                truck_id: s.truck_id,
+                tipo: s.tipo,
+                fecha_proxima: fechaProxima,
+                intervalo_dias: s.intervalo_dias,
+                title,
+                body,
+                url: "/mantenimiento",
+              },
+              alert_date: alertDate,
+              leida: false,
+            } as never);
+            pendingKeys.add(key);
+          }
+        }
       }
     }
   }
@@ -227,7 +301,16 @@ export async function maintenanceOverview(tenantId: string): Promise<
     numero_economico: string;
     placas: string;
     km_actual: number;
-    proximos: { tipo: MaintenanceType; km_proximo: number; km_restantes: number; vencido: boolean }[];
+    proximos: {
+      tipo: MaintenanceType;
+      km_proximo: number | null;
+      km_restantes: number | null;
+      fecha_proxima: string | null;
+      dias_restantes: number | null;
+      vencido: boolean;
+      vencido_km: boolean;
+      vencido_tiempo: boolean;
+    }[];
     ultimos_registros: { id: string; tipo: MaintenanceType; fecha: string; km_odometro: number; descripcion: string }[];
   }[]
 > {
@@ -237,19 +320,35 @@ export async function maintenanceOverview(tenantId: string): Promise<
   });
   const schedules = await listSchedules(tenantId);
   const records = await listRecords(tenantId);
+  const hoy = new Date().toISOString().slice(0, 10);
 
   return Promise.all(
     trucks.map(async (truck) => {
       const km_actual = await getTruckOdometer(tenantId, truck.id);
       const truckSchedules = schedules.filter((s) => s.truck_id === truck.id);
       const proximos = truckSchedules
-        .filter((s) => s.tipo !== "correctivo" && s.intervalo_km)
-        .map((s) => ({
-          tipo: s.tipo,
-          km_proximo: s.ultimo_km + (s.intervalo_km ?? 0),
-          km_restantes: Math.max(0, s.ultimo_km + (s.intervalo_km ?? 0) - km_actual),
-          vencido: km_actual >= s.ultimo_km + (s.intervalo_km ?? 0),
-        }));
+        .filter((s) => s.tipo !== "correctivo" && (s.intervalo_km || s.intervalo_dias))
+        .map((s) => {
+          const hasKm = !!(s.intervalo_km && s.intervalo_km > 0);
+          const hasDias = !!(s.intervalo_dias && s.intervalo_dias > 0 && s.ultima_fecha);
+          const km_proximo = hasKm ? s.ultimo_km + (s.intervalo_km ?? 0) : null;
+          const km_restantes = km_proximo != null ? Math.max(0, km_proximo - km_actual) : null;
+          const vencido_km = km_proximo != null && km_actual >= km_proximo;
+          const fecha_proxima = hasDias ? addDays(s.ultima_fecha!, s.intervalo_dias!) : null;
+          const dias_restantes =
+            fecha_proxima != null ? Math.max(0, daysBetween(hoy, fecha_proxima)) : null;
+          const vencido_tiempo = fecha_proxima != null && hoy >= fecha_proxima;
+          return {
+            tipo: s.tipo,
+            km_proximo,
+            km_restantes,
+            fecha_proxima,
+            dias_restantes,
+            vencido: vencido_km || vencido_tiempo,
+            vencido_km,
+            vencido_tiempo,
+          };
+        });
       return {
         truck_id: truck.id,
         numero_economico: truck.numero_economico,

@@ -31,7 +31,10 @@ export function initMaintenanceRecord(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       truck_id: { type: DataTypes.CHAR(36), allowNull: false },
-      tipo: { type: DataTypes.ENUM("menor", "intermedio", "correctivo"), allowNull: false },
+      tipo: {
+        type: DataTypes.ENUM("preventivo", "menor", "intermedio", "mayor", "correctivo"),
+        allowNull: false,
+      },
       km_odometro: { type: DataTypes.INTEGER, allowNull: false },
       fecha: { type: DataTypes.DATEONLY, allowNull: false },
       costo: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },

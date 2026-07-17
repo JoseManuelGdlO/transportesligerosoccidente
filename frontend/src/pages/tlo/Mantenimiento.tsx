@@ -7,17 +7,26 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Wrench, AlertTriangle, X } from "lucide-react";
-import { fmtNumber, fmtMXN, fmtDate } from "@/lib/format";
+import { fmtNumber, fmtDate } from "@/lib/format";
 import { toast } from "sonner";
 
 const tipoLabel: Record<MaintenanceType, string> = {
+  preventivo: "Preventivo",
   menor: "Menor",
   intermedio: "Intermedio",
+  mayor: "Mayor",
   correctivo: "Correctivo",
 };
+
+function addDaysIso(dateIso: string, days: number): string {
+  const d = new Date(`${dateIso}T12:00:00`);
+  d.setDate(d.getDate() + days);
+  return d.toISOString().slice(0, 10);
+}
 
 export default function Mantenimiento() {
   const { trucks } = useTlo();
@@ -25,16 +34,20 @@ export default function Mantenimiento() {
   const [loading, setLoading] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [porKm, setPorKm] = useState(true);
+  const [porDias, setPorDias] = useState(false);
   const [form, setForm] = useState({
     truck_id: "",
-    tipo: "menor" as MaintenanceType,
+    tipo: "preventivo" as MaintenanceType,
     km_odometro: 0,
     fecha: new Date().toISOString().slice(0, 10),
     costo: 0,
     descripcion: "",
     taller: "",
     intervalo_km: 10000,
+    intervalo_dias: 180,
     ultimo_km: 0,
+    ultima_fecha: new Date().toISOString().slice(0, 10),
   });
 
   const load = useCallback(async () => {
@@ -55,15 +68,36 @@ export default function Mantenimiento() {
   }, [load]);
 
   const saveSchedule = async () => {
-    if (!form.truck_id) return;
+    if (!form.truck_id) {
+      toast.error("Selecciona una unidad");
+      return;
+    }
+    if (!porKm && !porDias) {
+      toast.error("Selecciona al menos un criterio: por kilómetros o por días");
+      return;
+    }
+    if (porKm && (!form.intervalo_km || form.intervalo_km <= 0)) {
+      toast.error("Indica un intervalo de kilómetros mayor a cero");
+      return;
+    }
+    if (porDias && (!form.intervalo_dias || form.intervalo_dias <= 0)) {
+      toast.error("Indica un intervalo de días mayor a cero");
+      return;
+    }
+    if (porDias && !form.ultima_fecha) {
+      toast.error("Indica la fecha del último servicio");
+      return;
+    }
     try {
       await apiFetch("/maintenance/schedules", {
         method: "PUT",
         body: JSON.stringify({
           truck_id: form.truck_id,
           tipo: form.tipo,
-          intervalo_km: form.tipo === "correctivo" ? null : form.intervalo_km,
+          intervalo_km: porKm ? form.intervalo_km : null,
+          intervalo_dias: porDias ? form.intervalo_dias : null,
           ultimo_km: form.ultimo_km,
+          ultima_fecha: porDias ? form.ultima_fecha : null,
         }),
       });
       toast.success("Programación guardada");
@@ -113,7 +147,8 @@ export default function Mantenimiento() {
     <div className="space-y-4">
       <div className="flex flex-wrap gap-2 justify-between items-center">
         <p className="text-sm text-muted-foreground">
-          Odómetro estimado por último viaje cerrado o ticket de combustible. Alertas por km para menor e intermedio.
+          Odómetro estimado por último viaje cerrado o ticket de combustible. Alertas por km y por tiempo para
+          cualquier tipo de servicio.
         </p>
         <Button variant="outline" onClick={() => void load()} disabled={loading}>
           Actualizar
@@ -134,23 +169,41 @@ export default function Mantenimiento() {
             </CardHeader>
             <CardContent className="space-y-3 text-sm">
               {u.proximos.length === 0 ? (
-                <p className="text-muted-foreground">Sin programación de servicios por km.</p>
+                <p className="text-muted-foreground">Sin programación de servicios por km o tiempo.</p>
               ) : (
                 u.proximos.map((p) => (
                   <div
                     key={p.tipo}
-                    className={`flex items-center gap-2 rounded border px-3 py-2 ${p.vencido ? "border-destructive/50 bg-destructive/5" : ""}`}
+                    className={`flex items-start gap-2 rounded border px-3 py-2 ${p.vencido ? "border-destructive/50 bg-destructive/5" : ""}`}
                   >
-                    <span className="flex-1 min-w-0">
-                      {tipoLabel[p.tipo]} — próximo a {fmtNumber(p.km_proximo)} km
+                    <span className="flex-1 min-w-0 space-y-0.5">
+                      <span className="block font-medium">{tipoLabel[p.tipo]}</span>
+                      {p.km_proximo != null && (
+                        <span className="block text-xs text-muted-foreground">
+                          Por km: {fmtNumber(p.km_proximo)} km
+                          {p.vencido_km
+                            ? " — vencido"
+                            : p.km_restantes != null
+                              ? ` — ${fmtNumber(p.km_restantes)} km rest.`
+                              : ""}
+                        </span>
+                      )}
+                      {p.fecha_proxima && (
+                        <span className="block text-xs text-muted-foreground">
+                          Por tiempo: {fmtDate(p.fecha_proxima)}
+                          {p.vencido_tiempo
+                            ? " — vencido"
+                            : p.dias_restantes != null
+                              ? ` — ${fmtNumber(p.dias_restantes)} días rest.`
+                              : ""}
+                        </span>
+                      )}
                     </span>
                     {p.vencido ? (
                       <Badge variant="destructive" className="gap-1 shrink-0">
                         <AlertTriangle className="h-3 w-3" /> Vencido
                       </Badge>
-                    ) : (
-                      <span className="text-muted-foreground shrink-0">{fmtNumber(p.km_restantes)} km rest.</span>
-                    )}
+                    ) : null}
                     <Button
                       variant="ghost"
                       size="icon"
@@ -178,7 +231,15 @@ export default function Mantenimiento() {
                   size="sm"
                   variant="outline"
                   onClick={() => {
-                    setForm((f) => ({ ...f, truck_id: u.truck_id, km_odometro: u.km_actual }));
+                    setForm((f) => ({
+                      ...f,
+                      truck_id: u.truck_id,
+                      km_odometro: u.km_actual,
+                      ultimo_km: u.km_actual,
+                      ultima_fecha: new Date().toISOString().slice(0, 10),
+                    }));
+                    setPorKm(true);
+                    setPorDias(false);
                     setScheduleOpen(true);
                   }}
                 >
@@ -205,40 +266,109 @@ export default function Mantenimiento() {
 
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
         <DialogContent>
-          <DialogHeader><DialogTitle>Programación por km</DialogTitle></DialogHeader>
-          <div className="grid gap-3">
-            <div>
-              <Label>Unidad</Label>
-              <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  {trucks.filter((t) => t.estatus !== "baja").map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.numero_economico}</SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+          <DialogHeader><DialogTitle>Programar servicio</DialogTitle></DialogHeader>
+          <div className="grid gap-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <Label>Unidad</Label>
+                <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
+                  <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
+                  <SelectContent>
+                    {trucks.filter((t) => t.estatus !== "baja").map((t) => (
+                      <SelectItem key={t.id} value={t.id}>{t.numero_economico}</SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Tipo de servicio</Label>
+                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}>
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="preventivo">Preventivo</SelectItem>
+                    <SelectItem value="menor">Menor</SelectItem>
+                    <SelectItem value="intermedio">Intermedio</SelectItem>
+                    <SelectItem value="mayor">Mayor</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
             </div>
-            <div>
-              <Label>Tipo</Label>
-              <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="menor">Menor</SelectItem>
-                  <SelectItem value="intermedio">Intermedio</SelectItem>
-                  <SelectItem value="correctivo">Correctivo (sin intervalo)</SelectItem>
-                </SelectContent>
-              </Select>
+
+            <div className="space-y-1">
+              <p className="text-sm font-medium">Programar por</p>
+              <p className="text-xs text-muted-foreground">
+                Elige uno o ambos criterios. La alerta se genera con el primero que se cumpla.
+              </p>
             </div>
-            {form.tipo !== "correctivo" && (
-              <>
-                <div><Label>Intervalo (km)</Label><Input type="number" value={form.intervalo_km} onChange={(e) => setForm({ ...form, intervalo_km: +e.target.value })} /></div>
-                <div><Label>Último servicio (km)</Label><Input type="number" value={form.ultimo_km} onChange={(e) => setForm({ ...form, ultimo_km: +e.target.value })} /></div>
-              </>
-            )}
+
+            <div className={`rounded-lg border p-3 space-y-3 ${porKm ? "" : "bg-muted/40"}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={porKm} onCheckedChange={(v) => setPorKm(v === true)} />
+                <span className="text-sm font-medium">Por kilómetros</span>
+              </label>
+              {porKm && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Cada (km)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.intervalo_km}
+                      onChange={(e) => setForm({ ...form, intervalo_km: +e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Último servicio (km)</Label>
+                    <Input
+                      type="number"
+                      min={0}
+                      value={form.ultimo_km}
+                      onChange={(e) => setForm({ ...form, ultimo_km: +e.target.value })}
+                    />
+                  </div>
+                  <p className="col-span-2 text-xs text-muted-foreground">
+                    Próximo servicio a los {fmtNumber((form.ultimo_km || 0) + (form.intervalo_km || 0))} km.
+                  </p>
+                </div>
+              )}
+            </div>
+
+            <div className={`rounded-lg border p-3 space-y-3 ${porDias ? "" : "bg-muted/40"}`}>
+              <label className="flex items-center gap-2 cursor-pointer">
+                <Checkbox checked={porDias} onCheckedChange={(v) => setPorDias(v === true)} />
+                <span className="text-sm font-medium">Por días</span>
+              </label>
+              {porDias && (
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <Label>Cada (días)</Label>
+                    <Input
+                      type="number"
+                      min={1}
+                      value={form.intervalo_dias}
+                      onChange={(e) => setForm({ ...form, intervalo_dias: +e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <Label>Último servicio (fecha)</Label>
+                    <Input
+                      type="date"
+                      value={form.ultima_fecha}
+                      onChange={(e) => setForm({ ...form, ultima_fecha: e.target.value })}
+                    />
+                  </div>
+                  {form.ultima_fecha && form.intervalo_dias > 0 && (
+                    <p className="col-span-2 text-xs text-muted-foreground">
+                      Próximo servicio el {fmtDate(addDaysIso(form.ultima_fecha, form.intervalo_dias))}.
+                    </p>
+                  )}
+                </div>
+              )}
+            </div>
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setScheduleOpen(false)}>Cancelar</Button>
-            <Button onClick={saveSchedule}>Guardar</Button>
+            <Button onClick={saveSchedule} disabled={!porKm && !porDias}>Guardar</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
@@ -263,8 +393,10 @@ export default function Mantenimiento() {
               <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}>
                 <SelectTrigger><SelectValue /></SelectTrigger>
                 <SelectContent>
+                  <SelectItem value="preventivo">Preventivo</SelectItem>
                   <SelectItem value="menor">Menor</SelectItem>
                   <SelectItem value="intermedio">Intermedio</SelectItem>
+                  <SelectItem value="mayor">Mayor</SelectItem>
                   <SelectItem value="correctivo">Correctivo</SelectItem>
                 </SelectContent>
               </Select>

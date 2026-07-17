@@ -6,17 +6,20 @@ import { num } from "../utils/numbers";
 
 const tid = (req: Request) => req.user!.tenantId;
 
+const maintenanceTipoSchema = z.enum(["preventivo", "menor", "intermedio", "mayor", "correctivo"]);
+
 const scheduleSchema = z.object({
   truck_id: z.string().min(1),
-  tipo: z.enum(["menor", "intermedio", "correctivo"]),
+  tipo: maintenanceTipoSchema,
   intervalo_km: z.number().int().positive().nullable().optional(),
+  intervalo_dias: z.number().int().positive().nullable().optional(),
   ultimo_km: z.number().int().min(0).optional(),
   ultima_fecha: z.string().nullable().optional(),
 });
 
 const recordSchema = z.object({
   truck_id: z.string().min(1),
-  tipo: z.enum(["menor", "intermedio", "correctivo"]),
+  tipo: maintenanceTipoSchema,
   km_odometro: z.number().int().min(0),
   fecha: z.string().min(1),
   costo: z.number().min(0),
@@ -38,6 +41,7 @@ export const listSchedules = asyncHandler(async (req: Request, res: Response) =>
       truck_id: s.truck_id,
       tipo: s.tipo,
       intervalo_km: s.intervalo_km,
+      intervalo_dias: s.intervalo_dias,
       ultimo_km: s.ultimo_km,
       ultima_fecha: s.ultima_fecha,
       activo: s.activo,
@@ -52,21 +56,21 @@ export const upsertSchedule = asyncHandler(async (req: Request, res: Response) =
     return;
   }
   const row = await maintenanceService.upsertSchedule(tid(req), parsed.data);
+  await maintenanceService.checkMaintenanceAlerts(tid(req));
   res.json({
     id: row.id,
     truck_id: row.truck_id,
     tipo: row.tipo,
     intervalo_km: row.intervalo_km,
+    intervalo_dias: row.intervalo_dias,
     ultimo_km: row.ultimo_km,
     ultima_fecha: row.ultima_fecha,
   });
 });
 
-const scheduleTipoSchema = z.enum(["menor", "intermedio", "correctivo"]);
-
 export const deleteSchedule = asyncHandler(async (req: Request, res: Response) => {
   const truckId = typeof req.query.truck_id === "string" ? req.query.truck_id : "";
-  const tipoParsed = scheduleTipoSchema.safeParse(req.query.tipo);
+  const tipoParsed = maintenanceTipoSchema.safeParse(req.query.tipo);
   if (!truckId || !tipoParsed.success) {
     res.status(400).json({ error: "truck_id y tipo son requeridos" });
     return;

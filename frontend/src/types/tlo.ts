@@ -5,7 +5,7 @@ export type TripLifecycleSlug = "en_curso" | "cerrado";
 export type TripStatus = TripLifecycleSlug;
 export type TripType = "local" | "foraneo";
 export type CommissionType = "porcentaje" | "fijo";
-export type MaintenanceType = "menor" | "intermedio" | "correctivo";
+export type MaintenanceType = "preventivo" | "menor" | "intermedio" | "mayor" | "correctivo";
 export type DiscountType =
   | "prestamo"
   | "dano"
@@ -894,6 +894,7 @@ export interface MaintenanceScheduleRow {
   truck_id: string;
   tipo: MaintenanceType;
   intervalo_km: number | null;
+  intervalo_dias: number | null;
   ultimo_km: number;
   ultima_fecha?: string;
   activo: boolean;
@@ -915,6 +916,15 @@ export interface MaintenanceOverviewUnit {
   numero_economico: string;
   placas: string;
   km_actual: number;
-  proximos: { tipo: MaintenanceType; km_proximo: number; km_restantes: number; vencido: boolean }[];
+  proximos: {
+    tipo: MaintenanceType;
+    km_proximo: number | null;
+    km_restantes: number | null;
+    fecha_proxima: string | null;
+    dias_restantes: number | null;
+    vencido: boolean;
+    vencido_km: boolean;
+    vencido_tiempo: boolean;
+  }[];
   ultimos_registros: { id: string; tipo: MaintenanceType; fecha: string; km_odometro: number; descripcion: string }[];
 }

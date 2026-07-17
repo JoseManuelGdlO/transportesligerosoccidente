@@ -7,7 +7,7 @@ import {
   type Sequelize,
 } from "sequelize";
 
-export type MaintenanceType = "menor" | "intermedio" | "correctivo";
+export type MaintenanceType = "preventivo" | "menor" | "intermedio" | "mayor" | "correctivo";
 
 export class MaintenanceSchedule extends Model<
   InferAttributes<MaintenanceSchedule>,
@@ -18,6 +18,7 @@ export class MaintenanceSchedule extends Model<
   declare truck_id: string;
   declare tipo: MaintenanceType;
   declare intervalo_km: CreationOptional<number | null>;
+  declare intervalo_dias: CreationOptional<number | null>;
   declare ultimo_km: number;
   declare ultima_fecha: CreationOptional<string | null>;
   declare activo: CreationOptional<boolean>;
@@ -31,8 +32,12 @@ export function initMaintenanceSchedule(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       truck_id: { type: DataTypes.CHAR(36), allowNull: false },
-      tipo: { type: DataTypes.ENUM("menor", "intermedio", "correctivo"), allowNull: false },
+      tipo: {
+        type: DataTypes.ENUM("preventivo", "menor", "intermedio", "mayor", "correctivo"),
+        allowNull: false,
+      },
       intervalo_km: { type: DataTypes.INTEGER, allowNull: true },
+      intervalo_dias: { type: DataTypes.INTEGER, allowNull: true },
       ultimo_km: { type: DataTypes.INTEGER, allowNull: false, defaultValue: 0 },
       ultima_fecha: { type: DataTypes.DATEONLY, allowNull: true },
       activo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: true },
