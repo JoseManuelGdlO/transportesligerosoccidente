@@ -434,8 +434,12 @@ export async function getLastClosedKmFinal(
         required: true,
       },
     ],
-    order: [["fecha_llegada", "DESC"]],
-    attributes: ["km_final", "fecha_llegada"],
+    order: [
+      ["km_final", "DESC"],
+      ["createdAt", "DESC"],
+      ["fecha_llegada", "DESC"],
+    ],
+    attributes: ["km_final", "createdAt", "fecha_llegada"],
   });
   return lastTrip?.km_final ?? null;
 }

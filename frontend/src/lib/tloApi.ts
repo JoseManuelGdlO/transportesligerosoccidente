@@ -398,10 +398,8 @@ export function lastClosedKmFromTrips(
         t.km_final != null &&
         t.id !== excludeTripId,
     )
-    .sort(
-      (a, b) =>
-        new Date(b.fecha_llegada ?? 0).getTime() - new Date(a.fecha_llegada ?? 0).getTime(),
-    );
+    // El odómetro solo avanza: el km_final más alto es el último (mismo criterio que el backend).
+    .sort((a, b) => (b.km_final ?? 0) - (a.km_final ?? 0));
   return closed[0]?.km_final ?? null;
 }
 
@@ -411,7 +409,9 @@ export async function fetchTruckLastKm(
 ): Promise<number | null> {
   const qs = excludeTripId ? `?exclude_trip_id=${encodeURIComponent(excludeTripId)}` : "";
   const r = await apiFetch(`/trucks/${truckId}/last-km${qs}`);
-  if (!r.ok) return null;
+  if (!r.ok) {
+    throw new Error(`No se pudo obtener el kilometraje anterior del camión (HTTP ${r.status})`);
+  }
   const j = await readJson<{ km_final: number | null }>(r);
   return j.km_final;
 }

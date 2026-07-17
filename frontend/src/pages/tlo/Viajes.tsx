@@ -1,4 +1,4 @@
-import { useMemo, useState, useEffect, useCallback } from "react";
+import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { computeTrip, driverById, truckById } from "@/lib/calc";
@@ -97,6 +97,27 @@ const MOCK_TRIP_STATUSES: TripStatusRef[] = [SYSTEM_STATUS_EN_CURSO, SYSTEM_STAT
 const FILTER_TODOS = "todos";
 /** Filtro por defecto: viajes en curso (slug hasta resolver el id del catálogo). */
 const FILTER_EN_CURSO = "en_curso";
+
+const FILTERS_STORAGE_KEY = "tlo.viajes.filters";
+
+type StoredFilters = {
+  status?: string;
+  driver?: string;
+  truck?: string;
+  client?: string;
+  tipoViaje?: string;
+  fechaDesde?: string;
+  fechaHasta?: string;
+};
+
+function loadStoredFilters(): StoredFilters {
+  try {
+    const raw = localStorage.getItem(FILTERS_STORAGE_KEY);
+    return raw ? (JSON.parse(raw) as StoredFilters) : {};
+  } catch {
+    return {};
+  }
+}
 
 function tripMatchesStatusFilter(trip: Trip, filter: string): boolean {
   if (filter === FILTER_TODOS) return true;
@@ -226,14 +247,18 @@ export default function Viajes() {
   const apiMode = hasApiConfigured();
   const canManageStatuses = hasPermission("catalogos.editar");
 
+  const [storedFilters] = useState<StoredFilters>(loadStoredFilters);
   const [tripStatuses, setTripStatuses] = useState<TripStatusRef[]>(MOCK_TRIP_STATUSES);
-  const [filterStatus, setFilterStatus] = useState<string>(FILTER_EN_CURSO);
-  const [filterDriver, setFilterDriver] = useState<string>(FILTER_TODOS);
-  const [filterTruck, setFilterTruck] = useState<string>(FILTER_TODOS);
-  const [filterClient, setFilterClient] = useState<string>(FILTER_TODOS);
-  const [filterTipoViaje, setFilterTipoViaje] = useState<string>(FILTER_TODOS);
-  const [filterFechaDesde, setFilterFechaDesde] = useState("");
-  const [filterFechaHasta, setFilterFechaHasta] = useState("");
+  const [statusesReady, setStatusesReady] = useState(!apiMode);
+  const [filterStatus, setFilterStatus] = useState<string>(storedFilters.status ?? FILTER_EN_CURSO);
+  const [filterDriver, setFilterDriver] = useState<string>(storedFilters.driver ?? FILTER_TODOS);
+  const [filterTruck, setFilterTruck] = useState<string>(storedFilters.truck ?? FILTER_TODOS);
+  const [filterClient, setFilterClient] = useState<string>(storedFilters.client ?? FILTER_TODOS);
+  const [filterTipoViaje, setFilterTipoViaje] = useState<string>(
+    storedFilters.tipoViaje ?? FILTER_TODOS,
+  );
+  const [filterFechaDesde, setFilterFechaDesde] = useState(storedFilters.fechaDesde ?? "");
+  const [filterFechaHasta, setFilterFechaHasta] = useState(storedFilters.fechaHasta ?? "");
   const [search, setSearch] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
@@ -273,9 +298,11 @@ export default function Viajes() {
         setTripStatuses(MOCK_TRIP_STATUSES);
       } finally {
         setStatusesLoading(false);
+        setStatusesReady(true);
       }
     } else {
       setTripStatuses(MOCK_TRIP_STATUSES);
+      setStatusesReady(true);
     }
   }, [apiMode]);
 
@@ -294,7 +321,7 @@ export default function Viajes() {
   );
 
   useEffect(() => {
-    if (!enCursoStatusId) return;
+    if (!statusesReady || !enCursoStatusId) return;
     const validIds = new Set(tripStatuses.map((s) => s.id));
     const needsSync =
       filterStatus === FILTER_EN_CURSO ||
@@ -302,7 +329,7 @@ export default function Viajes() {
       !filterStatus ||
       (filterStatus !== FILTER_TODOS && !validIds.has(filterStatus));
     if (needsSync) setFilterStatus(enCursoStatusId);
-  }, [enCursoStatusId, filterStatus, tripStatuses]);
+  }, [statusesReady, enCursoStatusId, filterStatus, tripStatuses]);
 
   const statusFilterSelectValue = useMemo(() => {
     if (filterStatus === FILTER_TODOS) return FILTER_TODOS;
@@ -348,6 +375,11 @@ export default function Viajes() {
     else setCatalogRoutes([]);
   }, [form.client_id, loadRoutes]);
 
+  // Ref para que el efecto de km no se re-ejecute (y pise ediciones manuales)
+  // cuando la lista de viajes se refresca en segundo plano.
+  const tripsRef = useRef(trips);
+  tripsRef.current = trips;
+
   useEffect(() => {
     if (!form.truck_id) {
       setForm((f) => (f.km_inicial === 0 ? f : { ...f, km_inicial: 0 }));
@@ -359,9 +391,17 @@ export default function Viajes() {
       try {
         const km = apiMode
           ? await fetchTruckLastKm(form.truck_id)
-          : lastClosedKmFromTrips(trips, form.truck_id);
+          : lastClosedKmFromTrips(tripsRef.current, form.truck_id);
         if (!cancelled) {
           setForm((f) => ({ ...f, km_inicial: km ?? 0 }));
+        }
+      } catch (e) {
+        if (!cancelled) {
+          toast.error(
+            e instanceof Error
+              ? e.message
+              : "No se pudo obtener el kilometraje anterior del camión",
+          );
         }
       } finally {
         if (!cancelled) setKmLoading(false);
@@ -370,7 +410,7 @@ export default function Viajes() {
     return () => {
       cancelled = true;
     };
-  }, [form.truck_id, apiMode, trips]);
+  }, [form.truck_id, apiMode]);
 
   const applyRoute = (routeId: string) => {
     setSelectedRouteId(routeId);
@@ -411,15 +451,16 @@ export default function Viajes() {
     setFilterFechaHasta(isoDay(endOfWeek(today)));
   }, []);
 
-  const hasActiveFilters = useMemo(() => {
+  const activeFiltersCount = useMemo(() => {
     const defaultStatus = enCursoStatusId ?? FILTER_EN_CURSO;
-    if (filterStatus !== FILTER_TODOS && filterStatus !== defaultStatus) return true;
-    if (filterClient !== FILTER_TODOS) return true;
-    if (filterTipoViaje !== FILTER_TODOS) return true;
-    if (filterFechaDesde || filterFechaHasta) return true;
-    if (filterDriver !== FILTER_TODOS) return true;
-    if (filterTruck !== FILTER_TODOS) return true;
-    return false;
+    let count = 0;
+    if (filterStatus !== FILTER_TODOS && filterStatus !== defaultStatus) count++;
+    if (filterClient !== FILTER_TODOS) count++;
+    if (filterTipoViaje !== FILTER_TODOS) count++;
+    if (filterFechaDesde || filterFechaHasta) count++;
+    if (filterDriver !== FILTER_TODOS) count++;
+    if (filterTruck !== FILTER_TODOS) count++;
+    return count;
   }, [
     filterStatus,
     filterClient,
@@ -429,6 +470,32 @@ export default function Viajes() {
     filterDriver,
     filterTruck,
     enCursoStatusId,
+  ]);
+  const hasActiveFilters = activeFiltersCount > 0;
+
+  useEffect(() => {
+    const stored: StoredFilters = {
+      status: filterStatus,
+      driver: filterDriver,
+      truck: filterTruck,
+      client: filterClient,
+      tipoViaje: filterTipoViaje,
+      fechaDesde: filterFechaDesde,
+      fechaHasta: filterFechaHasta,
+    };
+    try {
+      localStorage.setItem(FILTERS_STORAGE_KEY, JSON.stringify(stored));
+    } catch {
+      // localStorage no disponible (p. ej. modo privado restringido)
+    }
+  }, [
+    filterStatus,
+    filterDriver,
+    filterTruck,
+    filterClient,
+    filterTipoViaje,
+    filterFechaDesde,
+    filterFechaHasta,
   ]);
 
   const rows = useMemo(() => {
@@ -614,8 +681,8 @@ export default function Viajes() {
                 <SlidersHorizontal className="h-4 w-4" />
                 Filtros
                 {hasActiveFilters && (
-                  <Badge variant="secondary" className="ml-0.5 h-5 min-w-5 px-1.5 text-[10px]">
-                    ·
+                  <Badge className="ml-0.5 h-5 min-w-5 justify-center rounded-full px-1.5 text-[10px] bg-primary text-primary-foreground">
+                    {activeFiltersCount}
                   </Badge>
                 )}
                 <ChevronDown
