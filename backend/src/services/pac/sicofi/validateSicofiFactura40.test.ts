@@ -3,6 +3,23 @@ import { describe, it } from "node:test";
 import { validateSicofiFactura40 } from "./validateSicofiFactura40";
 import type { TimbradoContext } from "../types";
 
+function ubicacionCompleta(orden: number, cp: string, distancia_km?: string) {
+  return {
+    orden,
+    rfc: orden === 1 ? "AAA010101AAA" : "BBB010101BBB",
+    nombre: orden === 1 ? "Origen SA" : "Destino SA",
+    cp,
+    estado: "JAL",
+    municipio_clave: "097",
+    municipio: "Tlajomulco de Zaragoza",
+    localidad_clave: "11",
+    localidad: "Tlajomulco de Zaragoza",
+    colonia_clave: "4535",
+    colonia: "Arbolada Bosques de Santa Anita",
+    ...(distancia_km ? { distancia_km } : {}),
+  };
+}
+
 function baseCtx(
   overrides: Partial<TimbradoContext> & {
     ubicaciones?: TimbradoContext["ubicaciones"];
@@ -21,8 +38,8 @@ function baseCtx(
     } as TimbradoContext["tenant"],
     cartaPorte: {} as TimbradoContext["cartaPorte"],
     ubicaciones: [
-      { orden: 1, rfc: "AAA010101AAA", nombre: "Origen SA", cp: "44100" },
-      { orden: 2, rfc: "BBB010101BBB", nombre: "Destino SA", cp: "45010", distancia_km: "10" },
+      ubicacionCompleta(1, "45645"),
+      ubicacionCompleta(2, "45010", "10"),
     ] as TimbradoContext["ubicaciones"],
     mercancias: [
       {
@@ -59,17 +76,17 @@ function baseCtx(
   };
 }
 
-describe("validateSicofiFactura40 ubicaciones simplificadas", () => {
-  it("no exige colonia ni municipio", () => {
-    const issues = validateSicofiFactura40(baseCtx());
+describe("validateSicofiFactura40 ubicaciones", () => {
+  it("exige colonia, municipio y estado cuando el domicilio está completo en claves", async () => {
+    const issues = await validateSicofiFactura40(baseCtx());
     assert.equal(
-      issues.some((i) => i.includes("colonia") || i.includes("municipio")),
+      issues.some((i) => i.includes("colonia") || i.includes("municipio") || i.includes("estado")),
       false,
     );
   });
 
-  it("exige razón social y código postal por ubicación", () => {
-    const issues = validateSicofiFactura40(
+  it("exige razón social, código postal y domicilio SAT", async () => {
+    const issues = await validateSicofiFactura40(
       baseCtx({
         ubicaciones: [
           { orden: 1, rfc: "AAA010101AAA", cp: "44100" },
@@ -85,5 +102,8 @@ describe("validateSicofiFactura40 ubicaciones simplificadas", () => {
     );
     assert.ok(issues.some((i) => i.includes("falta razón social")));
     assert.ok(issues.some((i) => i.includes("falta código postal")));
+    assert.ok(issues.some((i) => i.includes("falta estado")));
+    assert.ok(issues.some((i) => i.includes("falta municipio")));
+    assert.ok(issues.some((i) => i.includes("falta colonia")));
   });
 });

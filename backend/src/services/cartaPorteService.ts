@@ -25,6 +25,7 @@ import {
   normalizeFiscalUbicaciones,
   resolveIdUbicacionSat,
 } from "./tripFiscalService";
+import { enrichUbicacionesDomicilio } from "./postalia/enrichUbicacionesDomicilio";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml } from "./cfdiPdf";
 
@@ -311,12 +312,17 @@ export async function previewCartaPorte(
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
-  const ubicaciones = normalizeFiscalUbicaciones(
+  let ubicaciones = normalizeFiscalUbicaciones(
     (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [],
   );
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const isSicofi = (tenant.pac_proveedor || "").toLowerCase() === "sicofi";
-  let issues = validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver, client);
+
+  const enriched = await enrichUbicacionesDomicilio(tenantId, tripId, ubicaciones);
+  ubicaciones = enriched.ubicaciones;
+  let issues = [...enriched.issues];
+
+  issues = [...issues, ...validateCartaPorteData(trip, tenant, ubicaciones, mercancias, truck, driver, client)];
   const catalogIssues = await validateMercanciasCatalog(mercancias);
   issues = [...issues, ...catalogIssues];
   if (isSicofi) {
@@ -341,7 +347,7 @@ export async function previewCartaPorte(
       satMaterialPeligrosoByClave,
     );
     if (isSicofi) {
-      const sicofiIssues = validateSicofiFactura40(ctx);
+      const sicofiIssues = await validateSicofiFactura40(ctx);
       issues = [...issues, ...sicofiIssues];
       if (issues.length === 0) {
         payload_preview = buildFactura40Payload(ctx) as unknown as Record<string, unknown>;

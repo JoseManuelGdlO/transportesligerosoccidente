@@ -221,6 +221,62 @@ export async function searchEstados(q: string, limit = 20): Promise<SatEstadoDto
   return rows.map(toEstadoDto);
 }
 
+export async function findMunicipioByDescripcion(
+  descripcion: string,
+  estado?: string,
+  limit = 20,
+): Promise<SatMunicipioDto | null> {
+  const term = descripcion.trim();
+  if (term.length < 2) return null;
+
+  const capped = capLimit(limit);
+  const estadoNorm = estado?.trim().toUpperCase();
+  const where = estadoNorm
+    ? {
+        estado: estadoNorm,
+        [Op.or]: [
+          { descripcion: { [Op.like]: `%${term}%` } },
+          { clave: { [Op.like]: `${term}%` } },
+        ],
+      }
+    : {
+        [Op.or]: [
+          { descripcion: { [Op.like]: `%${term}%` } },
+          { clave: { [Op.like]: `${term}%` } },
+        ],
+      };
+
+  const rows = await SatMunicipio.findAll({
+    where,
+    order: [
+      ["estado", "ASC"],
+      ["descripcion", "ASC"],
+    ],
+    limit: capped,
+  });
+  if (!rows.length) return null;
+  return toMunicipioDto(rows[0]);
+}
+
+export async function listColoniasByCp(cp: string, limit = 50): Promise<SatColoniaDto[]> {
+  const cpNorm = cp.trim();
+  if (!/^\d{5}$/.test(cpNorm)) return [];
+
+  const rows = await SatColonia.findAll({
+    where: { codigo_postal: cpNorm },
+    order: [["nombre", "ASC"]],
+    limit: capLimit(limit),
+  });
+  return rows.map(toColoniaDto);
+}
+
+export async function hasLocalidadesForEstado(estado: string): Promise<boolean> {
+  const estadoNorm = estado.trim().toUpperCase();
+  if (!estadoNorm) return false;
+  const count = await SatLocalidad.count({ where: { estado: estadoNorm } });
+  return count > 0;
+}
+
 export async function getEstado(
   clave: string,
   municipioClave?: string,

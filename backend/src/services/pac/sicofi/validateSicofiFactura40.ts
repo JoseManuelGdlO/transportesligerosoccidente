@@ -4,6 +4,8 @@ import { bienesTranspCpIssue, configVehicularIssue, permSctIssue } from "../../.
 import type { TimbradoContext } from "../types";
 import { isPublicoGeneralReceptor } from "./publicoGeneral";
 import { normalizeFiscalUbicaciones } from "../../tripFiscalService";
+import { hasLocalidadesForEstado } from "../../satUbicacionCatalogService";
+import { isValidEstadoSatCode } from "../../postalia/domicilioSatResolver";
 
 /**
  * Validaciones pre-timbrado específicas de Sicofi Factura40 y reglas SAT frecuentes.
@@ -14,7 +16,7 @@ import { normalizeFiscalUbicaciones } from "../../tripFiscalService";
  * @param ctx - Contexto del viaje a timbrar.
  * @returns Lista vacía si todo es válido; mensajes descriptivos si hay problemas.
  */
-export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
+export async function validateSicofiFactura40(ctx: TimbradoContext): Promise<string[]> {
   const issues: string[] = [];
   const { tipo, trip, tenant, ubicaciones, mercancias, truck, driver, client } = ctx;
 
@@ -42,6 +44,19 @@ export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
     }
     if (!u.cp?.trim()) {
       issues.push(`Ubicación ${label}: falta código postal`);
+    }
+    if (!isValidEstadoSatCode(u.estado)) {
+      issues.push(`Ubicación ${label}: falta estado (clave SAT)`);
+    }
+    if (!u.municipio_clave?.trim() && !u.municipio?.trim()) {
+      issues.push(`Ubicación ${label}: falta municipio o clave SAT`);
+    }
+    if (!u.colonia_clave?.trim() && !u.colonia?.trim()) {
+      issues.push(`Ubicación ${label}: falta colonia o clave SAT`);
+    }
+    const estado = u.estado?.trim().toUpperCase() ?? "";
+    if (estado && (await hasLocalidadesForEstado(estado)) && !u.localidad_clave?.trim() && !u.localidad?.trim()) {
+      issues.push(`Ubicación ${label}: falta localidad o clave SAT`);
     }
   }
 
