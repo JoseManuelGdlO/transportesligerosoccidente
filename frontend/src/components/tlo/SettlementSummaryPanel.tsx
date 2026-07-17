@@ -17,7 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
-import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins, CircleMinus } from "lucide-react";
+import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins, CircleMinus, CircleDollarSign } from "lucide-react";
 
 export interface AdvanceFormState {
   monto: number;
@@ -114,16 +114,12 @@ export function SettlementSummaryPanel({
 
   const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
   const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
-  const mdColsClass =
-    viaticosFavor > 0 && viaticosDeduccion > 0
-      ? "md:grid-cols-7"
-      : viaticosFavor > 0 || viaticosDeduccion > 0
-        ? "md:grid-cols-6"
-        : "md:grid-cols-5";
+  const cuentaAbonos = summary.total_cuenta_abonos ?? 0;
+  const accountApps = summary.account_applications ?? [];
 
   return (
     <div className="space-y-4">
-      <div className={`grid grid-cols-2 gap-3 ${mdColsClass}`}>
+      <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,180px),1fr))] gap-3">
         <KpiCard label="Viajes" labelClassName="text-[10px] leading-tight" value={String(includedTripCount)} icon={TruckIcon} tone="default" />
         <KpiCard label="Comisiones" labelClassName="text-[10px] leading-tight" value={fmtMXN(summary.total_comisiones)} icon={Wallet} tone="accent" />
         <KpiCard
@@ -151,6 +147,15 @@ export function SettlementSummaryPanel({
             tone="destructive"
           />
         ) : null}
+        {cuentaAbonos > 0 ? (
+          <KpiCard
+            label="Cuenta operador"
+            labelClassName="text-[10px] leading-tight"
+            value={fmtMXN(cuentaAbonos)}
+            icon={CircleDollarSign}
+            tone="destructive"
+          />
+        ) : null}
         <KpiCard
           label="Descuentos + anticipos"
           labelClassName="text-[10px] leading-tight"
@@ -175,6 +180,24 @@ export function SettlementSummaryPanel({
         <p className="text-sm text-muted-foreground">
           Se descontaron {fmtMXN(viaticosDeduccion)} al operador por viáticos entregados sin comprobar.
         </p>
+      ) : null}
+      {cuentaAbonos > 0 ? (
+        <div className="rounded-md border bg-muted/30 px-3 py-2 space-y-1">
+          <p className="text-sm text-muted-foreground">
+            Se descontarán {fmtMXN(cuentaAbonos)} de la cuenta del operador (cuotas de incidencias/préstamos, sin dejar
+            el neto negativo).
+          </p>
+          {accountApps.length > 0 ? (
+            <ul className="text-xs text-muted-foreground list-disc pl-4">
+              {accountApps.map((a) => (
+                <li key={a.item_id}>
+                  <span className="capitalize">{a.tipo}</span> — {a.concepto}: {fmtMXN(a.monto)} (saldo{" "}
+                  {fmtMXN(a.saldo_antes)} → {fmtMXN(a.saldo_despues)})
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </div>
       ) : null}
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">

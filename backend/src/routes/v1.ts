@@ -332,6 +332,37 @@ r.delete(
   driverFinanceC.deleteCompensation,
 );
 
+r.get(
+  "/drivers/:id/account",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.getAccount,
+);
+r.post(
+  "/drivers/:id/account/items",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createAccountDebt,
+);
+r.get(
+  "/drivers/:id/account/items/:itemId",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.getAccountDebt,
+);
+r.post(
+  "/drivers/:id/account/items/:itemId/payments",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createAccountPayment,
+);
+r.post(
+  "/drivers/:id/account/items/:itemId/cancel",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.cancelAccountDebt,
+);
+
 r.get("/maintenance/overview", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.getOverview);
 r.get("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listSchedules);
 r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.upsertSchedule);

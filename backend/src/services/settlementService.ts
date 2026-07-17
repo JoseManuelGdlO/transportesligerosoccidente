@@ -1,10 +1,24 @@
 import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
-import { Driver, Trip, Settlement, DriverAdvance, DriverDiscount, DriverCompensation } from "../models";
+import {
+  sequelize,
+  Driver,
+  Trip,
+  Settlement,
+  DriverAdvance,
+  DriverDiscount,
+  DriverCompensation,
+} from "../models";
 import {
   computeSettlementTotals,
   filterEligibleSettlementTrips,
+  computeNetoPagar,
 } from "./calc";
+import {
+  loadActiveAccountItemBalances,
+  computeAccountApplicationsForNeto,
+  applySettlementAccountInstallments,
+} from "./driverAccountService";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 
@@ -110,11 +124,24 @@ export async function settlementSummary(
   const includedTrips = eligible
     .filter((e) => inclusionMap.get(String(e.trip.id)) !== false)
     .map((e) => e.trip);
-  const totals = computeSettlementTotals(driver, includedTrips, {
+
+  const baseTotals = computeSettlementTotals(driver, includedTrips, {
     total_anticipos,
     total_descuentos,
     total_compensaciones,
+    total_cuenta_abonos: 0,
   });
+  const netoBase = computeNetoPagar({
+    total_comisiones: baseTotals.total_comisiones,
+    saldo_viaticos: baseTotals.saldo_viaticos,
+    total_compensaciones,
+    total_descuentos,
+    total_anticipos,
+    total_cuenta_abonos: 0,
+  });
+
+  const { items: accountItems } = await loadActiveAccountItemBalances(tenantId, driverId);
+  const accountPreview = computeAccountApplicationsForNeto(netoBase, accountItems);
 
   return {
     driver: {
@@ -126,7 +153,11 @@ export async function settlementSummary(
       estatus: driver.estatus,
     },
     periodo: { inicio: inicioStr, fin: finStr },
-    ...totals,
+    ...baseTotals,
+    total_cuenta_abonos: accountPreview.total_cuenta_abonos,
+    neto_pagar: accountPreview.neto_pagar,
+    account_items: accountItems,
+    account_applications: accountPreview.applications,
     advances: advances.map((a) => ({
       id: a.id,
       monto: num(a.monto),
@@ -285,52 +316,124 @@ export async function closeSettlement(
     throw err;
   }
 
-  let row = settlementId
+  let draft = settlementId
     ? await Settlement.findOne({ where: { id: settlementId, tenant_id: tenantId, cerrado: false } })
     : null;
 
   let inclusions = tripInclusions;
-  if (tripInclusions === undefined && row?.snapshot) {
-    const fromSnapshot = inclusionMapFromSnapshot(row.snapshot as Record<string, unknown>);
+  if (tripInclusions === undefined && draft?.snapshot) {
+    const fromSnapshot = inclusionMapFromSnapshot(draft.snapshot as Record<string, unknown>);
     if (fromSnapshot) inclusions = tripInclusionsFromMap(fromSnapshot);
   }
 
   const summaryData = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, inclusions);
   const tripIds = (summaryData.trips as { id: string; included?: boolean }[])
-    .filter((t) => t.included !== false)
-    .map((t) => t.id);
+    .filter((trip) => trip.included !== false)
+    .map((trip) => trip.id);
 
-  if (row) {
-    await row.update({
-      cerrado: true,
-      cerrado_at: new Date(),
-      snapshot: summaryData,
-    } as never);
-  } else {
-    row = await Settlement.create({
-      id: randomUUID(),
-      tenant_id: tenantId,
-      driver_id: driverId,
-      fecha_inicio: fechaInicio,
-      fecha_fin: fechaFin,
-      cerrado: true,
-      cerrado_at: new Date(),
-      snapshot: summaryData,
-    } as never);
-  }
+  return sequelize.transaction(async (t) => {
+    const stillClosed = await Settlement.findOne({
+      where: {
+        tenant_id: tenantId,
+        driver_id: driverId,
+        fecha_inicio: fechaInicio,
+        fecha_fin: fechaFin,
+        cerrado: true,
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (stillClosed) {
+      const err = new Error("Liquidación ya cerrada para este periodo");
+      (err as Error & { status?: number }).status = 409;
+      throw err;
+    }
 
-  const sid = row!.id;
-  if (tripIds.length > 0) {
-    await Trip.update({ settlement_id: sid }, { where: { id: { [Op.in]: tripIds }, tenant_id: tenantId } });
-  }
+    let row = settlementId
+      ? await Settlement.findOne({
+          where: { id: settlementId, tenant_id: tenantId, cerrado: false },
+          transaction: t,
+          lock: t.LOCK.UPDATE,
+        })
+      : null;
 
-  const { advancesInPeriod, discountsInPeriod, compensationsInPeriod } =
-    await pendingAdvancesDiscountsAndCompensations(tenantId, driverId, fechaInicio, fechaFin);
-  for (const a of advancesInPeriod) await a.update({ settlement_id: sid } as never);
-  for (const d of discountsInPeriod) await d.update({ settlement_id: sid } as never);
-  for (const c of compensationsInPeriod) await c.update({ settlement_id: sid } as never);
+    // Recalcula las cuotas con los saldos bloqueados dentro de la transacción:
+    // un pago directo simultáneo (posterior al preview) reduce el saldo y el
+    // snapshot debe reflejar el importe realmente aplicado.
+    const netoBase = computeNetoPagar({
+      total_comisiones: num(summaryData.total_comisiones),
+      saldo_viaticos: num(summaryData.saldo_viaticos),
+      total_compensaciones: num(summaryData.total_compensaciones),
+      total_descuentos: num(summaryData.total_descuentos),
+      total_anticipos: num(summaryData.total_anticipos),
+      total_cuenta_abonos: 0,
+    });
+    const { items: freshItems } = await loadActiveAccountItemBalances(tenantId, driverId, {
+      transaction: t,
+      lock: true,
+    });
+    const freshPreview = computeAccountApplicationsForNeto(netoBase, freshItems);
+    summaryData.total_cuenta_abonos = freshPreview.total_cuenta_abonos;
+    summaryData.neto_pagar = freshPreview.neto_pagar;
+    summaryData.account_items = freshItems;
+    summaryData.account_applications = freshPreview.applications;
 
-  return row!;
+    if (row) {
+      await row.update(
+        {
+          cerrado: true,
+          cerrado_at: new Date(),
+          snapshot: summaryData,
+        } as never,
+        { transaction: t },
+      );
+    } else {
+      row = await Settlement.create(
+        {
+          id: randomUUID(),
+          tenant_id: tenantId,
+          driver_id: driverId,
+          fecha_inicio: fechaInicio,
+          fecha_fin: fechaFin,
+          cerrado: true,
+          cerrado_at: new Date(),
+          snapshot: summaryData,
+        } as never,
+        { transaction: t },
+      );
+    }
+
+    const sid = row!.id;
+    if (tripIds.length > 0) {
+      await Trip.update(
+        { settlement_id: sid },
+        {
+          where: {
+            id: { [Op.in]: tripIds },
+            tenant_id: tenantId,
+            settlement_id: null,
+          },
+          transaction: t,
+        },
+      );
+    }
+
+    const { advancesInPeriod, discountsInPeriod, compensationsInPeriod } =
+      await pendingAdvancesDiscountsAndCompensations(tenantId, driverId, fechaInicio, fechaFin);
+    for (const a of advancesInPeriod) {
+      await a.update({ settlement_id: sid } as never, { transaction: t });
+    }
+    for (const d of discountsInPeriod) {
+      await d.update({ settlement_id: sid } as never, { transaction: t });
+    }
+    for (const c of compensationsInPeriod) {
+      await c.update({ settlement_id: sid } as never, { transaction: t });
+    }
+
+    await applySettlementAccountInstallments(tenantId, driverId, sid, fechaFin, freshPreview.applications, t);
+
+    return row!;
+  });
 }
 
 export async function closeSettlementById(

@@ -4,6 +4,13 @@ import type { Request, Response } from "express";
 import { Driver, DriverAdvance, DriverDiscount, DriverCompensation } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { num } from "../utils/numbers";
+import {
+  getDriverAccountSummary,
+  createAccountItem,
+  createDirectPayment,
+  getAccountItemDetail,
+  cancelAccountItem,
+} from "../services/driverAccountService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -35,6 +42,20 @@ const compensationSchema = z.object({
   monto: z.number().positive(),
   fecha: z.string().min(1),
   descripcion: z.string().optional(),
+});
+
+const accountItemSchema = z.object({
+  tipo: z.enum(["incidencia", "prestamo"]),
+  concepto: z.string().min(1).max(512),
+  monto_original: z.number().positive(),
+  cuota_liquidacion: z.number().positive(),
+  fecha: z.string().min(1),
+});
+
+const directPaymentSchema = z.object({
+  monto: z.number().positive(),
+  fecha: z.string().min(1),
+  nota: z.string().max(512).optional(),
 });
 
 export const listAdvances = asyncHandler(async (req: Request, res: Response) => {
@@ -212,4 +233,39 @@ export const deleteCompensation = asyncHandler(async (req: Request, res: Respons
   }
   await row.destroy();
   res.status(204).send();
+});
+
+export const getAccount = asyncHandler(async (req: Request, res: Response) => {
+  const summary = await getDriverAccountSummary(tid(req), req.params.id);
+  res.json(summary);
+});
+
+export const createAccountDebt = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = accountItemSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await createAccountItem(tid(req), req.params.id, parsed.data);
+  res.status(201).json(row);
+});
+
+export const getAccountDebt = asyncHandler(async (req: Request, res: Response) => {
+  const row = await getAccountItemDetail(tid(req), req.params.id, req.params.itemId);
+  res.json(row);
+});
+
+export const createAccountPayment = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = directPaymentSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await createDirectPayment(tid(req), req.params.id, req.params.itemId, parsed.data);
+  res.status(201).json(row);
+});
+
+export const cancelAccountDebt = asyncHandler(async (req: Request, res: Response) => {
+  const row = await cancelAccountItem(tid(req), req.params.id, req.params.itemId);
+  res.json(row);
 });

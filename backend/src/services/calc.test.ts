@@ -1,6 +1,12 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { computeNetoPagar, computeSettlementTotals, viaticosAFavor, viaticosNoComprobado } from "./calc";
+import {
+  computeNetoPagar,
+  computeSettlementTotals,
+  previewAccountInstallments,
+  viaticosAFavor,
+  viaticosNoComprobado,
+} from "./calc";
 import type { Trip } from "../models/Trip";
 
 const driver = {
@@ -47,6 +53,17 @@ describe("computeNetoPagar", () => {
       4800,
     );
   });
+
+  it("resta total_cuenta_abonos del neto", () => {
+    assert.equal(
+      computeNetoPagar({
+        total_comisiones: 5000,
+        saldo_viaticos: 0,
+        total_cuenta_abonos: 500,
+      }),
+      4500,
+    );
+  });
 });
 
 describe("viaticos helpers", () => {
@@ -58,6 +75,71 @@ describe("viaticos helpers", () => {
   it("viaticosNoComprobado solo devuelve déficit", () => {
     assert.equal(viaticosNoComprobado(-200), 200);
     assert.equal(viaticosNoComprobado(200), 0);
+  });
+});
+
+describe("previewAccountInstallments", () => {
+  const items = [
+    {
+      id: "a",
+      tipo: "incidencia",
+      concepto: "Llanta",
+      monto_original: 3000,
+      cuota_liquidacion: 500,
+      saldo: 3000,
+      fecha: "2026-01-01",
+    },
+    {
+      id: "b",
+      tipo: "prestamo",
+      concepto: "Préstamo",
+      monto_original: 1000,
+      cuota_liquidacion: 400,
+      saldo: 1000,
+      fecha: "2026-02-01",
+    },
+  ];
+
+  it("aplica cuotas FIFO cuando hay neto suficiente", () => {
+    const { applications, total } = previewAccountInstallments(2000, items);
+    assert.equal(total, 900);
+    assert.equal(applications.length, 2);
+    assert.equal(applications[0]?.item_id, "a");
+    assert.equal(applications[0]?.monto, 500);
+    assert.equal(applications[0]?.saldo_despues, 2500);
+    assert.equal(applications[1]?.item_id, "b");
+    assert.equal(applications[1]?.monto, 400);
+  });
+
+  it("reparte neto parcial al adeudo más antiguo", () => {
+    const { applications, total } = previewAccountInstallments(300, items);
+    assert.equal(total, 300);
+    assert.equal(applications.length, 1);
+    assert.equal(applications[0]?.item_id, "a");
+    assert.equal(applications[0]?.monto, 300);
+  });
+
+  it("no aplica nada si el neto es cero o negativo", () => {
+    assert.equal(previewAccountInstallments(0, items).total, 0);
+    assert.equal(previewAccountInstallments(-100, items).total, 0);
+  });
+
+  it("el último abono puede ser menor que la cuota", () => {
+    const almostDone = [
+      {
+        id: "a",
+        tipo: "incidencia",
+        concepto: "Llanta",
+        monto_original: 3000,
+        cuota_liquidacion: 500,
+        saldo: 200,
+        fecha: "2026-01-01",
+      },
+    ];
+    const { applications, total } = previewAccountInstallments(1000, almostDone);
+    assert.equal(total, 200);
+    assert.equal(applications[0]?.monto, 200);
+    assert.equal(applications[0]?.saldo_despues, 0);
   });
 });
 

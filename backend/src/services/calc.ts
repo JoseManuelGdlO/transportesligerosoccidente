@@ -113,6 +113,7 @@ export interface SettlementSummary {
   total_descuentos: number;
   total_anticipos: number;
   total_compensaciones: number;
+  total_cuenta_abonos: number;
   neto_pagar: number;
 }
 
@@ -126,22 +127,87 @@ export function viaticosNoComprobado(saldoViaticos: number): number {
   return Math.max(0, -saldoViaticos);
 }
 
+export function roundMoney(n: number): number {
+  return Math.round((n + Number.EPSILON) * 100) / 100;
+}
+
+export interface AccountItemBalance {
+  id: string;
+  tipo: "incidencia" | "prestamo" | string;
+  concepto: string;
+  monto_original: number;
+  cuota_liquidacion: number;
+  saldo: number;
+  fecha: string;
+}
+
+export interface AccountApplication {
+  item_id: string;
+  tipo: string;
+  concepto: string;
+  monto: number;
+  saldo_antes: number;
+  saldo_despues: number;
+}
+
+/**
+ * Aplica cuotas FIFO sobre el neto disponible (nunca negativo).
+ * Por cada adeudo: min(cuota, saldo, disponible restante).
+ */
+export function previewAccountInstallments(
+  netoDisponible: number,
+  items: AccountItemBalance[],
+): { applications: AccountApplication[]; total: number } {
+  let disponible = roundMoney(Math.max(0, netoDisponible));
+  const applications: AccountApplication[] = [];
+  const ordered = [...items]
+    .filter((i) => i.saldo > 0 && i.cuota_liquidacion > 0)
+    .sort((a, b) => {
+      const byFecha = a.fecha.localeCompare(b.fecha);
+      if (byFecha !== 0) return byFecha;
+      return a.id.localeCompare(b.id);
+    });
+
+  for (const item of ordered) {
+    if (disponible <= 0) break;
+    const saldo = roundMoney(item.saldo);
+    const cuota = roundMoney(item.cuota_liquidacion);
+    const monto = roundMoney(Math.min(cuota, saldo, disponible));
+    if (monto <= 0) continue;
+    applications.push({
+      item_id: item.id,
+      tipo: item.tipo,
+      concepto: item.concepto,
+      monto,
+      saldo_antes: saldo,
+      saldo_despues: roundMoney(saldo - monto),
+    });
+    disponible = roundMoney(disponible - monto);
+  }
+
+  const total = roundMoney(applications.reduce((a, x) => a + x.monto, 0));
+  return { applications, total };
+}
+
 export function computeNetoPagar(opts: {
   total_comisiones: number;
   saldo_viaticos: number;
   total_compensaciones?: number;
   total_descuentos?: number;
   total_anticipos?: number;
+  total_cuenta_abonos?: number;
 }): number {
   const total_compensaciones = opts.total_compensaciones ?? 0;
   const total_descuentos = opts.total_descuentos ?? 0;
   const total_anticipos = opts.total_anticipos ?? 0;
-  return (
+  const total_cuenta_abonos = opts.total_cuenta_abonos ?? 0;
+  return roundMoney(
     opts.total_comisiones +
-    total_compensaciones +
-    opts.saldo_viaticos -
-    total_descuentos -
-    total_anticipos
+      total_compensaciones +
+      opts.saldo_viaticos -
+      total_descuentos -
+      total_anticipos -
+      total_cuenta_abonos,
   );
 }
 
@@ -171,7 +237,12 @@ export function filterEligibleSettlementTrips(
 export function computeSettlementTotals(
   driver: Driver,
   trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
-  opts?: { total_descuentos?: number; total_anticipos?: number; total_compensaciones?: number },
+  opts?: {
+    total_descuentos?: number;
+    total_anticipos?: number;
+    total_compensaciones?: number;
+    total_cuenta_abonos?: number;
+  },
 ): Omit<SettlementSummary, "trips"> {
   let total_ingresos = 0;
   let total_comisiones = 0;
@@ -190,12 +261,14 @@ export function computeSettlementTotals(
   const total_descuentos = opts?.total_descuentos ?? 0;
   const total_anticipos = opts?.total_anticipos ?? 0;
   const total_compensaciones = opts?.total_compensaciones ?? 0;
+  const total_cuenta_abonos = opts?.total_cuenta_abonos ?? 0;
   const neto_pagar = computeNetoPagar({
     total_comisiones,
     saldo_viaticos,
     total_compensaciones,
     total_descuentos,
     total_anticipos,
+    total_cuenta_abonos,
   });
   return {
     total_ingresos,
@@ -207,6 +280,7 @@ export function computeSettlementTotals(
     total_descuentos,
     total_anticipos,
     total_compensaciones,
+    total_cuenta_abonos,
     neto_pagar,
   };
 }
@@ -216,7 +290,12 @@ export function computeSettlement(
   trips: (Trip & { fuel?: unknown[]; expenses?: unknown[] })[],
   inicio: Date,
   fin: Date,
-  opts?: { total_descuentos?: number; total_anticipos?: number; total_compensaciones?: number },
+  opts?: {
+    total_descuentos?: number;
+    total_anticipos?: number;
+    total_compensaciones?: number;
+    total_cuenta_abonos?: number;
+  },
 ): SettlementSummary {
   const eligible = filterEligibleSettlementTrips(driver, trips, inicio, fin);
   const includedTrips = eligible.map((e) => e.trip);
@@ -226,3 +305,4 @@ export function computeSettlement(
     ...totals,
   };
 }
+

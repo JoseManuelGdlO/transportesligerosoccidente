@@ -9,6 +9,7 @@ import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, bui
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
+import { DriverAccountPanel } from "@/components/tlo/DriverAccountPanel";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,7 +32,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Lock, Eye, Trash2 } from "lucide-react";
+import { FileText, Lock, Eye, Trash2, CircleDollarSign } from "lucide-react";
 import { toast } from "sonner";
 
 type SettlementTab = "actual" | "borradores" | "historico";
@@ -65,6 +66,7 @@ export default function Liquidaciones() {
   const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
+  const [accountOpen, setAccountOpen] = useState(false);
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
   const [advForm, setAdvForm] = useState({ monto: 0, fecha: defaultFechaEnPeriodo(), descripcion: "" });
@@ -528,11 +530,22 @@ export default function Liquidaciones() {
       </Card>
 
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettlementTab)}>
-        <TabsList>
-          <TabsTrigger value="actual">Liquidación actual</TabsTrigger>
-          <TabsTrigger value="borradores">Pre-liquidaciones ({drafts.length})</TabsTrigger>
-          <TabsTrigger value="historico">Histórico ({history.length})</TabsTrigger>
-        </TabsList>
+        <div className="flex flex-wrap items-center justify-between gap-2">
+          <TabsList>
+            <TabsTrigger value="actual">Liquidación actual</TabsTrigger>
+            <TabsTrigger value="borradores">Pre-liquidaciones ({drafts.length})</TabsTrigger>
+            <TabsTrigger value="historico">Histórico ({history.length})</TabsTrigger>
+          </TabsList>
+          <Button
+            variant="outline"
+            size="sm"
+            disabled={!driverId}
+            onClick={() => setAccountOpen(true)}
+          >
+            <CircleDollarSign className="h-4 w-4 mr-2" />
+            Cuenta del operador
+          </Button>
+        </div>
 
         <TabsContent value="actual" className="mt-4 space-y-4">
           {!hasApiSession ? (
@@ -690,6 +703,27 @@ export default function Liquidaciones() {
           </Card>
         </TabsContent>
       </Tabs>
+
+      <Dialog
+        open={accountOpen}
+        onOpenChange={(open) => {
+          setAccountOpen(open);
+          if (!open && summarySource === "live") void loadSummary();
+        }}
+      >
+        <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>
+              Cuenta del operador{driver ? ` — ${driver.nombre}` : ""}
+            </DialogTitle>
+          </DialogHeader>
+          {driverId ? (
+            <DriverAccountPanel driverId={driverId} canEdit={canClose} />
+          ) : (
+            <p className="text-muted-foreground text-sm py-4">Selecciona un operador.</p>
+          )}
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={viewingHistory !== null} onOpenChange={(open) => !open && setViewingHistory(null)}>
         <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">

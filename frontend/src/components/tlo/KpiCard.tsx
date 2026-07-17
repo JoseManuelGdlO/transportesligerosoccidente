@@ -20,18 +20,25 @@ const toneStyles: Record<string, string> = {
 };
 
 export const KpiCard = ({ label, labelClassName, value, hint, icon: Icon, tone = "default" }: KpiCardProps) => (
-  <Card className="tlo-shadow-md border-border/60">
-    <CardContent className="p-4">
-      <div className="flex items-start justify-between gap-3">
+  <Card className="tlo-shadow-md min-w-0 border-border/60">
+    <CardContent className="relative p-4">
+      <div className="min-w-0">
         <div className="min-w-0">
-          <p className={cn("text-xs uppercase tracking-wider text-muted-foreground font-medium", labelClassName)}>
+          <p
+            className={cn(
+              "min-h-8 pr-11 text-xs font-medium uppercase leading-tight tracking-wider text-muted-foreground",
+              labelClassName,
+            )}
+          >
             {label}
           </p>
-          <p className="mt-1.5 text-2xl font-bold text-foreground tracking-tight truncate">{value}</p>
+          <p className="mt-1.5 whitespace-nowrap text-xl font-bold tabular-nums tracking-tight text-foreground">
+            {value}
+          </p>
           {hint && <p className="mt-1 text-xs text-muted-foreground">{hint}</p>}
         </div>
         {Icon && (
-          <div className={cn("rounded-lg p-2 flex-shrink-0", toneStyles[tone])}>
+          <div className={cn("absolute right-4 top-4 rounded-lg p-2", toneStyles[tone])}>
             <Icon className="h-5 w-5" />
           </div>
         )}

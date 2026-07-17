@@ -1,6 +1,17 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { Driver, Trip, Settlement, DriverAdvance, DriverDiscount, DriverCompensation } from "../models";
+import {
+  sequelize,
+  Driver,
+  Trip,
+  Settlement,
+  DriverAdvance,
+  DriverDiscount,
+  DriverCompensation,
+  DriverAccount,
+  DriverAccountItem,
+  DriverAccountMovement,
+} from "../models";
 import {
   createDraftSettlement,
   updateDraftSettlement,
@@ -14,6 +25,8 @@ const tenantId = "tenant-1";
 const driverId = "driver-1";
 const fechaInicio = "2026-06-01";
 const fechaFin = "2026-06-07";
+
+const mockTx = { LOCK: { UPDATE: "UPDATE" } };
 
 const mockDriver = {
   id: driverId,
@@ -31,7 +44,17 @@ function mockSummaryDeps() {
   const advanceFindAll = mock.method(DriverAdvance, "findAll", async () => [] as never);
   const discountFindAll = mock.method(DriverDiscount, "findAll", async () => [] as never);
   const compensationFindAll = mock.method(DriverCompensation, "findAll", async () => [] as never);
-  return { driverFindOne, tripFindAll, advanceFindAll, discountFindAll, compensationFindAll };
+  const accountFindOne = mock.method(DriverAccount, "findOne", async () => null);
+  const accountItemFindAll = mock.method(DriverAccountItem, "findAll", async () => [] as never);
+  return {
+    driverFindOne,
+    tripFindAll,
+    advanceFindAll,
+    discountFindAll,
+    compensationFindAll,
+    accountFindOne,
+    accountItemFindAll,
+  };
 }
 
 function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
@@ -40,6 +63,12 @@ function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
   deps.advanceFindAll.mock.restore();
   deps.discountFindAll.mock.restore();
   deps.compensationFindAll.mock.restore();
+  deps.accountFindOne.mock.restore();
+  deps.accountItemFindAll.mock.restore();
+}
+
+function mockTransaction() {
+  return mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<unknown>) => fn(mockTx));
 }
 
 describe("createDraftSettlement", () => {
@@ -288,6 +317,8 @@ describe("closeSettlement trip inclusions", () => {
     const tripB = mockTrip({ id: "trip-b", folio: "TL002-1" });
     deps.tripFindAll.mock.mockImplementation(async () => [tripA, tripB] as never);
 
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
     const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
     const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
     const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => ({
@@ -311,6 +342,8 @@ describe("closeSettlement trip inclusions", () => {
     tripUpdate.mock.restore();
     settlementFindOne.mock.restore();
     settlementCreate.mock.restore();
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
   });
 
   it("mantiene viaje excluido disponible en el periodo siguiente", async () => {
@@ -355,6 +388,8 @@ describe("closeSettlement trip inclusions", () => {
       update: mock.fn(async () => {}),
     };
 
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
     const settlementFindOne = mock.method(Settlement, "findOne", async (opts: { where?: Record<string, unknown> }) => {
       const where = opts?.where ?? {};
       if (where.id === "draft-1" && where.cerrado === false) return draftRow as never;
@@ -373,6 +408,8 @@ describe("closeSettlement trip inclusions", () => {
     restoreSummaryDeps(deps);
     settlementFindOne.mock.restore();
     tripUpdate.mock.restore();
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
   });
 });
 
@@ -427,6 +464,8 @@ describe("closeSettlementById", () => {
       update: mock.fn(async () => {}),
     };
 
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
     const settlementFindOne = mock.method(Settlement, "findOne", async (opts: { where?: Record<string, unknown> }) => {
       const where = opts?.where ?? {};
       if (where.id === "draft-1" && where.cerrado === false) return draftRow as never;
@@ -446,5 +485,203 @@ describe("closeSettlementById", () => {
     restoreSummaryDeps(deps);
     settlementFindOne.mock.restore();
     tripUpdate.mock.restore();
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
+  });
+});
+
+describe("closeSettlement reintento", () => {
+  it("cierra la primera vez y rechaza con 409 el reintento sin duplicar nada", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+
+    let closedRow: Record<string, unknown> | null = null;
+    const settlementFindOne = mock.method(Settlement, "findOne", async (opts: { where?: Record<string, unknown> }) => {
+      const where = opts?.where ?? {};
+      if (where.cerrado === true) return closedRow as never;
+      return null;
+    });
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => {
+      closedRow = { ...(data as object), id: "settlement-1" };
+      return closedRow as never;
+    });
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin);
+    assert.equal(settlementCreate.mock.callCount(), 1);
+
+    // Reintento: la liquidación ya quedó cerrada para el mismo periodo
+    await assert.rejects(
+      () => closeSettlement(tenantId, driverId, fechaInicio, fechaFin),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 409);
+        assert.equal(err.message, "Liquidación ya cerrada para este periodo");
+        return true;
+      },
+    );
+    assert.equal(settlementCreate.mock.callCount(), 1);
+    assert.equal(tripUpdate.mock.callCount(), 1);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+    tripUpdate.mock.restore();
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
+  });
+
+  it("rechaza con 409 si otro cierre concurrente ganó dentro de la transacción", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1" });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+
+    const transaction = mockTransaction();
+    const settlementCreate = mock.method(Settlement, "create", async () => {
+      throw new Error("no debería crear liquidación");
+    });
+    // El pre-chequeo (sin transacción) no ve nada, pero el chequeo bloqueado sí
+    const settlementFindOne = mock.method(
+      Settlement,
+      "findOne",
+      async (opts: { where?: Record<string, unknown>; transaction?: unknown }) => {
+        const where = opts?.where ?? {};
+        if (where.cerrado === true && opts?.transaction) {
+          return { id: "closed-by-other" } as never;
+        }
+        return null;
+      },
+    );
+
+    await assert.rejects(
+      () => closeSettlement(tenantId, driverId, fechaInicio, fechaFin),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 409);
+        return true;
+      },
+    );
+    assert.equal(settlementCreate.mock.callCount(), 0);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+    transaction.mock.restore();
+  });
+});
+
+describe("closeSettlement cuotas con saldo concurrente", () => {
+  it("recalcula el snapshot con el saldo real si hubo un pago directo simultáneo", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.accountFindOne.mock.mockImplementation(
+      async () => ({ id: "acc-1", tenant_id: tenantId, driver_id: driverId }) as never,
+    );
+
+    const itemUpdate = mock.fn(async () => {});
+    // Fuera de la transacción (preview) el saldo es 3000; dentro (bloqueado) un
+    // pago directo simultáneo lo dejó en 40.
+    deps.accountItemFindAll.mock.mockImplementation(async (opts?: { transaction?: unknown }) => {
+      const movements = opts?.transaction ? [{ monto: "2960" }] : [];
+      return [
+        {
+          id: "item-1",
+          tipo: "incidencia",
+          concepto: "Llanta",
+          monto_original: "3000",
+          cuota_liquidacion: "500",
+          fecha: "2026-05-01",
+          estatus: "activo",
+          movements,
+          update: itemUpdate,
+        },
+      ] as never;
+    });
+
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+    const movementCreate = mock.method(DriverAccountMovement, "create", async (data: unknown) => data as never);
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+    let savedSnapshot: Record<string, unknown> | undefined;
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => {
+      savedSnapshot = (data as { snapshot: Record<string, unknown> }).snapshot;
+      return { ...(data as object), id: "settlement-1" } as never;
+    });
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin);
+
+    // Comisión 100; el preview habría aplicado 100, pero el saldo real es 40
+    assert.equal(savedSnapshot?.total_cuenta_abonos, 40);
+    assert.equal(savedSnapshot?.neto_pagar, 60);
+    const apps = savedSnapshot?.account_applications as { item_id: string; monto: number }[];
+    assert.equal(apps.length, 1);
+    assert.equal(apps[0]?.monto, 40);
+
+    // El movimiento persistido coincide con el snapshot y liquida el adeudo
+    assert.equal(movementCreate.mock.callCount(), 1);
+    const created = movementCreate.mock.calls[0].arguments[0] as { monto: number; settlement_id: string };
+    assert.equal(created.monto, 40);
+    assert.equal(created.settlement_id, "settlement-1");
+    assert.equal(itemUpdate.mock.callCount(), 1);
+
+    restoreSummaryDeps(deps);
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
+    movementCreate.mock.restore();
+    tripUpdate.mock.restore();
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+  });
+});
+
+describe("settlementSummary account installments", () => {
+  it("descuenta cuotas FIFO sin dejar el neto negativo", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.accountFindOne.mock.mockImplementation(
+      async () => ({ id: "acc-1", tenant_id: tenantId, driver_id: driverId }) as never,
+    );
+    deps.accountItemFindAll.mock.mockImplementation(
+      async () =>
+        [
+          {
+            id: "item-old",
+            tipo: "incidencia",
+            concepto: "Llanta",
+            monto_original: "3000",
+            cuota_liquidacion: "500",
+            fecha: "2026-05-01",
+            estatus: "activo",
+            movements: [],
+          },
+          {
+            id: "item-new",
+            tipo: "prestamo",
+            concepto: "Préstamo",
+            monto_original: "1000",
+            cuota_liquidacion: "400",
+            fecha: "2026-05-15",
+            estatus: "activo",
+            movements: [],
+          },
+        ] as never,
+    );
+
+    // Comisión 10% de 1000 = 100; cuotas 500 + 400 superarían el neto → solo 100 al más antiguo
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(summary.total_cuenta_abonos, 100);
+    assert.equal(summary.neto_pagar, 0);
+    const apps = summary.account_applications as { item_id: string; monto: number }[];
+    assert.equal(apps.length, 1);
+    assert.equal(apps[0]?.item_id, "item-old");
+    assert.equal(apps[0]?.monto, 100);
+
+    restoreSummaryDeps(deps);
   });
 });

@@ -37,6 +37,9 @@ import type {
   SatEstado,
   SatLocalidad,
   SatMunicipio,
+  AccountItemType,
+  DriverAccountItem,
+  DriverAccountSummary,
 } from "@/types/tlo";
 import {
   SYSTEM_STATUS_CERRADO,
@@ -1229,4 +1232,51 @@ export async function lookupSatEstado(
   }
   return normalizeSatEstado(await readJson<Record<string, unknown>>(res));
 }
+
+/* —— Cuenta por operador —— */
+
+export async function fetchDriverAccount(driverId: string): Promise<DriverAccountSummary> {
+  const res = await apiFetch(`/drivers/${driverId}/account`);
+  return readJson<DriverAccountSummary>(res);
+}
+
+export async function createDriverAccountItem(
+  driverId: string,
+  data: {
+    tipo: AccountItemType;
+    concepto: string;
+    monto_original: number;
+    cuota_liquidacion: number;
+    fecha: string;
+  },
+): Promise<DriverAccountItem> {
+  const res = await apiFetch(`/drivers/${driverId}/account/items`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return readJson<DriverAccountItem>(res);
+}
+
+export async function createDriverAccountPayment(
+  driverId: string,
+  itemId: string,
+  data: { monto: number; fecha: string; nota?: string },
+): Promise<{ id: string; monto: number; saldo_despues: number }> {
+  const res = await apiFetch(`/drivers/${driverId}/account/items/${itemId}/payments`, {
+    method: "POST",
+    body: JSON.stringify(data),
+  });
+  return readJson(res);
+}
+
+export async function cancelDriverAccountItem(
+  driverId: string,
+  itemId: string,
+): Promise<{ id: string; estatus: string }> {
+  const res = await apiFetch(`/drivers/${driverId}/account/items/${itemId}/cancel`, {
+    method: "POST",
+  });
+  return readJson(res);
+}
+
 

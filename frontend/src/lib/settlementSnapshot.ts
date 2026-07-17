@@ -2,6 +2,7 @@ import {
   computeNetoPagar,
   computeTrip,
   ingresosComprobadosLiquidacion,
+  previewAccountInstallments,
   type SettlementSummary,
 } from "@/lib/calc";
 import type { Driver, SettlementSummaryApi } from "@/types/tlo";
@@ -14,6 +15,34 @@ export function buildTripInclusionsFromTrips(trips: { id: string; included?: boo
 
 export function tripInclusionsPayload(inclusions: Record<string, boolean>): TripInclusionPayload[] {
   return Object.entries(inclusions).map(([id, included]) => ({ id, included }));
+}
+
+function withAccountInstallments(
+  base: Omit<SettlementSummaryApi, "neto_pagar" | "total_cuenta_abonos" | "account_applications"> & {
+    account_items?: SettlementSummaryApi["account_items"];
+  },
+): Pick<SettlementSummaryApi, "total_cuenta_abonos" | "account_applications" | "neto_pagar"> {
+  const netoBase = computeNetoPagar({
+    total_comisiones: base.total_comisiones,
+    saldo_viaticos: base.saldo_viaticos,
+    total_compensaciones: base.total_compensaciones ?? 0,
+    total_descuentos: base.total_descuentos,
+    total_anticipos: base.total_anticipos,
+    total_cuenta_abonos: 0,
+  });
+  const { applications, total } = previewAccountInstallments(netoBase, base.account_items ?? []);
+  return {
+    total_cuenta_abonos: total,
+    account_applications: applications,
+    neto_pagar: computeNetoPagar({
+      total_comisiones: base.total_comisiones,
+      saldo_viaticos: base.saldo_viaticos,
+      total_compensaciones: base.total_compensaciones ?? 0,
+      total_descuentos: base.total_descuentos,
+      total_anticipos: base.total_anticipos,
+      total_cuenta_abonos: total,
+    }),
+  };
 }
 
 export function applyTripInclusions(
@@ -41,15 +70,7 @@ export function applyTripInclusions(
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  const neto_pagar = computeNetoPagar({
-    total_comisiones,
-    saldo_viaticos,
-    total_compensaciones: summary.total_compensaciones ?? 0,
-    total_descuentos: summary.total_descuentos,
-    total_anticipos: summary.total_anticipos,
-  });
-
-  return {
+  const base = {
     ...summary,
     trips,
     total_ingresos,
@@ -58,7 +79,12 @@ export function applyTripInclusions(
     viaticos_entregados,
     viaticos_comprobados,
     saldo_viaticos,
-    neto_pagar,
+  };
+  const account = withAccountInstallments(base);
+
+  return {
+    ...base,
+    ...account,
   };
 }
 
@@ -77,10 +103,12 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
       total_descuentos: snapshot.total_descuentos,
       total_anticipos: snapshot.total_anticipos,
       total_compensaciones: snapshot.total_compensaciones ?? 0,
+      total_cuenta_abonos: snapshot.total_cuenta_abonos ?? 0,
       neto_pagar: snapshot.neto_pagar,
       advances: snapshot.advances ?? [],
       discounts: snapshot.discounts ?? [],
       compensations: snapshot.compensations ?? [],
+      account_applications: snapshot.account_applications ?? [],
     };
   }
 
@@ -99,12 +127,14 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
   const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
-  const neto_pagar = computeNetoPagar({
+  const account = withAccountInstallments({
+    ...snapshot,
+    total_ingresos,
     total_comisiones,
+    total_km,
+    viaticos_entregados,
+    viaticos_comprobados,
     saldo_viaticos,
-    total_compensaciones: snapshot.total_compensaciones ?? 0,
-    total_descuentos: snapshot.total_descuentos,
-    total_anticipos: snapshot.total_anticipos,
   });
 
   return {
@@ -118,10 +148,12 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     total_descuentos: snapshot.total_descuentos,
     total_anticipos: snapshot.total_anticipos,
     total_compensaciones: snapshot.total_compensaciones ?? 0,
-    neto_pagar,
+    total_cuenta_abonos: account.total_cuenta_abonos,
+    neto_pagar: account.neto_pagar,
     advances: snapshot.advances ?? [],
     discounts: snapshot.discounts ?? [],
     compensations: snapshot.compensations ?? [],
+    account_applications: account.account_applications,
   };
 }
 

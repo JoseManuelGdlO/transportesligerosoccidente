@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeNetoPagar,
   computeSettlement,
+  previewAccountInstallments,
   viaticosAFavor,
   viaticosNoComprobado,
 } from "@/lib/calc";
@@ -65,6 +66,47 @@ describe("viaticos helpers", () => {
 describe("computeNetoPagar", () => {
   it("resta saldo_viaticos negativo del neto", () => {
     expect(computeNetoPagar({ total_comisiones: 5000, saldo_viaticos: -500 })).toBe(4500);
+  });
+
+  it("resta total_cuenta_abonos", () => {
+    expect(
+      computeNetoPagar({
+        total_comisiones: 5000,
+        saldo_viaticos: 0,
+        total_cuenta_abonos: 500,
+      }),
+    ).toBe(4500);
+  });
+});
+
+describe("previewAccountInstallments", () => {
+  it("aplica FIFO y respeta neto disponible", () => {
+    const { applications, total } = previewAccountInstallments(600, [
+      {
+        id: "old",
+        tipo: "incidencia",
+        concepto: "Llanta",
+        monto_original: 3000,
+        cuota_liquidacion: 500,
+        saldo: 3000,
+        fecha: "2026-01-01",
+      },
+      {
+        id: "new",
+        tipo: "prestamo",
+        concepto: "Préstamo",
+        monto_original: 1000,
+        cuota_liquidacion: 400,
+        saldo: 1000,
+        fecha: "2026-02-01",
+      },
+    ]);
+    expect(total).toBe(600);
+    expect(applications).toHaveLength(2);
+    expect(applications[0]?.item_id).toBe("old");
+    expect(applications[0]?.monto).toBe(500);
+    expect(applications[1]?.item_id).toBe("new");
+    expect(applications[1]?.monto).toBe(100);
   });
 });
 

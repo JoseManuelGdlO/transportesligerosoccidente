@@ -22,6 +22,9 @@ import { CartaPorte, initCartaPorte } from "./CartaPorte";
 import { DriverAdvance, initDriverAdvance } from "./DriverAdvance";
 import { DriverDiscount, initDriverDiscount } from "./DriverDiscount";
 import { DriverCompensation, initDriverCompensation } from "./DriverCompensation";
+import { DriverAccount, initDriverAccount } from "./DriverAccount";
+import { DriverAccountItem, initDriverAccountItem } from "./DriverAccountItem";
+import { DriverAccountMovement, initDriverAccountMovement } from "./DriverAccountMovement";
 import { MaintenanceSchedule, initMaintenanceSchedule } from "./MaintenanceSchedule";
 import { MaintenanceRecord, initMaintenanceRecord } from "./MaintenanceRecord";
 import { ClientUbicacion, initClientUbicacion } from "./ClientUbicacion";
@@ -67,6 +70,9 @@ export function initModels() {
   initDriverAdvance(sequelize);
   initDriverDiscount(sequelize);
   initDriverCompensation(sequelize);
+  initDriverAccount(sequelize);
+  initDriverAccountItem(sequelize);
+  initDriverAccountMovement(sequelize);
   initMaintenanceSchedule(sequelize);
   initMaintenanceRecord(sequelize);
   initSatClaveProducto(sequelize);
@@ -187,6 +193,25 @@ export function initModels() {
   Settlement.hasMany(DriverDiscount, { foreignKey: "settlement_id" });
   Settlement.hasMany(DriverCompensation, { foreignKey: "settlement_id" });
 
+  Driver.hasOne(DriverAccount, { foreignKey: "driver_id", as: "account" });
+  DriverAccount.belongsTo(Driver, { foreignKey: "driver_id" });
+  Tenant.hasMany(DriverAccount, { foreignKey: "tenant_id" });
+  DriverAccount.belongsTo(Tenant, { foreignKey: "tenant_id" });
+
+  DriverAccount.hasMany(DriverAccountItem, { foreignKey: "account_id", as: "items" });
+  DriverAccountItem.belongsTo(DriverAccount, { foreignKey: "account_id" });
+  Driver.hasMany(DriverAccountItem, { foreignKey: "driver_id", as: "accountItems" });
+  DriverAccountItem.belongsTo(Driver, { foreignKey: "driver_id" });
+
+  DriverAccountItem.hasMany(DriverAccountMovement, { foreignKey: "item_id", as: "movements" });
+  DriverAccountMovement.belongsTo(DriverAccountItem, { foreignKey: "item_id" });
+  DriverAccount.hasMany(DriverAccountMovement, { foreignKey: "account_id", as: "movements" });
+  DriverAccountMovement.belongsTo(DriverAccount, { foreignKey: "account_id" });
+  Driver.hasMany(DriverAccountMovement, { foreignKey: "driver_id", as: "accountMovements" });
+  DriverAccountMovement.belongsTo(Driver, { foreignKey: "driver_id" });
+  Settlement.hasMany(DriverAccountMovement, { foreignKey: "settlement_id" });
+  DriverAccountMovement.belongsTo(Settlement, { foreignKey: "settlement_id" });
+
   Truck.hasMany(MaintenanceSchedule, { foreignKey: "truck_id", as: "maintenanceSchedules" });
   MaintenanceSchedule.belongsTo(Truck, { foreignKey: "truck_id" });
   Truck.hasMany(MaintenanceRecord, { foreignKey: "truck_id", as: "maintenanceRecords" });
@@ -242,6 +267,9 @@ export {
   DriverAdvance,
   DriverDiscount,
   DriverCompensation,
+  DriverAccount,
+  DriverAccountItem,
+  DriverAccountMovement,
   MaintenanceSchedule,
   MaintenanceRecord,
   TripStatus,

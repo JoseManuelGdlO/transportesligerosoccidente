@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useState } from "react";
 import { useSearchParams } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
+import { useAuth } from "@/context/AuthContext";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -28,6 +29,7 @@ import {
 import { DriverStatusBadge } from "@/components/tlo/StatusBadge";
 import { DocumentManager } from "@/components/tlo/DocumentManager";
 import { DocumentVigenciaSummary } from "@/components/tlo/DocumentVigenciaSummary";
+import { DriverAccountPanel } from "@/components/tlo/DriverAccountPanel";
 import { fmtDate, fmtMXN } from "@/lib/format";
 import type { Driver, CommissionType, DriverStatus } from "@/types/tlo";
 import {
@@ -53,6 +55,9 @@ const empty: Driver = {
 
 export default function Operadores() {
   const { drivers, upsertDriver, deleteDriver, trucks } = useTlo();
+  const { permissions } = useAuth();
+  const canEditAccount = permissions.includes("liquidaciones.cerrar");
+  const canViewAccount = permissions.includes("liquidaciones.ver") || canEditAccount;
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<Driver>(empty);
   const [tab, setTab] = useState("datos");
@@ -315,7 +320,7 @@ export default function Operadores() {
             <SheetTitle>{form.id ? "Editar operador" : "Nuevo operador"}</SheetTitle>
             <SheetDescription>
               {form.id ? (
-                <>Datos generales y documentación (INE, licencia, afiliación IMSS, etc.).</>
+                <>Datos generales, documentación y cuenta corriente del operador.</>
               ) : (
                 <>
                   Primero registra al operador con <strong className="text-foreground">Guardar datos</strong>. Los
@@ -327,7 +332,7 @@ export default function Operadores() {
           </SheetHeader>
 
           <Tabs value={tab} onValueChange={setTab} className="mt-4">
-            <TabsList className="grid w-full grid-cols-2">
+            <TabsList className={`grid w-full ${canViewAccount ? "grid-cols-3" : "grid-cols-2"}`}>
               <TabsTrigger value="datos">Datos</TabsTrigger>
               <TabsTrigger
                 value="documentacion"
@@ -340,6 +345,15 @@ export default function Operadores() {
               >
                 Documentación
               </TabsTrigger>
+              {canViewAccount ? (
+                <TabsTrigger
+                  value="cuenta"
+                  disabled={!form.id}
+                  title={form.id ? undefined : "Disponible después de guardar el operador."}
+                >
+                  Cuenta
+                </TabsTrigger>
+              ) : null}
             </TabsList>
             {!form.id ? (
               <p className="text-xs text-muted-foreground mt-2 rounded-md border border-dashed bg-muted/30 px-3 py-2">
@@ -593,6 +607,15 @@ export default function Operadores() {
             <TabsContent value="documentacion" className="pt-4">
               <DocumentManager kind="driver" entityId={form.id || null} />
             </TabsContent>
+            {canViewAccount ? (
+              <TabsContent value="cuenta" className="pt-0">
+                {form.id ? (
+                  <DriverAccountPanel driverId={form.id} canEdit={canEditAccount} />
+                ) : (
+                  <p className="text-sm text-muted-foreground pt-4">Guarda el operador para gestionar su cuenta.</p>
+                )}
+              </TabsContent>
+            ) : null}
           </Tabs>
 
           {form.id ? (

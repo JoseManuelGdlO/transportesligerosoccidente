@@ -908,6 +908,13 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       fmtMXN(c.monto),
       c.en_periodo === false ? "No" : "Sí",
     ]),
+    ...(summary.account_applications ?? []).map((a) => [
+      `Cuenta (${a.tipo})`,
+      "",
+      a.concepto,
+      fmtMXN(a.monto),
+      "Sí",
+    ]),
   ];
 
   const foot: UserOptions["foot"] = [];
@@ -932,11 +939,18 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       "",
     ]);
   }
+  if ((summary.total_cuenta_abonos ?? 0) > 0) {
+    foot.push([
+      { content: "Cuenta operador (cuotas)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: fmtMXN(summary.total_cuenta_abonos ?? 0), styles: { ...footRight, fontStyle: "bold" } },
+      "",
+    ]);
+  }
 
   ensureSpace(state, 24);
   state.doc.setFont("helvetica", "bold");
   state.doc.setFontSize(11);
-  state.doc.text("Viáticos, anticipos, descuentos y compensaciones", state.margin, state.y);
+  state.doc.text("Viáticos, anticipos, descuentos, compensaciones y cuenta", state.margin, state.y);
   state.y += 4;
   pdfAutoTable(state.doc, {
     startY: state.y,
