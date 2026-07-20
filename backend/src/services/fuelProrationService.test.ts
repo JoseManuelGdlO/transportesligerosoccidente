@@ -21,6 +21,7 @@ import {
   ticketTimestampMs,
   ticketWindowEndMs,
   tripKmRecorridos,
+  tripRutaLabel,
   tripTimestampMs,
   tripsInWindow,
   utcWallClockMs,
@@ -253,10 +254,18 @@ describe("buildProrationBlocks", () => {
   });
 });
 
-describe("tripKmRecorridos", () => {
-  it("devuelve 0 si el viaje no tiene km_final", () => {
-    const open = mockTrip({ id: "open", truck_id: "t1", fecha_salida: "2026-06-01T00:00:00.000Z", km_inicial: 10 });
-    assert.equal(tripKmRecorridos(open), 0);
+describe("tripRutaLabel", () => {
+  it("usa el nombre de la ruta del catálogo cuando existe", () => {
+    const trip = {
+      ...mockTrip({ id: "v1", truck_id: "t1", fecha_salida: "2026-06-02T00:00:00.000Z", km_inicial: 0, km_final: 10 }),
+      Route: { nombre: "GDL / LOCAL / GDL" },
+    } as unknown as TripModel;
+    assert.equal(tripRutaLabel(trip), "GDL / LOCAL / GDL");
+  });
+
+  it("cae a origen > destino si no hay ruta de catálogo", () => {
+    const trip = mockTrip({ id: "v1", truck_id: "t1", fecha_salida: "2026-06-02T00:00:00.000Z", km_inicial: 0, km_final: 10 });
+    assert.equal(tripRutaLabel(trip), "A > B");
   });
 });
 
@@ -280,6 +289,7 @@ describe("resumenFromBlocks", () => {
             folio: "F0",
             origen: "A",
             destino: "B",
+            ruta: "A > B",
             fecha_salida: "2026-05-30",
             km_recorridos: 1,
             litros_asignados: 0.66,
@@ -290,6 +300,7 @@ describe("resumenFromBlocks", () => {
             folio: "F1",
             origen: "A",
             destino: "B",
+            ruta: "A > B",
             fecha_salida: "2026-06-02",
             km_recorridos: 100,
             litros_asignados: 66.67,
@@ -300,6 +311,7 @@ describe("resumenFromBlocks", () => {
             folio: "F2",
             origen: "A",
             destino: "B",
+            ruta: "A > B",
             fecha_salida: "2026-06-15",
             km_recorridos: 50,
             litros_asignados: 33.33,

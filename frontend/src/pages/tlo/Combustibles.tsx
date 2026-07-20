@@ -52,7 +52,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
-import { fmtMXN, fmtNumber, formatTripRoute } from "@/lib/format";
+import { fmtMXN, fmtNumber } from "@/lib/format";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -102,12 +102,16 @@ function compareSortValues(
   return direction === "asc" ? cmp : -cmp;
 }
 
+function formatProrationRoute(row: { ruta?: string; origen: string; destino: string }): string {
+  return row.ruta?.trim() || `${row.origen} > ${row.destino}`;
+}
+
 function getProratedTripSortValue(row: ProratedTripRow, column: ProrationTripSortColumn): string | number {
   switch (column) {
     case "folio":
       return row.folio;
     case "ruta":
-      return formatTripRoute(row);
+      return formatProrationRoute(row);
     case "fecha":
       return row.fecha_salida;
     case "km":
@@ -124,7 +128,7 @@ function getExtraTripSortValue(row: FuelProrationTripRef, column: ExtraTripSortC
     case "folio":
       return row.folio;
     case "ruta":
-      return formatTripRoute(row);
+      return formatProrationRoute(row);
     case "fecha":
       return row.fecha_salida;
     case "km":
@@ -266,7 +270,7 @@ function ProrationTripsTable({
                 </Badge>
               )}
             </TableCell>
-            <TableCell>{formatTripRoute(v)}</TableCell>
+            <TableCell>{formatProrationRoute(v)}</TableCell>
             <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
             <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
             <TableCell className="text-right">{fmtNumber(v.litros_asignados, 2)}</TableCell>
@@ -289,6 +293,7 @@ function eligibleTripsForTicket(unit: FuelProrationUnitReport, block: ProratedTi
       folio: v.folio,
       origen: v.origen,
       destino: v.destino,
+      ruta: formatProrationRoute(v),
       fecha_salida: v.fecha_salida,
       km_recorridos: v.km_recorridos,
     });
@@ -357,7 +362,7 @@ function TicketAssignDialog({
                     />
                   </TableCell>
                   <TableCell className="font-mono">{trip.folio}</TableCell>
-                  <TableCell>{formatTripRoute(trip)}</TableCell>
+                  <TableCell>{formatProrationRoute(trip)}</TableCell>
                   <TableCell>{formatIsoDateEs(trip.fecha_salida)}</TableCell>
                   <TableCell className="text-right">{fmtNumber(trip.km_recorridos)}</TableCell>
                 </TableRow>
@@ -445,7 +450,7 @@ function ProrationExtraTripsTable({
           {sortedRows.map((v) => (
             <TableRow key={v.trip_id}>
               <TableCell className="font-mono">{v.folio}</TableCell>
-              <TableCell>{formatTripRoute(v)}</TableCell>
+              <TableCell>{formatProrationRoute(v)}</TableCell>
               <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
               <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
             </TableRow>

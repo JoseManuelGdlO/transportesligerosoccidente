@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
-import { FuelLoad, FuelProrationAssignment, FuelTicket, Trip, Truck, sequelize } from "../models";
+import { FuelLoad, FuelProrationAssignment, FuelTicket, Route, Trip, Truck, sequelize } from "../models";
 import {
   getConfirmedTripIdsForTruck,
   getDraftAssignmentsForTruck,
@@ -11,6 +11,20 @@ import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
 
 export type FuelProrationEstado = "pendiente" | "confirmado";
+
+const tripWithRouteInclude = {
+  model: Route,
+  attributes: ["id", "nombre"],
+  required: false,
+};
+
+/** Nombre de ruta del catálogo (p. ej. GDL / LOCAL / GDL); si no hay, origen > destino. */
+export function tripRutaLabel(trip: TripModel): string {
+  const route = (trip as TripModel & { Route?: { nombre?: string | null } }).Route;
+  const nombre = route?.nombre?.trim();
+  if (nombre) return nombre;
+  return `${trip.origen} > ${trip.destino}`;
+}
 
 export function tripKmRecorridos(trip: TripModel): number {
   if (trip.km_final == null) return 0;
@@ -78,6 +92,7 @@ export type ProratedTripRow = {
   folio: string;
   origen: string;
   destino: string;
+  ruta: string;
   fecha_salida: string;
   km_recorridos: number;
   litros_asignados: number;
@@ -91,6 +106,7 @@ export type FuelProrationTripRef = {
   folio: string;
   origen: string;
   destino: string;
+  ruta: string;
   fecha_salida: string;
   km_recorridos: number;
 };
@@ -163,6 +179,7 @@ export function buildProratedBlock(
       folio: trip.folio,
       origen: trip.origen,
       destino: trip.destino,
+      ruta: tripRutaLabel(trip),
       fecha_salida: dateOnly(trip.fecha_salida),
       km_recorridos: km,
       litros_asignados: Math.round(litrosAsignados * 100) / 100,
@@ -254,6 +271,7 @@ async function buildConfirmedBlocks(
         folio: trip.folio,
         origen: trip.origen,
         destino: trip.destino,
+        ruta: tripRutaLabel(trip),
         fecha_salida: dateOnly(trip.fecha_salida),
         km_recorridos: km,
         litros_asignados: litros,
@@ -314,6 +332,7 @@ function tripToRef(trip: TripModel): FuelProrationTripRef {
     folio: trip.folio,
     origen: trip.origen,
     destino: trip.destino,
+    ruta: tripRutaLabel(trip),
     fecha_salida: dateOnly(trip.fecha_salida),
     km_recorridos: tripKmRecorridos(trip),
   };
@@ -479,6 +498,7 @@ export async function prorateRange(
 
   const allTrips = await Trip.findAll({
     where: { tenant_id: tenantId, truck_id: truckId },
+    include: [tripWithRouteInclude],
     order: [["fecha_salida", "ASC"]],
   });
 
@@ -565,6 +585,7 @@ export async function autoProratePending(
 
     const allTrips = await Trip.findAll({
       where: { tenant_id: tenantId, truck_id: truckId },
+      include: [tripWithRouteInclude],
       order: [["fecha_salida", "ASC"]],
     });
 

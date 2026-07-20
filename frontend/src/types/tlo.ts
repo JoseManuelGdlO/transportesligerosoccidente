@@ -277,6 +277,7 @@ export interface ProratedTripRow {
   folio: string;
   origen: string;
   destino: string;
+  ruta: string;
   fecha_salida: string;
   km_recorridos: number;
   litros_asignados: number;
@@ -294,6 +295,7 @@ export interface FuelProrationTripRef {
   folio: string;
   origen: string;
   destino: string;
+  ruta: string;
   fecha_salida: string;
   km_recorridos: number;
 }
