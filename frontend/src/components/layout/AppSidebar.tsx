@@ -13,6 +13,8 @@ import {
   Palette,
   FileText,
   FileImage,
+  HandCoins,
+  Factory,
 } from "lucide-react";
 import { NavLink, useNavigate } from "react-router-dom";
 import {
@@ -46,6 +48,7 @@ const operacion: NavItem[] = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard, end: true },
   { title: "Viajes", url: "/viajes", icon: Route, perm: "viajes.ver" },
   { title: "Liquidaciones", url: "/liquidaciones", icon: Wallet, perm: "liquidaciones.ver" },
+  { title: "Cuentas", url: "/cuentas", icon: HandCoins, perm: "cuentas.ver" },
   { title: "Reportes", url: "/reportes", icon: BarChart3, perm: "reportes.ver" },
   { title: "Combustibles", url: "/combustibles", icon: Fuel, perm: "combustibles.ver" },
 ];
@@ -55,6 +58,7 @@ const catalogos: NavItem[] = [
   { title: "Mantenimiento", url: "/mantenimiento", icon: Wrench, perm: "catalogos.ver" },
   { title: "Operadores", url: "/operadores", icon: Users, perm: "catalogos.ver" },
   { title: "Clientes", url: "/clientes", icon: Building2, perm: "catalogos.ver" },
+  { title: "Proveedores", url: "/proveedores", icon: Factory, perm: "proveedores.ver" },
   { title: "Rutas", url: "/rutas", icon: Route, perm: "catalogos.ver" },
   { title: "Tipos de documento", url: "/tipos-documento", icon: FileText, perm: "catalogos.ver" },
 ];

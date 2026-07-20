@@ -298,6 +298,10 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
             regimen_fiscal: c.regimen_fiscal || undefined,
             estatus: c.estatus || "activo",
             observaciones: c.observaciones || undefined,
+            dias_credito: c.dias_credito ?? null,
+            colonia_clave: c.colonia_clave || undefined,
+            municipio_clave: c.municipio_clave || undefined,
+            localidad_clave: c.localidad_clave || undefined,
           };
           if (c.id) {
             const r = await apiFetch(`/clients/${c.id}`, { method: "PATCH", body: JSON.stringify(body) });

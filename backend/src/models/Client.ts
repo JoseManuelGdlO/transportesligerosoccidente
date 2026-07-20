@@ -30,6 +30,7 @@ export class Client extends Model<InferAttributes<Client>, InferCreationAttribut
   declare regimen_fiscal: CreationOptional<string | null>;
   declare estatus: CreationOptional<"activo" | "inactivo">;
   declare observaciones: CreationOptional<string | null>;
+  declare dias_credito: CreationOptional<number | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -59,6 +60,7 @@ export function initClient(sequelize: Sequelize) {
       regimen_fiscal: { type: DataTypes.STRING(10), allowNull: true },
       estatus: { type: DataTypes.ENUM("activo", "inactivo"), allowNull: false, defaultValue: "activo" },
       observaciones: { type: DataTypes.TEXT, allowNull: true },
+      dias_credito: { type: DataTypes.INTEGER, allowNull: true },
     } as never,
     { sequelize, tableName: "clients", underscored: true },
   );

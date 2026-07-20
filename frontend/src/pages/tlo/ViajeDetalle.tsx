@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useParams, useNavigate } from "react-router-dom";
+import { useParams, useNavigate, Link } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { computeTrip, computeCommissionFromScheme, driverById, truckById, driverCommissionRate } from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -14,11 +14,11 @@ import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
-import { fmtMXN, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw } from "lucide-react";
-import type { Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
+import { fmtMXN, fmtMXNDecimal, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
+import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw, HandCoins } from "lucide-react";
+import type { AccountDocument, Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
-import { fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
+import { fetchAccountDocuments, fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
 import { customStatusesFromTrip, tripIsClosed, tripIsOpen, SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -53,9 +53,11 @@ export default function ViajeDetalle() {
   const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip, replaceTrip } = useTlo();
   const { tenant, hasPermission } = useAuth();
   const showCartaPorte = FEATURE_CARTA_PORTE && hasPermission("cartaporte.ver");
+  const canViewCuentas = hasPermission("cuentas.ver");
   const tripCtx = trips.find(t => t.id === id);
   const [tripOverride, setTripOverride] = useState<Trip | null>(null);
   const trip = tripOverride ?? tripCtx;
+  const [cxcDoc, setCxcDoc] = useState<AccountDocument | null>(null);
   useEffect(() => {
     setTripOverride(null);
   }, [tripCtx]);
@@ -72,6 +74,16 @@ export default function ViajeDetalle() {
   useEffect(() => {
     void reloadTrip();
   }, [id]);
+
+  useEffect(() => {
+    if (!id || !canViewCuentas || !hasApiConfigured()) {
+      setCxcDoc(null);
+      return;
+    }
+    void fetchAccountDocuments({ tipo: "cxc" })
+      .then((rows) => setCxcDoc(rows.find((d) => d.trip_id === id) ?? null))
+      .catch(() => setCxcDoc(null));
+  }, [id, canViewCuentas, trip?.num_factura, trip?.tarifa, trip?.fecha_llegada]);
 
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
@@ -456,6 +468,35 @@ export default function ViajeDetalle() {
                         }
                       }}
                     />
+                  </div>
+                )}
+                {canViewCuentas && (
+                  <div className="pt-2 border-t space-y-1">
+                    <p className="text-xs uppercase text-muted-foreground flex items-center gap-1">
+                      <HandCoins className="h-3.5 w-3.5" /> Cuenta por cobrar
+                    </p>
+                    {cxcDoc ? (
+                      <>
+                        <p className="text-sm">
+                          Saldo {fmtMXNDecimal(cxcDoc.saldo_pendiente)} ·{" "}
+                          <Badge variant={cxcDoc.estatus_display === "Vencida" ? "destructive" : "secondary"}>
+                            {cxcDoc.estatus_display}
+                          </Badge>
+                        </p>
+                        <Link
+                          to={`/cuentas?tipo=cxc&doc=${cxcDoc.id}`}
+                          className="text-sm text-primary underline-offset-2 hover:underline"
+                        >
+                          Ver en Cuentas
+                        </Link>
+                      </>
+                    ) : (
+                      <p className="text-sm text-muted-foreground">
+                        {isClosed
+                          ? "Aún no hay documento CXC (sincroniza en Cuentas o cierra/actualiza factura)."
+                          : "Se generará al cerrar el viaje."}
+                      </p>
+                    )}
                   </div>
                 )}
               </div>

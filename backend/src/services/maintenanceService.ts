@@ -225,6 +225,7 @@ export async function createRecord(
     costo: number;
     descripcion: string;
     taller?: string;
+    supplier_id?: string | null;
   },
 ) {
   const truck = await Truck.findOne({ where: { id: data.truck_id, tenant_id: tenantId } });
@@ -244,6 +245,16 @@ export async function createRecord(
   });
   if (schedule) {
     await schedule.update({ ultimo_km: data.km_odometro, ultima_fecha: data.fecha } as never);
+  }
+
+  try {
+    const { upsertFromMaintenance } = await import("./accountDocumentService");
+    await upsertFromMaintenance(record);
+  } catch (syncErr) {
+    console.warn(
+      "[maintenance] Registro creado pero falló sync de documento CXP:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
   }
 
   return record;

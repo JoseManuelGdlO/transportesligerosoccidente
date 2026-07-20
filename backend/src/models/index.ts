@@ -38,6 +38,9 @@ import { SatClaveProducto, initSatClaveProducto } from "./SatClaveProducto";
 import { SatMunicipio, initSatMunicipio } from "./SatMunicipio";
 import { SatLocalidad, initSatLocalidad } from "./SatLocalidad";
 import { SatColonia, initSatColonia } from "./SatColonia";
+import { Supplier, initSupplier } from "./Supplier";
+import { AccountDocument, initAccountDocument } from "./AccountDocument";
+import { AccountDocumentPayment, initAccountDocumentPayment } from "./AccountDocumentPayment";
 
 export function initModels() {
   initTenant(sequelize);
@@ -49,6 +52,7 @@ export function initModels() {
   initDriver(sequelize);
   initClient(sequelize);
   initClientUbicacion(sequelize);
+  initSupplier(sequelize);
   initRoute(sequelize);
   initRouteStop(sequelize);
   initTripStop(sequelize);
@@ -75,6 +79,8 @@ export function initModels() {
   initDriverAccountMovement(sequelize);
   initMaintenanceSchedule(sequelize);
   initMaintenanceRecord(sequelize);
+  initAccountDocument(sequelize);
+  initAccountDocumentPayment(sequelize);
   initSatClaveProducto(sequelize);
   initSatMunicipio(sequelize);
   initSatLocalidad(sequelize);
@@ -236,6 +242,38 @@ export function initModels() {
   Notification.belongsTo(User, { foreignKey: "user_id" });
   Document.hasMany(Notification, { foreignKey: "document_id" });
   Notification.belongsTo(Document, { foreignKey: "document_id" });
+
+  Tenant.hasMany(Supplier, { foreignKey: "tenant_id" });
+  Supplier.belongsTo(Tenant, { foreignKey: "tenant_id" });
+
+  Tenant.hasMany(AccountDocument, { foreignKey: "tenant_id" });
+  AccountDocument.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Client.hasMany(AccountDocument, { foreignKey: "client_id" });
+  AccountDocument.belongsTo(Client, { foreignKey: "client_id" });
+  Supplier.hasMany(AccountDocument, { foreignKey: "supplier_id" });
+  AccountDocument.belongsTo(Supplier, { foreignKey: "supplier_id" });
+  Trip.hasOne(AccountDocument, { foreignKey: "trip_id", as: "accountDocument" });
+  AccountDocument.belongsTo(Trip, { foreignKey: "trip_id" });
+  FuelTicket.hasOne(AccountDocument, { foreignKey: "fuel_ticket_id", as: "accountDocument" });
+  AccountDocument.belongsTo(FuelTicket, { foreignKey: "fuel_ticket_id" });
+  FuelLoad.hasOne(AccountDocument, { foreignKey: "fuel_load_id", as: "accountDocument" });
+  AccountDocument.belongsTo(FuelLoad, { foreignKey: "fuel_load_id" });
+  MaintenanceRecord.hasOne(AccountDocument, {
+    foreignKey: "maintenance_record_id",
+    as: "accountDocument",
+  });
+  AccountDocument.belongsTo(MaintenanceRecord, { foreignKey: "maintenance_record_id" });
+  Expense.hasOne(AccountDocument, { foreignKey: "expense_id", as: "accountDocument" });
+  AccountDocument.belongsTo(Expense, { foreignKey: "expense_id" });
+
+  FuelTicket.belongsTo(Supplier, { foreignKey: "supplier_id" });
+  MaintenanceRecord.belongsTo(Supplier, { foreignKey: "supplier_id" });
+  Expense.belongsTo(Supplier, { foreignKey: "supplier_id" });
+
+  AccountDocument.hasMany(AccountDocumentPayment, { foreignKey: "document_id", as: "payments" });
+  AccountDocumentPayment.belongsTo(AccountDocument, { foreignKey: "document_id" });
+  Tenant.hasMany(AccountDocumentPayment, { foreignKey: "tenant_id" });
+  AccountDocumentPayment.belongsTo(Tenant, { foreignKey: "tenant_id" });
 }
 
 export {
@@ -279,6 +317,9 @@ export {
   SatMunicipio,
   SatLocalidad,
   SatColonia,
+  Supplier,
+  AccountDocument,
+  AccountDocumentPayment,
 };
 
 initModels();

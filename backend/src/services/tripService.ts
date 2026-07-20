@@ -138,7 +138,17 @@ export async function closeTrip(
     num_factura: factura,
   });
   await swapSystemStatus(tenantId, id, "en_curso", "cerrado");
-  return getTripOrThrow(tenantId, id, true, undefined, true);
+  const closed = await getTripOrThrow(tenantId, id, true, undefined, true);
+  try {
+    const { upsertFromTrip } = await import("./accountDocumentService");
+    await upsertFromTrip(closed);
+  } catch (syncErr) {
+    console.warn(
+      "[trip] Viaje cerrado pero falló sync de documento CXC:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return closed;
 }
 
 export async function deleteTrip(tenantId: string, id: string) {
@@ -162,7 +172,7 @@ export async function addFuel(
 ) {
   await getTripOrThrow(tenantId, tripId, false);
   const esForaneo = !!body.es_foraneo;
-  return FuelLoad.create({
+  const load = await FuelLoad.create({
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
@@ -175,6 +185,16 @@ export async function addFuel(
     comprobante_url: body.comprobante_url ?? null,
     fecha: body.fecha ? new Date(body.fecha) : new Date(),
   } as never);
+  try {
+    const { upsertFromFuelLoad } = await import("./accountDocumentService");
+    await upsertFromFuelLoad(load);
+  } catch (syncErr) {
+    console.warn(
+      "[trip] Carga de combustible creada pero falló sync de documento CXP:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return load;
 }
 
 export async function removeFuel(tenantId: string, tripId: string, fuelId: string) {
@@ -204,13 +224,14 @@ export async function addExpense(
     monto_comprobado: number;
     visible_en_liquidacion?: boolean;
     fecha?: string;
+    supplier_id?: string | null;
   },
 ) {
   await getTripOrThrow(tenantId, tripId, false);
   const tipo = body.tipo ?? "gasto";
   const visible_en_liquidacion =
     tipo === "ingreso" ? Boolean(body.visible_en_liquidacion) : false;
-  return Expense.create({
+  const expense = await Expense.create({
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
@@ -221,7 +242,18 @@ export async function addExpense(
     monto_comprobado: body.monto_comprobado,
     visible_en_liquidacion,
     fecha: body.fecha ? new Date(body.fecha) : new Date(),
+    supplier_id: body.supplier_id ?? null,
   } as never);
+  try {
+    const { upsertFromExpense } = await import("./accountDocumentService");
+    await upsertFromExpense(expense);
+  } catch (syncErr) {
+    console.warn(
+      "[trip] Gasto creado pero falló sync de documento CXP:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return expense;
 }
 
 export async function removeExpense(tenantId: string, tripId: string, expenseId: string) {
@@ -356,7 +388,26 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     await syncUbicacionesFromTripStops(tenantId, id);
   }
 
-  return getTripOrThrow(tenantId, id, true, undefined, true);
+  const updated = await getTripOrThrow(tenantId, id, true, undefined, true);
+  if (
+    isClosed ||
+    patch.num_factura !== undefined ||
+    patch.tarifa !== undefined ||
+    patch.client_id !== undefined
+  ) {
+    try {
+      const { upsertFromTrip } = await import("./accountDocumentService");
+      if (tripIsClosed(updated) || updated.num_factura) {
+        await upsertFromTrip(updated);
+      }
+    } catch (syncErr) {
+      console.warn(
+        "[trip] Viaje actualizado pero falló sync de documento CXC:",
+        syncErr instanceof Error ? syncErr.message : syncErr,
+      );
+    }
+  }
+  return updated;
 }
 
 export async function assertCatalogRefs(

@@ -440,6 +440,19 @@ export async function timbrarCartaPorte(
     if (tipo === "ingreso" && folioCfdi && !trip.num_factura?.trim()) {
       await trip.update({ num_factura: `${serie}-${folioCfdi}` } as never);
     }
+    if (tipo === "ingreso") {
+      try {
+        const { upsertFromTrip } = await import("./accountDocumentService");
+        await trip.reload();
+        await upsertFromTrip(trip);
+      } catch (syncErr) {
+        // Timbrado ya persistió; no marcar CartaPorte como error por fallo de CXC
+        console.warn(
+          "[cartaPorte] Timbrado OK pero falló sync de documento CXC:",
+          syncErr instanceof Error ? syncErr.message : syncErr,
+        );
+      }
+    }
     return cp;
   } catch (e) {
     const msg = e instanceof Error ? e.message : "Error al timbrar";

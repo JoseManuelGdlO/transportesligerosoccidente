@@ -310,6 +310,96 @@ export function normalizeClient(raw: Record<string, unknown>): Client {
     regimen_fiscal: raw.regimen_fiscal != null ? String(raw.regimen_fiscal) : undefined,
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
     observaciones: raw.observaciones != null ? String(raw.observaciones) : undefined,
+    dias_credito:
+      raw.dias_credito != null && raw.dias_credito !== ""
+        ? Number(raw.dias_credito)
+        : undefined,
+  };
+}
+
+export function normalizeSupplier(raw: Record<string, unknown>): import("@/types/tlo").Supplier {
+  return {
+    id: String(raw.id),
+    razon_social: String(raw.razon_social ?? ""),
+    rfc: raw.rfc != null ? String(raw.rfc) : undefined,
+    contacto: raw.contacto != null ? String(raw.contacto) : undefined,
+    telefono: raw.telefono != null ? String(raw.telefono) : undefined,
+    email: raw.email != null ? String(raw.email) : undefined,
+    dias_credito:
+      raw.dias_credito != null && raw.dias_credito !== ""
+        ? Number(raw.dias_credito)
+        : undefined,
+    estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+    observaciones: raw.observaciones != null ? String(raw.observaciones) : undefined,
+  };
+}
+
+export function normalizeAccountDocument(
+  raw: Record<string, unknown>,
+): import("@/types/tlo").AccountDocument {
+  const tipo = raw.tipo === "cxp" ? "cxp" : "cxc";
+  const estatus =
+    raw.estatus === "pagada" || raw.estatus === "cancelada" ? raw.estatus : "abierta";
+  const origen =
+    raw.origen === "viaje" ||
+    raw.origen === "combustible" ||
+    raw.origen === "mantenimiento" ||
+    raw.origen === "gasto"
+      ? raw.origen
+      : "manual";
+  const bucket =
+    raw.aging_bucket === "corriente" ||
+    raw.aging_bucket === "1-30" ||
+    raw.aging_bucket === "31-60" ||
+    raw.aging_bucket === "90+"
+      ? raw.aging_bucket
+      : null;
+  const display =
+    raw.estatus_display === "Vencida" ||
+    raw.estatus_display === "Pagada" ||
+    raw.estatus_display === "Cancelada"
+      ? raw.estatus_display
+      : "Al día";
+  const paymentsRaw = Array.isArray(raw.payments) ? raw.payments : [];
+  return {
+    id: String(raw.id),
+    tipo,
+    client_id: raw.client_id != null ? String(raw.client_id) : undefined,
+    supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : undefined,
+    entidad_nombre: String(raw.entidad_nombre ?? ""),
+    folio: String(raw.folio ?? ""),
+    concepto: String(raw.concepto ?? ""),
+    fecha_emision: String(raw.fecha_emision ?? "").slice(0, 10),
+    plazo_credito_dias:
+      raw.plazo_credito_dias != null && raw.plazo_credito_dias !== ""
+        ? Number(raw.plazo_credito_dias)
+        : null,
+    fecha_vencimiento: raw.fecha_vencimiento
+      ? String(raw.fecha_vencimiento).slice(0, 10)
+      : null,
+    monto_original: Number(raw.monto_original ?? 0),
+    abonos: Number(raw.abonos ?? 0),
+    saldo_pendiente: Number(raw.saldo_pendiente ?? 0),
+    estatus,
+    estatus_display: display,
+    aging_bucket: bucket,
+    origen,
+    trip_id: raw.trip_id != null ? String(raw.trip_id) : undefined,
+    fuel_ticket_id: raw.fuel_ticket_id != null ? String(raw.fuel_ticket_id) : undefined,
+    fuel_load_id: raw.fuel_load_id != null ? String(raw.fuel_load_id) : undefined,
+    maintenance_record_id:
+      raw.maintenance_record_id != null ? String(raw.maintenance_record_id) : undefined,
+    expense_id: raw.expense_id != null ? String(raw.expense_id) : undefined,
+    payments: paymentsRaw.map((p) => {
+      const row = p as Record<string, unknown>;
+      return {
+        id: String(row.id),
+        monto: Number(row.monto ?? 0),
+        fecha: String(row.fecha ?? "").slice(0, 10),
+        nota: row.nota != null ? String(row.nota) : undefined,
+        created_at: row.created_at != null ? String(row.created_at) : undefined,
+      };
+    }),
   };
 }
 
@@ -1279,4 +1369,145 @@ export async function cancelDriverAccountItem(
   return readJson(res);
 }
 
+/* —— CXC / CXP —— */
+
+export async function fetchSuppliers(): Promise<import("@/types/tlo").Supplier[]> {
+  const res = await apiFetch("/suppliers");
+  const data = await readJson<unknown[]>(res);
+  return data.map((r) => normalizeSupplier(r as Record<string, unknown>));
+}
+
+export async function upsertSupplierApi(
+  body: Partial<import("@/types/tlo").Supplier> & { razon_social: string },
+): Promise<import("@/types/tlo").Supplier> {
+  const payload = {
+    razon_social: body.razon_social,
+    rfc: body.rfc || null,
+    contacto: body.contacto || null,
+    telefono: body.telefono || null,
+    email: body.email || null,
+    dias_credito: body.dias_credito ?? null,
+    estatus: body.estatus ?? "activo",
+    observaciones: body.observaciones || null,
+  };
+  if (body.id) {
+    const res = await apiFetch(`/suppliers/${body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    return normalizeSupplier(await readJson(res));
+  }
+  const res = await apiFetch("/suppliers", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normalizeSupplier(await readJson(res));
+}
+
+export async function deleteSupplierApi(id: string): Promise<void> {
+  await apiFetch(`/suppliers/${id}`, { method: "DELETE" });
+}
+
+export async function fetchAccountDocuments(params: {
+  tipo?: "cxc" | "cxp";
+  estatus?: string;
+  bucket?: string;
+  q?: string;
+  desde?: string;
+  hasta?: string;
+} = {}): Promise<import("@/types/tlo").AccountDocument[]> {
+  const qs = new URLSearchParams();
+  if (params.tipo) qs.set("tipo", params.tipo);
+  if (params.estatus) qs.set("estatus", params.estatus);
+  if (params.bucket) qs.set("bucket", params.bucket);
+  if (params.q) qs.set("q", params.q);
+  if (params.desde) qs.set("desde", params.desde);
+  if (params.hasta) qs.set("hasta", params.hasta);
+  const res = await apiFetch(`/account-documents?${qs.toString()}`);
+  const data = await readJson<unknown[]>(res);
+  return data.map((r) => normalizeAccountDocument(r as Record<string, unknown>));
+}
+
+export async function fetchAccountAging(
+  tipo: "cxc" | "cxp",
+): Promise<import("@/types/tlo").AgingSummary> {
+  const res = await apiFetch(`/account-documents/aging?tipo=${tipo}`);
+  const raw = await readJson<Record<string, unknown>>(res);
+  const totalsRaw = (raw.totals ?? {}) as Record<string, { count?: number; saldo?: number }>;
+  return {
+    tipo: raw.tipo === "cxp" ? "cxp" : "cxc",
+    totals: {
+      corriente: {
+        count: Number(totalsRaw.corriente?.count ?? 0),
+        saldo: Number(totalsRaw.corriente?.saldo ?? 0),
+      },
+      "1-30": {
+        count: Number(totalsRaw["1-30"]?.count ?? 0),
+        saldo: Number(totalsRaw["1-30"]?.saldo ?? 0),
+      },
+      "31-60": {
+        count: Number(totalsRaw["31-60"]?.count ?? 0),
+        saldo: Number(totalsRaw["31-60"]?.saldo ?? 0),
+      },
+      "90+": {
+        count: Number(totalsRaw["90+"]?.count ?? 0),
+        saldo: Number(totalsRaw["90+"]?.saldo ?? 0),
+      },
+    },
+    documents: Array.isArray(raw.documents)
+      ? raw.documents.map((d) => normalizeAccountDocument(d as Record<string, unknown>))
+      : [],
+  };
+}
+
+export async function fetchAccountDocument(
+  id: string,
+): Promise<import("@/types/tlo").AccountDocument> {
+  const res = await apiFetch(`/account-documents/${id}`);
+  return normalizeAccountDocument(await readJson(res));
+}
+
+export async function createAccountDocumentApi(
+  body: Record<string, unknown>,
+): Promise<import("@/types/tlo").AccountDocument> {
+  const res = await apiFetch("/account-documents", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return normalizeAccountDocument(await readJson(res));
+}
+
+export async function patchAccountDocumentApi(
+  id: string,
+  body: Record<string, unknown>,
+): Promise<import("@/types/tlo").AccountDocument> {
+  const res = await apiFetch(`/account-documents/${id}`, {
+    method: "PATCH",
+    body: JSON.stringify(body),
+  });
+  return normalizeAccountDocument(await readJson(res));
+}
+
+export async function addAccountPaymentApi(
+  id: string,
+  body: { monto: number; fecha: string; nota?: string },
+): Promise<import("@/types/tlo").AccountDocument> {
+  const res = await apiFetch(`/account-documents/${id}/payments`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return normalizeAccountDocument(await readJson(res));
+}
+
+export async function cancelAccountDocumentApi(
+  id: string,
+): Promise<import("@/types/tlo").AccountDocument> {
+  const res = await apiFetch(`/account-documents/${id}/cancel`, { method: "POST" });
+  return normalizeAccountDocument(await readJson(res));
+}
+
+export async function backfillAccountDocumentsApi(): Promise<{ cxc: number; cxp: number }> {
+  const res = await apiFetch("/account-documents/backfill", { method: "POST" });
+  return readJson(res);
+}
 

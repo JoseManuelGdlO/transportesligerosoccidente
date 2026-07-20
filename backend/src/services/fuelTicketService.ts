@@ -18,6 +18,7 @@ export type FuelTicketInput = {
   ubicacion?: string;
   origen?: FuelTicketOrigen;
   external_id?: string | null;
+  supplier_id?: string | null;
 };
 
 function calcImporte(litros: number, precio: number, importe?: number): number {
@@ -81,7 +82,7 @@ export async function createFuelTicket(tenantId: string, input: FuelTicketInput)
 
   const litros = input.litros;
   const precio = input.precio_litro;
-  return FuelTicket.create({
+  const row = await FuelTicket.create({
     id: randomUUID(),
     tenant_id: tenantId,
     truck_id: input.truck_id,
@@ -98,7 +99,19 @@ export async function createFuelTicket(tenantId: string, input: FuelTicketInput)
     ubicacion: input.ubicacion?.trim() || "Gasolinera",
     origen: input.origen ?? "manual",
     external_id: input.external_id ?? null,
+    supplier_id: input.supplier_id ?? null,
   } as never);
+  try {
+    const { upsertFromFuelTicket } = await import("./accountDocumentService");
+    await upsertFromFuelTicket(row);
+  } catch (syncErr) {
+    // Ticket ya creado; no fallar la operación por sync de CXP
+    console.warn(
+      "[fuelTicket] Ticket creado pero falló sync de documento CXP:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return row;
 }
 
 export async function updateFuelTicket(tenantId: string, id: string, patch: Partial<FuelTicketInput>) {
@@ -133,9 +146,20 @@ export async function updateFuelTicket(tenantId: string, id: string, patch: Part
     importe_total: String(importe),
     ...(patch.ubicacion != null ? { ubicacion: patch.ubicacion } : {}),
     ...(patch.external_id !== undefined ? { external_id: patch.external_id } : {}),
+    ...(patch.supplier_id !== undefined ? { supplier_id: patch.supplier_id } : {}),
   } as never);
 
-  return getFuelTicketOrThrow(tenantId, id);
+  const updated = await getFuelTicketOrThrow(tenantId, id);
+  try {
+    const { upsertFromFuelTicket } = await import("./accountDocumentService");
+    await upsertFromFuelTicket(updated);
+  } catch (syncErr) {
+    console.warn(
+      "[fuelTicket] Ticket actualizado pero falló sync de documento CXP:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return updated;
 }
 
 export async function deleteFuelTicket(tenantId: string, id: string) {

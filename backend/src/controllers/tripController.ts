@@ -166,6 +166,7 @@ const expenseSchema = z
     monto_comprobado: z.number().min(0),
     visible_en_liquidacion: z.boolean().optional().default(false),
     fecha: z.string().optional(),
+    supplier_id: z.string().uuid().optional().nullable(),
   })
   .refine((d) => d.monto_comprobado <= d.monto, {
     message: "monto_comprobado no puede ser mayor que monto",

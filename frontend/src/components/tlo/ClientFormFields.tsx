@@ -110,6 +110,21 @@ export function ClientFormFields({
           />
         </ValidatedField>
         <div>
+          <Label htmlFor="dias_credito">Días de crédito</Label>
+          <Input
+            id="dias_credito"
+            type="number"
+            min={0}
+            placeholder="No especificado"
+            value={form.dias_credito ?? ""}
+            onChange={(e) =>
+              onChange({
+                dias_credito: e.target.value === "" ? null : Number(e.target.value),
+              })
+            }
+          />
+        </div>
+        <div>
           <Label htmlFor="regimen_fiscal">Régimen fiscal</Label>
           <Input
             id="regimen_fiscal"

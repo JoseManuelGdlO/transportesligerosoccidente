@@ -18,6 +18,7 @@ export class Expense extends Model<InferAttributes<Expense>, InferCreationAttrib
   declare monto_comprobado: string;
   declare visible_en_liquidacion: boolean;
   declare fecha: Date;
+  declare supplier_id: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -42,6 +43,7 @@ export function initExpense(sequelize: Sequelize) {
       monto_comprobado: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },
       visible_en_liquidacion: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       fecha: { type: DataTypes.DATE, allowNull: false },
+      supplier_id: { type: DataTypes.CHAR(36), allowNull: true },
     } as never,
     { sequelize, tableName: "expenses", underscored: true },
   );

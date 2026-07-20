@@ -24,6 +24,10 @@ export const ALL_PERMISSIONS = [
   "combustibles.crear",
   "combustibles.importar",
   "combustibles.eliminar",
+  "cuentas.ver",
+  "cuentas.gestionar",
+  "proveedores.ver",
+  "proveedores.gestionar",
 ] as const;
 
 export type PermissionSlug = (typeof ALL_PERMISSIONS)[number];

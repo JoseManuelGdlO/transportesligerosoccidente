@@ -24,6 +24,8 @@ import PersonalizacionPdf from "@/pages/tlo/PersonalizacionPdf";
 import Empresa from "@/pages/tlo/Empresa";
 import TiposDocumento from "@/pages/tlo/TiposDocumento";
 import Mantenimiento from "@/pages/tlo/Mantenimiento";
+import Cuentas from "@/pages/tlo/Cuentas";
+import Proveedores from "@/pages/tlo/Proveedores";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 const queryClient = new QueryClient();
@@ -46,8 +48,10 @@ const App = () => (
                 <Route path="/mantenimiento" element={<Mantenimiento />} />
                 <Route path="/operadores" element={<Operadores />} />
                 <Route path="/clientes" element={<Clientes />} />
+                <Route path="/proveedores" element={<Proveedores />} />
                 <Route path="/rutas" element={<Rutas />} />
                 <Route path="/liquidaciones" element={<Liquidaciones />} />
+                <Route path="/cuentas" element={<Cuentas />} />
                 <Route path="/reportes" element={<Reportes />} />
                 <Route path="/combustibles" element={<Combustibles />} />
                 <Route path="/usuarios" element={<Usuarios />} />

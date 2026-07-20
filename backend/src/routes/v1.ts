@@ -30,6 +30,8 @@ import * as docC from "../controllers/documentController";
 import * as notifC from "../controllers/notificationController";
 import * as pushC from "../controllers/pushController";
 import * as satCatalogC from "../controllers/satCatalogController";
+import * as supplierC from "../controllers/supplierController";
+import * as accountDocC from "../controllers/accountDocumentController";
 import { uploadDriverDocument, uploadTruckDocument } from "../middlewares/uploadDocument";
 import { loadDocumentForPatch, uploadDocumentPatch } from "../middlewares/documentPatchUpload";
 import { uploadPdfLogo } from "../middlewares/uploadPdfLogo";
@@ -90,6 +92,21 @@ r.get("/clients/:id", authenticateJwt, requirePermission("catalogos.ver"), clien
 r.post("/clients", authenticateJwt, requirePermission("catalogos.editar"), clientC.createClient);
 r.patch("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.updateClient);
 r.delete("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.deleteClient);
+
+r.get("/suppliers", authenticateJwt, requirePermission("proveedores.ver", "cuentas.ver"), supplierC.listSuppliers);
+r.get("/suppliers/:id", authenticateJwt, requirePermission("proveedores.ver", "cuentas.ver"), supplierC.getSupplier);
+r.post("/suppliers", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.createSupplier);
+r.patch("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.updateSupplier);
+r.delete("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.deleteSupplier);
+
+r.get("/account-documents/aging", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.getAging);
+r.post("/account-documents/backfill", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postBackfill);
+r.get("/account-documents", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.listAccountDocuments);
+r.get("/account-documents/:id", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.getAccountDocument);
+r.post("/account-documents", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.createAccountDocument);
+r.patch("/account-documents/:id", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.patchAccountDocument);
+r.post("/account-documents/:id/payments", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postPayment);
+r.post("/account-documents/:id/cancel", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postCancel);
 
 r.get(
   "/ubicaciones",

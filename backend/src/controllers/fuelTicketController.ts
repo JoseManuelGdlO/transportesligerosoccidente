@@ -22,6 +22,7 @@ const bodySchema = z.object({
   ubicacion: z.string().min(1).optional(),
   external_id: z.string().optional().nullable(),
   origen: z.enum(["manual", "import_excel", "api"]).optional(),
+  supplier_id: z.string().uuid().optional().nullable(),
 });
 
 function jsonTicket(row: Awaited<ReturnType<typeof fuelTicketService.getFuelTicketOrThrow>>) {

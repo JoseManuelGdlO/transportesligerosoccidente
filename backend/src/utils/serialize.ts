@@ -5,6 +5,7 @@ import type { Trip } from "../models/Trip";
 import type { Truck } from "../models/Truck";
 import type { Driver } from "../models/Driver";
 import type { Client } from "../models/Client";
+import type { Supplier } from "../models/Supplier";
 import type { User } from "../models/User";
 import type { Role } from "../models/Role";
 import type { Permission } from "../models/Permission";
@@ -45,6 +46,7 @@ export function fuelTicketToJson(
     ubicacion: p.ubicacion,
     origen: p.origen,
     external_id: p.external_id ?? undefined,
+    supplier_id: p.supplier_id ?? undefined,
     numero_economico: truck?.numero_economico,
     placas: truck?.placas,
   };
@@ -78,6 +80,7 @@ export function expenseToJson(e: Expense): Record<string, unknown> {
     monto_comprobado: num(p.monto_comprobado),
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(p.visible_en_liquidacion) : false,
     fecha: iso(p.fecha),
+    supplier_id: p.supplier_id ?? undefined,
   };
 }
 
@@ -318,6 +321,22 @@ export function clientToJson(c: Client): Record<string, unknown> {
     localidad_clave: p.localidad_clave ?? undefined,
     email: p.email ?? undefined,
     regimen_fiscal: p.regimen_fiscal ?? undefined,
+    estatus: p.estatus ?? undefined,
+    observaciones: p.observaciones ?? undefined,
+    dias_credito: p.dias_credito != null ? Number(p.dias_credito) : undefined,
+  };
+}
+
+export function supplierToJson(s: Supplier): Record<string, unknown> {
+  const p = s.get({ plain: true }) as Record<string, unknown>;
+  return {
+    id: p.id,
+    razon_social: p.razon_social,
+    rfc: p.rfc ?? undefined,
+    contacto: p.contacto ?? undefined,
+    telefono: p.telefono ?? undefined,
+    email: p.email ?? undefined,
+    dias_credito: p.dias_credito != null ? Number(p.dias_credito) : undefined,
     estatus: p.estatus ?? undefined,
     observaciones: p.observaciones ?? undefined,
   };

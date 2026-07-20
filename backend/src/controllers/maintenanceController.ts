@@ -25,6 +25,7 @@ const recordSchema = z.object({
   costo: z.number().min(0),
   descripcion: z.string().min(1),
   taller: z.string().optional(),
+  supplier_id: z.string().uuid().optional().nullable(),
 });
 
 export const getOverview = asyncHandler(async (req: Request, res: Response) => {
@@ -92,6 +93,7 @@ export const listRecords = asyncHandler(async (req: Request, res: Response) => {
       costo: num(r.costo),
       descripcion: r.descripcion,
       taller: r.taller ?? undefined,
+      supplier_id: r.supplier_id ?? undefined,
     })),
   );
 });
@@ -113,5 +115,6 @@ export const createRecord = asyncHandler(async (req: Request, res: Response) => 
     costo: num(row.costo),
     descripcion: row.descripcion,
     taller: row.taller ?? undefined,
+    supplier_id: row.supplier_id ?? undefined,
   });
 });

@@ -28,6 +28,7 @@ const bodySchema = z.object({
   regimen_fiscal: z.string().optional(),
   estatus: z.enum(["activo", "inactivo"]).optional(),
   observaciones: z.string().optional(),
+  dias_credito: z.number().int().nonnegative().optional().nullable(),
 });
 
 export const listClients = asyncHandler(async (req: Request, res: Response) => {

@@ -53,7 +53,11 @@ export type Permission =
   | "combustibles.ver"
   | "combustibles.crear"
   | "combustibles.importar"
-  | "combustibles.eliminar";
+  | "combustibles.eliminar"
+  | "cuentas.ver"
+  | "cuentas.gestionar"
+  | "proveedores.ver"
+  | "proveedores.gestionar";
 
 /** Todos los permisos conocidos (alineado con el backend). */
 export const FULL_ADMIN_PERMISSIONS: Permission[] = [
@@ -81,6 +85,10 @@ export const FULL_ADMIN_PERMISSIONS: Permission[] = [
   "combustibles.crear",
   "combustibles.importar",
   "combustibles.eliminar",
+  "cuentas.ver",
+  "cuentas.gestionar",
+  "proveedores.ver",
+  "proveedores.gestionar",
 ];
 
 export type CartaPorteEstatus = "borrador" | "timbrada" | "cancelada" | "error";
@@ -710,6 +718,72 @@ export interface Client {
   regimen_fiscal?: string;
   estatus?: ClientStatus;
   observaciones?: string;
+  dias_credito?: number | null;
+}
+
+export type SupplierStatus = "activo" | "inactivo";
+
+export interface Supplier {
+  id: string;
+  razon_social: string;
+  rfc?: string;
+  contacto?: string;
+  telefono?: string;
+  email?: string;
+  dias_credito?: number | null;
+  estatus?: SupplierStatus;
+  observaciones?: string;
+}
+
+export type AccountDocumentTipo = "cxc" | "cxp";
+export type AccountDocumentEstatus = "abierta" | "pagada" | "cancelada";
+export type AccountDocumentOrigen =
+  | "manual"
+  | "viaje"
+  | "combustible"
+  | "mantenimiento"
+  | "gasto";
+export type AgingBucket = "corriente" | "1-30" | "31-60" | "90+";
+export type AccountDisplayEstatus = "Al día" | "Vencida" | "Pagada" | "Cancelada";
+
+export interface AccountDocumentPayment {
+  id: string;
+  monto: number;
+  fecha: string;
+  nota?: string;
+  created_at?: string;
+}
+
+export interface AccountDocument {
+  id: string;
+  tipo: AccountDocumentTipo;
+  client_id?: string;
+  supplier_id?: string;
+  entidad_nombre: string;
+  folio: string;
+  concepto: string;
+  fecha_emision: string;
+  plazo_credito_dias?: number | null;
+  fecha_vencimiento?: string | null;
+  monto_original: number;
+  abonos: number;
+  saldo_pendiente: number;
+  estatus: AccountDocumentEstatus;
+  estatus_display: AccountDisplayEstatus;
+  aging_bucket?: AgingBucket | null;
+  origen: AccountDocumentOrigen;
+  trip_id?: string;
+  fuel_ticket_id?: string;
+  fuel_load_id?: string;
+  maintenance_record_id?: string;
+  expense_id?: string;
+  payments?: AccountDocumentPayment[];
+}
+
+export interface AgingSummary {
+  tipo: AccountDocumentTipo;
+  totals: Record<AgingBucket, { count: number; saldo: number }>;
+  documents: AccountDocument[];
 }
 
 export interface ClientUbicacion {
