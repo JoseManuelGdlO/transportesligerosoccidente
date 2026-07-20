@@ -217,16 +217,27 @@ export default function ViajeDetalle() {
       toast.error(err instanceof Error ? err.message : "Error al registrar gasto");
     }
   };
-  const onClose = () => {
-    if (closeData.km_final <= trip.km_inicial) { toast.error("El km final debe ser mayor al inicial"); return; }
-    if (!closeData.num_factura) { toast.error("Captura número de factura"); return; }
-    closeTrip(trip.id, {
-      km_final: +closeData.km_final,
-      fecha_llegada: new Date(closeData.fecha_llegada).toISOString(),
-      num_factura: closeData.num_factura,
-    });
-    setCloseOpen(false);
-    toast.success("Viaje cerrado");
+  const onClose = async () => {
+    if (closeData.km_final <= trip.km_inicial) {
+      toast.error("El km final debe ser mayor al inicial");
+      return;
+    }
+    if (!closeData.num_factura) {
+      toast.error("Captura número de factura");
+      return;
+    }
+    try {
+      await closeTrip(trip.id, {
+        km_final: +closeData.km_final,
+        fecha_llegada: new Date(closeData.fecha_llegada).toISOString(),
+        num_factura: closeData.num_factura,
+      });
+      setCloseOpen(false);
+      toast.success("Viaje cerrado");
+      await reloadTrip();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "No se pudo cerrar el viaje");
+    }
   };
 
   const catLabel: Record<ExpenseCategory, string> = {

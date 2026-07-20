@@ -19,6 +19,7 @@ import {
   getClosedStatusIds,
   assertNoOpenTripConflict,
 } from "./tripStatusService";
+import { assertTripScheduleAndOdometer } from "./tripSequenceValidation";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -121,9 +122,19 @@ export async function closeTrip(
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
+  const fechaLlegada = new Date(data.fecha_llegada);
+  await assertTripScheduleAndOdometer(tenantId, {
+    tripId: id,
+    folio: trip.folio,
+    truckId: String(trip.truck_id),
+    fecha_salida: trip.fecha_salida,
+    fecha_llegada: fechaLlegada,
+    km_inicial: trip.km_inicial,
+    km_final: data.km_final,
+  });
   await trip.update({
     km_final: data.km_final,
-    fecha_llegada: new Date(data.fecha_llegada),
+    fecha_llegada: fechaLlegada,
     num_factura: factura,
   });
   await swapSystemStatus(tenantId, id, "en_curso", "cerrado");
@@ -304,6 +315,39 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     });
   }
 
+  const effectiveTruckId = String(data.truck_id ?? trip.truck_id);
+  const effectiveFechaSalida =
+    data.fecha_salida instanceof Date
+      ? data.fecha_salida
+      : data.fecha_salida != null
+        ? new Date(String(data.fecha_salida))
+        : trip.fecha_salida;
+  const effectiveFechaLlegada = isClosed
+    ? data.fecha_llegada instanceof Date
+      ? data.fecha_llegada
+      : data.fecha_llegada != null
+        ? new Date(String(data.fecha_llegada))
+        : trip.fecha_llegada
+    : trip.fecha_llegada;
+  const effectiveKmInicial = Number(data.km_inicial ?? trip.km_inicial);
+  const effectiveKmFinal = isClosed
+    ? data.km_final !== undefined
+      ? Number(data.km_final)
+      : trip.km_final != null
+        ? Number(trip.km_final)
+        : null
+    : null;
+
+  await assertTripScheduleAndOdometer(tenantId, {
+    tripId: id,
+    folio: trip.folio,
+    truckId: effectiveTruckId,
+    fecha_salida: effectiveFechaSalida,
+    fecha_llegada: effectiveFechaLlegada,
+    km_inicial: effectiveKmInicial,
+    km_final: effectiveKmFinal,
+  });
+
   await trip.update(data as never);
 
   if (paradasPatch) {
@@ -369,6 +413,18 @@ export async function createTrip(
       { truck_id: data.truck_id, driver_id: data.driver_id },
       t,
     );
+    const fechaSalida = new Date(data.fecha_salida);
+    await assertTripScheduleAndOdometer(
+      tenantId,
+      {
+        truckId: data.truck_id,
+        fecha_salida: fechaSalida,
+        fecha_llegada: null,
+        km_inicial: data.km_inicial,
+        km_final: null,
+      },
+      t,
+    );
     const folio = await nextFolio(tenantId, data.truck_id, t);
     const tripId = randomUUID();
     const created = await Trip.create(
@@ -382,7 +438,7 @@ export async function createTrip(
         route_id: data.route_id ?? null,
         origen,
         destino,
-        fecha_salida: new Date(data.fecha_salida),
+        fecha_salida: fechaSalida,
         km_inicial: data.km_inicial,
         tarifa: data.tarifa,
         viaticos_entregados: data.viaticos_entregados ?? 0,
@@ -436,10 +492,10 @@ export async function getLastClosedKmFinal(
     ],
     order: [
       ["km_final", "DESC"],
-      ["createdAt", "DESC"],
       ["fecha_llegada", "DESC"],
+      ["createdAt", "DESC"],
     ],
-    attributes: ["km_final", "createdAt", "fecha_llegada"],
+    attributes: ["km_final", "fecha_llegada", "createdAt"],
   });
   return lastTrip?.km_final ?? null;
 }

@@ -136,8 +136,8 @@ export async function readJson<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let msg = res.statusText;
     try {
-      const j = JSON.parse(text) as { error?: unknown };
-      const formatted = formatApiError(j.error);
+      const j = JSON.parse(text) as { error?: unknown; message?: unknown };
+      const formatted = formatApiError(j.error) ?? formatApiError(j.message);
       if (formatted) msg = formatted;
     } catch {
       /* ignore */

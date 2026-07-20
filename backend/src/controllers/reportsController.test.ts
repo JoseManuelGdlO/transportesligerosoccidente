@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import { buildByMonth, withMaintenanceTotals } from "./reportsController";
+import type { TripFinancials } from "../services/calc";
 import type { Truck } from "../models";
 
 describe("withMaintenanceTotals", () => {
@@ -37,16 +38,23 @@ describe("buildByMonth", () => {
     { id: "truck-1", numero_economico: "TLO-01", marca: "Kenworth", modelo: "T680" },
   ] as Truck[];
 
-  function fin(overrides: Partial<{ ingreso: number; utilidad: number; km_recorridos: number }> = {}) {
+  function fin(overrides: Partial<TripFinancials> = {}): TripFinancials {
     return {
       ingreso: 1000,
       utilidad: 400,
       km_recorridos: 100,
       costo_total: 600,
       diesel_total: 300,
+      diesel_litros: 10,
       comision: 100,
       gastos_total: 200,
+      gastos_comprobados: 150,
+      gastos_no_comprobados: 50,
       margen_pct: 40,
+      costo_por_km: 6,
+      ingreso_por_km: 10,
+      rendimiento_real: 10,
+      costo_diesel_por_km: 3,
       ...overrides,
     };
   }

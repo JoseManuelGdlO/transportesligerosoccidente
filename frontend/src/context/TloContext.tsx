@@ -39,7 +39,7 @@ interface TloState {
   removeFuel: (tripId: string, fuelId: string) => void;
   addExpense: (tripId: string, e: Omit<Expense, "id">) => Promise<void>;
   removeExpense: (tripId: string, eid: string) => void;
-  closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => void;
+  closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => Promise<void>;
   /** Marca la unidad como baja (no borra el registro en base de datos). */
   deleteTruck: (id: string) => Promise<void>;
   /** Marca el operador como inactivo / baja lógica (no borra el registro). */
@@ -664,21 +664,20 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const closeTrip = useCallback(
-    (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => {
+    async (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string }) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const r = await apiFetch(`/trips/${id}/close`, {
-              method: "POST",
-              body: JSON.stringify(data),
-            });
-            const j = await readJson<Record<string, unknown>>(r);
-            const next = normalizeTrip(j);
-            setTrips((prev) => prev.map((t) => (t.id === id ? next : t)));
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al cerrar viaje");
-          }
-        })();
+        try {
+          const r = await apiFetch(`/trips/${id}/close`, {
+            method: "POST",
+            body: JSON.stringify(data),
+          });
+          const j = await readJson<Record<string, unknown>>(r);
+          const next = normalizeTrip(j);
+          setTrips((prev) => prev.map((t) => (t.id === id ? next : t)));
+        } catch (e) {
+          setCatalogError(e instanceof Error ? e.message : "Error al cerrar viaje");
+          throw e;
+        }
         return;
       }
       setTrips((prev) =>
