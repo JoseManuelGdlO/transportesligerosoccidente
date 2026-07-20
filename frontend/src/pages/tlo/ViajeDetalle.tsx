@@ -348,7 +348,9 @@ export default function ViajeDetalle() {
             <div>
               <p className="text-xs uppercase tracking-wider opacity-70">Gastos</p>
               <p className="text-xl font-bold mt-1 text-warning">−{fmtMXN(fin.gastos_total)}</p>
-              <p className="text-[10px] opacity-60">{fmtMXN(fin.gastos_comprobados)} comprobados</p>
+              {fin.gastos_no_comprobados > 0 && (
+                <p className="text-[10px] opacity-60">{fmtMXN(fin.gastos_no_comprobados)} sin comprobar</p>
+              )}
             </div>
             <div>
               <p className="text-xs uppercase tracking-wider opacity-70">Comisión</p>

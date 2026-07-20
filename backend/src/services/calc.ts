@@ -72,7 +72,7 @@ export function computeTrip(
   const ingreso = num(trip.tarifa) + ingresos_extra;
   const gastos_comprobados = gastoRows.reduce((a, e) => a + clampMontoComprobado(e), 0);
   const gastos_no_comprobados = gastoRows.reduce((a, e) => a + (num(e.monto) - clampMontoComprobado(e)), 0);
-  const gastos_total = gastos_comprobados + gastos_no_comprobados;
+  const gastos_total = gastos_comprobados;
   const comision = computeCommission(trip, driver);
   const costo_total = diesel_total + gastos_total + comision;
   const utilidad = ingreso - costo_total;
