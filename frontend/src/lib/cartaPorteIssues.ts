@@ -5,6 +5,7 @@ export type StopIssueFlags = {
   nombre: boolean;
   estado: boolean;
   distancia_km: boolean;
+  fecha_hora: boolean;
 };
 
 export type CartaPorteIssueClass = {
@@ -48,6 +49,7 @@ const emptyStop = (): StopIssueFlags => ({
   nombre: false,
   estado: false,
   distancia_km: false,
+  fecha_hora: false,
 });
 
 export function emptyCartaPorteIssueClass(): CartaPorteIssueClass {
@@ -168,6 +170,12 @@ export function classifyCartaPorteIssues(
         if (field === "estado") stop.estado = true;
         if (field === "distancia del tramo en km") stop.distancia_km = true;
       }
+    }
+
+    if (issue.includes("fecha/hora de llegada debe ser posterior")) {
+      const stop = ensureStop(flags, stopCount);
+      stop.highlight = true;
+      stop.fecha_hora = true;
     }
 
     if (issue === "Operador no asignado") {

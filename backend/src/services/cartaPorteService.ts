@@ -156,6 +156,15 @@ export function validateCartaPorteData(
     if (num(destinoFinal.distancia_km) <= 0) {
       issues.push("Ubicación destino final: falta distancia del tramo en km");
     }
+    if (origen?.fecha_hora && destinoFinal.fecha_hora) {
+      const salidaMs = new Date(origen.fecha_hora).getTime();
+      const llegadaMs = new Date(destinoFinal.fecha_hora).getTime();
+      if (!Number.isNaN(salidaMs) && !Number.isNaN(llegadaMs) && llegadaMs <= salidaMs) {
+        issues.push(
+          "Ubicación destino final: la fecha/hora de llegada debe ser posterior a la de salida",
+        );
+      }
+    }
   }
   if (mercancias.length === 0) issues.push("Agrega al menos una mercancía");
   if (!truck?.config_vehicular) issues.push("Camión: falta configuración vehicular SAT");

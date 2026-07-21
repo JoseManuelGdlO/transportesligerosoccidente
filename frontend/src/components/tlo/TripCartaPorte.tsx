@@ -140,6 +140,16 @@ export function TripCartaPorte({
     sortedUbics.filter((u) => u.orden > 1).pop() ??
     sortedUbics.find((u) => u.tipo === "Destino");
 
+  const tripDistanciaKm = useMemo(() => {
+    if (trip.km_final != null && trip.km_inicial != null) {
+      return Math.max(0, Number(trip.km_final) - Number(trip.km_inicial));
+    }
+    return null;
+  }, [trip.km_final, trip.km_inicial]);
+
+  const defaultFechaSalida =
+    origen?.fecha_hora?.slice(0, 16) || trip.fecha_salida.slice(0, 16);
+
   const [origenForm, setOrigenForm] = useState({
     ...emptyUbic(),
     rfc: origen?.rfc || clientRfc || "",
@@ -157,7 +167,7 @@ export function TripCartaPorte({
     numero_interior: origen?.numero_interior || "",
     pais: origen?.pais || "MEX",
     client_ubicacion_id: origen?.client_ubicacion_id,
-    fecha_hora: origen?.fecha_hora?.slice(0, 16) || trip.fecha_salida.slice(0, 16),
+    fecha_hora: defaultFechaSalida,
   });
   const [destinoForm, setDestinoForm] = useState({
     ...emptyUbic(),
@@ -176,8 +186,9 @@ export function TripCartaPorte({
     numero_interior: destino?.numero_interior || "",
     pais: destino?.pais || "MEX",
     client_ubicacion_id: destino?.client_ubicacion_id,
-    distancia_km: destino?.distancia_km ?? "",
-    fecha_hora: destino?.fecha_hora?.slice(0, 16) || "",
+    distancia_km: tripDistanciaKm ?? destino?.distancia_km ?? "",
+    // Misma fecha que salida por default: falla validación hasta que el usuario la ajuste
+    fecha_hora: destino?.fecha_hora?.slice(0, 16) || defaultFechaSalida,
   });
   const [catalogUbicaciones, setCatalogUbicaciones] = useState<ClientUbicacion[]>([]);
   const [ubicDialogOpen, setUbicDialogOpen] = useState(false);
@@ -323,11 +334,27 @@ export function TripCartaPorte({
   }, [trip.id, trip.ubicaciones]);
 
   useEffect(() => {
+    if (tripDistanciaKm == null) return;
+    setDestinoForm((prev) => {
+      if (Number(prev.distancia_km) === tripDistanciaKm) return prev;
+      return { ...prev, distancia_km: tripDistanciaKm };
+    });
+  }, [tripDistanciaKm]);
+
+  useEffect(() => {
     if (!validationAttempted) return;
     const section = firstErrorSection(issueFlags, fiscalStopCount);
     if (!section) return;
     sectionRefs.current[section]?.scrollIntoView({ behavior: "smooth", block: "start" });
   }, [validationAttempted, issueFlags, fiscalStopCount]);
+
+  const llegadaNoPosterior = useMemo(() => {
+    if (!origenForm.fecha_hora || !destinoForm.fecha_hora) return false;
+    const salidaMs = new Date(origenForm.fecha_hora).getTime();
+    const llegadaMs = new Date(destinoForm.fecha_hora).getTime();
+    if (Number.isNaN(salidaMs) || Number.isNaN(llegadaMs)) return false;
+    return llegadaMs <= salidaMs;
+  }, [origenForm.fecha_hora, destinoForm.fecha_hora]);
 
   const catalogForOrigen = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Origen" || u.tipo === "Ambos"),
@@ -367,17 +394,21 @@ export function TripCartaPorte({
     numero_interior: body.numero_interior || undefined,
     pais: body.pais || undefined,
     distancia_km:
-      orden === 1 || body.distancia_km === "" || body.distancia_km == null
+      orden === 1
         ? undefined
-        : Number(body.distancia_km),
+        : tripDistanciaKm != null && tripDistanciaKm > 0
+          ? tripDistanciaKm
+          : body.distancia_km === "" || body.distancia_km == null
+            ? undefined
+            : Number(body.distancia_km),
     fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
     client_ubicacion_id: body.client_ubicacion_id || undefined,
   });
 
-  const persistUbicaciones = useCallback(async () => {
+  const persistUbicaciones = useCallback(async (opts?: { force?: boolean }) => {
     if (!canFiscalEdit) return;
     const snapshot = buildUbicSnapshot(origenForm, destinoForm);
-    if (snapshot === lastSavedSnapshotRef.current) return;
+    if (!opts?.force && snapshot === lastSavedSnapshotRef.current) return;
 
     try {
       await putTripUbicaciones(trip.id, [
@@ -389,14 +420,14 @@ export function TripCartaPorte({
     } catch {
       toast.error("No se pudieron guardar las ubicaciones");
     }
-  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id]);
+  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id, tripDistanciaKm]);
 
-  const flushPendingSaves = useCallback(async () => {
+  const flushPendingSaves = useCallback(async (opts?: { force?: boolean }) => {
     if (persistTimerRef.current) {
       clearTimeout(persistTimerRef.current);
       persistTimerRef.current = null;
     }
-    await persistUbicaciones();
+    await persistUbicaciones(opts);
   }, [persistUbicaciones]);
 
   const schedulePersistUbicaciones = useCallback(() => {
@@ -615,7 +646,10 @@ export function TripCartaPorte({
     if (!canTimbrar) return;
     setLoading(true);
     try {
-      await flushPendingSaves();
+      // Forzar persist para que el preview/backend valide el estado actual del formulario
+      // (p. ej. fechas default iguales que aún no estaban en BD).
+      await flushPendingSaves({ force: true });
+
       const previewRes = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, {
         method: "POST",
         body: JSON.stringify(timbradoBody()),
@@ -674,7 +708,19 @@ export function TripCartaPorte({
   const ch = (flag: boolean) => cardHighlightClass(flag, validationAttempted);
 
   const patchOrigen = (patch: Partial<typeof origenForm>) => {
-    setOrigenForm((prev) => ({ ...prev, ...patch }));
+    setOrigenForm((prev) => {
+      if (patch.fecha_hora != null) {
+        const prevFechaSalida = prev.fecha_hora;
+        setDestinoForm((dPrev) => {
+          // Si llegada aún refleja la salida (default), mantenerlas alineadas
+          if (!dPrev.fecha_hora || dPrev.fecha_hora === prevFechaSalida) {
+            return { ...dPrev, fecha_hora: patch.fecha_hora! };
+          }
+          return dPrev;
+        });
+      }
+      return { ...prev, ...patch };
+    });
     schedulePersistUbicaciones();
   };
 
@@ -1207,11 +1253,16 @@ export function TripCartaPorte({
               <Input
                 type="number"
                 value={destinoForm.distancia_km}
-                onChange={(e) => patchDestino({ distancia_km: e.target.value })}
-                onBlur={onUbicFieldBlur}
-                disabled={!canFiscalEdit}
+                readOnly
+                disabled
+                title="Tomada de los km recorridos del viaje"
                 className={fh(issueFlags.stops[fiscalStopCount]?.distancia_km ?? false)}
               />
+              {tripDistanciaKm == null || tripDistanciaKm <= 0 ? (
+                <p className="text-xs text-muted-foreground mt-1">
+                  Se toma de los km recorridos del viaje (km final − km inicial).
+                </p>
+              ) : null}
             </div>
             <div>
               <Label>Fecha/hora llegada</Label>
@@ -1221,7 +1272,17 @@ export function TripCartaPorte({
                 onChange={(e) => patchDestino({ fecha_hora: e.target.value })}
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
+                min={origenForm.fecha_hora || undefined}
+                className={cn(
+                  fh(issueFlags.stops[fiscalStopCount]?.fecha_hora ?? false),
+                  llegadaNoPosterior && "border-destructive ring-1 ring-destructive",
+                )}
               />
+              {llegadaNoPosterior && (
+                <p className="text-xs text-destructive mt-1">
+                  Debe ser posterior a la fecha/hora de salida.
+                </p>
+              )}
             </div>
           </CardContent>
         </Card>
