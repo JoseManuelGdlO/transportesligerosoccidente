@@ -133,4 +133,167 @@ describe("SicofiPacProvider", () => {
       /Credenciales Sicofi/,
     );
   });
+
+  it("cancelar manda FolioSustitucion vacío si no hay valor", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const bodies: unknown[] = [];
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      if (url.includes("/CancelaTimbrado/")) {
+        bodies.push(JSON.parse(String(init?.body ?? "{}")));
+        return new Response(JSON.stringify({ CancelacionCorrecta: "true", Mensaje: "OK" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        });
+      }
+      return new Response("unexpected", { status: 500 });
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("AAA-BBB-CCC", "02", tenant, { folioSustitucion: "  " });
+    assert.equal(bodies.length, 1);
+    const body = bodies[0] as Record<string, unknown>;
+    assert.equal(body.UUID, "AAA-BBB-CCC");
+    assert.equal(body.MotivoCancelacion, "02");
+    assert.equal(body.Version, "4.0");
+    assert.equal(body.FolioSustitucion, "");
+  });
+
+  it("cancelar incluye FolioSustitucion cuando hay valor", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const bodies: Array<Record<string, unknown>> = [];
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      bodies.push(JSON.parse(String(init?.body ?? "{}")) as Record<string, unknown>);
+      return new Response(JSON.stringify({ CancelacionCorrecta: "true" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("AAA-BBB-CCC", "01", tenant, {
+      folioSustitucion: "DDD-EEE-FFF",
+    });
+    assert.equal(bodies.length, 1);
+    assert.equal(bodies[0]!.FolioSustitucion, "DDD-EEE-FFF");
+    assert.equal(bodies[0]!.MotivoCancelacion, "01");
+  });
+
+  it("cancelar falla si CancelacionCorrecta no es true", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        JSON.stringify({
+          CancelacionCorrecta: "false",
+          ErrorCancelacion: "UUID no encontrado",
+          CodigoError: "301",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(() => provider.cancelar("AAA-BBB-CCC", "02", tenant), /UUID no encontrado/);
+  });
+
+  it("cancelar falla con RespuestaSAT cuando no hay ErrorCancelacion", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        JSON.stringify({
+          CancelacionCorrecta: "false",
+          RespuestaSAT: "CFDI ya cancelado previamente",
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB-CCC", "02", tenant),
+      /RespuestaSAT: CFDI ya cancelado previamente/,
+    );
+  });
+
+  it("cancelar falla con body crudo si no hay campos de detalle", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(JSON.stringify({ CancelacionCorrecta: "false", foo: "bar" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB-CCC", "02", tenant),
+      /Cancelación rechazada por Sicofi:.*"foo":"bar"/,
+    );
+  });
+
+  it("reintenta cancelar tras 401", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    let cancelaCalls = 0;
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      cancelaCalls += 1;
+      if (cancelaCalls === 1) {
+        return new Response(JSON.stringify({ error: "Unauthorized" }), { status: 401 });
+      }
+      return new Response(JSON.stringify({ CancelacionCorrecta: "true" }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("AAA-BBB-CCC", "03", tenant);
+    assert.equal(cancelaCalls, 2);
+  });
 });

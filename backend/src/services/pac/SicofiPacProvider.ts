@@ -1,10 +1,19 @@
 import { decryptSecret } from "../../utils/fiscalCrypto";
+import type { Tenant } from "../../models";
 import { buildFactura40Payload } from "./sicofi/buildFactura40Payload";
-import { resolveSicofiBaseUrl, resolveSicofiFactura40Url } from "./sicofi/config";
+import {
+  resolveSicofiBaseUrl,
+  resolveSicofiCancelaUrl,
+  resolveSicofiFactura40Url,
+} from "./sicofi/config";
 import { getSicofiAccessToken, invalidateSicofiAccessToken } from "./sicofi/sicofiAuth";
-import { isSicofiHttp401, sicofiPostFactura40 } from "./sicofi/sicofiClient";
-import type { PacProvider, TimbradoContext, TimbradoResult } from "./types";
-import type { SicofiFactura40Request } from "./sicofi/types";
+import {
+  isSicofiHttp401,
+  sicofiPostCancelaTimbrado,
+  sicofiPostFactura40,
+} from "./sicofi/sicofiClient";
+import type { CancelarOpts, PacProvider, TimbradoContext, TimbradoResult } from "./types";
+import type { SicofiCancelaTimbradoRequest, SicofiFactura40Request } from "./sicofi/types";
 
 /**
  * Implementación PAC contra Sicofi Factura40 (CFDI 4.0 + Carta Porte 3.1).
@@ -27,16 +36,11 @@ export class SicofiPacProvider implements PacProvider {
    */
   async timbrar(ctx: TimbradoContext): Promise<TimbradoResult> {
     const { tenant } = ctx;
-    if (!tenant.pac_usuario || !tenant.pac_token_enc) {
-      throw new Error("Credenciales Sicofi no configuradas en la empresa");
-    }
-    const contrasena = decryptSecret(tenant.pac_token_enc);
-    if (!contrasena) throw new Error("No se pudo descifrar la contraseña Sicofi");
+    const { usuario, contrasena } = this.resolveCredentials(tenant);
 
     const payload = buildFactura40Payload(ctx);
     const base = resolveSicofiBaseUrl(tenant);
     const url = resolveSicofiFactura40Url(tenant);
-    const usuario = tenant.pac_usuario;
     const request: SicofiFactura40Request = {
       Usuario: usuario,
       Contrasena: contrasena,
@@ -56,14 +60,43 @@ export class SicofiPacProvider implements PacProvider {
   }
 
   /**
-   * Cancelación de CFDI ante Sicofi.
+   * Cancela un CFDI ante Sicofi (`CancelaTimbrado/TimbradoR`).
    *
-   * @throws Siempre en MVP — la cancelación no está implementada.
+   * @param uuid - Folio fiscal del comprobante.
+   * @param motivo - Código SAT de motivo (`01`–`04`).
+   * @param tenant - Tenant con credenciales PAC.
+   * @param opts - `folioSustitucion` opcional; si falta, se manda `FolioSustitucion: ""`.
    */
-  async cancelar(uuid: string, motivo: string, rfc: string): Promise<void> {
-    void uuid;
-    void motivo;
-    void rfc;
-    throw new Error("Cancelación Sicofi no implementada en MVP");
+  async cancelar(uuid: string, motivo: string, tenant: Tenant, opts?: CancelarOpts): Promise<void> {
+    const { usuario, contrasena } = this.resolveCredentials(tenant);
+    const base = resolveSicofiBaseUrl(tenant);
+    const url = resolveSicofiCancelaUrl(tenant);
+    const request: SicofiCancelaTimbradoRequest = {
+      Usuario: usuario,
+      Contrasena: contrasena,
+      UUID: uuid,
+      Version: "4.0",
+      MotivoCancelacion: motivo,
+      FolioSustitucion: opts?.folioSustitucion?.trim() || "",
+    };
+
+    let accessToken = await getSicofiAccessToken(base, usuario, contrasena);
+    try {
+      await sicofiPostCancelaTimbrado(url, request, accessToken);
+    } catch (e) {
+      if (!isSicofiHttp401(e)) throw e;
+      invalidateSicofiAccessToken(base, usuario);
+      accessToken = await getSicofiAccessToken(base, usuario, contrasena, { forceRefresh: true });
+      await sicofiPostCancelaTimbrado(url, request, accessToken);
+    }
+  }
+
+  private resolveCredentials(tenant: Tenant): { usuario: string; contrasena: string } {
+    if (!tenant.pac_usuario || !tenant.pac_token_enc) {
+      throw new Error("Credenciales Sicofi no configuradas en la empresa");
+    }
+    const contrasena = decryptSecret(tenant.pac_token_enc);
+    if (!contrasena) throw new Error("No se pudo descifrar la contraseña Sicofi");
+    return { usuario: tenant.pac_usuario, contrasena };
   }
 }

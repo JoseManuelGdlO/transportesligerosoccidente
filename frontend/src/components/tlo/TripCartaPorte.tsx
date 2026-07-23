@@ -9,6 +9,13 @@ import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import {
+  Dialog,
+  DialogContent,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { apiFetch, readJson } from "@/lib/api";
 import {
   downloadCartaPortePdf,
@@ -41,6 +48,7 @@ import {
   Loader2,
   Truck as TruckIcon,
   User,
+  Ban,
 } from "lucide-react";
 import { toast } from "sonner";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
@@ -48,6 +56,13 @@ import { SatClaveProductoCombobox } from "@/components/tlo/SatClaveProductoCombo
 
 /** c_ClaveProdServCP (Carta Porte). No usar 78101800 (eso es CFDI servicio de transporte). */
 const DEFAULT_CLAVE_BIENES_TRANSP = "50192100";
+
+const MOTIVOS_CANCELACION = [
+  { value: "01", label: "01 — Comprobante emitido con errores con relación" },
+  { value: "02", label: "02 — Comprobante emitido con errores sin relación" },
+  { value: "03", label: "03 — No se llevó a cabo la operación" },
+  { value: "04", label: "04 — Operación nominativa relacionada en una factura global" },
+] as const;
 
 type Props = {
   trip: Trip;
@@ -93,6 +108,7 @@ export function TripCartaPorte({
   const { hasPermission } = useAuth();
   const { drivers, trucks, upsertDriver, upsertTruck } = useTlo();
   const canTimbrar = hasPermission("cartaporte.timbrar");
+  const canCancelar = hasPermission("cartaporte.cancelar");
   const canViewCartaPorte = hasPermission("cartaporte.ver");
   const canEditCatalog = hasPermission("catalogos.editar");
   const cp = trip.carta_porte;
@@ -111,6 +127,10 @@ export function TripCartaPorte({
   const [metodoPago, setMetodoPago] = useState("PPD");
   const [formaPago, setFormaPago] = useState("99");
   const [condicionesPago, setCondicionesPago] = useState("");
+  const [cancelOpen, setCancelOpen] = useState(false);
+  const [motivoCancelacion, setMotivoCancelacion] = useState("02");
+  const [folioSustitucion, setFolioSustitucion] = useState("");
+  const [cancelling, setCancelling] = useState(false);
 
   const timbradoBody = () => ({
     tipo: tipoTimbrado,
@@ -693,6 +713,37 @@ export function TripCartaPorte({
     }
   };
 
+  const handleCancelar = async () => {
+    if (!canCancelar || !cpTimbrada) return;
+    if (!motivoCancelacion) {
+      toast.error("Selecciona el motivo de cancelación");
+      return;
+    }
+    setCancelling(true);
+    try {
+      const folio = folioSustitucion.trim();
+      const r = await apiFetch(`/trips/${trip.id}/carta-porte/cancelar`, {
+        method: "POST",
+        body: JSON.stringify({
+          motivo: motivoCancelacion,
+          ...(folio ? { folio_sustitucion: folio } : {}),
+        }),
+      });
+      if (!r.ok) {
+        const j = await r.json().catch(() => ({}));
+        toast.error(typeof j.error === "string" ? j.error : "Error al cancelar la factura");
+        return;
+      }
+      toast.success("Factura cancelada");
+      setCancelOpen(false);
+      setFolioSustitucion("");
+      setMotivoCancelacion("02");
+      await reloadTrip();
+    } finally {
+      setCancelling(false);
+    }
+  };
+
   const statusBadge = () => {
     const s = cp?.estatus || "borrador";
     const map: Record<string, string> = {
@@ -892,6 +943,16 @@ export function TripCartaPorte({
                 onClick={() => void handleDownloadPdf(cp?.serie, cp?.folio_cfdi)}
               >
                 <Download className="h-4 w-4 mr-1" /> PDF
+              </Button>
+            )}
+            {canCancelar && cpTimbrada && (
+              <Button
+                variant="destructive"
+                size="sm"
+                disabled={loading || cancelling}
+                onClick={() => setCancelOpen(true)}
+              >
+                <Ban className="h-4 w-4 mr-1" /> Cancelar
               </Button>
             )}
           </div>
@@ -1416,6 +1477,77 @@ export function TripCartaPorte({
           onSaved={(ubicacion) => void onUbicacionCatalogSaved(ubicacion)}
         />
       ) : null}
+
+      <Dialog
+        open={cancelOpen}
+        onOpenChange={(open) => {
+          if (cancelling) return;
+          setCancelOpen(open);
+          if (!open) {
+            setFolioSustitucion("");
+            setMotivoCancelacion("02");
+          }
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancelar factura</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {cp?.uuid && (
+              <p className="text-sm text-muted-foreground break-all">
+                UUID: <span className="font-mono text-foreground">{cp.uuid}</span>
+              </p>
+            )}
+            <div className="space-y-2">
+              <Label>Motivo de cancelación</Label>
+              <Select value={motivoCancelacion} onValueChange={setMotivoCancelacion}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un motivo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MOTIVOS_CANCELACION.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Folio de sustitución (opcional)</Label>
+              <Input
+                value={folioSustitucion}
+                onChange={(e) => setFolioSustitucion(e.target.value)}
+                placeholder="UUID del CFDI que sustituye"
+              />
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              disabled={cancelling}
+              onClick={() => setCancelOpen(false)}
+            >
+              Cerrar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancelling || !motivoCancelacion}
+              onClick={() => void handleCancelar()}
+            >
+              {cancelling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cancelando…
+                </>
+              ) : (
+                "Confirmar cancelación"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

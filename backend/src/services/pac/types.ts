@@ -60,6 +60,12 @@ export interface TimbradoContext {
   satMaterialPeligrosoByClave?: Record<string, SatMaterialPeligroso>;
 }
 
+/** Opciones adicionales para cancelación ante el PAC. */
+export interface CancelarOpts {
+  /** UUID/folio del CFDI que sustituye; si falta, Sicofi recibe `FolioSustitucion: ""`. */
+  folioSustitucion?: string;
+}
+
 /**
  * Contrato que debe implementar cada proveedor PAC (stub, Sicofi, futuros).
  */
@@ -68,5 +74,5 @@ export interface PacProvider {
   /** Ejecuta el timbrado ante el PAC y devuelve XML + metadatos. */
   timbrar(ctx: TimbradoContext): Promise<TimbradoResult>;
   /** Cancela un CFDI timbrado ante el PAC. */
-  cancelar(uuid: string, motivo: string, rfc: string): Promise<void>;
+  cancelar(uuid: string, motivo: string, tenant: Tenant, opts?: CancelarOpts): Promise<void>;
 }

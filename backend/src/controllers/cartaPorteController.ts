@@ -92,7 +92,10 @@ export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
   res.json(cartaPorteToJson(cp));
 });
 
-const cancelSchema = z.object({ motivo: z.string().min(1) });
+const cancelSchema = z.object({
+  motivo: z.enum(["01", "02", "03", "04"]),
+  folio_sustitucion: z.string().optional(),
+});
 
 export const postCancelar = asyncHandler(async (req: Request, res: Response) => {
   const parsed = cancelSchema.safeParse(req.body);
@@ -100,7 +103,10 @@ export const postCancelar = asyncHandler(async (req: Request, res: Response) => 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const cp = await cartaPorteService.cancelarCartaPorte(tid(req), req.params.id, parsed.data.motivo);
+  const folio = parsed.data.folio_sustitucion?.trim();
+  const cp = await cartaPorteService.cancelarCartaPorte(tid(req), req.params.id, parsed.data.motivo, {
+    folioSustitucion: folio || undefined,
+  });
   res.json(cartaPorteToJson(cp));
 });
 

@@ -578,7 +578,12 @@ export async function getCartaPorteXml(
   return { xml, filename: cartaPorteXmlFilename(cp, trip) };
 }
 
-export async function cancelarCartaPorte(tenantId: string, tripId: string, motivo: string) {
+export async function cancelarCartaPorte(
+  tenantId: string,
+  tripId: string,
+  motivo: string,
+  opts?: { folioSustitucion?: string },
+) {
   const cp = await getOrCreateCartaPorte(tenantId, tripId);
   if (cp.estatus !== "timbrada" || !cp.uuid) {
     throw err("Solo se puede cancelar una carta porte timbrada");
@@ -586,7 +591,13 @@ export async function cancelarCartaPorte(tenantId: string, tripId: string, motiv
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant?.rfc) throw err("RFC de empresa no configurado");
   const pac = getPacProvider(tenant);
-  await pac.cancelar(cp.uuid, motivo, tenant.rfc);
+  const folio = opts?.folioSustitucion?.trim();
+  try {
+    await pac.cancelar(cp.uuid, motivo, tenant, folio ? { folioSustitucion: folio } : undefined);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "Error al cancelar ante el PAC";
+    throw err(msg, 502);
+  }
   await cp.update({ estatus: "cancelada" } as never);
   return cp;
 }

@@ -115,3 +115,24 @@ export interface SicofiFactura40Request extends Factura40PayloadBody {
   Contrasena: string;
   EmisorCFDI40: null;
 }
+
+/** Request de cancelación CFDI (`CancelaTimbrado/TimbradoR`). */
+export interface SicofiCancelaTimbradoRequest {
+  Usuario: string;
+  Contrasena: string;
+  UUID: string;
+  Version: string;
+  MotivoCancelacion: string;
+  /** Siempre se envía; `""` si no hay folio/UUID de sustitución. */
+  FolioSustitucion: string;
+}
+
+/** Respuesta de cancelación CFDI (`CFDIv33CancelacionResponse`). */
+export interface SicofiCancelaTimbradoResponse {
+  AcuseCancelacion?: string;
+  CodigoError?: string;
+  ErrorCancelacion?: string;
+  Mensaje?: string;
+  CancelacionCorrecta?: string;
+  RespuestaSAT?: string;
+}

@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
-import type { PacProvider, TimbradoContext, TimbradoResult } from "./types";
+import type { Tenant } from "../../models";
+import type { CancelarOpts, PacProvider, TimbradoContext, TimbradoResult } from "./types";
 
 /**
  * PAC de prueba: simula timbrado sin llamar a proveedor externo.
@@ -41,9 +42,10 @@ export class StubPacProvider implements PacProvider {
   /**
    * No-op en stub: la cancelación no contacta ningún servicio externo.
    */
-  async cancelar(uuid: string, motivo: string, rfc: string): Promise<void> {
+  async cancelar(uuid: string, motivo: string, tenant: Tenant, opts?: CancelarOpts): Promise<void> {
     void uuid;
     void motivo;
-    void rfc;
+    void tenant;
+    void opts;
   }
 }

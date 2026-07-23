@@ -4,6 +4,9 @@ export const SICOFI_AUTH_TOKEN_PATH = "/auth/token";
 /** Path relativo del endpoint de timbrado CFDI 4.0. */
 export const SICOFI_FACTURA40_PATH = "/Comprobante40/Factura40";
 
+/** Path relativo del endpoint de cancelación CFDI. */
+export const SICOFI_CANCELA_PATH = "/CancelaTimbrado/TimbradoR";
+
 const DEFAULT_BASE = "https://demo.sicofi.com.mx/DFWSR/api";
 
 /**
@@ -33,6 +36,16 @@ export function resolveSicofiBaseUrl(tenant?: { pac_url?: string | null }): stri
  */
 export function resolveSicofiFactura40Url(tenant?: { pac_url?: string | null }): string {
   return `${resolveSicofiBaseUrl(tenant)}${SICOFI_FACTURA40_PATH}`;
+}
+
+/**
+ * URL completa del endpoint CancelaTimbrado para el tenant dado.
+ *
+ * @param tenant - Tenant con `pac_url` opcional.
+ * @returns `{baseUrl}/CancelaTimbrado/TimbradoR`.
+ */
+export function resolveSicofiCancelaUrl(tenant?: { pac_url?: string | null }): string {
+  return `${resolveSicofiBaseUrl(tenant)}${SICOFI_CANCELA_PATH}`;
 }
 
 /**
