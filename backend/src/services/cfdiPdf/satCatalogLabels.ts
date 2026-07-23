@@ -96,7 +96,7 @@ const CLAVE_UNIDAD: Record<string, string> = {
 
 const CLAVE_PROD_SERV: Record<string, string> = {
   "78101800": "Servicios de transporte de carga por carretera (en camión) a nivel local y regional",
-  "78101801": "Servicios de transporte de carga por carretera (en camión) a nivel local y regional",
+  "78101801": "Servicios de transporte de carga por carretera (en camión) en área local",
   "78101802": "Servicios transporte de carga por carretera (en camión) a nivel regional y nacional",
   "78101803": "Servicios de transporte de carga por carretera (en camión) de productos agropecuarios",
   "78101804": "Servicios de transporte de carga por carretera (en camión) de materiales para la construcción",

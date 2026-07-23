@@ -39,6 +39,7 @@ import {
   type PdfDoc,
 } from "./pdfLayout";
 import { catalogDescription, formatCatalogCode } from "./satCatalogLabels";
+import { numeroEnLetra } from "./numeroEnLetra";
 
 type CatalogLookup = Record<string, string>;
 
@@ -117,8 +118,17 @@ function conceptoClaveUnidad(c: CfdiConcepto): string {
   return formatCatalogCode(clave, "claveUnidad");
 }
 
-function conceptoDescripcion(c: CfdiConcepto): string {
-  return c.descripcion;
+function conceptoClaveProdServLine(c: CfdiConcepto, lookup: CatalogLookup): string | null {
+  const clave = c.claveProdServ?.trim();
+  if (!clave) return null;
+  const desc = lookup[clave] || catalogDescription(clave, "claveProdServ");
+  return desc ? `ClaveProdServ - ${clave} - ${desc}` : `ClaveProdServ - ${clave}`;
+}
+
+function conceptoDescripcion(c: CfdiConcepto, lookup: CatalogLookup): string {
+  const claveLine = conceptoClaveProdServLine(c, lookup);
+  if (!claveLine) return c.descripcion;
+  return c.descripcion?.trim() ? `${claveLine}\n${c.descripcion}` : claveLine;
 }
 
 function dash(v?: string | null): string {
@@ -238,7 +248,7 @@ async function renderPage1(
   doc: PdfDoc,
   cfdi: ParsedCfdi,
   logo: Buffer | null,
-  _lookup: CatalogLookup,
+  lookup: CatalogLookup,
 ): Promise<void> {
   let y = MARGIN;
   const headerRightW = 195;
@@ -296,7 +306,7 @@ async function renderPage1(
     }
     let tableBodyY = y + th;
     for (const c of cfdi.conceptos.slice(0, 5)) {
-      const desc = conceptoDescripcion(c);
+      const desc = conceptoDescripcion(c, lookup);
       const descH = doc.heightOfString(desc, { width: cols[2].w - 4, lineGap: 0 });
       const rowHConcept = Math.max(24, descH + 6);
       cx = MARGIN;
@@ -341,7 +351,19 @@ async function renderPage1(
       ty += 12;
     }
 
-    y = ty + 4;
+    const totalNum = parseFloat(cfdi.total);
+    const totalLetra = Number.isNaN(totalNum)
+      ? "—"
+      : numeroEnLetra(totalNum, cfdi.moneda || "MXN");
+    const letraLabel = "Importe con letra:";
+    const letraW = totalX - MARGIN - 8;
+    doc.font("Helvetica-Bold").fontSize(6.5).text(letraLabel, MARGIN, y, { width: letraW });
+    doc
+      .font("Helvetica")
+      .fontSize(6.5)
+      .text(totalLetra, MARGIN, y + 10, { width: letraW, lineGap: 0 });
+
+    y = Math.max(ty, y + 10 + doc.heightOfString(totalLetra, { width: letraW, lineGap: 0 })) + 4;
 
     if (cfdi.metodoPago || cfdi.condicionesDePago) {
       doc.fontSize(7);
@@ -468,21 +490,14 @@ async function renderPage2(
     5.5,
     2,
   );
-
-  ensureSpace(24);
-  y = drawGraySectionBar(doc, y, "Regimenes Aduaneros");
-  if (cp.regimenesAduaneros.length > 0) {
-    y = drawFieldColumns(
-      doc,
-      y,
-      cp.regimenesAduaneros.map((r, i) => [`Regimen Aduanero ${i + 1}`, r] as [string, string]),
-      3,
-      6,
-    );
-  } else {
-    doc.fontSize(6).text("—", MARGIN, y + 2);
-    y += 12;
-  }
+  y = drawFieldColumns(
+    doc,
+    y,
+    [["Regimenes Aduaneros", dash(cp.regimenesAduaneros.filter(Boolean).join(", ") || null)]],
+    3,
+    5.5,
+    2,
+  );
 
   ensureSpace(40);
   y = drawGraySectionBar(doc, y, "Ubicaciones");
