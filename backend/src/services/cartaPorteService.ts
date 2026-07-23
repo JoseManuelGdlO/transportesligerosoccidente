@@ -35,6 +35,16 @@ function err(msg: string, status = 400): Error {
   return e;
 }
 
+/**
+ * Tras un timbrado de ingreso, `num_factura` se rellena con el Folio de Sicofi
+ * si está vacío o no es puramente numérico (p. ej. "PEND-…", "CP-123").
+ */
+export function needsFacturaFromSicofi(numFactura: string | null | undefined): boolean {
+  const v = numFactura?.trim() ?? "";
+  if (!v) return true;
+  return !/^\d+$/.test(v);
+}
+
 function esc(s: string): string {
   return s
     .replace(/&/g, "&amp;")
@@ -446,8 +456,8 @@ export async function timbrarCartaPorte(
       serie,
       tipo_comprobante: tipo,
     } as never);
-    if (tipo === "ingreso" && folioCfdi && !trip.num_factura?.trim()) {
-      await trip.update({ num_factura: `${serie}-${folioCfdi}` } as never);
+    if (tipo === "ingreso" && folioCfdi && needsFacturaFromSicofi(trip.num_factura)) {
+      await trip.update({ num_factura: String(folioCfdi) } as never);
     }
     if (tipo === "ingreso") {
       try {

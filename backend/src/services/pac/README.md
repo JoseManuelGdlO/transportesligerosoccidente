@@ -80,7 +80,7 @@ flowchart LR
    - `getPacProvider(tenant).timbrar(ctx)` → `TimbradoResult`.
    - Guarda XML en disco (`uploads/{tenantId}/cartas-porte/{tripId}.xml`).
    - Actualiza `cartas_porte` (uuid, xml, estatus, serie, folio, `pac_proveedor`).
-   - Si es **ingreso**, escribe `trips.num_factura` como `{serie}-{folio}`.
+   - Si es **ingreso** y `num_factura` está vacío o no es numérico, lo rellena con el `Folio` del CFDI (Sicofi) y sincroniza el documento CXC vía `upsertFromTrip`.
    - En error: `cartas_porte.estatus = "error"`, `error_mensaje`, HTTP **502**.
 
 3. **Cancelación** (`cancelarCartaPorte`):

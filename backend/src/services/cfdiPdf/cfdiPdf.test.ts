@@ -50,6 +50,7 @@ describe("parseCfdiXml", () => {
     assert.equal(c.folio, "100");
     assert.equal(c.timbre.uuid, "6A1B5F65-9CCB-4DA6-9A52-CDC5A4ADD795");
     assert.equal(c.emisor.rfc, "TNU150126V30");
+    assert.equal(c.receptor.regimenFiscal, "601");
     assert.equal(c.conceptos.length, 1);
     assert.ok(c.cartaPorte);
     assert.equal(c.cartaPorte!.ubicaciones.length, 2);

@@ -448,7 +448,8 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     receptor: {
       rfc: attr(receptorNode, "Rfc"),
       nombre: attr(receptorNode, "Nombre"),
-      regimenFiscal: attr(receptorNode, "RegimenFiscal") || undefined,
+      regimenFiscal:
+        attr(receptorNode, "RegimenFiscalReceptor") || attr(receptorNode, "RegimenFiscal") || undefined,
       domicilioFiscal: attr(receptorNode, "DomicilioFiscalReceptor") || undefined,
       usoCFDI: attr(receptorNode, "UsoCFDI") || undefined,
     },
