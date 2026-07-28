@@ -112,10 +112,19 @@ export function SettlementSummaryPanel({
           ? false
           : "indeterminate";
 
+  // Diferencia comprobados − entregados (no el total comprobado).
   const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
   const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
   const cuentaAbonos = summary.total_cuenta_abonos ?? 0;
   const accountApps = summary.account_applications ?? [];
+
+  // En histórico (readOnly) solo movimientos del periodo liquidado; en vivo se muestran también pendientes fuera de periodo.
+  const periodOnly = (enPeriodo?: boolean) => (readOnly ? enPeriodo !== false : true);
+  const advances = (summary.advances ?? []).filter((a) => periodOnly(a.en_periodo));
+  const discounts = (summary.discounts ?? []).filter((d) => periodOnly(d.en_periodo));
+  const compensations = (summary.compensations ?? []).filter((c) => periodOnly(c.en_periodo));
+  const emptyFinanceMsg = (kind: "anticipos" | "descuentos" | "compensaciones") =>
+    readOnly ? `Sin ${kind} en el periodo` : `Sin ${kind} pendientes de liquidar`;
 
   return (
     <div className="space-y-4">
@@ -134,6 +143,7 @@ export function SettlementSummaryPanel({
             label="Viáticos a favor"
             labelClassName="text-[10px] leading-tight"
             value={fmtMXN(viaticosFavor)}
+            hint={`${fmtMXN(summary.viaticos_comprobados)} − ${fmtMXN(summary.viaticos_entregados)}`}
             icon={HandCoins}
             tone="success"
           />
@@ -143,6 +153,7 @@ export function SettlementSummaryPanel({
             label="Viáticos no comprobados"
             labelClassName="text-[10px] leading-tight"
             value={fmtMXN(viaticosDeduccion)}
+            hint={`${fmtMXN(summary.viaticos_entregados)} − ${fmtMXN(summary.viaticos_comprobados)}`}
             icon={CircleMinus}
             tone="destructive"
           />
@@ -173,7 +184,7 @@ export function SettlementSummaryPanel({
       </div>
       {viaticosFavor > 0 ? (
         <p className="text-sm text-muted-foreground">
-          El neto incluye {fmtMXN(viaticosFavor)} por viáticos comprobados en exceso de lo entregado.
+          El neto incluye {fmtMXN(viaticosFavor)} de diferencia (comprobados − entregados).
         </p>
       ) : null}
       {viaticosDeduccion > 0 ? (
@@ -200,7 +211,7 @@ export function SettlementSummaryPanel({
         </div>
       ) : null}
 
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
         <Card className="tlo-shadow-md">
           <CardHeader><CardTitle className="text-base">Anticipos del periodo</CardTitle></CardHeader>
           <CardContent className="space-y-3">
@@ -226,104 +237,46 @@ export function SettlementSummaryPanel({
                 />
               </div>
             )}
-            <Table>
-              <TableBody>
-                {(summary.advances ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
-                      Sin anticipos pendientes de liquidar
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                    {showFinanceForms ? <TableHead className="w-10" /> : null}
                   </TableRow>
-                )}
-                {(summary.advances ?? []).map((a: DriverAdvance) => (
-                  <TableRow key={a.id}>
-                    <TableCell>{fmtDate(a.fecha)}</TableCell>
-                    <TableCell className="text-sm">
-                      {a.descripcion}
-                      {a.en_periodo === false && (
-                        <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{fmtMXN(a.monto)}</TableCell>
-                    {showFinanceForms && !a.settlement_id && onRemoveAdvance && (
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => onRemoveAdvance(a.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                </TableHeader>
+                <TableBody>
+                  {advances.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={showFinanceForms ? 4 : 3} className="text-center text-muted-foreground py-4 text-sm">
+                        {emptyFinanceMsg("anticipos")}
                       </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
-          </CardContent>
-        </Card>
-
-        <Card className="tlo-shadow-md">
-          <CardHeader><CardTitle className="text-base">Descuentos del periodo</CardTitle></CardHeader>
-          <CardContent className="space-y-3">
-            {showFinanceForms && discForm && onDiscFormChange && onAddDiscount && (
-              <div className="grid grid-cols-3 gap-2">
-                <Select
-                  value={discForm.tipo}
-                  onValueChange={(v) => onDiscFormChange({ ...discForm, tipo: v as DiscountType })}
-                >
-                  <SelectTrigger><SelectValue /></SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="prestamo">Préstamo</SelectItem>
-                    <SelectItem value="dano">Daño</SelectItem>
-                    <SelectItem value="multa">Multa</SelectItem>
-                    <SelectItem value="nomina">Nómina</SelectItem>
-                    <SelectItem value="caja">Caja</SelectItem>
-                    <SelectItem value="ahorro">Ahorro</SelectItem>
-                    <SelectItem value="fianza">Fianza</SelectItem>
-                    <SelectItem value="otro">Otro</SelectItem>
-                  </SelectContent>
-                </Select>
-                <Input
-                  type="number"
-                  value={discForm.monto || ""}
-                  onChange={(e) => onDiscFormChange({ ...discForm, monto: +e.target.value })}
-                />
-                <Button size="sm" onClick={onAddDiscount}><Plus className="h-4 w-4" /></Button>
-                <Input
-                  className="col-span-3"
-                  placeholder="Descripción"
-                  value={discForm.descripcion}
-                  onChange={(e) => onDiscFormChange({ ...discForm, descripcion: e.target.value })}
-                />
-              </div>
-            )}
-            <Table>
-              <TableBody>
-                {(summary.discounts ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
-                      Sin descuentos pendientes de liquidar
-                    </TableCell>
-                  </TableRow>
-                )}
-                {(summary.discounts ?? []).map((d: DriverDiscount) => (
-                  <TableRow key={d.id}>
-                    <TableCell>{d.tipo}</TableCell>
-                    <TableCell className="text-sm">
-                      {d.descripcion}
-                      {d.en_periodo === false && (
-                        <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{fmtMXN(d.monto)}</TableCell>
-                    {showFinanceForms && !d.settlement_id && onRemoveDiscount && (
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => onRemoveDiscount(d.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                    </TableRow>
+                  )}
+                  {advances.map((a: DriverAdvance) => (
+                    <TableRow key={a.id}>
+                      <TableCell className="whitespace-nowrap">{fmtDate(a.fecha)}</TableCell>
+                      <TableCell className="text-sm">
+                        {a.descripcion}
+                        {a.en_periodo === false && (
+                          <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                        )}
                       </TableCell>
-                    )}
-                  </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                      <TableCell className="text-right whitespace-nowrap">{fmtMXN(a.monto)}</TableCell>
+                      {showFinanceForms && !a.settlement_id && onRemoveAdvance && (
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => onRemoveAdvance(a.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
 
@@ -362,36 +315,127 @@ export function SettlementSummaryPanel({
                 />
               </div>
             )}
-            <Table>
-              <TableBody>
-                {(summary.compensations ?? []).length === 0 && (
-                  <TableRow>
-                    <TableCell colSpan={4} className="text-center text-muted-foreground py-4 text-sm">
-                      Sin compensaciones pendientes de liquidar
-                    </TableCell>
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                    {showFinanceForms ? <TableHead className="w-10" /> : null}
                   </TableRow>
-                )}
-                {(summary.compensations ?? []).map((c: DriverCompensation) => (
-                  <TableRow key={c.id}>
-                    <TableCell>{c.tipo}</TableCell>
-                    <TableCell className="text-sm">
-                      {c.descripcion}
-                      {c.en_periodo === false && (
-                        <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
-                      )}
-                    </TableCell>
-                    <TableCell className="text-right">{fmtMXN(c.monto)}</TableCell>
-                    {showFinanceForms && !c.settlement_id && onRemoveCompensation && (
-                      <TableCell>
-                        <Button variant="ghost" size="sm" onClick={() => onRemoveCompensation(c.id)}>
-                          <Trash2 className="h-4 w-4 text-destructive" />
-                        </Button>
+                </TableHeader>
+                <TableBody>
+                  {compensations.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={showFinanceForms ? 4 : 3} className="text-center text-muted-foreground py-4 text-sm">
+                        {emptyFinanceMsg("compensaciones")}
                       </TableCell>
-                    )}
+                    </TableRow>
+                  )}
+                  {compensations.map((c: DriverCompensation) => (
+                    <TableRow key={c.id}>
+                      <TableCell className="capitalize whitespace-nowrap">{c.tipo}</TableCell>
+                      <TableCell className="text-sm">
+                        {c.descripcion}
+                        {c.en_periodo === false && (
+                          <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">{fmtMXN(c.monto)}</TableCell>
+                      {showFinanceForms && !c.settlement_id && onRemoveCompensation && (
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => onRemoveCompensation(c.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="tlo-shadow-md md:col-span-2">
+          <CardHeader><CardTitle className="text-base">Descuentos del periodo</CardTitle></CardHeader>
+          <CardContent className="space-y-3">
+            {showFinanceForms && discForm && onDiscFormChange && onAddDiscount && (
+              <div className="grid grid-cols-3 gap-2">
+                <Select
+                  value={discForm.tipo}
+                  onValueChange={(v) => onDiscFormChange({ ...discForm, tipo: v as DiscountType })}
+                >
+                  <SelectTrigger><SelectValue /></SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="prestamo">Préstamo</SelectItem>
+                    <SelectItem value="dano">Daño</SelectItem>
+                    <SelectItem value="multa">Multa</SelectItem>
+                    <SelectItem value="nomina">Nómina</SelectItem>
+                    <SelectItem value="caja">Caja</SelectItem>
+                    <SelectItem value="ahorro">Ahorro</SelectItem>
+                    <SelectItem value="fianza">Fianza</SelectItem>
+                    <SelectItem value="otro">Otro</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Input
+                  type="number"
+                  placeholder="Monto"
+                  value={discForm.monto || ""}
+                  onChange={(e) => onDiscFormChange({ ...discForm, monto: +e.target.value })}
+                />
+                <Button className="h-10 w-full" onClick={onAddDiscount}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Input
+                  className="col-span-3"
+                  placeholder="Descripción"
+                  value={discForm.descripcion}
+                  onChange={(e) => onDiscFormChange({ ...discForm, descripcion: e.target.value })}
+                />
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Tipo</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead className="text-right">Monto</TableHead>
+                    {showFinanceForms ? <TableHead className="w-10" /> : null}
                   </TableRow>
-                ))}
-              </TableBody>
-            </Table>
+                </TableHeader>
+                <TableBody>
+                  {discounts.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={showFinanceForms ? 4 : 3} className="text-center text-muted-foreground py-4 text-sm">
+                        {emptyFinanceMsg("descuentos")}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {discounts.map((d: DriverDiscount) => (
+                    <TableRow key={d.id}>
+                      <TableCell className="capitalize whitespace-nowrap">{d.tipo}</TableCell>
+                      <TableCell className="text-sm">
+                        {d.descripcion}
+                        {d.en_periodo === false && (
+                          <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">{fmtMXN(d.monto)}</TableCell>
+                      {showFinanceForms && !d.settlement_id && onRemoveDiscount && (
+                        <TableCell>
+                          <Button variant="ghost" size="sm" onClick={() => onRemoveDiscount(d.id)}>
+                            <Trash2 className="h-4 w-4 text-destructive" />
+                          </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
           </CardContent>
         </Card>
       </div>

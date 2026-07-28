@@ -726,7 +726,7 @@ export default function Liquidaciones() {
       </Dialog>
 
       <Dialog open={viewingHistory !== null} onOpenChange={(open) => !open && setViewingHistory(null)}>
-        <DialogContent className="max-w-4xl max-h-[90vh] overflow-y-auto">
+        <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto sm:max-w-5xl">
           {viewingHistory && viewingHistory.snapshot && viewingHistoryDriver && (
             <>
               <DialogHeader>
