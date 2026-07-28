@@ -127,7 +127,9 @@ export function findNextTripPeer(
 
 /**
  * Plan de cascada: al cambiar km_final, el siguiente toma ese valor como km_inicial.
- * Lanza si el siguiente cerrado quedaría con distancia ≤ 0.
+ * `peers` debe ser la secuencia de la misma unidad en la que permanece el viaje
+ * (no aplicar si el viaje cambia de camión).
+ * Lanza si el siguiente cerrado quedaría con distancia negativa.
  */
 export function planKmFinalCascade(
   candidate: TripScheduleCandidate,

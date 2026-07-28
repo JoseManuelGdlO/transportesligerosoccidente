@@ -96,6 +96,9 @@ export type KmFinalCascadePreview = {
  * Si al cambiar km_final hay un viaje siguiente, calcula el impacto en su recorrido.
  * Devuelve error solo si el siguiente quedaría con distancia negativa
  * (km final de este viaje mayor al km final del siguiente).
+ *
+ * La cascada aplica al sucesor en la unidad actual del viaje. Si `truckId` difiere
+ * de `trip.truck_id`, no hay preview (el viaje está cambiando de unidad).
  */
 export function previewKmFinalCascade(
   trip: Trip,
@@ -106,12 +109,14 @@ export function previewKmFinalCascade(
   if (trip.km_final == null) return { preview: null };
   if (newKmFinal === trip.km_final) return { preview: null };
 
+  const truckId = opts?.truckId ?? trip.truck_id;
+  if (truckId !== trip.truck_id) return { preview: null };
+
   const synthetic: Trip = {
     ...trip,
-    truck_id: opts?.truckId ?? trip.truck_id,
     fecha_salida: opts?.fechaSalida ?? trip.fecha_salida,
   };
-  const next = findNextTripForTruck(synthetic, trips, synthetic.truck_id);
+  const next = findNextTripForTruck(synthetic, trips, trip.truck_id);
   if (!next) return { preview: null };
 
   const deltaKm = newKmFinal - trip.km_final;

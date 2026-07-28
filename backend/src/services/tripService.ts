@@ -401,7 +401,10 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
   };
 
   let cascade: KmFinalCascadePlan | null = null;
-  if (kmFinalChanged) {
+  // Cascada solo si la unidad no cambia: el sucesor real está en el camión actual.
+  // Si truck_id cambia, los peers del camión nuevo aún no incluyen este viaje y
+  // planKmFinalCascade apuntaría al viaje equivocado.
+  if (kmFinalChanged && !truckChanging) {
     const peers = await loadTruckTripPeers(tenantId, effectiveTruckId);
     cascade = planKmFinalCascade(candidate, peers);
     validateTripScheduleAndOdometer(candidate, peers, {

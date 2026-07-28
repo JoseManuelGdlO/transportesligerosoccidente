@@ -262,9 +262,11 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       return;
     }
 
-    if (isClosed && trip.km_final != null) {
+    // Misma regla que el backend: cascada solo si la unidad no cambia.
+    const truckChangingSubmit = form.truck_id !== trip.truck_id;
+    if (isClosed && trip.km_final != null && !truckChangingSubmit) {
       const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
-        truckId: form.truck_id,
+        truckId: trip.truck_id,
         fechaSalida: fechaSalidaIso,
       });
       if (error) {
