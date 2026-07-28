@@ -17,14 +17,14 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TripStatusesPicker, MarginBadge } from "@/components/tlo/StatusBadge";
 import {
   TripParadasEditor,
   paradasToTripStops,
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
-import { fmtMXN, fmtDate, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
+import { fmtMXN, fmtDate, fmtNumber, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import {
   fetchRoutes,
   fetchTruckLastKm,
@@ -35,13 +35,18 @@ import {
   deleteTripStatus,
 } from "@/lib/tloApi";
 import { hasApiConfigured } from "@/lib/api";
+import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { tripBeforeLastError } from "@/lib/tripOdometer";
+import { slicePage } from "@/lib/tableFilters";
 import type { RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
 import {
   findStatusIdBySlug,
   tripHasStatusId,
   tripHasStatusSlug,
   tripIsClosed,
+  tripIsLiquidated,
+  tripIsProrated,
+  tripIsTimbrado,
   TRIP_STATUS_COLOR_OPTIONS,
   SYSTEM_STATUS_CERRADO,
   SYSTEM_STATUS_EN_CURSO,
@@ -63,6 +68,9 @@ import {
   ArrowUpDown,
   ArrowUp,
   ArrowDown,
+  ChevronLeft,
+  ChevronRight,
+  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
@@ -107,6 +115,9 @@ const MOCK_TRIP_STATUSES: TripStatusRef[] = [SYSTEM_STATUS_EN_CURSO, SYSTEM_STAT
 const FILTER_TODOS = "todos";
 /** Filtro por defecto: viajes en curso (slug hasta resolver el id del catálogo). */
 const FILTER_EN_CURSO = "en_curso";
+const FILTER_LIQUIDADO = "liquidado";
+const FILTER_PRORRATEADO = "prorrateado";
+const FILTER_TIMBRADO = "timbrado";
 
 const FILTERS_STORAGE_KEY = "tlo.viajes.filters";
 
@@ -132,6 +143,9 @@ function loadStoredFilters(): StoredFilters {
 function tripMatchesStatusFilter(trip: Trip, filter: string): boolean {
   if (filter === FILTER_TODOS) return true;
   if (!filter || filter === FILTER_EN_CURSO) return tripHasStatusSlug(trip, "en_curso");
+  if (filter === FILTER_LIQUIDADO) return tripIsLiquidated(trip);
+  if (filter === FILTER_PRORRATEADO) return tripIsProrated(trip);
+  if (filter === FILTER_TIMBRADO) return FEATURE_CARTA_PORTE && tripIsTimbrado(trip);
   return tripHasStatusId(trip, filter);
 }
 
@@ -250,7 +264,7 @@ function SortableTableHead({
 }
 
 export default function Viajes() {
-  const { trips, drivers, trucks, clients, createTrip, updateTrip, replaceTrip } = useTlo();
+  const { trips, drivers, trucks, clients, createTrip, updateTrip, replaceTrip, catalogLoading } = useTlo();
   const { hasPermission } = useAuth();
   const nav = useNavigate();
   const [params, setParams] = useSearchParams();
@@ -272,6 +286,8 @@ export default function Viajes() {
   const [search, setSearch] = useState("");
   const [sortColumn, setSortColumn] = useState<SortColumn | null>(null);
   const [sortDirection, setSortDirection] = useState<SortDirection>("asc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
 
   const toggleSort = useCallback((column: SortColumn) => {
     setSortColumn((prev) => {
@@ -333,17 +349,41 @@ export default function Viajes() {
 
   useEffect(() => {
     if (!statusesReady || !enCursoStatusId) return;
-    const validIds = new Set(tripStatuses.map((s) => s.id));
-    const needsSync =
+    if (
       filterStatus === FILTER_EN_CURSO ||
       filterStatus === SYSTEM_STATUS_EN_CURSO.id ||
-      !filterStatus ||
-      (filterStatus !== FILTER_TODOS && !validIds.has(filterStatus));
-    if (needsSync) setFilterStatus(enCursoStatusId);
+      !filterStatus
+    ) {
+      setFilterStatus(enCursoStatusId);
+      return;
+    }
+    if (
+      filterStatus === FILTER_TODOS ||
+      filterStatus === FILTER_LIQUIDADO ||
+      filterStatus === FILTER_PRORRATEADO ||
+      (filterStatus === FILTER_TIMBRADO && FEATURE_CARTA_PORTE)
+    ) {
+      return;
+    }
+    if (filterStatus === FILTER_TIMBRADO && !FEATURE_CARTA_PORTE) {
+      setFilterStatus(enCursoStatusId);
+      return;
+    }
+    const validIds = new Set(tripStatuses.map((s) => s.id));
+    if (!validIds.has(filterStatus)) {
+      setFilterStatus(enCursoStatusId);
+    }
   }, [statusesReady, enCursoStatusId, filterStatus, tripStatuses]);
 
   const statusFilterSelectValue = useMemo(() => {
     if (filterStatus === FILTER_TODOS) return FILTER_TODOS;
+    if (
+      filterStatus === FILTER_LIQUIDADO ||
+      filterStatus === FILTER_PRORRATEADO ||
+      filterStatus === FILTER_TIMBRADO
+    ) {
+      return filterStatus;
+    }
     if (filterStatus === FILTER_EN_CURSO || !filterStatus) {
       return enCursoStatusId ?? FILTER_EN_CURSO;
     }
@@ -560,6 +600,29 @@ export default function Viajes() {
     });
   }, [rows, sortColumn, sortDirection, drivers, trucks]);
 
+  useEffect(() => {
+    setPage(1);
+  }, [
+    search,
+    filterStatus,
+    filterClient,
+    filterTipoViaje,
+    filterFechaDesde,
+    filterFechaHasta,
+    filterDriver,
+    filterTruck,
+    pageSize,
+  ]);
+
+  const pageData = useMemo(
+    () => slicePage(sortedRows, page, pageSize),
+    [sortedRows, page, pageSize],
+  );
+
+  useEffect(() => {
+    if (pageData.safePage !== page) setPage(pageData.safePage);
+  }, [pageData.safePage, page]);
+
   const submit = async () => {
     if (!form.truck_id || !form.driver_id || !form.client_id) {
       toast.error("Selecciona camión, operador y cliente");
@@ -722,109 +785,145 @@ export default function Viajes() {
             </Button>
           </div>
           <CollapsibleContent>
-            <div className="flex flex-wrap items-end gap-3 pt-4 mt-4 border-t border-border">
-              <div>
-                <Label className="text-xs">Estado</Label>
-                <Select value={statusFilterSelectValue} onValueChange={setFilterStatus}>
-                  <SelectTrigger className="w-[160px]">
-                    <SelectValue placeholder="Estado" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="todos">Todos</SelectItem>
-                    {activeStatuses.map((s) => (
-                      <SelectItem key={s.id} value={s.id}>
-                        {s.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+            <div className="pt-4 mt-4 border-t border-border space-y-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Estado</Label>
+                  <Select value={statusFilterSelectValue} onValueChange={setFilterStatus}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue placeholder="Estado" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todos">Todos</SelectItem>
+                      {activeStatuses.map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.nombre}
+                        </SelectItem>
+                      ))}
+                      <SelectSeparator />
+                      <SelectItem value={FILTER_LIQUIDADO}>Liquidado</SelectItem>
+                      <SelectItem value={FILTER_PRORRATEADO}>Prorrateado</SelectItem>
+                      {FEATURE_CARTA_PORTE && (
+                        <SelectItem value={FILTER_TIMBRADO}>Timbrado</SelectItem>
+                      )}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Tipo de viaje</Label>
+                  <Select value={filterTipoViaje} onValueChange={setFilterTipoViaje}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                      <SelectItem value="local">Local</SelectItem>
+                      <SelectItem value="foraneo">Foráneo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5 sm:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Cliente</Label>
+                  <Select value={filterClient} onValueChange={setFilterClient}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                      {clients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.razon_social}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label className="text-xs">Cliente</Label>
-                <Select value={filterClient} onValueChange={setFilterClient}>
-                  <SelectTrigger className="w-[200px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
-                    {clients.map((c) => (
-                      <SelectItem key={c.id} value={c.id}>
-                        {c.razon_social}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
+                <div className="space-y-1.5 lg:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Operador</Label>
+                  <Select value={filterDriver} onValueChange={setFilterDriver}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                      {drivers.map((d) => (
+                        <SelectItem key={d.id} value={d.id}>
+                          {d.nombre}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5 lg:col-span-2">
+                  <Label className="text-xs text-muted-foreground">Camión</Label>
+                  <Select value={filterTruck} onValueChange={setFilterTruck}>
+                    <SelectTrigger className="w-full">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
+                      {trucks.map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.numero_economico}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-              <div>
-                <Label className="text-xs">Desde</Label>
-                <Input
-                  type="date"
-                  value={filterFechaDesde}
-                  onChange={(e) => setFilterFechaDesde(e.target.value)}
-                  className="w-[140px]"
-                />
-              </div>
-              <div>
-                <Label className="text-xs">Hasta</Label>
-                <Input
-                  type="date"
-                  value={filterFechaHasta}
-                  onChange={(e) => setFilterFechaHasta(e.target.value)}
-                  className="w-[140px]"
-                />
-              </div>
-              <div className="flex gap-2 items-end">
-                <Button type="button" variant="outline" className="h-10" onClick={applyFiltroHoy}>
-                  Hoy
-                </Button>
-                <Button type="button" variant="outline" className="h-10" onClick={applyFiltroSemanaActual}>
-                  Semana actual
-                </Button>
-              </div>
-              <div>
-                <Label className="text-xs">Tipo de viaje</Label>
-                <Select value={filterTipoViaje} onValueChange={setFilterTipoViaje}>
-                  <SelectTrigger className="w-[130px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
-                    <SelectItem value="local">Local</SelectItem>
-                    <SelectItem value="foraneo">Foráneo</SelectItem>
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Operador</Label>
-                <Select value={filterDriver} onValueChange={setFilterDriver}>
-                  <SelectTrigger className="w-[180px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
-                    {drivers.map((d) => (
-                      <SelectItem key={d.id} value={d.id}>
-                        {d.nombre}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-              <div>
-                <Label className="text-xs">Camión</Label>
-                <Select value={filterTruck} onValueChange={setFilterTruck}>
-                  <SelectTrigger className="w-[140px]">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
-                    {trucks.map((t) => (
-                      <SelectItem key={t.id} value={t.id}>
-                        {t.numero_economico}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+
+              <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-3">
+                <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Desde</Label>
+                    <Input
+                      type="date"
+                      value={filterFechaDesde}
+                      onChange={(e) => setFilterFechaDesde(e.target.value)}
+                      className="w-full sm:w-[160px] bg-background"
+                    />
+                  </div>
+                  <div className="space-y-1.5">
+                    <Label className="text-xs text-muted-foreground">Hasta</Label>
+                    <Input
+                      type="date"
+                      value={filterFechaHasta}
+                      onChange={(e) => setFilterFechaHasta(e.target.value)}
+                      className="w-full sm:w-[160px] bg-background"
+                    />
+                  </div>
+                  <div className="flex flex-wrap gap-2 sm:pb-0.5">
+                    <Button type="button" variant="outline" size="sm" className="h-9" onClick={applyFiltroHoy}>
+                      Hoy
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      className="h-9"
+                      onClick={applyFiltroSemanaActual}
+                    >
+                      Semana actual
+                    </Button>
+                    {(filterFechaDesde || filterFechaHasta) && (
+                      <Button
+                        type="button"
+                        variant="ghost"
+                        size="sm"
+                        className="h-9 text-muted-foreground"
+                        onClick={() => {
+                          setFilterFechaDesde("");
+                          setFilterFechaHasta("");
+                        }}
+                      >
+                        Limpiar fechas
+                      </Button>
+                    )}
+                  </div>
+                </div>
               </div>
             </div>
           </CollapsibleContent>
@@ -832,9 +931,15 @@ export default function Viajes() {
       </Card>
 
       <Card className="tlo-shadow-md overflow-hidden">
-        <Table>
+        {catalogLoading ? (
+          <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
+            <Loader2 className="h-4 w-4 animate-spin" />
+            Cargando viajes…
+          </div>
+        ) : (
+          <Table className="[&_th]:h-10 [&_th]:px-2 [&_td]:px-2 [&_td]:py-2.5">
           <TableHeader>
-            <TableRow className="bg-secondary/50">
+            <TableRow className="bg-secondary/50 [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-secondary/95 [&_th]:backdrop-blur-sm">
               <SortableTableHead
                 label="Folio"
                 column="folio"
@@ -857,13 +962,6 @@ export default function Viajes() {
                 onSort={toggleSort}
               />
               <SortableTableHead
-                label="Factura"
-                column="factura"
-                activeColumn={sortColumn}
-                direction={sortDirection}
-                onSort={toggleSort}
-              />
-              <SortableTableHead
                 label="Operador"
                 column="operador"
                 activeColumn={sortColumn}
@@ -871,11 +969,20 @@ export default function Viajes() {
                 onSort={toggleSort}
               />
               <SortableTableHead
+                label="Factura"
+                column="factura"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+                className="w-16 px-1.5"
+              />
+              <SortableTableHead
                 label="Camión"
                 column="camion"
                 activeColumn={sortColumn}
                 direction={sortDirection}
                 onSort={toggleSort}
+                className="w-14 px-1.5"
               />
               <SortableTableHead
                 label="Tarifa"
@@ -885,13 +992,22 @@ export default function Viajes() {
                 onSort={toggleSort}
                 className="text-right"
               />
+              <TableHead className="text-right">Km</TableHead>
+              <SortableTableHead
+                label="Estado"
+                column="estado"
+                activeColumn={sortColumn}
+                direction={sortDirection}
+                onSort={toggleSort}
+                className="w-[1%] px-1.5"
+              />
               <SortableTableHead
                 label="Utilidad"
                 column="utilidad"
                 activeColumn={sortColumn}
                 direction={sortDirection}
                 onSort={toggleSort}
-                className="text-right"
+                className="text-right border-l border-border/60 w-[1%] px-1.5"
               />
               <SortableTableHead
                 label="Margen"
@@ -899,62 +1015,107 @@ export default function Viajes() {
                 activeColumn={sortColumn}
                 direction={sortDirection}
                 onSort={toggleSort}
-                className="text-right"
+                className="text-right w-[1%] px-1.5"
               />
-              <SortableTableHead
-                label="Estado"
-                column="estado"
-                activeColumn={sortColumn}
-                direction={sortDirection}
-                onSort={toggleSort}
-              />
-              <TableHead></TableHead>
+              <TableHead className="w-8 px-1"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
-            {sortedRows.length === 0 && (
+            {pageData.total === 0 && (
               <TableRow>
-                <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                   Sin resultados
                 </TableCell>
               </TableRow>
             )}
-            {sortedRows.map(({ trip: t, fin }) => {
+            {pageData.slice.map(({ trip: t, fin }) => {
               const dr = driverById(drivers, t.driver_id);
               const tk = truckById(trucks, t.truck_id);
+              const closed = tripIsClosed(t);
               return (
                 <TableRow
                   key={t.id}
-                  className="cursor-pointer hover:bg-muted/30"
+                  className="cursor-pointer hover:bg-muted/40 transition-colors"
                   onClick={() => nav(`/viajes/${t.id}`)}
                 >
-                  <TableCell className="font-mono font-semibold">{t.folio}</TableCell>
-                  <TableCell className="text-sm">{fmtDate(t.fecha_salida)}</TableCell>
-                  <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
-                  <TableCell className="font-mono text-sm">{t.num_factura || "—"}</TableCell>
-                  <TableCell className="text-sm">{dr?.nombre}</TableCell>
-                  <TableCell className="font-mono text-sm">{tk?.numero_economico}</TableCell>
-                  <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
-                  <TableCell
-                    className={`text-right font-semibold ${fin.utilidad >= 0 ? "text-success" : "text-destructive"}`}
-                  >
-                    {tripIsClosed(t) ? fmtMXN(fin.utilidad) : "—"}
-                  </TableCell>
-                  <TableCell className="text-right">
-                    {tripIsClosed(t) ? (
-                      <MarginBadge pct={fin.margen_pct} />
+                  <TableCell className="font-mono font-semibold whitespace-nowrap">{t.folio}</TableCell>
+                  <TableCell className="text-sm whitespace-nowrap">
+                    {closed ? (
+                      <div className="leading-tight space-y-1">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Inicio</p>
+                          <p>{fmtDate(t.fecha_salida)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Llegada</p>
+                          <p>{fmtDate(t.fecha_llegada)}</p>
+                        </div>
+                      </div>
                     ) : (
-                      <span className="text-muted-foreground text-xs">—</span>
+                      fmtDate(t.fecha_salida)
                     )}
                   </TableCell>
-                  <TableCell onClick={(e) => e.stopPropagation()}>
+                  <TableCell className="text-sm whitespace-normal break-words min-w-[8rem]">
+                    {formatTripRoute(t)}
+                  </TableCell>
+                  <TableCell className="text-sm whitespace-normal break-words min-w-[7rem]">
+                    {dr?.nombre}
+                  </TableCell>
+                  <TableCell
+                    className="font-mono text-xs w-16 max-w-16 px-1.5 truncate"
+                    title={t.num_factura || undefined}
+                  >
+                    {t.num_factura || "—"}
+                  </TableCell>
+                  <TableCell
+                    className="font-mono text-xs w-14 max-w-14 px-1.5 truncate"
+                    title={tk?.numero_economico}
+                  >
+                    {tk?.numero_economico}
+                  </TableCell>
+                  <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMXN(t.tarifa)}</TableCell>
+                  <TableCell className="text-right font-mono text-sm tabular-nums whitespace-nowrap">
+                    {closed && t.km_final != null ? (
+                      <div className="leading-tight space-y-1">
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Inicial</p>
+                          <p>{fmtNumber(t.km_inicial)}</p>
+                        </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Final</p>
+                          <p>{fmtNumber(t.km_final)}</p>
+                        </div>
+                      </div>
+                    ) : (
+                      fmtNumber(t.km_inicial)
+                    )}
+                  </TableCell>
+                  <TableCell
+                    className="w-[1%] max-w-[7.5rem] px-1.5 [&_.inline-flex]:text-[10px] [&_.inline-flex]:px-1.5 [&_.inline-flex]:py-0 [&_.inline-flex]:leading-tight"
+                    onClick={(e) => e.stopPropagation()}
+                  >
                     <TripStatusesPicker
                       trip={t}
                       catalog={tripStatuses}
                       onUpdated={handleTripStatusesUpdated}
                     />
                   </TableCell>
-                  <TableCell>
+                  <TableCell
+                    className={cn(
+                      "text-right font-semibold text-xs tabular-nums border-l border-border/60 w-[1%] px-1.5 whitespace-nowrap",
+                      closed && (fin.utilidad >= 0 ? "text-success" : "text-destructive"),
+                    )}
+                  >
+                    {closed ? fmtMXN(fin.utilidad) : "—"}
+                  </TableCell>
+                  <TableCell className="text-right w-[1%] px-1.5 [&>*]:h-5 [&>*]:px-1.5 [&>*]:text-[10px] [&>*]:leading-none">
+                    {closed ? (
+                      <MarginBadge pct={fin.margen_pct} />
+                    ) : (
+                      <span className="text-muted-foreground text-xs">—</span>
+                    )}
+                  </TableCell>
+                  <TableCell className="w-8 px-1">
                     <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </TableCell>
                 </TableRow>
@@ -962,7 +1123,73 @@ export default function Viajes() {
             })}
           </TableBody>
         </Table>
+        )}
       </Card>
+
+      {!catalogLoading && pageData.total > 0 ? (
+        <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+          <p>
+            Mostrando{" "}
+            <span className="text-foreground font-medium">
+              {pageData.rangeStart}–{pageData.rangeEnd}
+            </span>{" "}
+            de <span className="text-foreground font-medium">{pageData.total}</span>
+            {pageData.total !== trips.length ? (
+              <span className="text-muted-foreground"> (catálogo: {trips.length})</span>
+            ) : null}
+          </p>
+          <div className="flex flex-wrap items-center gap-3">
+            <div className="flex items-center gap-2">
+              <Label className="text-xs whitespace-nowrap">Por página</Label>
+              <Select
+                value={String(pageSize)}
+                onValueChange={(v) => {
+                  setPageSize(Number(v));
+                  setPage(1);
+                }}
+              >
+                <SelectTrigger className="w-[80px] h-8" aria-label="Filas por página">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="10">10</SelectItem>
+                  <SelectItem value="20">20</SelectItem>
+                  <SelectItem value="50">50</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <span className="text-xs whitespace-nowrap" aria-live="polite">
+              Página {pageData.safePage} de {pageData.totalPages}
+            </span>
+            <div className="flex items-center gap-1">
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 px-2"
+                disabled={pageData.safePage <= 1}
+                onClick={() => setPage((p) => Math.max(1, p - 1))}
+                aria-label="Página anterior"
+              >
+                <ChevronLeft className="h-4 w-4" />
+                <span className="hidden sm:inline">Anterior</span>
+              </Button>
+              <Button
+                type="button"
+                variant="outline"
+                size="sm"
+                className="h-8 gap-1 px-2"
+                disabled={pageData.safePage >= pageData.totalPages}
+                onClick={() => setPage((p) => p + 1)}
+                aria-label="Página siguiente"
+              >
+                <span className="hidden sm:inline">Siguiente</span>
+                <ChevronRight className="h-4 w-4" />
+              </Button>
+            </div>
+          </div>
+        </div>
+      ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto">
