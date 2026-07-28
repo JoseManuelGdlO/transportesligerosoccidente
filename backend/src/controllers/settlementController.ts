@@ -107,3 +107,8 @@ export const deleteDraft = asyncHandler(async (req: Request, res: Response) => {
   await settlementService.deleteDraftSettlement(req.user!.tenantId, req.params.id);
   res.status(204).send();
 });
+
+export const postCancel = asyncHandler(async (req: Request, res: Response) => {
+  const row = await settlementService.cancelSettlement(req.user!.tenantId, req.params.id);
+  res.json(settlementToJson(row));
+});

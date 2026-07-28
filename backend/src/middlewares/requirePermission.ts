@@ -16,3 +16,16 @@ export function requirePermission(...required: PermissionSlug[]) {
     next();
   };
 }
+
+export function requireAdmin(req: Request, res: Response, next: NextFunction) {
+  const u = req.user;
+  if (!u) {
+    res.status(401).json({ error: "No autenticado" });
+    return;
+  }
+  if (u.roleSlug !== "admin") {
+    res.status(403).json({ error: "Solo administradores" });
+    return;
+  }
+  next();
+}

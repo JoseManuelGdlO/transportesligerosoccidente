@@ -18,6 +18,7 @@ import {
   loadActiveAccountItemBalances,
   computeAccountApplicationsForNeto,
   applySettlementAccountInstallments,
+  revertSettlementAccountInstallments,
 } from "./driverAccountService";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
@@ -457,4 +458,99 @@ export async function closeSettlementById(
     settlementId,
     tripInclusions,
   );
+}
+
+export async function cancelSettlement(tenantId: string, settlementId: string) {
+  const row = await Settlement.findOne({
+    where: { id: settlementId, tenant_id: tenantId },
+  });
+  if (!row) {
+    const err = new Error("Liquidación no encontrada");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  if (!row.cerrado) {
+    const err = new Error("La liquidación no está cerrada");
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+
+  const otherDraft = await findOpenDraft(tenantId, row.driver_id, row.fecha_inicio, row.fecha_fin);
+  if (otherDraft && otherDraft.id !== row.id) {
+    const err = new Error("Ya existe una pre-liquidación abierta para este periodo");
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+
+  const fromSnapshot = inclusionMapFromSnapshot(row.snapshot as Record<string, unknown> | null);
+  const tripInclusions = fromSnapshot ? tripInclusionsFromMap(fromSnapshot) : undefined;
+
+  await sequelize.transaction(async (t) => {
+    const locked = await Settlement.findOne({
+      where: { id: settlementId, tenant_id: tenantId, cerrado: true },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (!locked) {
+      const err = new Error("Liquidación no encontrada o ya no está cerrada");
+      (err as Error & { status?: number }).status = 409;
+      throw err;
+    }
+
+    const stillOther = await Settlement.findOne({
+      where: {
+        tenant_id: tenantId,
+        driver_id: locked.driver_id,
+        fecha_inicio: locked.fecha_inicio,
+        fecha_fin: locked.fecha_fin,
+        cerrado: false,
+        id: { [Op.ne]: locked.id },
+      },
+      transaction: t,
+      lock: t.LOCK.UPDATE,
+    });
+    if (stillOther) {
+      const err = new Error("Ya existe una pre-liquidación abierta para este periodo");
+      (err as Error & { status?: number }).status = 409;
+      throw err;
+    }
+
+    await Trip.update(
+      { settlement_id: null },
+      { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
+    );
+    await DriverAdvance.update(
+      { settlement_id: null },
+      { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
+    );
+    await DriverDiscount.update(
+      { settlement_id: null },
+      { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
+    );
+    await DriverCompensation.update(
+      { settlement_id: null },
+      { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
+    );
+
+    await revertSettlementAccountInstallments(tenantId, locked.id, t);
+
+    await locked.update(
+      {
+        cerrado: false,
+        cerrado_at: null,
+      } as never,
+      { transaction: t },
+    );
+  });
+
+  await row.reload();
+  const summary = await settlementSummary(
+    tenantId,
+    row.driver_id,
+    row.fecha_inicio,
+    row.fecha_fin,
+    tripInclusions,
+  );
+  await row.update({ snapshot: summary } as never);
+  return row;
 }

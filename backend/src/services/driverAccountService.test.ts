@@ -11,6 +11,7 @@ import {
   createAccountItem,
   createDirectPayment,
   applySettlementAccountInstallments,
+  revertSettlementAccountInstallments,
 } from "./driverAccountService";
 import type { AccountApplication } from "./calc";
 
@@ -256,5 +257,50 @@ describe("applySettlementAccountInstallments", () => {
     movementFindAll.mock.restore();
     movementCreate.mock.restore();
     itemFindAll.mock.restore();
+  });
+});
+
+describe("revertSettlementAccountInstallments", () => {
+  it("borra movimientos del cierre y reactiva adeudos con saldo", async () => {
+    const movementFindAll = mock.method(
+      DriverAccountMovement,
+      "findAll",
+      async () => [{ id: "mov-1", item_id: "item-1" }] as never,
+    );
+    const movementDestroy = mock.method(DriverAccountMovement, "destroy", async () => 1 as never);
+    const itemUpdate = mock.fn(async (..._args: unknown[]) => {});
+    const item = {
+      id: "item-1",
+      tenant_id: tenantId,
+      monto_original: "3000",
+      estatus: "liquidado",
+      movements: [],
+      update: itemUpdate,
+    };
+    const itemFindAll = mock.method(DriverAccountItem, "findAll", async () => [item] as never);
+
+    await revertSettlementAccountInstallments(tenantId, "settlement-1", mockTx as never);
+
+    assert.equal(movementDestroy.mock.callCount(), 1);
+    assert.equal(itemUpdate.mock.callCount(), 1);
+    assert.deepEqual(itemUpdate.mock.calls[0].arguments[0], { estatus: "activo" });
+
+    movementFindAll.mock.restore();
+    movementDestroy.mock.restore();
+    itemFindAll.mock.restore();
+  });
+
+  it("no hace nada si no hay movimientos del cierre", async () => {
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+    const movementDestroy = mock.method(DriverAccountMovement, "destroy", async () => {
+      throw new Error("no debería destruir");
+    });
+
+    await revertSettlementAccountInstallments(tenantId, "settlement-1", mockTx as never);
+
+    assert.equal(movementDestroy.mock.callCount(), 0);
+
+    movementFindAll.mock.restore();
+    movementDestroy.mock.restore();
   });
 });

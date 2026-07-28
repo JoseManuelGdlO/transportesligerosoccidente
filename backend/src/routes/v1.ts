@@ -1,6 +1,6 @@
 import { Router } from "express";
 import { authenticateJwt } from "../middlewares/authenticate";
-import { requirePermission } from "../middlewares/requirePermission";
+import { requirePermission, requireAdmin } from "../middlewares/requirePermission";
 import { postLogin, postRefresh, getMe } from "../controllers/authController";
 import * as tenantC from "../controllers/tenantController";
 import * as truckC from "../controllers/truckController";
@@ -297,6 +297,12 @@ r.post(
   authenticateJwt,
   requirePermission("liquidaciones.cerrar"),
   settlementC.postCloseById,
+);
+r.post(
+  "/settlements/:id/cancel",
+  authenticateJwt,
+  requireAdmin,
+  settlementC.postCancel,
 );
 
 r.get(

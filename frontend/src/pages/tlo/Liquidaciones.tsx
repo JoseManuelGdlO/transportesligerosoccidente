@@ -47,8 +47,9 @@ const clampDate = (day: string, inicio: string, fin: string) => {
 export default function Liquidaciones() {
   const nav = useNavigate();
   const { drivers, trucks } = useTlo();
-  const { tenant, hasApiSession, permissions } = useAuth();
+  const { tenant, hasApiSession, permissions, user } = useAuth();
   const canClose = permissions.includes("liquidaciones.cerrar");
+  const canCancel = user?.role === "admin";
   const activeDrivers = drivers.filter((d) => d.estatus === "activo");
 
   const [driverId, setDriverId] = useState(activeDrivers[0]?.id || "");
@@ -65,6 +66,7 @@ export default function Liquidaciones() {
   const [summarySource, setSummarySource] = useState<SummarySource>("live");
   const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
+  const [pendingCancelSettlementId, setPendingCancelSettlementId] = useState<string | null>(null);
   const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
   const [accountOpen, setAccountOpen] = useState(false);
 
@@ -129,13 +131,14 @@ export default function Liquidaciones() {
     }
   }, [driverId, inicio, fin, hasApiSession]);
 
-  const loadLists = useCallback(async () => {
+  const loadLists = useCallback(async (forDriverId?: string) => {
     if (!hasApiSession) return;
+    const filterDriverId = forDriverId ?? driverId;
     try {
       const res = await apiFetch("/settlements");
       const all = await readJson<SettlementRecord[]>(res);
       setHistory(all.filter((s) => s.cerrado));
-      setDrafts(all.filter((s) => !s.cerrado && s.driver_id === driverId));
+      setDrafts(all.filter((s) => !s.cerrado && s.driver_id === filterDriverId));
     } catch {
       setHistory([]);
       setDrafts([]);
@@ -219,7 +222,7 @@ export default function Liquidaciones() {
       }
       setActiveTab("actual");
       toast.success("Pre-liquidación cargada con datos actualizados");
-      await loadLists();
+      await loadLists(row.driver_id);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cargar pre-liquidación");
     } finally {
@@ -395,6 +398,26 @@ export default function Liquidaciones() {
       toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
     } finally {
       setPendingDeleteDraftId(null);
+    }
+  };
+
+  const cancelClosedSettlement = async (settlementId: string) => {
+    try {
+      const res = await apiFetch(`/settlements/${settlementId}/cancel`, { method: "POST" });
+      const row = await readJson<SettlementRecord>(res);
+      setViewingHistory(null);
+      toast.success("Liquidación cancelada; vuelve a Pre-liquidaciones");
+      setDriverId(row.driver_id);
+      setActiveTab("borradores");
+      // Pasar driver_id explícito: setState es async y loadLists cerraría sobre el id anterior.
+      await loadLists(row.driver_id);
+      if (row.snapshot) {
+        await openDraft(row);
+      }
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo cancelar");
+    } finally {
+      setPendingCancelSettlementId(null);
     }
   };
 
@@ -692,9 +715,21 @@ export default function Liquidaciones() {
                       {fmtMXN(Number(s.snapshot?.neto_pagar ?? 0))}
                     </TableCell>
                     <TableCell className="text-right">
-                      <Button size="sm" variant="outline" onClick={() => setViewingHistory(s)}>
-                        <Eye className="h-4 w-4 mr-1" /> Ver
-                      </Button>
+                      <div className="flex items-center justify-end gap-2">
+                        <Button size="sm" variant="outline" onClick={() => setViewingHistory(s)}>
+                          <Eye className="h-4 w-4 mr-1" /> Ver
+                        </Button>
+                        {canCancel && (
+                          <Button
+                            size="sm"
+                            variant="ghost"
+                            className="text-destructive hover:text-destructive"
+                            onClick={() => setPendingCancelSettlementId(s.id)}
+                          >
+                            <Trash2 className="h-4 w-4" />
+                          </Button>
+                        )}
+                      </div>
                     </TableCell>
                   </TableRow>
                 ))}
@@ -767,6 +802,32 @@ export default function Liquidaciones() {
               onClick={() => pendingDeleteDraftId && void deleteDraft(pendingDeleteDraftId)}
             >
               Eliminar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={pendingCancelSettlementId !== null}
+        onOpenChange={(open) => !open && setPendingCancelSettlementId(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Cancelar liquidación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              La liquidación volverá a Pre-liquidaciones para corregirla. Se desvinculan los viajes y
+              movimientos del periodo y se revierten los abonos de cuenta aplicados en este cierre.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>No</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              onClick={() =>
+                pendingCancelSettlementId && void cancelClosedSettlement(pendingCancelSettlementId)
+              }
+            >
+              Sí, cancelar
             </Button>
           </AlertDialogFooter>
         </AlertDialogContent>

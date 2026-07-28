@@ -19,6 +19,7 @@ import {
   settlementSummary,
   closeSettlement,
   closeSettlementById,
+  cancelSettlement,
 } from "./settlementService";
 
 const tenantId = "tenant-1";
@@ -683,5 +684,130 @@ describe("settlementSummary account installments", () => {
     assert.equal(apps[0]?.monto, 100);
 
     restoreSummaryDeps(deps);
+  });
+});
+
+describe("cancelSettlement", () => {
+  it("reabre liquidación cerrada y desvincula viajes/movimientos", async () => {
+    const deps = mockSummaryDeps();
+    const update = mock.fn(async () => {});
+    const reload = mock.fn(async () => {});
+    const closed = {
+      id: "settlement-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: true,
+      cerrado_at: new Date(),
+      snapshot: {
+        trips: [{ id: "trip-a", included: true }],
+      },
+      update,
+      reload,
+    };
+
+    let findCalls = 0;
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => {
+      findCalls += 1;
+      // 1: initial load, 2: otherDraft check (null), 3: locked inside tx, 4: stillOther (null)
+      if (findCalls === 2 || findCalls === 4) return null;
+      return closed as never;
+    });
+
+    const transaction = mockTransaction();
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const advanceUpdate = mock.method(DriverAdvance, "update", async () => [0] as never);
+    const discountUpdate = mock.method(DriverDiscount, "update", async () => [0] as never);
+    const compensationUpdate = mock.method(DriverCompensation, "update", async () => [0] as never);
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+
+    const row = await cancelSettlement(tenantId, "settlement-1");
+
+    assert.equal(tripUpdate.mock.callCount(), 1);
+    assert.deepEqual(tripUpdate.mock.calls[0].arguments[0], { settlement_id: null });
+    assert.equal(advanceUpdate.mock.callCount(), 1);
+    assert.equal(discountUpdate.mock.callCount(), 1);
+    assert.equal(compensationUpdate.mock.callCount(), 1);
+    assert.ok(update.mock.callCount() >= 1);
+    const reopenArgs = update.mock.calls[0].arguments[0] as { cerrado: boolean; cerrado_at: null };
+    assert.equal(reopenArgs.cerrado, false);
+    assert.equal(reopenArgs.cerrado_at, null);
+    assert.equal(reload.mock.callCount(), 1);
+    assert.equal(row, closed);
+    const lastUpdate = update.mock.calls[update.mock.callCount() - 1].arguments[0] as {
+      snapshot?: unknown;
+    };
+    assert.ok(lastUpdate.snapshot);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    transaction.mock.restore();
+    tripUpdate.mock.restore();
+    advanceUpdate.mock.restore();
+    discountUpdate.mock.restore();
+    compensationUpdate.mock.restore();
+    movementFindAll.mock.restore();
+  });
+
+  it("rechaza con 409 si la liquidación no está cerrada", async () => {
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => ({
+      id: "draft-1",
+      cerrado: false,
+    }) as never);
+
+    await assert.rejects(
+      () => cancelSettlement(tenantId, "draft-1"),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 409);
+        assert.match(err.message, /no está cerrada/i);
+        return true;
+      },
+    );
+
+    settlementFindOne.mock.restore();
+  });
+
+  it("rechaza con 409 si ya existe otra pre-liquidación del periodo", async () => {
+    const closed = {
+      id: "settlement-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: true,
+      snapshot: null,
+    };
+    let findCalls = 0;
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => {
+      findCalls += 1;
+      if (findCalls === 1) return closed as never;
+      return { id: "draft-other", cerrado: false } as never;
+    });
+
+    await assert.rejects(
+      () => cancelSettlement(tenantId, "settlement-1"),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 409);
+        assert.match(err.message, /pre-liquidación abierta/i);
+        return true;
+      },
+    );
+
+    settlementFindOne.mock.restore();
+  });
+
+  it("rechaza con 404 si no existe", async () => {
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+
+    await assert.rejects(
+      () => cancelSettlement(tenantId, "missing"),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 404);
+        return true;
+      },
+    );
+
+    settlementFindOne.mock.restore();
   });
 });

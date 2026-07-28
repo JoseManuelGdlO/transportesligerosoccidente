@@ -448,3 +448,47 @@ export async function applySettlementAccountInstallments(
     }
   }
 }
+
+/** Invierte abonos aplicados al cerrar una liquidación: borra movimientos y reactiva adeudos con saldo. */
+export async function revertSettlementAccountInstallments(
+  tenantId: string,
+  settlementId: string,
+  t: Transaction,
+): Promise<void> {
+  const movements = await DriverAccountMovement.findAll({
+    where: { tenant_id: tenantId, settlement_id: settlementId },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (movements.length === 0) return;
+
+  const itemIds = [...new Set(movements.map((m) => m.item_id))];
+
+  await DriverAccountMovement.destroy({
+    where: {
+      tenant_id: tenantId,
+      settlement_id: settlementId,
+    },
+    transaction: t,
+  });
+
+  const items = await DriverAccountItem.findAll({
+    where: {
+      id: { [Op.in]: itemIds },
+      tenant_id: tenantId,
+    },
+    include: [{ association: "movements" }],
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+
+  for (const item of items) {
+    if (item.estatus === "cancelado") continue;
+    const remaining =
+      (item as DriverAccountItem & { movements?: DriverAccountMovement[] }).movements ?? [];
+    const saldo = itemBalance(item, remaining);
+    if (saldo > 0 && item.estatus !== "activo") {
+      await item.update({ estatus: "activo" } as never, { transaction: t });
+    }
+  }
+}
