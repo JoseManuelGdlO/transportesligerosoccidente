@@ -19,6 +19,7 @@ import type {
 import { roundMoney } from "./calc";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr, localDateStr } from "../utils/localDates";
+import { tripRouteLabelFromModel } from "./tripRouteLabel";
 
 export type AgingBucket = "corriente" | "1-30" | "31-60" | "90+";
 export type DisplayEstatus = "Al día" | "Vencida" | "Pagada" | "Cancelada";
@@ -703,7 +704,7 @@ export async function upsertFromTrip(trip: Trip): Promise<AccountDocumentDto | n
     client_id: trip.client_id,
     entidad_nombre: client?.razon_social,
     folio,
-    concepto: `Servicio de transporte ${trip.origen} → ${trip.destino}`,
+    concepto: `Servicio de transporte ${tripRouteLabelFromModel(trip)}`,
     fecha_emision: emision,
     plazo_credito_dias: plazo,
     monto_original: tarifa,

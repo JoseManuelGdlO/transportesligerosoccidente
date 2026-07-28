@@ -67,7 +67,10 @@ export async function getTripOrThrow(
   t?: Transaction,
   withFiscal = false,
 ) {
-  const include: object[] = [{ ...STATUSES_INCLUDE }];
+  const include: object[] = [
+    { ...STATUSES_INCLUDE },
+    { association: "Route", attributes: ["id", "nombre"], required: false },
+  ];
   if (withNested) {
     include.push({ association: "fuel" }, { association: "expenses" });
   }
@@ -555,6 +558,8 @@ export async function listTripsForReports(tenantId: string) {
       STATUSES_INCLUDE,
       { association: "fuel" },
       { association: "expenses" },
+      { association: "paradas" },
+      { association: "Route", attributes: ["id", "nombre"], required: false },
       { model: Driver, attributes: ["id", "comision_tipo", "comision_valor", "tenant_id"] },
     ],
   });

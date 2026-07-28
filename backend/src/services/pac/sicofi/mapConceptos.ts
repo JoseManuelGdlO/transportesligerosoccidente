@@ -3,6 +3,7 @@ import type { TipoComprobanteTimbrado } from "../types";
 import type { ConceptoCFDI40 } from "./types";
 import { computeTripInvoiceTaxes } from "./invoiceTaxes";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
+import { tripRouteLabelFromModel } from "../../tripRouteLabel";
 
 /**
  * Mapea los conceptos CFDI 4.0 según el tipo de comprobante.
@@ -43,7 +44,8 @@ export function mapConceptos(
   const tarifa = Number(trip.tarifa) || 0;
   const taxes = computeTripInvoiceTaxes(tarifa, taxOpts);
   const equipo = truck.numero_economico || truck.placas;
-  const descripcion = `Flete de ${trip.origen} - ${trip.destino} Ref: ${trip.folio} Equipo: ${equipo}`;
+  const ruta = tripRouteLabelFromModel(trip);
+  const descripcion = `Flete de ${ruta} Ref: ${trip.folio} Equipo: ${equipo}`;
 
   const concepto: ConceptoCFDI40 = {
     ClaveProdServ: "78101801",

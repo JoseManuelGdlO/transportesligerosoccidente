@@ -34,15 +34,20 @@ export const fmtDate = (iso?: string) => {
 
 import type { Trip } from "@/types/tlo";
 
-export function formatTripRoute(trip: Pick<Trip, "ruta_resumen" | "paradas" | "origen" | "destino">): string {
-  if (trip.ruta_resumen?.trim()) return trip.ruta_resumen;
+export function formatTripRoute(
+  trip: Pick<Trip, "route_nombre" | "ruta_resumen" | "paradas" | "origen" | "destino">,
+): string {
+  if (trip.route_nombre?.trim()) {
+    return trip.route_nombre.trim().replace(/\s*\/\s*/g, " → ");
+  }
+  if (trip.ruta_resumen?.trim()) return trip.ruta_resumen.trim();
   if (trip.paradas && trip.paradas.length >= 2) {
     return [...trip.paradas]
       .sort((a, b) => a.orden - b.orden)
       .map((p) => p.etiqueta)
-      .join(" -> ");
+      .join(" → ");
   }
-  return `${trip.origen} > ${trip.destino}`;
+  return `${trip.origen} → ${trip.destino}`;
 }
 
 export const fmtDateTime = (iso?: string) => {

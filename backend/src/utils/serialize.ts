@@ -200,6 +200,8 @@ export function tripToJson(t: Trip): Record<string, unknown> {
   const paradasRows = (t as Trip & { paradas?: TripStop[] }).paradas ?? [];
   const paradasSorted = [...paradasRows].sort((a, b) => a.orden - b.orden);
   const paradas = paradasSorted.map((row) => tripStopToJson(row));
+  const route = (t as Trip & { Route?: Route | null }).Route;
+  const routeNombre = route?.nombre?.trim() || undefined;
   const rutaResumen =
     paradasSorted.length > 0 ? formatRutaResumen(paradasSorted) : `${t.origen} → ${t.destino}`;
   const ubicacionesRaw = (t as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
@@ -219,6 +221,7 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     client_id: String(t.client_id),
     client_nombre: client?.razon_social ?? undefined,
     route_id: t.route_id ?? undefined,
+    route_nombre: routeNombre,
     origen: t.origen,
     destino: t.destino,
     paradas,

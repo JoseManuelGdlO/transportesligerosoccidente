@@ -7,6 +7,7 @@ import { tripIsClosed } from "../services/tripStatusService";
 import {
   maintenanceCostMaps,
 } from "../services/maintenanceService";
+import { tripRouteLabelFromModel } from "../services/tripRouteLabel";
 
 const criterioFechaSchema = z.enum(["salida", "llegada"]).default("salida");
 
@@ -418,11 +419,13 @@ function buildByTipoViaje(enriched: TripWithFin[]) {
 function buildByRoute(enriched: TripWithFin[]) {
   const map = new Map<
     string,
-    { origen: string; destino: string; viajes: number; ingreso: number; utilidad: number; km: number }
+    { ruta: string; origen: string; destino: string; viajes: number; ingreso: number; utilidad: number; km: number }
   >();
   for (const { trip, fin } of enriched) {
-    const key = `${trip.origen}|||${trip.destino}`;
+    const ruta = tripRouteLabelFromModel(trip);
+    const key = ruta;
     const row = map.get(key) ?? {
+      ruta,
       origen: trip.origen,
       destino: trip.destino,
       viajes: 0,
@@ -494,6 +497,7 @@ function buildNegativeTrips(
         fecha_salida: tripSalidaIso(trip).slice(0, 10),
         origen: trip.origen,
         destino: trip.destino,
+        ruta: tripRouteLabelFromModel(trip),
         razon_social: cl?.razon_social ?? null,
         operador: dr?.nombre ?? "—",
         numero_economico: tk?.numero_economico ?? "—",
@@ -532,6 +536,7 @@ function buildByTrip(
         fecha_ref: fechaRef,
         origen: trip.origen,
         destino: trip.destino,
+        ruta: tripRouteLabelFromModel(trip),
         razon_social: cl?.razon_social ?? null,
         operador: dr?.nombre ?? "—",
         numero_economico: tk?.numero_economico ?? "—",
@@ -590,6 +595,8 @@ async function loadReportData(tenantId: string) {
         { association: "statuses", through: { attributes: [] } },
         { association: "fuel" },
         { association: "expenses" },
+        { association: "paradas" },
+        { association: "Route", attributes: ["id", "nombre"], required: false },
         {
           model: Driver,
           attributes: [

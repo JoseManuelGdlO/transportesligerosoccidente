@@ -9,6 +9,7 @@ import {
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
+import { tripRouteLabelFromModel } from "./tripRouteLabel";
 
 export type FuelProrationEstado = "pendiente" | "confirmado";
 
@@ -18,12 +19,9 @@ const tripWithRouteInclude = {
   required: false,
 };
 
-/** Nombre de ruta del catálogo (p. ej. GDL / LOCAL / GDL); si no hay, origen > destino. */
+/** Nombre de ruta del catálogo; si no hay, recorrido de paradas o origen → destino. */
 export function tripRutaLabel(trip: TripModel): string {
-  const route = (trip as TripModel & { Route?: { nombre?: string | null } }).Route;
-  const nombre = route?.nombre?.trim();
-  if (nombre) return nombre;
-  return `${trip.origen} > ${trip.destino}`;
+  return tripRouteLabelFromModel(trip);
 }
 
 export function tripKmRecorridos(trip: TripModel): number {

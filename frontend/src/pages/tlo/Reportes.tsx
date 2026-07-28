@@ -127,6 +127,7 @@ const VIAJES_CSV_COLUMNS: { key: keyof ReportsTripRow | string; label: string }[
   { key: "fecha_ref", label: "Fecha" },
   { key: "fecha_salida", label: "Fecha salida" },
   { key: "fecha_llegada", label: "Fecha llegada" },
+  { key: "ruta", label: "Ruta" },
   { key: "origen", label: "Origen" },
   { key: "destino", label: "Destino" },
   { key: "razon_social", label: "Cliente" },
@@ -261,6 +262,7 @@ export default function Reportes() {
         fecha_ref: "",
         origen: "",
         destino: "",
+        ruta: "",
         razon_social: null,
         operador: "",
         numero_economico: String(totales.viajes),
@@ -281,6 +283,7 @@ export default function Reportes() {
       exportCsv(filename, [
         { key: "folio", label: "Folio" },
         { key: "fecha_salida", label: "Fecha salida" },
+        { key: "ruta", label: "Ruta" },
         { key: "origen", label: "Origen" },
         { key: "destino", label: "Destino" },
         { key: "razon_social", label: "Cliente" },
@@ -371,6 +374,7 @@ export default function Reportes() {
     }
     if (activeTab === "rutas") {
       exportCsv(filename, [
+        { key: "ruta", label: "Ruta" },
         { key: "origen", label: "Origen" },
         { key: "destino", label: "Destino" },
         { key: "viajes", label: "Viajes" },
@@ -746,7 +750,7 @@ export default function Reportes() {
                       >
                         <TableCell className="font-mono font-semibold">{row.folio}</TableCell>
                         <TableCell className="text-sm">{formatIsoDateEs(row.fecha_ref)}</TableCell>
-                        <TableCell className="text-sm">{row.origen} → {row.destino}</TableCell>
+                        <TableCell className="text-sm">{row.ruta || `${row.origen} → ${row.destino}`}</TableCell>
                         <TableCell className="text-sm">{row.razon_social ?? "—"}</TableCell>
                         <TableCell className="text-sm">{row.operador}</TableCell>
                         <TableCell className="text-sm font-mono">{row.numero_economico}</TableCell>
@@ -822,7 +826,7 @@ export default function Reportes() {
                     >
                       <TableCell className="font-mono font-semibold">{row.folio}</TableCell>
                       <TableCell className="text-sm">{formatIsoDateEs(row.fecha_salida)}</TableCell>
-                      <TableCell className="text-sm">{row.origen} → {row.destino}</TableCell>
+                      <TableCell className="text-sm">{row.ruta || `${row.origen} → ${row.destino}`}</TableCell>
                       <TableCell className="text-sm">{row.razon_social ?? "—"}</TableCell>
                       <TableCell className="text-sm">{row.operador}</TableCell>
                       <TableCell className="text-sm font-mono">{row.numero_economico}</TableCell>
@@ -1107,8 +1111,7 @@ export default function Reportes() {
             <Table>
               <TableHeader>
                 <TableRow className="bg-secondary/50">
-                  <TableHead>Origen</TableHead>
-                  <TableHead>Destino</TableHead>
+                  <TableHead>Ruta</TableHead>
                   <TableHead className="text-right">Viajes</TableHead>
                   <TableHead className="text-right">Km</TableHead>
                   <TableHead className="text-right">Ingreso</TableHead>
@@ -1118,12 +1121,11 @@ export default function Reportes() {
               </TableHeader>
               <TableBody>
                 {(overview?.by_route ?? []).length === 0 ? (
-                  <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Sin viajes cerrados en el periodo</TableCell></TableRow>
+                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Sin viajes cerrados en el periodo</TableCell></TableRow>
                 ) : (
                   overview?.by_route.map((r, i) => (
-                    <TableRow key={`${r.origen}-${r.destino}-${i}`}>
-                      <TableCell>{r.origen}</TableCell>
-                      <TableCell>{r.destino}</TableCell>
+                    <TableRow key={`${r.ruta}-${i}`}>
+                      <TableCell>{r.ruta || `${r.origen} → ${r.destino}`}</TableCell>
                       <TableCell className="text-right">{r.viajes}</TableCell>
                       <TableCell className="text-right font-mono">{fmtNumber(r.km)}</TableCell>
                       <TableCell className="text-right">{fmtMXN(r.ingreso)}</TableCell>

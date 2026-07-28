@@ -467,6 +467,7 @@ export interface ReportsTipoViajeRow {
 }
 
 export interface ReportsRouteRow {
+  ruta: string;
   origen: string;
   destino: string;
   viajes: number;
@@ -494,6 +495,7 @@ export interface ReportsNegativeTripRow {
   fecha_salida: string;
   origen: string;
   destino: string;
+  ruta: string;
   razon_social: string | null;
   operador: string;
   numero_economico: string;
@@ -514,6 +516,7 @@ export interface ReportsTripRow {
   fecha_ref: string;
   origen: string;
   destino: string;
+  ruta: string;
   razon_social: string | null;
   operador: string;
   numero_economico: string;
@@ -854,6 +857,7 @@ export interface Trip {
   origen: string;
   destino: string;
   route_id?: string;
+  route_nombre?: string;
   paradas?: TripStop[];
   ruta_resumen?: string;
   fecha_salida: string;

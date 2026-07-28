@@ -103,7 +103,8 @@ function compareSortValues(
 }
 
 function formatProrationRoute(row: { ruta?: string; origen: string; destino: string }): string {
-  return row.ruta?.trim() || `${row.origen} > ${row.destino}`;
+  const label = row.ruta?.trim() || `${row.origen} → ${row.destino}`;
+  return label.replace(/\s*\/\s*/g, " → ");
 }
 
 function getProratedTripSortValue(row: ProratedTripRow, column: ProrationTripSortColumn): string | number {

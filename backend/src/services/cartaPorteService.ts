@@ -113,6 +113,7 @@ async function loadTripContext(tenantId: string, tripId: string) {
       { association: "paradas" },
       { association: "ubicaciones" },
       { association: "mercancias" },
+      { association: "Route", attributes: ["id", "nombre"], required: false },
       { model: Truck },
       { model: Driver },
       { model: Client },

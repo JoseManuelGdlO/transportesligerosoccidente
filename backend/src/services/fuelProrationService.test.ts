@@ -260,12 +260,26 @@ describe("tripRutaLabel", () => {
       ...mockTrip({ id: "v1", truck_id: "t1", fecha_salida: "2026-06-02T00:00:00.000Z", km_inicial: 0, km_final: 10 }),
       Route: { nombre: "GDL / LOCAL / GDL" },
     } as unknown as TripModel;
-    assert.equal(tripRutaLabel(trip), "GDL / LOCAL / GDL");
+    assert.equal(tripRutaLabel(trip), "GDL → LOCAL → GDL");
   });
 
-  it("cae a origen > destino si no hay ruta de catálogo", () => {
+  it("cae a origen → destino si no hay ruta de catálogo", () => {
     const trip = mockTrip({ id: "v1", truck_id: "t1", fecha_salida: "2026-06-02T00:00:00.000Z", km_inicial: 0, km_final: 10 });
-    assert.equal(tripRutaLabel(trip), "A > B");
+    assert.equal(tripRutaLabel(trip), "A → B");
+  });
+
+  it("usa recorrido de paradas si no hay nombre de catálogo", () => {
+    const trip = {
+      ...mockTrip({ id: "v1", truck_id: "t1", fecha_salida: "2026-06-02T00:00:00.000Z", km_inicial: 0, km_final: 10 }),
+      origen: "GDL",
+      destino: "MTY",
+      paradas: [
+        { etiqueta: "GDL", orden: 1 },
+        { etiqueta: "LEON", orden: 2 },
+        { etiqueta: "MTY", orden: 3 },
+      ],
+    } as unknown as TripModel;
+    assert.equal(tripRutaLabel(trip), "GDL → LEON → MTY");
   });
 });
 
