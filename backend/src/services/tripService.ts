@@ -19,7 +19,13 @@ import {
   getClosedStatusIds,
   assertNoOpenTripConflict,
 } from "./tripStatusService";
-import { assertTripScheduleAndOdometer } from "./tripSequenceValidation";
+import {
+  assertTripScheduleAndOdometer,
+  loadTruckTripPeers,
+  planKmFinalCascade,
+  validateTripScheduleAndOdometer,
+  type KmFinalCascadePlan,
+} from "./tripSequenceValidation";
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -337,7 +343,11 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     data.destino = destino;
   }
 
-  if (patch.truck_id !== undefined || patch.driver_id !== undefined) {
+  const truckChanging =
+    patch.truck_id !== undefined && String(patch.truck_id) !== String(trip.truck_id);
+  const driverChanging =
+    patch.driver_id !== undefined && String(patch.driver_id) !== String(trip.driver_id);
+  if (truckChanging || driverChanging) {
     const truckId = String(patch.truck_id ?? trip.truck_id);
     const driverId = String(patch.driver_id ?? trip.driver_id);
     await assertNoOpenTripConflict(tenantId, {
@@ -370,7 +380,14 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
         : null
     : null;
 
-  await assertTripScheduleAndOdometer(tenantId, {
+  const previousKmFinal = trip.km_final != null ? Number(trip.km_final) : null;
+  const kmFinalChanged =
+    isClosed &&
+    effectiveKmFinal != null &&
+    previousKmFinal != null &&
+    effectiveKmFinal !== previousKmFinal;
+
+  const candidate = {
     tripId: id,
     folio: trip.folio,
     truckId: effectiveTruckId,
@@ -378,9 +395,35 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     fecha_llegada: effectiveFechaLlegada,
     km_inicial: effectiveKmInicial,
     km_final: effectiveKmFinal,
-  });
+  };
 
-  await trip.update(data as never);
+  let cascade: KmFinalCascadePlan | null = null;
+  if (kmFinalChanged) {
+    const peers = await loadTruckTripPeers(tenantId, effectiveTruckId);
+    cascade = planKmFinalCascade(candidate, peers);
+    validateTripScheduleAndOdometer(candidate, peers, {
+      propagateKmFinalToNext: Boolean(cascade),
+    });
+  } else {
+    await assertTripScheduleAndOdometer(tenantId, candidate);
+  }
+
+  await sequelize.transaction(async (t) => {
+    await trip.update(data as never, { transaction: t });
+    if (cascade) {
+      const [affected] = await Trip.update(
+        { km_inicial: cascade.newKmInicial },
+        { where: { id: cascade.nextTripId, tenant_id: tenantId }, transaction: t },
+      );
+      if (affected !== 1) {
+        const err = new Error(
+          `No se pudo actualizar el km inicial del viaje siguiente ${cascade.nextFolio}`,
+        );
+        (err as Error & { status?: number }).status = 500;
+        throw err;
+      }
+    }
+  });
 
   if (paradasPatch) {
     const paradas = normalizeParadasInput({ paradas: paradasPatch });

@@ -21,6 +21,22 @@ export type TripScheduleCandidate = {
   km_final: number | null;
 };
 
+export type ValidateTripOptions = {
+  /**
+   * Al editar km_final de un viaje con sucesor: no exige igualdad con km_inicial del siguiente;
+   * valida que el siguiente quede con distancia > 0 tras propagar.
+   */
+  propagateKmFinalToNext?: boolean;
+};
+
+export type KmFinalCascadePlan = {
+  nextTripId: string;
+  nextFolio: string;
+  newKmInicial: number;
+  previousDistance: number | null;
+  newDistance: number | null;
+};
+
 function httpError(message: string, status = 400): Error {
   const err = new Error(message);
   (err as Error & { status?: number }).status = status;
@@ -85,6 +101,61 @@ export function peerFromTrip(trip: TripModel): TripPeer {
   };
 }
 
+function candidateOrderKey(candidate: TripScheduleCandidate): {
+  fecha_salida: Date;
+  folio: string;
+} {
+  return {
+    fecha_salida: candidate.fecha_salida,
+    folio: candidate.folio ?? "\uffff",
+  };
+}
+
+/** Viaje inmediato siguiente de la misma unidad (cualquier estado). */
+export function findNextTripPeer(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+): TripPeer | null {
+  const others = peers.filter((p) => p.id !== candidate.tripId);
+  const ordered = [...others].sort(compareTripOrder);
+  const key = candidateOrderKey(candidate);
+  for (const peer of ordered) {
+    if (compareTripOrder(peer, key) > 0) return peer;
+  }
+  return null;
+}
+
+/**
+ * Plan de cascada: al cambiar km_final, el siguiente toma ese valor como km_inicial.
+ * Lanza si el siguiente cerrado quedaría con distancia ≤ 0.
+ */
+export function planKmFinalCascade(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+): KmFinalCascadePlan | null {
+  if (candidate.km_final == null) return null;
+  const next = findNextTripPeer(candidate, peers);
+  if (!next) return null;
+
+  const newKmInicial = candidate.km_final;
+  if (next.km_final != null && next.km_final < newKmInicial) {
+    throw httpError(
+      `El km final (${newKmInicial}) es mayor al km final del viaje siguiente ${next.folio} (${next.km_final}). El máximo permitido es ${next.km_final}`,
+    );
+  }
+
+  const previousDistance = next.km_final != null ? next.km_final - next.km_inicial : null;
+  const newDistance = next.km_final != null ? next.km_final - newKmInicial : null;
+
+  return {
+    nextTripId: next.id,
+    nextFolio: next.folio,
+    newKmInicial,
+    previousDistance,
+    newDistance,
+  };
+}
+
 /**
  * Valida traslape de fechas y continuidad estricta de odómetro
  * respecto a viajes de la misma unidad (peers).
@@ -92,6 +163,7 @@ export function peerFromTrip(trip: TripModel): TripPeer {
 export function validateTripScheduleAndOdometer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
+  options?: ValidateTripOptions,
 ): void {
   if (candidate.km_final != null && candidate.km_final <= candidate.km_inicial) {
     throw httpError("El km final debe ser mayor al inicial");
@@ -119,10 +191,7 @@ export function validateTripScheduleAndOdometer(
   }
 
   const ordered = [...others].sort(compareTripOrder);
-  const candidateForOrder = {
-    fecha_salida: candidate.fecha_salida,
-    folio: candidate.folio ?? "\uffff",
-  };
+  const candidateForOrder = candidateOrderKey(candidate);
 
   let prevClosed: TripPeer | null = null;
   let nextClosed: TripPeer | null = null;
@@ -138,6 +207,13 @@ export function validateTripScheduleAndOdometer(
     throw httpError(
       `El km inicial debe ser ${prevClosed.km_final} (km final del viaje anterior ${prevClosed.folio})`,
     );
+  }
+
+  if (options?.propagateKmFinalToNext) {
+    if (candidate.km_final != null) {
+      planKmFinalCascade(candidate, peers);
+    }
+    return;
   }
 
   if (
@@ -168,7 +244,8 @@ export async function assertTripScheduleAndOdometer(
   tenantId: string,
   candidate: TripScheduleCandidate & { truckId: string },
   t?: Transaction,
+  options?: ValidateTripOptions,
 ): Promise<void> {
   const peers = await loadTruckTripPeers(tenantId, candidate.truckId, t);
-  validateTripScheduleAndOdometer(candidate, peers);
+  validateTripScheduleAndOdometer(candidate, peers, options);
 }

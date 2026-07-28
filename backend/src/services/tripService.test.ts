@@ -4,7 +4,9 @@ import { FuelLoad, Trip } from "../models";
 import { removeFuel } from "./tripService";
 import {
   compareTripOrder,
+  findNextTripPeer,
   intervalsOverlap,
+  planKmFinalCascade,
   tripIntervalEndMs,
   validateTripScheduleAndOdometer,
   type TripPeer,
@@ -192,6 +194,156 @@ describe("validateTripScheduleAndOdometer", () => {
         ),
       /km final debe ser 200/,
     );
+  });
+
+  it("con propagateKmFinalToNext acepta cambio y exige distancia no negativa en el siguiente", () => {
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "a",
+          folio: "TLO-1",
+          fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+          fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+          km_inicial: 100,
+          km_final: 250,
+        },
+        [closedA, closedB],
+        { propagateKmFinalToNext: true },
+      ),
+    );
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "a",
+          folio: "TLO-1",
+          fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+          fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+          km_inicial: 100,
+          km_final: 300,
+        },
+        [closedA, closedB],
+        { propagateKmFinalToNext: true },
+      ),
+    );
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "a",
+            folio: "TLO-1",
+            fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+            km_inicial: 100,
+            km_final: 301,
+          },
+          [closedA, closedB],
+          { propagateKmFinalToNext: true },
+        ),
+      /máximo permitido/,
+    );
+  });
+
+  it("planKmFinalCascade refleja el ejemplo de transferencia de km", () => {
+    const plan = planKmFinalCascade(
+      {
+        tripId: "a",
+        folio: "TLO-1",
+        fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+        km_inicial: 100,
+        km_final: 250,
+      },
+      [closedA, closedB],
+    );
+    assert.ok(plan);
+    assert.equal(plan!.nextFolio, "TLO-2");
+    assert.equal(plan!.newKmInicial, 250);
+    assert.equal(plan!.previousDistance, 100);
+    assert.equal(plan!.newDistance, 50);
+  });
+
+  it("planKmFinalCascade permite dejar al siguiente en 0 km", () => {
+    const plan = planKmFinalCascade(
+      {
+        tripId: "a",
+        folio: "TLO-1",
+        fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+        km_inicial: 100,
+        km_final: 300,
+      },
+      [closedA, closedB],
+    );
+    assert.ok(plan);
+    assert.equal(plan!.newKmInicial, 300);
+    assert.equal(plan!.newDistance, 0);
+  });
+
+  it("planKmFinalCascade rechaza si el siguiente quedaría con distancia negativa", () => {
+    assert.throws(
+      () =>
+        planKmFinalCascade(
+          {
+            tripId: "a",
+            folio: "TLO-1",
+            fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+            km_inicial: 100,
+            km_final: 301,
+          },
+          [closedA, closedB],
+        ),
+      /máximo permitido/,
+    );
+  });
+
+  it("planKmFinalCascade: subir 100 km al primero baja 100 al segundo", () => {
+    const trip1 = peer({
+      id: "1",
+      folio: "V1",
+      salida: "2026-06-01T08:00:00.000Z",
+      llegada: "2026-06-01T12:00:00.000Z",
+      km_inicial: 0,
+      km_final: 100,
+    });
+    const trip2 = peer({
+      id: "2",
+      folio: "V2",
+      salida: "2026-06-02T08:00:00.000Z",
+      llegada: "2026-06-02T12:00:00.000Z",
+      km_inicial: 100,
+      km_final: 400,
+    });
+    const plan = planKmFinalCascade(
+      {
+        tripId: "1",
+        folio: "V1",
+        fecha_salida: trip1.fecha_salida,
+        fecha_llegada: trip1.fecha_llegada,
+        km_inicial: 0,
+        km_final: 200,
+      },
+      [trip1, trip2],
+    );
+    assert.ok(plan);
+    assert.equal(plan!.previousDistance, 300);
+    assert.equal(plan!.newDistance, 200);
+    assert.equal(plan!.newKmInicial, 200);
+  });
+
+  it("findNextTripPeer devuelve el inmediato siguiente", () => {
+    const next = findNextTripPeer(
+      {
+        tripId: "a",
+        folio: "TLO-1",
+        fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+        km_inicial: 100,
+        km_final: 200,
+      },
+      [closedA, closedB],
+    );
+    assert.equal(next?.id, "b");
   });
 
   it("viaje abierto hasta infinito traslapa con cerrado posterior", () => {

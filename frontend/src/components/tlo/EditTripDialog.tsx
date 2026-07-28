@@ -4,6 +4,15 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   TripParadasEditor,
@@ -13,6 +22,7 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, patchTrip } from "@/lib/tloApi";
+import { previewKmFinalCascade, type KmFinalCascadePreview } from "@/lib/tripOdometer";
 import type { RouteCatalog, Trip, TripType } from "@/types/tlo";
 import {
   assertNoOpenTripConflictLocal,
@@ -70,7 +80,7 @@ type Props = {
 };
 
 export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
-  const { trucks, drivers, clients, trips } = useTlo();
+  const { trucks, drivers, clients, trips, replaceTrip } = useTlo();
   const apiMode = hasApiConfigured();
   const isClosed = tripIsClosed(trip);
   const paradasLocked = trip.carta_porte?.estatus === "timbrada";
@@ -80,6 +90,8 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const [selectedRouteId, setSelectedRouteId] = useState<string>("__custom__");
   const [catalogRoutes, setCatalogRoutes] = useState<RouteCatalog[]>([]);
   const [saving, setSaving] = useState(false);
+  const [cascadePreview, setCascadePreview] = useState<KmFinalCascadePreview | null>(null);
+  const [cascadeBlockMessage, setCascadeBlockMessage] = useState<string | null>(null);
 
   const openByTruck = useMemo(() => openTripByTruckId(trips, trip.id), [trips, trip.id]);
   const openByDriver = useMemo(() => openTripByDriverId(trips, trip.id), [trips, trip.id]);
@@ -102,6 +114,8 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     setForm(tripToForm(trip));
     setParadas(tripToParadas(trip));
     setSelectedRouteId(trip.route_id ?? "__custom__");
+    setCascadePreview(null);
+    setCascadeBlockMessage(null);
   }, [open, trip]);
 
   useEffect(() => {
@@ -123,27 +137,8 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     if (r.tipo_viaje) setForm((f) => ({ ...f, tipo_viaje: r.tipo_viaje! }));
   };
 
-  const submit = async () => {
-    if (!form.truck_id || !form.driver_id || !form.client_id) {
-      toast.error("Selecciona camión, operador y cliente");
-      return;
-    }
+  const persist = async (confirmedCascade: KmFinalCascadePreview | null = null) => {
     const validParadas = paradas.filter((p) => p.etiqueta.trim());
-    if (!paradasLocked && validParadas.length < 2) {
-      toast.error("Indica al menos 2 paradas en la ruta");
-      return;
-    }
-    if (isClosed) {
-      if (!form.fecha_llegada.trim()) {
-        toast.error("Captura la fecha y hora de llegada");
-        return;
-      }
-      if (+form.km_final <= +form.km_inicial) {
-        toast.error("El km final debe ser mayor al inicial");
-        return;
-      }
-    }
-
     const stops = paradasLocked ? undefined : paradasToTripStops(validParadas);
     const patch: Record<string, unknown> = {
       truck_id: form.truck_id,
@@ -168,16 +163,27 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     setSaving(true);
     try {
       if (!apiMode) {
-        assertNoOpenTripConflictLocal(
-          trips,
-          { truck_id: form.truck_id, driver_id: form.driver_id, excludeTripId: trip.id },
-          { trucks, drivers },
-        );
+        const truckChanging = form.truck_id !== trip.truck_id;
+        const driverChanging = form.driver_id !== trip.driver_id;
+        if (truckChanging || driverChanging) {
+          assertNoOpenTripConflictLocal(
+            trips,
+            { truck_id: form.truck_id, driver_id: form.driver_id, excludeTripId: trip.id },
+            { trucks, drivers },
+          );
+        }
       }
       if (apiMode) {
         const updated = await patchTrip(trip.id, patch);
         onSaved(updated);
+        if (confirmedCascade) {
+          replaceTrip({
+            ...confirmedCascade.nextTrip,
+            km_inicial: +form.km_final,
+          });
+        }
         toast.success("Viaje actualizado");
+        setCascadePreview(null);
         onOpenChange(false);
         return;
       }
@@ -205,7 +211,14 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
           : {}),
       };
       onSaved(updated);
+      if (confirmedCascade) {
+        replaceTrip({
+          ...confirmedCascade.nextTrip,
+          km_inicial: +form.km_final,
+        });
+      }
       toast.success("Viaje actualizado (demo)");
+      setCascadePreview(null);
       onOpenChange(false);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo actualizar el viaje");
@@ -214,203 +227,290 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     }
   };
 
+  const submit = async () => {
+    if (!form.truck_id || !form.driver_id || !form.client_id) {
+      toast.error("Selecciona camión, operador y cliente");
+      return;
+    }
+    const validParadas = paradas.filter((p) => p.etiqueta.trim());
+    if (!paradasLocked && validParadas.length < 2) {
+      toast.error("Indica al menos 2 paradas en la ruta");
+      return;
+    }
+    if (isClosed) {
+      if (!form.fecha_llegada.trim()) {
+        toast.error("Captura la fecha y hora de llegada");
+        return;
+      }
+      if (+form.km_final <= +form.km_inicial) {
+        toast.error("El km final debe ser mayor al inicial");
+        return;
+      }
+    }
+
+    if (isClosed && trip.km_final != null) {
+      const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
+        truckId: form.truck_id,
+        fechaSalida: new Date(form.fecha_salida).toISOString(),
+      });
+      if (error) {
+        setCascadeBlockMessage(error);
+        return;
+      }
+      if (preview) {
+        setCascadePreview(preview);
+        return;
+      }
+    }
+
+    await persist(null);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
-        <DialogHeader>
-          <DialogTitle>Editar viaje {trip.folio}</DialogTitle>
-        </DialogHeader>
-        <div className="grid grid-cols-2 gap-3">
-          <div>
-            <Label>Camión</Label>
-            <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar..." />
-              </SelectTrigger>
-              <SelectContent>
-                {trucks
-                  .filter((t) => t.estatus === "activo")
-                  .map((t) => {
-                    const busy = openByTruck.get(t.id);
-                    return (
-                      <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
-                        {t.numero_economico} · {t.placas}
-                        {busy ? ` (en curso — ${busy.folio})` : ""}
-                      </SelectItem>
-                    );
-                  })}
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Operador</Label>
-            <Select value={form.driver_id} onValueChange={(v) => setForm({ ...form, driver_id: v })}>
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar..." />
-              </SelectTrigger>
-              <SelectContent>
-                {drivers
-                  .filter((d) => d.estatus === "activo")
-                  .map((d) => {
-                    const busy = openByDriver.get(d.id);
-                    return (
-                      <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
-                        {d.nombre}
-                        {busy ? ` (en curso — ${busy.folio})` : ""}
-                      </SelectItem>
-                    );
-                  })}
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="col-span-2">
-            <Label>Cliente</Label>
-            <Select
-              value={form.client_id}
-              onValueChange={(v) => {
-                setForm({ ...form, client_id: v });
-                setSelectedRouteId("__custom__");
-                if (v !== trip.client_id) setParadas(emptyParadas());
-              }}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Seleccionar..." />
-              </SelectTrigger>
-              <SelectContent>
-                {clients.map((c) => (
-                  <SelectItem key={c.id} value={c.id}>
-                    {c.razon_social}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-          {form.client_id && apiMode && (
-            <div className="col-span-2">
-              <Label>Ruta del catálogo</Label>
-              <Select value={selectedRouteId} onValueChange={applyRoute} disabled={paradasLocked}>
+    <>
+      <Dialog open={open} onOpenChange={onOpenChange}>
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Editar viaje {trip.folio}</DialogTitle>
+          </DialogHeader>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <Label>Camión</Label>
+              <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
                 <SelectTrigger>
-                  <SelectValue placeholder="Personalizada o del catálogo" />
+                  <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="__custom__">Personalizada (editar paradas)</SelectItem>
-                  {catalogRoutes.map((r) => (
-                    <SelectItem key={r.id} value={r.id}>
-                      {r.nombre} — {r.ruta_resumen}
-                      {r.client_id ? "" : " (global)"}
+                  {trucks
+                    .filter((t) => t.estatus === "activo")
+                    .map((t) => {
+                      const busy = openByTruck.get(t.id);
+                      return (
+                        <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
+                          {t.numero_economico} · {t.placas}
+                          {busy ? ` (en curso — ${busy.folio})` : ""}
+                        </SelectItem>
+                      );
+                    })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Operador</Label>
+              <Select value={form.driver_id} onValueChange={(v) => setForm({ ...form, driver_id: v })}>
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {drivers
+                    .filter((d) => d.estatus === "activo")
+                    .map((d) => {
+                      const busy = openByDriver.get(d.id);
+                      return (
+                        <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
+                          {d.nombre}
+                          {busy ? ` (en curso — ${busy.folio})` : ""}
+                        </SelectItem>
+                      );
+                    })}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="col-span-2">
+              <Label>Cliente</Label>
+              <Select
+                value={form.client_id}
+                onValueChange={(v) => {
+                  setForm({ ...form, client_id: v });
+                  setSelectedRouteId("__custom__");
+                  if (v !== trip.client_id) setParadas(emptyParadas());
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Seleccionar..." />
+                </SelectTrigger>
+                <SelectContent>
+                  {clients.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {c.razon_social}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
             </div>
-          )}
-          <div className="col-span-2">
-            {paradasLocked && (
-              <p className="text-xs text-muted-foreground mb-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
-                La carta porte está timbrada: no se pueden modificar las paradas de la ruta.
-              </p>
+            {form.client_id && apiMode && (
+              <div className="col-span-2">
+                <Label>Ruta del catálogo</Label>
+                <Select value={selectedRouteId} onValueChange={applyRoute} disabled={paradasLocked}>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Personalizada o del catálogo" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__custom__">Personalizada (editar paradas)</SelectItem>
+                    {catalogRoutes.map((r) => (
+                      <SelectItem key={r.id} value={r.id}>
+                        {r.nombre} — {r.ruta_resumen}
+                        {r.client_id ? "" : " (global)"}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
             )}
-            <TripParadasEditor
-              paradas={paradas}
-              disabled={paradasLocked}
-              onChange={(p) => {
-                setParadas(p);
-                setSelectedRouteId("__custom__");
-              }}
-            />
+            <div className="col-span-2">
+              {paradasLocked && (
+                <p className="text-xs text-muted-foreground mb-2 rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
+                  La carta porte está timbrada: no se pueden modificar las paradas de la ruta.
+                </p>
+              )}
+              <TripParadasEditor
+                paradas={paradas}
+                disabled={paradasLocked}
+                onChange={(p) => {
+                  setParadas(p);
+                  setSelectedRouteId("__custom__");
+                }}
+              />
+            </div>
+            <div className="col-span-2">
+              <Label>Número de factura</Label>
+              <Input
+                value={form.num_factura}
+                onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
+                placeholder="F-8826 (opcional)"
+              />
+            </div>
+            <div>
+              <Label>Fecha y hora salida</Label>
+              <Input
+                type="datetime-local"
+                value={form.fecha_salida}
+                onChange={(e) => setForm({ ...form, fecha_salida: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Kilometraje inicial</Label>
+              <Input
+                type="number"
+                value={form.km_inicial}
+                onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Tarifa pactada (MXN)</Label>
+              <Input
+                type="number"
+                value={form.tarifa}
+                onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Tipo de viaje</Label>
+              <Select
+                value={form.tipo_viaje}
+                onValueChange={(v) => setForm({ ...form, tipo_viaje: v as TripType })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="local">Local</SelectItem>
+                  <SelectItem value="foraneo">Foráneo</SelectItem>
+                </SelectContent>
+              </Select>
+            </div>
+            <div>
+              <Label>Viáticos entregados</Label>
+              <Input
+                type="number"
+                value={form.viaticos_entregados}
+                onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
+              />
+            </div>
+            {isClosed && (
+              <>
+                <div className="col-span-2 pt-2 border-t">
+                  <p className="text-sm font-medium">Datos de cierre</p>
+                </div>
+                <div>
+                  <Label>Kilometraje final</Label>
+                  <Input
+                    type="number"
+                    value={form.km_final}
+                    onChange={(e) => setForm({ ...form, km_final: +e.target.value })}
+                  />
+                </div>
+                <div>
+                  <Label>Fecha y hora de llegada</Label>
+                  <Input
+                    type="datetime-local"
+                    value={form.fecha_llegada}
+                    onChange={(e) => setForm({ ...form, fecha_llegada: e.target.value })}
+                  />
+                </div>
+              </>
+            )}
           </div>
-          <div className="col-span-2">
-            <Label>Número de factura</Label>
-            <Input
-              value={form.num_factura}
-              onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
-              placeholder="F-8826 (opcional)"
-            />
-          </div>
-          <div>
-            <Label>Fecha y hora salida</Label>
-            <Input
-              type="datetime-local"
-              value={form.fecha_salida}
-              onChange={(e) => setForm({ ...form, fecha_salida: e.target.value })}
-            />
-          </div>
-          <div>
-            <Label>Kilometraje inicial</Label>
-            <Input
-              type="number"
-              value={form.km_inicial}
-              onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
-            />
-          </div>
-          <div>
-            <Label>Tarifa pactada (MXN)</Label>
-            <Input
-              type="number"
-              value={form.tarifa}
-              onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
-            />
-          </div>
-          <div>
-            <Label>Tipo de viaje</Label>
-            <Select
-              value={form.tipo_viaje}
-              onValueChange={(v) => setForm({ ...form, tipo_viaje: v as TripType })}
+          <DialogFooter>
+            <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
+              Cancelar
+            </Button>
+            <Button
+              onClick={() => void submit()}
+              disabled={saving}
+              className="bg-primary text-primary-foreground hover:bg-primary-glow"
             >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="local">Local</SelectItem>
-                <SelectItem value="foraneo">Foráneo</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div>
-            <Label>Viáticos entregados</Label>
-            <Input
-              type="number"
-              value={form.viaticos_entregados}
-              onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
-            />
-          </div>
-          {isClosed && (
-            <>
-              <div className="col-span-2 pt-2 border-t">
-                <p className="text-sm font-medium">Datos de cierre</p>
-              </div>
-              <div>
-                <Label>Kilometraje final</Label>
-                <Input
-                  type="number"
-                  value={form.km_final}
-                  onChange={(e) => setForm({ ...form, km_final: +e.target.value })}
-                />
-              </div>
-              <div>
-                <Label>Fecha y hora de llegada</Label>
-                <Input
-                  type="datetime-local"
-                  value={form.fecha_llegada}
-                  onChange={(e) => setForm({ ...form, fecha_llegada: e.target.value })}
-                />
-              </div>
-            </>
-          )}
-        </div>
-        <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange(false)} disabled={saving}>
-            Cancelar
-          </Button>
-          <Button
-            onClick={() => void submit()}
-            disabled={saving}
-            className="bg-primary text-primary-foreground hover:bg-primary-glow"
-          >
-            Guardar cambios
-          </Button>
-        </DialogFooter>
-      </DialogContent>
-    </Dialog>
+              Guardar cambios
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <AlertDialog
+        open={cascadePreview !== null}
+        onOpenChange={(o) => {
+          if (!o && !saving) setCascadePreview(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Ajustar kilometraje del viaje siguiente?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {cascadePreview?.message}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={saving}>Cancelar</AlertDialogCancel>
+            <Button
+              disabled={saving}
+              className="bg-primary text-primary-foreground hover:bg-primary-glow"
+              onClick={() => {
+                if (!cascadePreview) return;
+                void persist(cascadePreview);
+              }}
+            >
+              Continuar
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={cascadeBlockMessage !== null}
+        onOpenChange={(o) => {
+          if (!o) setCascadeBlockMessage(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>No se puede aplicar este kilometraje</AlertDialogTitle>
+            <AlertDialogDescription>{cascadeBlockMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Entendido</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }
