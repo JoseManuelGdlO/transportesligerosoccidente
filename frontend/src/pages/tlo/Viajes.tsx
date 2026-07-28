@@ -8,6 +8,15 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { TripStatusesPicker, MarginBadge } from "@/components/tlo/StatusBadge";
 import {
@@ -26,6 +35,7 @@ import {
   deleteTripStatus,
 } from "@/lib/tloApi";
 import { hasApiConfigured } from "@/lib/api";
+import { tripBeforeLastError } from "@/lib/tripOdometer";
 import type { RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
 import {
   findStatusIdBySlug,
@@ -275,6 +285,7 @@ export default function Viajes() {
   }, []);
 
   const [open, setOpen] = useState(false);
+  const [beforeLastMessage, setBeforeLastMessage] = useState<string | null>(null);
   const [statusesOpen, setStatusesOpen] = useState(false);
   const [manageStatusesOpen, setManageStatusesOpen] = useState(false);
   const [statusForm, setStatusForm] = useState<TripStatusRef>(emptyStatusForm);
@@ -359,6 +370,7 @@ export default function Viajes() {
     setParadas(emptyParadas());
     setSelectedRouteId("__custom__");
     setForm(defaultForm());
+    setBeforeLastMessage(null);
     setOpen(true);
   }, []);
 
@@ -558,6 +570,15 @@ export default function Viajes() {
       toast.error("Indica al menos 2 paradas en la ruta");
       return;
     }
+    const fechaSalidaIso = new Date(form.fecha_salida).toISOString();
+    const beforeLast = tripBeforeLastError(trips, {
+      truckId: form.truck_id,
+      fechaSalida: fechaSalidaIso,
+    });
+    if (beforeLast) {
+      setBeforeLastMessage(beforeLast);
+      return;
+    }
     const stops = paradasToTripStops(validParadas);
     try {
       assertNoOpenTripConflictLocal(
@@ -574,7 +595,7 @@ export default function Viajes() {
         paradas: stops,
         route_id: selectedRouteId !== "__custom__" ? selectedRouteId : undefined,
         num_factura: form.num_factura.trim() || undefined,
-        fecha_salida: new Date(form.fecha_salida).toISOString(),
+        fecha_salida: fechaSalidaIso,
         km_inicial: +form.km_inicial,
         tarifa: +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
@@ -1108,6 +1129,21 @@ export default function Viajes() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={beforeLastMessage !== null}
+        onOpenChange={(o) => !o && setBeforeLastMessage(null)}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fecha anterior al último viaje</AlertDialogTitle>
+            <AlertDialogDescription>{beforeLastMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Entendido</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog open={manageStatusesOpen} onOpenChange={setManageStatusesOpen}>
         <DialogContent className="max-w-xl max-h-[90vh] overflow-y-auto">

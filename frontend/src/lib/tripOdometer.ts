@@ -1,4 +1,5 @@
 import type { Trip } from "@/types/tlo";
+import { fmtDateTime } from "@/lib/format";
 
 function tripTimestampMs(value: string): number {
   return new Date(value).getTime();
@@ -12,6 +13,59 @@ export function compareTripOrder(
   const tb = tripTimestampMs(b.fecha_salida);
   if (ta !== tb) return ta < tb ? -1 : 1;
   return a.folio.localeCompare(b.folio);
+}
+
+function formatTripRange(trip: Pick<Trip, "fecha_salida" | "fecha_llegada">): string {
+  const start = fmtDateTime(trip.fecha_salida);
+  if (!trip.fecha_llegada) return `${start} – (en curso)`;
+  return `${start} – ${fmtDateTime(trip.fecha_llegada)}`;
+}
+
+/**
+ * Impide registrar/mover un viaje antes del último de la unidad.
+ * Referencia = fecha_llegada del último (o fecha_salida si sigue abierto).
+ * En edición de un viaje histórico (hay peers posteriores) no aplica.
+ * Devuelve mensaje de error o null si es válido.
+ */
+export function tripBeforeLastError(
+  trips: Trip[],
+  opts: {
+    truckId: string;
+    fechaSalida: string;
+    /** Si se omite, se trata como alta (create). */
+    excludeTripId?: string;
+    folio?: string;
+  },
+): string | null {
+  const others = trips.filter(
+    (t) => t.truck_id === opts.truckId && t.id !== opts.excludeTripId,
+  );
+  if (others.length === 0) return null;
+
+  const ordered = [...others].sort(compareTripOrder);
+  const lastPeer = ordered[ordered.length - 1]!;
+  const candidateKey = {
+    fecha_salida: opts.fechaSalida,
+    folio: opts.folio ?? "\uffff",
+  };
+
+  const hasLaterPeer = compareTripOrder(lastPeer, candidateKey) > 0;
+  const refIso = lastPeer.fecha_llegada ?? lastPeer.fecha_salida;
+  const refMs = tripTimestampMs(refIso);
+  const candStart = tripTimestampMs(opts.fechaSalida);
+  const isCreate = opts.excludeTripId == null;
+
+  const violates =
+    (isCreate && (hasLaterPeer || candStart < refMs)) ||
+    (!isCreate && !hasLaterPeer && candStart < refMs);
+
+  if (!violates) return null;
+
+  return (
+    `No se puede iniciar un viaje con fecha anterior al último viaje de la unidad. ` +
+    `El último es ${lastPeer.folio} (${formatTripRange(lastPeer)}). ` +
+    `Usa una fecha de salida igual o posterior a ${fmtDateTime(refIso)}.`
+  );
 }
 
 /** Viaje inmediato siguiente de la misma unidad. */

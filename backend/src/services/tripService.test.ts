@@ -137,6 +137,24 @@ describe("validateTripScheduleAndOdometer", () => {
       () =>
         validateTripScheduleAndOdometer(
           {
+            tripId: "a",
+            folio: "TLO-1",
+            fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-02T10:00:00.000Z"),
+            km_inicial: 100,
+            km_final: 200,
+          },
+          [closedA, closedB],
+        ),
+      /traslapan/,
+    );
+  });
+
+  it("al crear, prioriza mensaje de fecha anterior al último si también habría traslape", () => {
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
             fecha_salida: new Date("2026-06-01T10:00:00.000Z"),
             fecha_llegada: new Date("2026-06-01T14:00:00.000Z"),
             km_inicial: 150,
@@ -144,7 +162,7 @@ describe("validateTripScheduleAndOdometer", () => {
           },
           [closedA],
         ),
-      /traslapan/,
+      /fecha anterior al último viaje/,
     );
   });
 
@@ -175,6 +193,70 @@ describe("validateTripScheduleAndOdometer", () => {
         },
         [closedA, closedB],
       ),
+    );
+  });
+
+  it("rechaza crear con fecha anterior a la llegada del último viaje", () => {
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            fecha_salida: new Date("2026-06-01T14:00:00.000Z"),
+            fecha_llegada: null,
+            km_inicial: 200,
+            km_final: null,
+          },
+          [closedA, closedB],
+        ),
+      /fecha anterior al último viaje/,
+    );
+  });
+
+  it("acepta crear exactamente en la llegada del último viaje", () => {
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          fecha_salida: new Date("2026-06-02T12:00:00.000Z"),
+          fecha_llegada: null,
+          km_inicial: 300,
+          km_final: null,
+        },
+        [closedA, closedB],
+      ),
+    );
+  });
+
+  it("al editar un viaje histórico no exige fecha >= llegada del último", () => {
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "a",
+          folio: "TLO-1",
+          fecha_salida: new Date("2026-06-01T08:00:00.000Z"),
+          fecha_llegada: new Date("2026-06-01T12:00:00.000Z"),
+          km_inicial: 100,
+          km_final: 200,
+        },
+        [closedA, closedB],
+      ),
+    );
+  });
+
+  it("al editar el último viaje rechaza salida anterior a la llegada del previo", () => {
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "b",
+            folio: "TLO-2",
+            fecha_salida: new Date("2026-06-01T10:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-01T11:00:00.000Z"),
+            km_inicial: 200,
+            km_final: 250,
+          },
+          [closedA, closedB],
+        ),
+      /fecha anterior al último viaje/,
     );
   });
 
@@ -347,6 +429,7 @@ describe("validateTripScheduleAndOdometer", () => {
   });
 
   it("viaje abierto hasta infinito traslapa con cerrado posterior", () => {
+    // Crear antes del último: mensaje de fecha anterior (prioritario).
     assert.throws(
       () =>
         validateTripScheduleAndOdometer(
@@ -357,6 +440,32 @@ describe("validateTripScheduleAndOdometer", () => {
             km_final: null,
           },
           [closedA],
+        ),
+      /fecha anterior al último viaje/,
+    );
+    // Editar histórico abierto que se solapa con un cerrado posterior.
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "open-old",
+            folio: "TLO-0",
+            fecha_salida: new Date("2026-06-01T06:00:00.000Z"),
+            fecha_llegada: null,
+            km_inicial: 50,
+            km_final: null,
+          },
+          [
+            peer({
+              id: "open-old",
+              folio: "TLO-0",
+              salida: "2026-06-01T06:00:00.000Z",
+              llegada: null,
+              km_inicial: 50,
+              km_final: null,
+            }),
+            closedA,
+          ],
         ),
       /traslapan/,
     );

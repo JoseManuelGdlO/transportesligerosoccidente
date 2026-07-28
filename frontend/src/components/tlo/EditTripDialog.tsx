@@ -22,7 +22,7 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, patchTrip } from "@/lib/tloApi";
-import { previewKmFinalCascade, type KmFinalCascadePreview } from "@/lib/tripOdometer";
+import { previewKmFinalCascade, tripBeforeLastError, type KmFinalCascadePreview } from "@/lib/tripOdometer";
 import type { RouteCatalog, Trip, TripType } from "@/types/tlo";
 import {
   assertNoOpenTripConflictLocal,
@@ -92,6 +92,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const [saving, setSaving] = useState(false);
   const [cascadePreview, setCascadePreview] = useState<KmFinalCascadePreview | null>(null);
   const [cascadeBlockMessage, setCascadeBlockMessage] = useState<string | null>(null);
+  const [beforeLastMessage, setBeforeLastMessage] = useState<string | null>(null);
 
   const openByTruck = useMemo(() => openTripByTruckId(trips, trip.id), [trips, trip.id]);
   const openByDriver = useMemo(() => openTripByDriverId(trips, trip.id), [trips, trip.id]);
@@ -116,6 +117,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     setSelectedRouteId(trip.route_id ?? "__custom__");
     setCascadePreview(null);
     setCascadeBlockMessage(null);
+    setBeforeLastMessage(null);
   }, [open, trip]);
 
   useEffect(() => {
@@ -248,10 +250,22 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       }
     }
 
+    const fechaSalidaIso = new Date(form.fecha_salida).toISOString();
+    const beforeLast = tripBeforeLastError(trips, {
+      truckId: form.truck_id,
+      fechaSalida: fechaSalidaIso,
+      excludeTripId: trip.id,
+      folio: trip.folio,
+    });
+    if (beforeLast) {
+      setBeforeLastMessage(beforeLast);
+      return;
+    }
+
     if (isClosed && trip.km_final != null) {
       const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
         truckId: form.truck_id,
-        fechaSalida: new Date(form.fecha_salida).toISOString(),
+        fechaSalida: fechaSalidaIso,
       });
       if (error) {
         setCascadeBlockMessage(error);
@@ -505,6 +519,23 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
           <AlertDialogHeader>
             <AlertDialogTitle>No se puede aplicar este kilometraje</AlertDialogTitle>
             <AlertDialogDescription>{cascadeBlockMessage}</AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Entendido</AlertDialogCancel>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+
+      <AlertDialog
+        open={beforeLastMessage !== null}
+        onOpenChange={(o) => {
+          if (!o) setBeforeLastMessage(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Fecha anterior al último viaje</AlertDialogTitle>
+            <AlertDialogDescription>{beforeLastMessage}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
             <AlertDialogCancel>Entendido</AlertDialogCancel>

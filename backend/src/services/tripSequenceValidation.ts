@@ -157,6 +157,41 @@ export function planKmFinalCascade(
 }
 
 /**
+ * Impide registrar/mover un viaje antes del último de la unidad.
+ * Referencia = fecha_llegada del último (o fecha_salida si sigue abierto).
+ * En edición de un viaje histórico (hay peers posteriores) no aplica,
+ * para no bloquear correcciones de viajes anteriores.
+ */
+export function assertNotBeforeLastTrip(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+): void {
+  const others = peers.filter((p) => p.id !== candidate.tripId);
+  if (others.length === 0) return;
+
+  const ordered = [...others].sort(compareTripOrder);
+  const lastPeer = ordered[ordered.length - 1]!;
+  const candidateForOrder = candidateOrderKey(candidate);
+  const hasLaterPeer = compareTripOrder(lastPeer, candidateForOrder) > 0;
+  const refDate = lastPeer.fecha_llegada ?? lastPeer.fecha_salida;
+  const refMs = tripTimestampMs(refDate);
+  const candStart = tripTimestampMs(candidate.fecha_salida);
+
+  const isCreate = candidate.tripId == null;
+  const violates =
+    (isCreate && (hasLaterPeer || candStart < refMs)) ||
+    (!isCreate && !hasLaterPeer && candStart < refMs);
+
+  if (violates) {
+    throw httpError(
+      `No se puede iniciar un viaje con fecha anterior al último viaje de la unidad. ` +
+        `El último es ${lastPeer.folio} (${formatTripRange(lastPeer)}). ` +
+        `Usa una fecha de salida igual o posterior a ${refDate.toISOString()}.`,
+    );
+  }
+}
+
+/**
  * Valida traslape de fechas y continuidad estricta de odómetro
  * respecto a viajes de la misma unidad (peers).
  */
@@ -179,6 +214,8 @@ export function validateTripScheduleAndOdometer(
   const others = peers.filter((p) => p.id !== candidate.tripId);
   const candStart = tripTimestampMs(candidate.fecha_salida);
   const candEnd = tripIntervalEndMs(candidate);
+
+  assertNotBeforeLastTrip(candidate, peers);
 
   for (const peer of others) {
     const peerStart = tripTimestampMs(peer.fecha_salida);
