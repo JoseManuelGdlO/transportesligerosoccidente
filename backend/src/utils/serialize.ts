@@ -236,6 +236,7 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     comision_override: t.comision_override != null ? num(t.comision_override) : undefined,
     tipo_viaje: t.tipo_viaje ?? "local",
     settlement_id: t.settlement_id ?? undefined,
+    cfdi_conceptos: Array.isArray(t.cfdi_conceptos) ? t.cfdi_conceptos : undefined,
     statuses,
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),

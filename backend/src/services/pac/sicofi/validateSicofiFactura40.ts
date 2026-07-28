@@ -33,6 +33,25 @@ export async function validateSicofiFactura40(ctx: TimbradoContext): Promise<str
 
   if (tipo === "ingreso") {
     if (num(trip.tarifa) <= 0) issues.push("Viaje: la tarifa debe ser mayor a 0 para factura de ingreso");
+    const stored = Array.isArray(trip.cfdi_conceptos) ? trip.cfdi_conceptos : [];
+    if (stored.length > 0) {
+      const suma = stored.reduce(
+        (s, c) => s + (Number(c.valor_unitario) || 0) * (Number(c.cantidad) || 1),
+        0,
+      );
+      if (suma <= 0) {
+        issues.push("Viaje: la suma de conceptos CFDI debe ser mayor a 0 para factura de ingreso");
+      }
+      for (let i = 0; i < stored.length; i++) {
+        const c = stored[i];
+        if (!String(c.descripcion ?? "").trim()) {
+          issues.push(`Concepto CFDI ${i + 1}: falta descripción`);
+        }
+        if (!String(c.clave_prod_serv ?? "").trim()) {
+          issues.push(`Concepto CFDI ${i + 1}: falta clave de producto/servicio`);
+        }
+      }
+    }
   }
 
   for (const u of normalizeFiscalUbicaciones(ubicaciones)) {

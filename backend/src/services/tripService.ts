@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Op, type Transaction } from "sequelize";
-import { Trip, FuelLoad, Expense, Driver, Truck, Client, sequelize } from "../models";
+import { Trip, FuelLoad, Expense, Driver, Truck, Client, CartaPorte, sequelize } from "../models";
 import * as routeService from "./routeService";
 import {
   saveTripStops,
@@ -26,6 +26,96 @@ import {
   validateTripScheduleAndOdometer,
   type KmFinalCascadePlan,
 } from "./tripSequenceValidation";
+import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
+import {
+  DEFAULT_CFDI_CLAVE_PROD_SERV,
+  DEFAULT_CFDI_CLAVE_UNIDAD,
+  DEFAULT_CFDI_UNIDAD,
+} from "../types/tripCfdiConcepto";
+
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+function httpError(message: string, status: number): Error & { status: number } {
+  const err = new Error(message) as Error & { status: number };
+  err.status = status;
+  return err;
+}
+
+/** Normaliza y valida líneas de concepto CFDI de ingreso. */
+export function normalizeCfdiConceptosInput(raw: unknown[]): TripCfdiConcepto[] {
+  if (!Array.isArray(raw) || raw.length < 1) {
+    throw httpError("Debe haber al menos un concepto CFDI", 400);
+  }
+  const out: TripCfdiConcepto[] = [];
+  for (let i = 0; i < raw.length; i++) {
+    const row = raw[i] as Record<string, unknown>;
+    const clave = String(row.clave_prod_serv ?? "").trim();
+    const descripcion = String(row.descripcion ?? "").trim();
+    const cantidad = Number(row.cantidad ?? 1);
+    const valor = Number(row.valor_unitario ?? 0);
+    const claveUnidad = String(row.clave_unidad ?? DEFAULT_CFDI_CLAVE_UNIDAD).trim() || DEFAULT_CFDI_CLAVE_UNIDAD;
+    const unidad = String(row.unidad ?? DEFAULT_CFDI_UNIDAD).trim() || DEFAULT_CFDI_UNIDAD;
+    if (!clave) throw httpError(`Concepto ${i + 1}: falta clave de producto/servicio`, 400);
+    if (!descripcion) throw httpError(`Concepto ${i + 1}: falta descripción`, 400);
+    if (!Number.isFinite(cantidad) || cantidad <= 0) {
+      throw httpError(`Concepto ${i + 1}: la cantidad debe ser mayor a 0`, 400);
+    }
+    if (!Number.isFinite(valor) || valor < 0) {
+      throw httpError(`Concepto ${i + 1}: el valor unitario no es válido`, 400);
+    }
+    const objetoImp = row.objeto_imp === "01" || row.objeto_imp === "02" ? row.objeto_imp : "02";
+    out.push({
+      clave_prod_serv: clave || DEFAULT_CFDI_CLAVE_PROD_SERV,
+      cantidad: round2(cantidad),
+      clave_unidad: claveUnidad,
+      unidad,
+      descripcion,
+      valor_unitario: round2(valor),
+      objeto_imp: objetoImp,
+    });
+  }
+  const suma = round2(out.reduce((s, c) => s + c.valor_unitario * c.cantidad, 0));
+  if (suma <= 0) throw httpError("La suma de importes de los conceptos debe ser mayor a 0", 400);
+  return out;
+}
+
+export function sumCfdiConceptosTarifa(conceptos: TripCfdiConcepto[]): number {
+  return round2(conceptos.reduce((s, c) => s + c.valor_unitario * c.cantidad, 0));
+}
+
+/**
+ * Persiste conceptos CFDI de ingreso y actualiza `trip.tarifa` = suma de importes.
+ * Bloqueado si la carta porte ya está timbrada.
+ */
+export async function putCfdiConceptos(
+  tenantId: string,
+  tripId: string,
+  rawConceptos: unknown[],
+): Promise<Trip> {
+  const conceptos = normalizeCfdiConceptosInput(rawConceptos);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  const cp = await CartaPorte.findOne({ where: { trip_id: trip.id, tenant_id: tenantId } });
+  if (cp?.estatus === "timbrada") {
+    throw httpError("No se pueden editar conceptos de un CFDI ya timbrado", 400);
+  }
+  const tarifa = sumCfdiConceptosTarifa(conceptos);
+  await trip.update({ cfdi_conceptos: conceptos, tarifa: String(tarifa) });
+  const updated = await getTripOrThrow(tenantId, tripId, true, undefined, true);
+  try {
+    const { upsertFromTrip } = await import("./accountDocumentService");
+    if (tripIsClosed(updated) || updated.num_factura) {
+      await upsertFromTrip(updated);
+    }
+  } catch (syncErr) {
+    console.warn(
+      "[trip] Conceptos CFDI guardados pero falló sync de documento CXC:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+  return updated;
+}
 
 function escapeRegex(s: string): string {
   return s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");

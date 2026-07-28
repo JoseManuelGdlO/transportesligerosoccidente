@@ -305,7 +305,7 @@ async function renderPage1(
       cx += col.w;
     }
     let tableBodyY = y + th;
-    for (const c of cfdi.conceptos.slice(0, 5)) {
+    for (const c of cfdi.conceptos) {
       const desc = conceptoDescripcion(c, lookup);
       const descH = doc.heightOfString(desc, { width: cols[2].w - 4, lineGap: 0 });
       const rowHConcept = Math.max(24, descH + 6);

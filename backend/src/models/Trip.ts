@@ -13,6 +13,7 @@ import type { Client } from "./Client";
 import type { FuelLoad } from "./FuelLoad";
 import type { Expense } from "./Expense";
 import type { TripStatus } from "./TripStatus";
+import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
 
 export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<Trip>> {
   declare id: CreationOptional<string>;
@@ -34,6 +35,7 @@ export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<T
   declare tipo_viaje: CreationOptional<"local" | "foraneo">;
   declare route_id: CreationOptional<string | null>;
   declare settlement_id: CreationOptional<string | null>;
+  declare cfdi_conceptos: CreationOptional<TripCfdiConcepto[] | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -67,6 +69,7 @@ export function initTrip(sequelize: Sequelize) {
       tipo_viaje: { type: DataTypes.ENUM("local", "foraneo"), allowNull: false, defaultValue: "local" },
       route_id: { type: DataTypes.CHAR(36), allowNull: true },
       settlement_id: { type: DataTypes.CHAR(36), allowNull: true },
+      cfdi_conceptos: { type: DataTypes.JSON, allowNull: true },
     } as never,
     { sequelize, tableName: "trips", underscored: true },
   );

@@ -4,6 +4,7 @@ import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
@@ -23,8 +24,10 @@ import {
   fetchTenantUbicaciones,
   lookupSatClaveProducto,
   normalizeTrip,
+  putTripCfdiConceptos,
   putTripUbicaciones,
 } from "@/lib/tloApi";
+import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
 import { materialPeligrosoForCatalog, materialPeligrosoUiMode } from "@/lib/satCatalog";
 import {
   cardHighlightClass,
@@ -32,7 +35,7 @@ import {
   fieldHighlightClass,
   firstErrorSection,
 } from "@/lib/cartaPorteIssues";
-import type { ClientUbicacion, Driver, SatClaveProducto, Trip, TripMercancia, Truck } from "@/types/tlo";
+import type { ClientUbicacion, Driver, SatClaveProducto, Trip, TripCfdiConcepto, TripMercancia, Truck } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { driverById, truckById } from "@/lib/calc";
@@ -54,8 +57,58 @@ import { toast } from "sonner";
 import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 import { SatClaveProductoCombobox } from "@/components/tlo/SatClaveProductoCombobox";
 
-/** c_ClaveProdServCP (Carta Porte). No usar 78101800 (eso es CFDI servicio de transporte). */
-const DEFAULT_CLAVE_BIENES_TRANSP = "50192100";
+/** c_ClaveProdServCP (Carta Porte) por defecto: Varilla corrugada. No usar 781018xx (CFDI servicio de transporte). 
+ * ClaveProdServ CFDI ingreso: transporte de carga regional/nacional. 
+*/
+const DEFAULT_CLAVE_BIENES_TRANSP = "30102404";
+const DEFAULT_CFDI_CLAVE_PROD_SERV = "78101802";
+const DEFAULT_CFDI_CLAVE_UNIDAD = "E54";
+const DEFAULT_CFDI_UNIDAD = "Viaje";
+
+function seedCfdiConceptos(trip: Trip, truck?: Truck): TripCfdiConcepto[] {
+  if (trip.cfdi_conceptos && trip.cfdi_conceptos.length > 0) {
+    return trip.cfdi_conceptos.map((c) => ({ ...c }));
+  }
+  const equipo = truck?.numero_economico || truck?.placas || "";
+  const ruta = formatTripRoute(trip);
+  return [
+    {
+      clave_prod_serv: DEFAULT_CFDI_CLAVE_PROD_SERV,
+      cantidad: 1,
+      clave_unidad: DEFAULT_CFDI_CLAVE_UNIDAD,
+      unidad: DEFAULT_CFDI_UNIDAD,
+      descripcion: `Flete de ${ruta} Ref: ${trip.folio} Equipo: ${equipo}`,
+      valor_unitario: Number(trip.tarifa) || 0,
+      objeto_imp: "02",
+    },
+  ];
+}
+
+function emptyCfdiConcepto(): TripCfdiConcepto {
+  return {
+    clave_prod_serv: DEFAULT_CFDI_CLAVE_PROD_SERV,
+    cantidad: 1,
+    clave_unidad: DEFAULT_CFDI_CLAVE_UNIDAD,
+    unidad: DEFAULT_CFDI_UNIDAD,
+    descripcion: "",
+    valor_unitario: 0,
+    objeto_imp: "02",
+  };
+}
+
+function conceptosSnapshot(rows: TripCfdiConcepto[]): string {
+  return JSON.stringify(
+    rows.map((c) => ({
+      clave_prod_serv: c.clave_prod_serv,
+      cantidad: c.cantidad,
+      clave_unidad: c.clave_unidad,
+      unidad: c.unidad,
+      descripcion: c.descripcion,
+      valor_unitario: c.valor_unitario,
+      objeto_imp: c.objeto_imp ?? "02",
+    })),
+  );
+}
 
 const MOTIVOS_CANCELACION = [
   { value: "01", label: "01 — Comprobante emitido con errores con relación" },
@@ -242,6 +295,72 @@ export function TripCartaPorte({
     poliza_resp_civil: "",
   });
 
+  const [cfdiConceptos, setCfdiConceptos] = useState<TripCfdiConcepto[]>(() =>
+    seedCfdiConceptos(trip, truckProp),
+  );
+  const [savingConceptos, setSavingConceptos] = useState(false);
+  const savedConceptosSnapshotRef = useRef(conceptosSnapshot(seedCfdiConceptos(trip, truckProp)));
+
+  useEffect(() => {
+    const next = seedCfdiConceptos(trip, truckLive);
+    setCfdiConceptos(next);
+    savedConceptosSnapshotRef.current = conceptosSnapshot(
+      trip.cfdi_conceptos && trip.cfdi_conceptos.length > 0 ? trip.cfdi_conceptos : next,
+    );
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo resincronizar al cambiar viaje o conceptos persistidos
+  }, [trip.id, trip.cfdi_conceptos]);
+
+  const conceptosDirty =
+    !trip.cfdi_conceptos?.length ||
+    conceptosSnapshot(cfdiConceptos) !== savedConceptosSnapshotRef.current;
+  const conceptosSuma = useMemo(
+    () =>
+      Math.round(
+        cfdiConceptos.reduce((s, c) => s + Number(c.valor_unitario || 0) * Number(c.cantidad || 1), 0) *
+          100,
+      ) / 100,
+    [cfdiConceptos],
+  );
+
+  const updateCfdiConcepto = (index: number, patch: Partial<TripCfdiConcepto>) => {
+    setCfdiConceptos((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
+  const addCfdiConcepto = () => {
+    setCfdiConceptos((rows) => [...rows, emptyCfdiConcepto()]);
+  };
+
+  const removeCfdiConcepto = (index: number) => {
+    setCfdiConceptos((rows) => (rows.length <= 1 ? rows : rows.filter((_, i) => i !== index)));
+  };
+
+  const persistCfdiConceptos = async (): Promise<boolean> => {
+    if (!canTimbrar || cpTimbrada) return false;
+    const invalid = cfdiConceptos.find(
+      (c) => !c.descripcion.trim() || !c.clave_prod_serv.trim() || Number(c.valor_unitario) < 0,
+    );
+    if (invalid) {
+      toast.error("Completa clave, descripción y montos de los conceptos CFDI");
+      return false;
+    }
+    if (conceptosSuma <= 0) {
+      toast.error("La suma de conceptos debe ser mayor a 0");
+      return false;
+    }
+    setSavingConceptos(true);
+    try {
+      const updated = await putTripCfdiConceptos(trip.id, cfdiConceptos);
+      savedConceptosSnapshotRef.current = conceptosSnapshot(updated.cfdi_conceptos ?? cfdiConceptos);
+      onTripUpdated(updated);
+      toast.success("Conceptos CFDI guardados (tarifa actualizada)");
+      return true;
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudieron guardar los conceptos");
+      return false;
+    } finally {
+      setSavingConceptos(false);
+    }
+  };
   const persistTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const lastSavedSnapshotRef = useRef<string>("");
   const sectionRefs = useRef<Record<string, HTMLDivElement | null>>({});
@@ -670,6 +789,11 @@ export function TripCartaPorte({
       // (p. ej. fechas default iguales que aún no estaban en BD).
       await flushPendingSaves({ force: true });
 
+      if (tipoTimbrado === "ingreso" && (conceptosDirty || !trip.cfdi_conceptos?.length)) {
+        const ok = await persistCfdiConceptos();
+        if (!ok) return;
+      }
+
       const previewRes = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, {
         method: "POST",
         body: JSON.stringify(timbradoBody()),
@@ -900,6 +1024,148 @@ export function TripCartaPorte({
                       placeholder="CREDITO 30 DIAS"
                     />
                   </div>
+                  <div className="sm:col-span-2 space-y-2 pt-2 border-t">
+                    <div className="flex flex-wrap items-center justify-between gap-2">
+                      <div>
+                        <Label>Conceptos de factura</Label>
+                        <p className="text-xs text-muted-foreground">
+                          Al guardar, la tarifa del viaje se actualiza a la suma de importes.
+                        </p>
+                      </div>
+                      <div className="flex gap-2">
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="outline"
+                          onClick={addCfdiConcepto}
+                          disabled={loading || savingConceptos}
+                        >
+                          <Plus className="h-4 w-4" />
+                          Agregar
+                        </Button>
+                        <Button
+                          type="button"
+                          size="sm"
+                          variant="secondary"
+                          onClick={() => void persistCfdiConceptos()}
+                          disabled={loading || savingConceptos || !conceptosDirty}
+                        >
+                          {savingConceptos ? (
+                            <Loader2 className="h-4 w-4 animate-spin" />
+                          ) : (
+                            <Save className="h-4 w-4" />
+                          )}
+                          Guardar conceptos
+                        </Button>
+                      </div>
+                    </div>
+                    <div className="overflow-x-auto rounded-md border">
+                      <Table>
+                        <TableHeader>
+                          <TableRow>
+                            <TableHead className="min-w-[7rem]">Clave</TableHead>
+                            <TableHead className="min-w-[4rem]">Cant.</TableHead>
+                            <TableHead className="min-w-[4rem]">Unidad</TableHead>
+                            <TableHead className="min-w-[28rem] w-[40%]">Descripción</TableHead>
+                            <TableHead className="min-w-[7rem]">Importe</TableHead>
+                            <TableHead className="w-10" />
+                          </TableRow>
+                        </TableHeader>
+                        <TableBody>
+                          {cfdiConceptos.map((row, idx) => (
+                            <TableRow key={idx}>
+                              <TableCell className="align-top">
+                                <Input
+                                  value={row.clave_prod_serv}
+                                  onChange={(e) =>
+                                    updateCfdiConcepto(idx, { clave_prod_serv: e.target.value })
+                                  }
+                                  className="h-8 font-mono text-xs"
+                                />
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <Input
+                                  type="number"
+                                  min={0.01}
+                                  step="0.01"
+                                  value={row.cantidad}
+                                  onChange={(e) =>
+                                    updateCfdiConcepto(idx, {
+                                      cantidad: Number(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="h-8"
+                                />
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <Input
+                                  value={row.clave_unidad}
+                                  onChange={(e) =>
+                                    updateCfdiConcepto(idx, {
+                                      clave_unidad: e.target.value,
+                                      unidad:
+                                        e.target.value === "E54"
+                                          ? "Viaje"
+                                          : e.target.value === "E48"
+                                            ? "Unidad de servicio"
+                                            : row.unidad,
+                                    })
+                                  }
+                                  className="h-8 font-mono text-xs"
+                                  title={row.unidad}
+                                />
+                              </TableCell>
+                              <TableCell className="align-top min-w-[28rem] w-[40%]">
+                                <Textarea
+                                  value={row.descripcion}
+                                  onChange={(e) =>
+                                    updateCfdiConcepto(idx, { descripcion: e.target.value })
+                                  }
+                                  rows={3}
+                                  className="min-h-[4.5rem] resize-y text-sm"
+                                />
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <Input
+                                  type="number"
+                                  min={0}
+                                  step="0.01"
+                                  value={row.valor_unitario}
+                                  onChange={(e) =>
+                                    updateCfdiConcepto(idx, {
+                                      valor_unitario: Number(e.target.value) || 0,
+                                    })
+                                  }
+                                  className="h-8"
+                                />
+                              </TableCell>
+                              <TableCell className="align-top">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-8 w-8 text-destructive"
+                                  disabled={cfdiConceptos.length <= 1 || loading || savingConceptos}
+                                  onClick={() => removeCfdiConcepto(idx)}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </TableCell>
+                            </TableRow>
+                          ))}
+                        </TableBody>
+                      </Table>
+                    </div>
+                    <p className="text-sm">
+                      <span className="text-muted-foreground">Suma / nueva tarifa:</span>{" "}
+                      <span className="font-medium">{fmtMXNDecimal(conceptosSuma)}</span>
+                      {conceptosDirty ? (
+                        <span className="text-amber-700 dark:text-amber-400 text-xs ml-2">
+                          (sin guardar)
+                        </span>
+                      ) : null}
+                    </p>
+                  </div>
                 </>
               )}
             </div>
@@ -909,7 +1175,7 @@ export function TripCartaPorte({
               <Button
                 size="sm"
                 onClick={() => void handleTimbrar()}
-                disabled={loading}
+                disabled={loading || savingConceptos}
                 className="bg-primary text-primary-foreground"
               >
                 {loading ? (

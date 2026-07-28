@@ -70,12 +70,12 @@ Sicofi devuelve `Error: 301 - No cumple con el estándar de XML` cuando algún c
 
 | Campo JSON / XML | Catálogo SAT | Ejemplo válido | Uso en TLO |
 |------------------|--------------|----------------|------------|
-| `ConceptosCFDI40.ClaveProdServ` | **c_ClaveProdServ** (CFDI) | `78101800` traslado, `78101801` ingreso/flete | `mapConceptos.ts` (automático) |
-| `CartaPorte31…Mercancia30.bienestransp` | **c_ClaveProdServCP** (Carta Porte) | `50192100`, `50202201` | `trip_mercancias.clave_prod_serv` |
+| `ConceptosCFDI40.ClaveProdServ` | **c_ClaveProdServ** (CFDI) | `78101800` traslado, `78101802` ingreso/flete | `mapConceptos.ts` (automático o desde `trip.cfdi_conceptos`) |
+| `CartaPorte31…Mercancia30.bienestransp` | **c_ClaveProdServCP** (Carta Porte) | `30102404` (Varilla corrugada), `50192100`, `50202201` | `trip_mercancias.clave_prod_serv` |
 
-`78101800` es el servicio de transporte en el **concepto** del CFDI; **no** es la clave de la mercancía transportada. En mercancías del viaje capture la clave del producto real según [c_ClaveProdServCP](https://logipro.mx/sat/carta-porte-31/c_ClaveProdServCP) (catálogo Carta Porte 3.1 del SAT).
+`78101800` / `78101802` son claves de **servicio de transporte** en el concepto del CFDI; **no** van en la mercancía transportada. En mercancías del viaje capture la clave del producto real según [c_ClaveProdServCP](https://logipro.mx/sat/carta-porte-31/c_ClaveProdServCP) (catálogo Carta Porte 3.1 del SAT).
 
-Default de prueba en TLO: `50192100`. Consulte también el [complemento Carta Porte en el SAT](https://wwwmat.sat.gob.mx/consultas/68823/complemento-carta-porte-).
+Default de mercancía en TLO (UI y backend): `30102404` — Varilla corrugada (`DEFAULT_BIENES_TRANSP_CP` / `DEFAULT_CLAVE_BIENES_TRANSP`). Debe existir en `sat_claves_productos` tras importar el Excel SAT. Consulte también el [complemento Carta Porte en el SAT](https://wwwmat.sat.gob.mx/consultas/68823/complemento-carta-porte-).
 
 ## Errores HTTP
 

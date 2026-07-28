@@ -223,6 +223,17 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     comision_override: raw.comision_override != null ? Number(raw.comision_override) : undefined,
     tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : "local",
     settlement_id: raw.settlement_id != null ? String(raw.settlement_id) : undefined,
+    cfdi_conceptos: Array.isArray(raw.cfdi_conceptos)
+      ? (raw.cfdi_conceptos as Record<string, unknown>[]).map((c) => ({
+          clave_prod_serv: String(c.clave_prod_serv ?? ""),
+          cantidad: Number(c.cantidad ?? 1),
+          clave_unidad: String(c.clave_unidad ?? ""),
+          unidad: String(c.unidad ?? ""),
+          descripcion: String(c.descripcion ?? ""),
+          valor_unitario: Number(c.valor_unitario ?? 0),
+          objeto_imp: c.objeto_imp === "01" || c.objeto_imp === "02" ? c.objeto_imp : undefined,
+        }))
+      : undefined,
     statuses,
     fuel,
     expenses,
@@ -695,6 +706,18 @@ export async function patchTrip(tripId: string, patch: Record<string, unknown>):
   const res = await apiFetch(`/trips/${tripId}`, {
     method: "PATCH",
     body: JSON.stringify(buildPatchTripBody(patch)),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeTrip(raw);
+}
+
+export async function putTripCfdiConceptos(
+  tripId: string,
+  conceptos: import("@/types/tlo").TripCfdiConcepto[],
+): Promise<Trip> {
+  const res = await apiFetch(`/trips/${tripId}/cfdi-conceptos`, {
+    method: "PUT",
+    body: JSON.stringify({ conceptos }),
   });
   const raw = await readJson<Record<string, unknown>>(res);
   return normalizeTrip(raw);

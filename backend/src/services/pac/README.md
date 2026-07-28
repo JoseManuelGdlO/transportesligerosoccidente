@@ -225,7 +225,7 @@ TLO valida en `previewCartaPorte` y devuelve `issues[]` sin timbrar:
 - Credenciales PAC faltantes (`pac_usuario`, `pac_token_enc`).
 - RFC inválido en cliente, operador o ubicaciones.
 - Ubicaciones sin colonia/municipio (o clave SAT).
-- Mercancías sin clave `c_ClaveProdServCP` válida en catálogo importado, unidad o peso.
+- Mercancías sin clave `c_ClaveProdServCP` válida en catálogo importado, unidad o peso. Default sugerido en TLO: `30102404` (Varilla corrugada).
 - `material_peligroso` incoherente con el catálogo SAT (clave con valor `0`/`1`/`0,1`).
 - Ingreso con tarifa ≤ 0.
 - Ingreso + Carta Porte con RFC `XAXX010101000` (público en general no permitido).

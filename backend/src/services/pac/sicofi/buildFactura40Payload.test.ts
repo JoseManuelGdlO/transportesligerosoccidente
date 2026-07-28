@@ -148,7 +148,9 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.DatosCFDI40.Moneda, "MXN");
     assert.equal(payload.DatosCFDI40.TipoCambio, undefined);
     assert.equal(payload.ReceptorCFDI40.UsoCfdi, "G03");
-    assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveProdServ, "78101801");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveProdServ, "78101802");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveUnidad, "E54");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].Unidad, "Viaje");
   });
 
   it("incluye TipoCambio solo en ingreso con moneda extranjera", () => {

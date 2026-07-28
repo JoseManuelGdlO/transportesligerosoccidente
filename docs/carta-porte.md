@@ -117,6 +117,8 @@ Si el viaje tiene **paradas** (`trip_stops`), `ensureUbicacionesFromClient` sinc
 
 Mercancías transportadas: descripción, cantidad, unidad (default `H87`), `peso_kg`, `clave_prod_serv` (**obligatoria**, catálogo `c_ClaveProdServCP`), `material_peligroso`, `cantidad_transportada`, etc.
 
+Default de UI y fallback de backend (`DEFAULT_CLAVE_BIENES_TRANSP` / `DEFAULT_BIENES_TRANSP_CP`): **`30102404`** (Varilla corrugada), el producto más usado en operación TLO. Si la mercancía no trae clave al armar el payload Sicofi, se usa ese valor.
+
 La clave `clave_prod_serv` debe existir en la tabla global `sat_claves_productos`, importada desde el Excel oficial del SAT (hoja `c_ClaveProdServCP`). Según la columna **Material peligroso** del catálogo:
 
 | Valor SAT | Comportamiento en UI |

@@ -847,6 +847,17 @@ export interface TripStatusRef {
   activo?: boolean;
 }
 
+/** Línea editable de concepto CFDI de ingreso del viaje. */
+export interface TripCfdiConcepto {
+  clave_prod_serv: string;
+  cantidad: number;
+  clave_unidad: string;
+  unidad: string;
+  descripcion: string;
+  valor_unitario: number;
+  objeto_imp?: "01" | "02";
+}
+
 export interface Trip {
   id: string;
   folio: string;
@@ -870,6 +881,7 @@ export interface Trip {
   comision_override?: number | null; // si admin lo edita
   tipo_viaje: TripType;
   settlement_id?: string;
+  cfdi_conceptos?: TripCfdiConcepto[];
   included?: boolean;
   en_periodo?: boolean;
   statuses: TripStatusRef[];

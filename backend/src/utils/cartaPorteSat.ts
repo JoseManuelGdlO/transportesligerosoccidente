@@ -1,8 +1,8 @@
 /** Claves CFDI de *servicio* de transporte (c_ClaveProdServ). No van en BienesTransp. */
 export const CFDI_TRANSPORT_CLAVE_PROD_SERV = new Set(["78101800", "78101801", "78101802"]);
 
-/** Valor genérico válido en c_ClaveProdServCP para pruebas (Botanas). */
-export const DEFAULT_BIENES_TRANSP_CP = "50192100";
+/** Valor genérico válido en c_ClaveProdServCP */
+export const DEFAULT_BIENES_TRANSP_CP = "30102404";
 
 /** c_ClaveProdServCP: 8 dígitos. La validación XSD completa la hace el PAC. */
 export const BIENES_TRANSP_CP_PATTERN = /^\d{8}$/;

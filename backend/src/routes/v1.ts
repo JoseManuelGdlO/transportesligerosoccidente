@@ -155,6 +155,12 @@ r.get("/trips", authenticateJwt, requirePermission("viajes.ver"), tripC.listTrip
 r.get("/trips/:id", authenticateJwt, requirePermission("viajes.ver"), tripC.getTrip);
 r.post("/trips", authenticateJwt, requirePermission("viajes.crear"), tripC.createTrip);
 r.patch("/trips/:id", authenticateJwt, requirePermission("viajes.crear"), tripC.patchTrip);
+r.put(
+  "/trips/:id/cfdi-conceptos",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  tripC.putCfdiConceptos,
+);
 r.put("/trips/:id/statuses", authenticateJwt, requirePermission("viajes.crear"), tripStatusC.putTripStatuses);
 r.post("/trips/:id/close", authenticateJwt, requirePermission("viajes.cerrar"), tripC.postCloseTrip);
 r.delete("/trips/:id", authenticateJwt, requirePermission("viajes.eliminar"), tripC.deleteTrip);
