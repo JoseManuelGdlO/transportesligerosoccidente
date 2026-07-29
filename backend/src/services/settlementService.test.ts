@@ -690,7 +690,11 @@ describe("settlementSummary account installments", () => {
 describe("cancelSettlement", () => {
   it("reabre liquidación cerrada y desvincula viajes/movimientos", async () => {
     const deps = mockSummaryDeps();
-    const update = mock.fn(async () => {});
+    const update = mock.fn(async (_data?: {
+      cerrado?: boolean;
+      cerrado_at?: Date | null;
+      snapshot?: unknown;
+    }) => {});
     const reload = mock.fn(async () => {});
     const closed = {
       id: "settlement-1",
