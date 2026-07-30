@@ -36,6 +36,8 @@ export class Driver extends Model<InferAttributes<Driver>, InferCreationAttribut
   declare pais: CreationOptional<string | null>;
   declare truck_id: CreationOptional<string | null>;
   declare puesto: CreationOptional<string | null>;
+  declare motivo_baja: CreationOptional<string | null>;
+  declare fecha_baja: CreationOptional<Date | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -71,6 +73,8 @@ export function initDriver(sequelize: Sequelize) {
       pais: { type: DataTypes.STRING(3), allowNull: true, defaultValue: "MEX" },
       truck_id: { type: DataTypes.CHAR(36), allowNull: true },
       puesto: { type: DataTypes.STRING(128), allowNull: true },
+      motivo_baja: { type: DataTypes.TEXT, allowNull: true },
+      fecha_baja: { type: DataTypes.DATE, allowNull: true },
     } as never,
     { sequelize, tableName: "drivers", underscored: true },
   );

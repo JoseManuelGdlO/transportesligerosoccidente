@@ -17,6 +17,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins, CircleMinus, CircleDollarSign } from "lucide-react";
 
 export interface AdvanceFormState {
@@ -96,6 +97,8 @@ export function SettlementSummaryPanel({
   }).length;
   const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
   const tripColSpan = showTripSelection ? 6 : 5;
+  // Snapshot de pre-liquidación: casillas visibles pero bloqueadas; el padre sí cableó el cambio.
+  const showSnapshotInclusionHint = !canSelectTrips && Boolean(onTripInclusionChange);
 
   const isTripIncluded = (tripId: string, tripIncluded?: boolean) => {
     if (tripInclusions) return tripInclusions[tripId] !== false;
@@ -483,12 +486,29 @@ export function SettlementSummaryPanel({
                   <TableRow key={t.id} className={!included ? "opacity-60" : undefined}>
                     {showTripSelection && (
                       <TableCell>
-                        <Checkbox
-                          checked={included}
-                          disabled={!canSelectTrips}
-                          aria-label={`Incluir viaje ${t.folio} en liquidación`}
-                          onCheckedChange={(checked) => onTripInclusionChange?.(t.id, checked === true)}
-                        />
+                        {showSnapshotInclusionHint ? (
+                          <Tooltip>
+                            <TooltipTrigger asChild>
+                              <span className="inline-flex">
+                                <Checkbox
+                                  checked={included}
+                                  disabled
+                                  aria-label={`Incluir viaje ${t.folio} en liquidación`}
+                                />
+                              </span>
+                            </TooltipTrigger>
+                            <TooltipContent side="top" className="max-w-xs">
+                              Viendo pre-liquidación. Usa Recalcular para modificar este campo.
+                            </TooltipContent>
+                          </Tooltip>
+                        ) : (
+                          <Checkbox
+                            checked={included}
+                            disabled={!canSelectTrips}
+                            aria-label={`Incluir viaje ${t.folio} en liquidación`}
+                            onCheckedChange={(checked) => onTripInclusionChange?.(t.id, checked === true)}
+                          />
+                        )}
                       </TableCell>
                     )}
                     <TableCell className="font-mono text-sm">

@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
-import { computeTrip, ingresosComprobadosLiquidacion, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
+import { computeTrip, ingresosComprobadosLiquidacion, viaticosAFavor, viaticosNoComprobado, tripDriverNombre } from "@/lib/calc";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
@@ -252,7 +252,7 @@ const renderTripMeta: BlockRenderer = (state, props) => {
   const { trip, driver, truck, client } = state.data;
   const lines = [
     `Cliente: ${client?.razon_social ?? "—"}`,
-    `Operador: ${driver?.nombre ?? "—"}`,
+    `Operador: ${tripDriverNombre(trip, driver ? [driver] : undefined)}`,
     `Camión: ${truck ? `${truck.marca} ${truck.modelo} (${truck.placas})` : "—"}`,
     `Salida: ${trip.fecha_salida ? fmtDate(trip.fecha_salida) : "—"}` +
       (trip.fecha_llegada ? ` · Llegada: ${fmtDate(trip.fecha_llegada)}` : ""),
@@ -365,7 +365,7 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
     ["Folio", `AT-${trip.folio}`],
     ["Unidad", truck?.numero_economico || truck?.placas || "—"],
     ["Ruta", formatTripRoute(trip)],
-    ["Operador", driver?.nombre ?? "—"],
+    ["Operador", tripDriverNombre(trip, driver ? [driver] : undefined)],
     ["Vendedor(es)", trip.tipo_viaje === "foraneo" ? "FORÁNEO" : "LOCAL"],
     ["KM Recorridos", fmtNumber(f.km_recorridos, 2)],
     ["Cliente(s)", client?.razon_social ?? "—"],

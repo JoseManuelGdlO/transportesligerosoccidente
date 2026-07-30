@@ -631,6 +631,8 @@ export interface Driver {
   pais?: string;
   truck_id?: string;
   puesto?: string;
+  motivo_baja?: string;
+  fecha_baja?: string;
 }
 
 export type DocumentCatalogStatus = "pendiente" | "vigente" | "por_vencer" | "vencido" | "sin_vigencia";
@@ -863,6 +865,7 @@ export interface Trip {
   folio: string;
   truck_id: string;
   driver_id: string;
+  driver_nombre?: string;
   client_id: string;
   client_nombre?: string;
   origen: string;
@@ -1004,6 +1007,7 @@ export interface SettlementSummaryApi {
 export interface SettlementRecord {
   id: string;
   driver_id: string;
+  driver_nombre?: string;
   fecha_inicio: string;
   fecha_fin: string;
   cerrado: boolean;

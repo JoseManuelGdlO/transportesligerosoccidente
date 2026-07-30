@@ -264,3 +264,9 @@ export const truckById = (trucks: Truck[], id: string) =>
   trucks.find(t => t.id === id);
 export const driverById = (drivers: Driver[], id: string) =>
   drivers.find(d => d.id === id);
+
+/** Nombre del operador en un viaje: prioriza el snapshot del API (incluye dados de baja). */
+export const tripDriverNombre = (trip: Trip, drivers?: Driver[]) =>
+  trip.driver_nombre?.trim() ||
+  (drivers ? driverById(drivers, trip.driver_id)?.nombre : undefined) ||
+  "—";

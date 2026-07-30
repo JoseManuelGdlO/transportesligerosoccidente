@@ -160,6 +160,8 @@ export async function getTripOrThrow(
   const include: object[] = [
     { ...STATUSES_INCLUDE },
     { association: "Route", attributes: ["id", "nombre"], required: false },
+    { association: "Driver", attributes: ["id", "nombre"], required: false },
+    { association: "Client", attributes: ["id", "razon_social"], required: false },
   ];
   if (withNested) {
     include.push({ association: "fuel" }, { association: "expenses" });
@@ -443,6 +445,19 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
   if (truckChanging || driverChanging) {
     const truckId = String(patch.truck_id ?? trip.truck_id);
     const driverId = String(patch.driver_id ?? trip.driver_id);
+    if (driverChanging) {
+      const dr = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
+      if (!dr) {
+        const err = new Error("Camión, operador o cliente no válido para esta empresa");
+        (err as Error & { status?: number }).status = 400;
+        throw err;
+      }
+      if (dr.estatus === "inactivo") {
+        const err = new Error("El operador está dado de baja y no puede asignarse a nuevos viajes");
+        (err as Error & { status?: number }).status = 400;
+        throw err;
+      }
+    }
     await assertNoOpenTripConflict(tenantId, {
       truck_id: truckId,
       driver_id: driverId,
@@ -563,6 +578,11 @@ export async function assertCatalogRefs(
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
+  if (dr.estatus === "inactivo") {
+    const err = new Error("El operador está dado de baja y no puede asignarse a nuevos viajes");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
 }
 
 export async function createTrip(
@@ -653,7 +673,7 @@ export async function listTripsForReports(tenantId: string) {
       { association: "expenses" },
       { association: "paradas" },
       { association: "Route", attributes: ["id", "nombre"], required: false },
-      { model: Driver, attributes: ["id", "comision_tipo", "comision_valor", "tenant_id"] },
+      { model: Driver, attributes: ["id", "nombre", "comision_tipo", "comision_valor", "tenant_id"] },
     ],
   });
 }

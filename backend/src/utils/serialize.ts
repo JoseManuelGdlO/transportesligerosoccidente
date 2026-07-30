@@ -213,11 +213,13 @@ export function tripToJson(t: Trip): Record<string, unknown> {
   const statusesRaw = (t as Trip & { statuses?: TripStatus[] }).statuses ?? [];
   const statuses = statusesRaw.map((row) => tripStatusToJson(row));
   const client = (t as Trip & { Client?: Client }).Client;
+  const driver = (t as Trip & { Driver?: Driver }).Driver;
   return {
     id: String(t.id),
     folio: t.folio,
     truck_id: String(t.truck_id),
     driver_id: String(t.driver_id),
+    driver_nombre: driver?.nombre ?? undefined,
     client_id: String(t.client_id),
     client_nombre: client?.razon_social ?? undefined,
     route_id: t.route_id ?? undefined,
@@ -300,6 +302,8 @@ export function driverToJson(d: Driver): Record<string, unknown> {
     pais: p.pais ?? undefined,
     truck_id: p.truck_id ?? undefined,
     puesto: p.puesto ?? undefined,
+    motivo_baja: p.motivo_baja != null ? String(p.motivo_baja) : undefined,
+    fecha_baja: p.fecha_baja != null ? iso(p.fecha_baja as Date | string) : undefined,
   };
 }
 
@@ -427,9 +431,11 @@ export function roleDefinitionToJson(role: Role, perms: Permission[]): Record<st
 
 export function settlementToJson(s: Settlement): Record<string, unknown> {
   const p = s.get({ plain: true }) as Record<string, unknown>;
+  const driver = (s as Settlement & { Driver?: Driver }).Driver;
   return {
     id: p.id,
     driver_id: p.driver_id,
+    driver_nombre: driver?.nombre ?? undefined,
     fecha_inicio: p.fecha_inicio,
     fecha_fin: p.fecha_fin,
     cerrado: p.cerrado,

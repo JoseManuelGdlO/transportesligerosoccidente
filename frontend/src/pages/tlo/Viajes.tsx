@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, driverById, truckById } from "@/lib/calc";
+import { computeTrip, driverById, truckById, tripDriverNombre } from "@/lib/calc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -208,8 +208,10 @@ function getTripRowSortValue(
       return formatTripRoute(trip);
     case "factura":
       return trip.num_factura ?? "";
-    case "operador":
-      return driverById(drivers, trip.driver_id)?.nombre ?? "";
+    case "operador": {
+      const name = tripDriverNombre(trip, drivers);
+      return name === "—" ? "" : name;
+    }
     case "camion":
       return truckById(trucks, trip.truck_id)?.numero_economico ?? "";
     case "tarifa":
@@ -1029,7 +1031,7 @@ export default function Viajes() {
               </TableRow>
             )}
             {pageData.slice.map(({ trip: t, fin }) => {
-              const dr = driverById(drivers, t.driver_id);
+              const drNombre = tripDriverNombre(t, drivers);
               const tk = truckById(trucks, t.truck_id);
               const closed = tripIsClosed(t);
               return (
@@ -1059,7 +1061,7 @@ export default function Viajes() {
                     {formatTripRoute(t)}
                   </TableCell>
                   <TableCell className="text-sm whitespace-normal break-words min-w-[7rem]">
-                    {dr?.nombre}
+                    {drNombre}
                   </TableCell>
                   <TableCell
                     className="font-mono text-xs w-16 max-w-16 px-1.5 truncate"

@@ -661,7 +661,7 @@ export default function Liquidaciones() {
                     className="cursor-pointer hover:bg-muted/50"
                     onClick={() => openDraft(s)}
                   >
-                    <TableCell>{drivers.find((d) => d.id === s.driver_id)?.nombre}</TableCell>
+                    <TableCell>{s.driver_nombre ?? drivers.find((d) => d.id === s.driver_id)?.nombre ?? "—"}</TableCell>
                     <TableCell>{s.fecha_inicio} — {s.fecha_fin}</TableCell>
                     <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-2" onClick={(e) => e.stopPropagation()}>
@@ -709,7 +709,7 @@ export default function Liquidaciones() {
                 )}
                 {history.map((s) => (
                   <TableRow key={s.id}>
-                    <TableCell>{drivers.find((d) => d.id === s.driver_id)?.nombre}</TableCell>
+                    <TableCell>{s.driver_nombre ?? drivers.find((d) => d.id === s.driver_id)?.nombre ?? "—"}</TableCell>
                     <TableCell>{s.fecha_inicio} — {s.fecha_fin}</TableCell>
                     <TableCell className="text-right font-mono">
                       {fmtMXN(Number(s.snapshot?.neto_pagar ?? 0))}

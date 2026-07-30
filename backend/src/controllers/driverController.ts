@@ -18,6 +18,7 @@ const bodySchema = z.object({
   comision_valor_local: z.number().optional(),
   comision_valor_foraneo: z.number().optional(),
   estatus: z.enum(["activo", "inactivo"]).optional(),
+  motivo_baja: z.string().optional(),
   rfc: z.string().optional(),
   licencia_federal: z.string().optional(),
   tipo_figura: z.string().optional(),
@@ -37,12 +38,22 @@ const bodySchema = z.object({
   puesto: z.string().optional(),
 });
 
+const bajaSchema = z.object({
+  motivo_baja: z.string().trim().min(1, "El motivo de baja es obligatorio"),
+});
+
 export const listDrivers = asyncHandler(async (req: Request, res: Response) => {
+  const estatusQ = String(req.query.estatus ?? "activo");
+  const where: Record<string, unknown> = { tenant_id: tid(req) };
+  if (estatusQ === "inactivo") {
+    where.estatus = "inactivo";
+  } else if (estatusQ === "todos") {
+    // no filter
+  } else {
+    where.estatus = { [Op.ne]: "inactivo" };
+  }
   const rows = await Driver.findAll({
-    where: {
-      tenant_id: tid(req),
-      estatus: { [Op.ne]: "inactivo" },
-    },
+    where,
     order: [["nombre", "ASC"]],
   });
   res.json(rows.map(driverToJson));
@@ -64,8 +75,16 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
     return;
   }
   const b = parsed.data;
+  if (b.estatus === "inactivo") {
+    const motivo = b.motivo_baja?.trim();
+    if (!motivo) {
+      res.status(400).json({ error: "El motivo de baja es obligatorio al crear un operador inactivo" });
+      return;
+    }
+  }
   const local = b.comision_valor_local ?? b.comision_valor ?? 0;
   const foraneo = b.comision_valor_foraneo ?? b.comision_valor ?? local;
+  const becomingInactive = b.estatus === "inactivo";
   const d = await Driver.create({
     id: randomUUID(),
     tenant_id: tid(req),
@@ -78,6 +97,8 @@ export const createDriver = asyncHandler(async (req: Request, res: Response) => 
     comision_valor_local: local,
     comision_valor_foraneo: foraneo,
     estatus: b.estatus ?? "activo",
+    motivo_baja: becomingInactive ? b.motivo_baja!.trim() : null,
+    fecha_baja: becomingInactive ? new Date() : null,
     rfc: b.rfc,
     licencia_federal: b.licencia_federal,
     tipo_figura: b.tipo_figura ?? "01",
@@ -121,6 +142,32 @@ export const updateDriver = asyncHandler(async (req: Request, res: Response) => 
   }
   if (b.comision_valor_foraneo != null) patch.comision_valor_foraneo = b.comision_valor_foraneo;
   delete patch.comision_valor;
+
+  const nextEstatus = b.estatus ?? d.estatus;
+  const becomingInactive = nextEstatus === "inactivo" && d.estatus !== "inactivo";
+  const becomingActive = nextEstatus === "activo" && d.estatus === "inactivo";
+
+  if (becomingInactive || (nextEstatus === "inactivo" && b.motivo_baja !== undefined)) {
+    const motivo = (b.motivo_baja ?? d.motivo_baja ?? "").toString().trim();
+    if (becomingInactive && !motivo) {
+      res.status(400).json({ error: "El motivo de baja es obligatorio" });
+      return;
+    }
+    if (b.motivo_baja !== undefined) patch.motivo_baja = b.motivo_baja.trim();
+    if (becomingInactive) {
+      patch.estatus = "inactivo";
+      patch.fecha_baja = new Date();
+      if (!patch.motivo_baja) patch.motivo_baja = motivo;
+    }
+  }
+
+  if (becomingActive) {
+    patch.estatus = "activo";
+    patch.fecha_baja = null;
+    // Conserva motivo_baja para auditoría / modal de reactivación futura
+    delete patch.motivo_baja;
+  }
+
   await d.update(patch as never);
   res.json(driverToJson(d));
 });
@@ -136,6 +183,15 @@ export const deleteDriver = asyncHandler(async (req: Request, res: Response) => 
     res.status(409).json({ error: "El operador ya está dado de baja" });
     return;
   }
-  await d.update({ estatus: "inactivo" });
+  const parsed = bajaSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: "El motivo de baja es obligatorio" });
+    return;
+  }
+  await d.update({
+    estatus: "inactivo",
+    motivo_baja: parsed.data.motivo_baja,
+    fecha_baja: new Date(),
+  });
   res.json(driverToJson(d));
 });

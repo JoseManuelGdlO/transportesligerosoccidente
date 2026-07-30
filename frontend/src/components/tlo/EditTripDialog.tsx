@@ -318,17 +318,31 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                   <SelectValue placeholder="Seleccionar..." />
                 </SelectTrigger>
                 <SelectContent>
-                  {drivers
-                    .filter((d) => d.estatus === "activo")
-                    .map((d) => {
-                      const busy = openByDriver.get(d.id);
-                      return (
-                        <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
-                          {d.nombre}
-                          {busy ? ` (en curso — ${busy.folio})` : ""}
-                        </SelectItem>
-                      );
-                    })}
+                  {(() => {
+                    const active = drivers.filter((d) => d.estatus === "activo");
+                    const current = drivers.find((d) => d.id === form.driver_id);
+                    const showInactiveCurrent =
+                      form.driver_id &&
+                      (!current || current.estatus !== "activo");
+                    return (
+                      <>
+                        {showInactiveCurrent ? (
+                          <SelectItem value={form.driver_id} disabled>
+                            {trip.driver_nombre?.trim() || current?.nombre || "Operador"} (dado de baja)
+                          </SelectItem>
+                        ) : null}
+                        {active.map((d) => {
+                          const busy = openByDriver.get(d.id);
+                          return (
+                            <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
+                              {d.nombre}
+                              {busy ? ` (en curso — ${busy.folio})` : ""}
+                            </SelectItem>
+                          );
+                        })}
+                      </>
+                    );
+                  })()}
                 </SelectContent>
               </Select>
             </div>

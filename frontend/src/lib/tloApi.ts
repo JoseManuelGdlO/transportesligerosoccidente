@@ -205,6 +205,7 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     folio: String(raw.folio ?? ""),
     truck_id: String(raw.truck_id ?? ""),
     driver_id: String(raw.driver_id ?? ""),
+    driver_nombre: raw.driver_nombre != null ? String(raw.driver_nombre) : undefined,
     client_id: String(raw.client_id ?? ""),
     client_nombre: raw.client_nombre != null ? String(raw.client_nombre) : undefined,
     route_id: raw.route_id != null ? String(raw.route_id) : undefined,
@@ -296,6 +297,8 @@ export function normalizeDriver(raw: Record<string, unknown>): Driver {
     pais: raw.pais != null ? String(raw.pais) : undefined,
     truck_id: raw.truck_id != null ? String(raw.truck_id) : undefined,
     puesto: raw.puesto != null ? String(raw.puesto) : undefined,
+    motivo_baja: raw.motivo_baja != null ? String(raw.motivo_baja) : undefined,
+    fecha_baja: raw.fecha_baja != null ? String(raw.fecha_baja) : undefined,
   };
 }
 
@@ -464,6 +467,25 @@ export function normalizeRoleDefinition(raw: Record<string, unknown>): RoleDefin
     descripcion: String(raw.descripcion ?? ""),
     permisos: perms,
   };
+}
+
+export async function fetchDrivers(
+  estatus: "activo" | "inactivo" | "todos" = "activo",
+): Promise<Driver[]> {
+  const q = estatus === "activo" ? "" : `?estatus=${estatus}`;
+  const res = await apiFetch(`/drivers${q}`);
+  const json = await readJson<unknown[]>(res);
+  return json.map((x) => normalizeDriver(x as Record<string, unknown>));
+}
+
+export async function deactivateDriver(id: string, motivo_baja: string): Promise<Driver> {
+  const res = await apiFetch(`/drivers/${id}`, {
+    method: "DELETE",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ motivo_baja }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeDriver(raw);
 }
 
 export async function fetchTloCatalog(): Promise<{

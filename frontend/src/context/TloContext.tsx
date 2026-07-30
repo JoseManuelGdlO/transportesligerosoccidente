@@ -9,6 +9,7 @@ import {
   normalizeTrip,
   normalizeFuel,
   normalizeExpense,
+  deactivateDriver,
 } from "@/lib/tloApi";
 import {
   SYSTEM_STATUS_CERRADO,
@@ -27,7 +28,7 @@ interface TloState {
   catalogError: string | null;
   reloadCatalog: () => Promise<void>;
   upsertTruck: (t: Truck) => Promise<void>;
-  upsertDriver: (d: Driver) => void;
+  upsertDriver: (d: Driver) => Promise<void>;
   upsertClient: (c: Client) => Promise<void>;
   upsertSystemUser: (u: SystemUser, password?: string) => Promise<void>;
   toggleSystemUserStatus: (id: string) => void;
@@ -43,7 +44,7 @@ interface TloState {
   /** Marca la unidad como baja (no borra el registro en base de datos). */
   deleteTruck: (id: string) => Promise<void>;
   /** Marca el operador como inactivo / baja lógica (no borra el registro). */
-  deleteDriver: (id: string) => Promise<void>;
+  deleteDriver: (id: string, motivo_baja: string) => Promise<void>;
 }
 
 const TloCtx = createContext<TloState | null>(null);
@@ -201,11 +202,16 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const deleteDriver = useCallback(
-    async (id: string) => {
+    async (id: string, motivo_baja: string) => {
+      const motivo = motivo_baja.trim();
+      if (!motivo) {
+        const err = new Error("El motivo de baja es obligatorio");
+        setCatalogError(err.message);
+        throw err;
+      }
       if (apiLive) {
         try {
-          const r = await apiFetch(`/drivers/${id}`, { method: "DELETE" });
-          await readJson(r);
+          await deactivateDriver(id, motivo);
           await reloadCatalog();
         } catch (e) {
           const msg = e instanceof Error ? e.message : "Error al dar de baja el operador";
@@ -214,62 +220,77 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         }
         return;
       }
-      setDrivers((prev) => prev.filter((x) => x.id !== id));
+      setDrivers((prev) =>
+        prev.map((x) =>
+          x.id === id
+            ? { ...x, estatus: "inactivo" as const, motivo_baja: motivo, fecha_baja: new Date().toISOString() }
+            : x,
+        ),
+      );
     },
     [apiLive, reloadCatalog],
   );
 
   const upsertDriver = useCallback(
-    (d: Driver) => {
+    async (d: Driver) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const body = {
-              nombre: d.nombre,
-              telefono: d.telefono,
-              licencia: d.licencia,
-              fecha_ingreso: d.fecha_ingreso.slice(0, 10),
-              comision_tipo: d.comision_tipo,
-              comision_valor_local: d.comision_valor_local,
-              comision_valor_foraneo: d.comision_valor_foraneo,
-              estatus: d.estatus,
-              rfc: d.rfc || undefined,
-              licencia_federal: d.licencia_federal || undefined,
-              tipo_figura: d.tipo_figura || "01",
-              curp: d.curp || undefined,
-              email: d.email || undefined,
-              numero_empleado: d.numero_empleado || undefined,
-              calle: d.calle || undefined,
-              numero_exterior: d.numero_exterior || undefined,
-              numero_interior: d.numero_interior || undefined,
-              colonia: d.colonia || undefined,
-              localidad: d.localidad || undefined,
-              municipio: d.municipio || undefined,
-              estado: d.estado || undefined,
-              cp: d.cp || undefined,
-              pais: d.pais || undefined,
-              truck_id: d.truck_id || null,
-              puesto: d.puesto || undefined,
-            };
-            if (d.id) {
-              const r = await apiFetch(`/drivers/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
-              await readJson(r);
-            } else {
-              const r = await apiFetch("/drivers", { method: "POST", body: JSON.stringify(body) });
-              await readJson(r);
-            }
-            await reloadCatalog();
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al guardar operador");
+        try {
+          const body: Record<string, unknown> = {
+            nombre: d.nombre,
+            telefono: d.telefono,
+            licencia: d.licencia,
+            fecha_ingreso: d.fecha_ingreso.slice(0, 10),
+            comision_tipo: d.comision_tipo,
+            comision_valor_local: d.comision_valor_local,
+            comision_valor_foraneo: d.comision_valor_foraneo,
+            estatus: d.estatus,
+            rfc: d.rfc || undefined,
+            licencia_federal: d.licencia_federal || undefined,
+            tipo_figura: d.tipo_figura || "01",
+            curp: d.curp || undefined,
+            email: d.email || undefined,
+            numero_empleado: d.numero_empleado || undefined,
+            calle: d.calle || undefined,
+            numero_exterior: d.numero_exterior || undefined,
+            numero_interior: d.numero_interior || undefined,
+            colonia: d.colonia || undefined,
+            localidad: d.localidad || undefined,
+            municipio: d.municipio || undefined,
+            estado: d.estado || undefined,
+            cp: d.cp || undefined,
+            pais: d.pais || undefined,
+            truck_id: d.truck_id || null,
+            puesto: d.puesto || undefined,
+          };
+          if (d.estatus === "inactivo" && d.motivo_baja?.trim()) {
+            body.motivo_baja = d.motivo_baja.trim();
           }
-        })();
+          if (d.id) {
+            const r = await apiFetch(`/drivers/${d.id}`, { method: "PATCH", body: JSON.stringify(body) });
+            await readJson(r);
+          } else {
+            const r = await apiFetch("/drivers", { method: "POST", body: JSON.stringify(body) });
+            await readJson(r);
+          }
+          await reloadCatalog();
+        } catch (e) {
+          setCatalogError(e instanceof Error ? e.message : "Error al guardar operador");
+          throw e;
+        }
         return;
       }
       setDrivers((prev) => {
-        const i = prev.findIndex((x) => x.id === d.id);
-        if (i === -1) return [...prev, { ...d, id: d.id || uid("d") }];
+        const withId = { ...d, id: d.id || uid("d") };
+        if (withId.estatus === "inactivo" && !withId.fecha_baja) {
+          withId.fecha_baja = new Date().toISOString();
+        }
+        if (withId.estatus === "activo") {
+          withId.fecha_baja = undefined;
+        }
+        const i = prev.findIndex((x) => x.id === withId.id);
+        if (i === -1) return [...prev, withId];
         const c = [...prev];
-        c[i] = d;
+        c[i] = withId;
         return c;
       });
     },

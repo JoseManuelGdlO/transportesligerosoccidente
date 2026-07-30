@@ -1,7 +1,7 @@
 import { useState, useEffect } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, computeCommissionFromScheme, driverById, truckById, driverCommissionRate } from "@/lib/calc";
+import { computeTrip, computeCommissionFromScheme, driverById, truckById, driverCommissionRate, tripDriverNombre } from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -407,7 +407,7 @@ export default function ViajeDetalle() {
             <CardContent className="p-5 grid md:grid-cols-2 gap-6">
               <div className="space-y-3">
                 <div><p className="text-xs uppercase text-muted-foreground">Cliente</p><p className="font-medium">{client?.razon_social}</p></div>
-                <div><p className="text-xs uppercase text-muted-foreground">Operador</p><p className="font-medium">{driver?.nombre}</p></div>
+                <div><p className="text-xs uppercase text-muted-foreground">Operador</p><p className="font-medium">{tripDriverNombre(trip, drivers)}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>

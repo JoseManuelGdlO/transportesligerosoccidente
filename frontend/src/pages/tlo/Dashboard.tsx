@@ -4,7 +4,7 @@ import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import { fetchDocumentDashboard } from "@/lib/tloApi";
 import type { DocumentDashboardSummary, Trip } from "@/types/tlo";
-import { computeTrip, driverById, truckById } from "@/lib/calc";
+import { computeTrip, driverById, truckById, tripDriverNombre } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, fmtDate, isoDay, formatTripRoute } from "@/lib/format";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -170,7 +170,7 @@ export default function Dashboard() {
               </TableHeader>
               <TableBody>
                 {viajesNegativos.map(({ trip, fin }) => {
-                  const dr = driverById(drivers, trip.driver_id);
+                  const drNombre = tripDriverNombre(trip, drivers);
                   const tk = truckById(trucks, trip.truck_id);
                   const cl = trip.client_id ? clients.find((c) => c.id === trip.client_id) : undefined;
                   return (
@@ -182,7 +182,7 @@ export default function Dashboard() {
                       <TableCell className="font-mono font-semibold">{trip.folio}</TableCell>
                       <TableCell className="text-sm">{formatTripRoute(trip)}</TableCell>
                       <TableCell className="text-sm">{cl?.razon_social ?? "—"}</TableCell>
-                      <TableCell className="text-sm">{dr?.nombre ?? "—"}</TableCell>
+                      <TableCell className="text-sm">{drNombre}</TableCell>
                       <TableCell className="text-sm font-mono">{tk?.numero_economico ?? "—"}</TableCell>
                       <TableCell className="text-right">{fmtMXN(fin.ingreso)}</TableCell>
                       <TableCell className="text-right">{fmtMXN(fin.costo_total)}</TableCell>
@@ -327,13 +327,13 @@ export default function Dashboard() {
                 <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-6">Sin viajes en curso</TableCell></TableRow>
               )}
               {activos.map(t => {
-                const dr = driverById(drivers, t.driver_id);
+                const drNombre = tripDriverNombre(t, drivers);
                 const tk = truckById(trucks, t.truck_id);
                 return (
                   <TableRow key={t.id} className="cursor-pointer hover:bg-muted/30" onClick={() => nav(`/viajes/${t.id}`)}>
                     <TableCell className="font-mono font-semibold">{t.folio}</TableCell>
                     <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
-                    <TableCell className="text-sm">{dr?.nombre}</TableCell>
+                    <TableCell className="text-sm">{drNombre}</TableCell>
                     <TableCell className="text-sm font-mono">{tk?.numero_economico}</TableCell>
                     <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
                     <TableCell><TripStatusesBadges statuses={t.statuses ?? []} /></TableCell>
