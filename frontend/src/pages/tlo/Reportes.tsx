@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
@@ -34,6 +34,7 @@ import {
   Info,
   Truck,
   Wrench,
+  ChevronDown,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -64,6 +65,24 @@ type ReportTab =
   | "rutas"
   | "gastos"
   | "combustible";
+type RouteTripSort = "margen" | "utilidad" | "utilidad_km";
+
+function routeKey(row: { ruta: string; origen: string; destino: string }): string {
+  return row.ruta || `${row.origen} → ${row.destino}`;
+}
+
+function tripUtilidadPorKm(t: ReportsTripRow): number {
+  return t.km > 0 ? t.utilidad / t.km : 0;
+}
+
+function sortRouteTrips(trips: ReportsTripRow[], criterion: RouteTripSort): ReportsTripRow[] {
+  const score = (t: ReportsTripRow) => {
+    if (criterion === "utilidad") return t.utilidad;
+    if (criterion === "utilidad_km") return tripUtilidadPorKm(t);
+    return t.margen;
+  };
+  return [...trips].sort((a, b) => score(b) - score(a) || a.folio.localeCompare(b.folio));
+}
 
 const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   casetas: "Casetas",
@@ -179,8 +198,21 @@ export default function Reportes() {
   const [fuelLoading, setFuelLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>("resumen");
+  const [expandedRuta, setExpandedRuta] = useState<string | null>(null);
+  const [routeTripSort, setRouteTripSort] = useState<RouteTripSort>("margen");
 
   const truckById = useMemo(() => new Map(trucks.map((t) => [t.id, t])), [trucks]);
+
+  const tripsByRuta = useMemo(() => {
+    const map = new Map<string, ReportsTripRow[]>();
+    for (const t of overview?.by_trip ?? []) {
+      const key = routeKey(t);
+      const list = map.get(key);
+      if (list) list.push(t);
+      else map.set(key, [t]);
+    }
+    return map;
+  }, [overview?.by_trip]);
 
   const loadOverview = useCallback(async (r: DateRange, criterio: ReportsCriterioFecha) => {
     if (!apiMode) return;
@@ -214,6 +246,10 @@ export default function Reportes() {
     if (!apiMode || !hasPermission("reportes.ver")) return;
     void loadOverview(range, criterioFecha);
   }, [apiMode, hasPermission, range, criterioFecha, loadOverview]);
+
+  useEffect(() => {
+    setExpandedRuta(null);
+  }, [range, criterioFecha, overview?.periodo]);
 
   useEffect(() => {
     if (!apiMode || !hasPermission("reportes.ver") || activeTab !== "combustible") return;
@@ -443,6 +479,74 @@ export default function Reportes() {
       ],
       filename,
     );
+    toast.success("Exportado a CSV");
+  };
+
+  const handleExportRutasDesglose = () => {
+    if (!overview) {
+      toast.error("No hay datos para exportar");
+      return;
+    }
+    const rows: {
+      ruta: string;
+      origen: string;
+      destino: string;
+      folio: string;
+      fecha: string;
+      cliente: string;
+      operador: string;
+      unidad: string;
+      ingreso: number;
+      diesel: number;
+      gastos: number;
+      comision: number;
+      utilidad: number;
+      margen: number;
+      km: number;
+      utilidad_km: number | "";
+    }[] = [];
+    for (const r of overview.by_route) {
+      const key = routeKey(r);
+      const trips = sortRouteTrips(tripsByRuta.get(key) ?? [], routeTripSort);
+      for (const t of trips) {
+        rows.push({
+          ruta: key,
+          origen: r.origen || t.origen,
+          destino: r.destino || t.destino,
+          folio: t.folio,
+          fecha: t.fecha_ref,
+          cliente: t.razon_social ?? "",
+          operador: t.operador,
+          unidad: t.numero_economico,
+          ingreso: t.ingreso,
+          diesel: t.diesel_total,
+          gastos: t.gastos_total,
+          comision: t.comision,
+          utilidad: t.utilidad,
+          margen: t.margen,
+          km: t.km,
+          utilidad_km: t.km > 0 ? tripUtilidadPorKm(t) : "",
+        });
+      }
+    }
+    exportCsv(`rutas_desglose_${range.desde}_${range.hasta}`, [
+      { key: "ruta", label: "Ruta" },
+      { key: "origen", label: "Origen" },
+      { key: "destino", label: "Destino" },
+      { key: "folio", label: "Folio" },
+      { key: "fecha", label: "Fecha" },
+      { key: "cliente", label: "Cliente" },
+      { key: "operador", label: "Operador" },
+      { key: "unidad", label: "Unidad" },
+      { key: "ingreso", label: "Ingreso" },
+      { key: "diesel", label: "Diesel" },
+      { key: "gastos", label: "Gastos" },
+      { key: "comision", label: "Comisión" },
+      { key: "utilidad", label: "Utilidad" },
+      { key: "margen", label: "Margen %" },
+      { key: "km", label: "Km" },
+      { key: "utilidad_km", label: "Utilidad/km" },
+    ], rows);
     toast.success("Exportado a CSV");
   };
 
@@ -1106,33 +1210,159 @@ export default function Reportes() {
         </TabsContent>
 
         {/* Rutas */}
-        <TabsContent value="rutas" className="mt-4">
+        <TabsContent value="rutas" className="mt-4 space-y-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
+            <p className="text-xs text-muted-foreground">
+              Expande una ruta para ver sus viajes ordenados por eficiencia. Clic en un viaje para abrir el detalle.
+            </p>
+            <div className="flex items-center gap-2">
+              <Label htmlFor="route-trip-sort" className="text-xs text-muted-foreground whitespace-nowrap">
+                Ordenar viajes por
+              </Label>
+              <Select
+                value={routeTripSort}
+                onValueChange={(v) => setRouteTripSort(v as RouteTripSort)}
+              >
+                <SelectTrigger id="route-trip-sort" className="w-[160px] h-8 text-xs">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="margen">Margen</SelectItem>
+                  <SelectItem value="utilidad">Utilidad</SelectItem>
+                  <SelectItem value="utilidad_km">Utilidad/km</SelectItem>
+                </SelectContent>
+              </Select>
+              <Button
+                variant="outline"
+                size="sm"
+                className="h-8 text-xs gap-1.5"
+                onClick={handleExportRutasDesglose}
+                disabled={!overview || loading}
+              >
+                <Download className="h-3.5 w-3.5" />
+                CSV desglosado
+              </Button>
+            </div>
+          </div>
           <Card className="tlo-shadow-md overflow-hidden">
             <Table>
               <TableHeader>
                 <TableRow className="bg-secondary/50">
+                  <TableHead className="w-8" />
                   <TableHead>Ruta</TableHead>
                   <TableHead className="text-right">Viajes</TableHead>
                   <TableHead className="text-right">Km</TableHead>
                   <TableHead className="text-right">Ingreso</TableHead>
                   <TableHead className="text-right">Utilidad</TableHead>
+                  <TableHead className="text-right">Utilidad/km</TableHead>
                   <TableHead className="text-right">Margen</TableHead>
                 </TableRow>
               </TableHeader>
               <TableBody>
                 {(overview?.by_route ?? []).length === 0 ? (
-                  <TableRow><TableCell colSpan={6} className="text-center text-muted-foreground py-8">Sin viajes cerrados en el periodo</TableCell></TableRow>
+                  <TableRow>
+                    <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
+                      Sin viajes cerrados en el periodo
+                    </TableCell>
+                  </TableRow>
                 ) : (
-                  overview?.by_route.map((r, i) => (
-                    <TableRow key={`${r.ruta}-${i}`}>
-                      <TableCell>{r.ruta || `${r.origen} → ${r.destino}`}</TableCell>
-                      <TableCell className="text-right">{r.viajes}</TableCell>
-                      <TableCell className="text-right font-mono">{fmtNumber(r.km)}</TableCell>
-                      <TableCell className="text-right">{fmtMXN(r.ingreso)}</TableCell>
-                      <TableCell className={`text-right font-semibold ${r.utilidad >= 0 ? "text-success" : "text-destructive"}`}>{fmtMXN(r.utilidad)}</TableCell>
-                      <TableCell className="text-right"><MarginBadge pct={r.margen} /></TableCell>
-                    </TableRow>
-                  ))
+                  overview?.by_route.map((r, i) => {
+                    const key = routeKey(r);
+                    const open = expandedRuta === key;
+                    const utilidadKm = r.km > 0 ? r.utilidad / r.km : 0;
+                    const routeTrips = open
+                      ? sortRouteTrips(tripsByRuta.get(key) ?? [], routeTripSort)
+                      : [];
+                    return (
+                      <Fragment key={`${key}-${i}`}>
+                        <TableRow
+                          className="cursor-pointer hover:bg-muted/30"
+                          onClick={() => setExpandedRuta(open ? null : key)}
+                        >
+                          <TableCell className="w-8 pr-0">
+                            <ChevronDown
+                              className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                            />
+                          </TableCell>
+                          <TableCell>{key}</TableCell>
+                          <TableCell className="text-right">{r.viajes}</TableCell>
+                          <TableCell className="text-right font-mono">{fmtNumber(r.km)}</TableCell>
+                          <TableCell className="text-right">{fmtMXN(r.ingreso)}</TableCell>
+                          <TableCell className={`text-right font-semibold ${r.utilidad >= 0 ? "text-success" : "text-destructive"}`}>
+                            {fmtMXN(r.utilidad)}
+                          </TableCell>
+                          <TableCell className="text-right font-mono text-sm">
+                            {r.km > 0 ? fmtMXN(utilidadKm) : "—"}
+                          </TableCell>
+                          <TableCell className="text-right"><MarginBadge pct={r.margen} /></TableCell>
+                        </TableRow>
+                        {open && (
+                          <TableRow className="bg-muted/20 hover:bg-muted/20">
+                            <TableCell colSpan={8} className="p-0">
+                              {routeTrips.length === 0 ? (
+                                <p className="text-xs text-muted-foreground text-center py-4">
+                                  Sin viajes para esta ruta
+                                </p>
+                              ) : (
+                                <div className="px-3 py-2 overflow-x-auto">
+                                  <Table>
+                                    <TableHeader>
+                                      <TableRow className="bg-secondary/30">
+                                        <TableHead className="text-xs">Folio</TableHead>
+                                        <TableHead className="text-xs">Fecha</TableHead>
+                                        <TableHead className="text-xs">Operador</TableHead>
+                                        <TableHead className="text-xs">Unidad</TableHead>
+                                        <TableHead className="text-xs text-right">Ingreso</TableHead>
+                                        <TableHead className="text-xs text-right">Utilidad</TableHead>
+                                        <TableHead className="text-xs text-right">Margen</TableHead>
+                                        <TableHead className="text-xs text-right">Km</TableHead>
+                                        <TableHead className="text-xs text-right">Utilidad/km</TableHead>
+                                      </TableRow>
+                                    </TableHeader>
+                                    <TableBody>
+                                      {routeTrips.map((t, ti) => (
+                                        <TableRow
+                                          key={t.trip_id}
+                                          className="cursor-pointer hover:bg-muted/40"
+                                          onClick={(e) => {
+                                            e.stopPropagation();
+                                            nav(`/viajes/${t.trip_id}`);
+                                          }}
+                                        >
+                                          <TableCell className="font-mono text-sm font-semibold">
+                                            <span className="inline-flex items-center gap-1.5">
+                                              {t.folio}
+                                              {ti < 3 ? (
+                                                <Badge variant="secondary" className="text-[10px] px-1.5 py-0 h-5">
+                                                  Top
+                                                </Badge>
+                                              ) : null}
+                                            </span>
+                                          </TableCell>
+                                          <TableCell className="text-sm">{formatIsoDateEs(t.fecha_ref)}</TableCell>
+                                          <TableCell className="text-sm">{t.operador}</TableCell>
+                                          <TableCell className="text-sm font-mono">{t.numero_economico}</TableCell>
+                                          <TableCell className="text-right text-sm">{fmtMXN(t.ingreso)}</TableCell>
+                                          <TableCell className={`text-right text-sm font-semibold ${t.utilidad >= 0 ? "text-success" : "text-destructive"}`}>
+                                            {fmtMXN(t.utilidad)}
+                                          </TableCell>
+                                          <TableCell className="text-right"><MarginBadge pct={t.margen} /></TableCell>
+                                          <TableCell className="text-right font-mono text-sm">{fmtNumber(t.km)}</TableCell>
+                                          <TableCell className="text-right font-mono text-sm">
+                                            {t.km > 0 ? fmtMXN(tripUtilidadPorKm(t)) : "—"}
+                                          </TableCell>
+                                        </TableRow>
+                                      ))}
+                                    </TableBody>
+                                  </Table>
+                                </div>
+                              )}
+                            </TableCell>
+                          </TableRow>
+                        )}
+                      </Fragment>
+                    );
+                  })
                 )}
               </TableBody>
             </Table>
