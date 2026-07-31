@@ -511,7 +511,7 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
   // planKmFinalCascade apuntaría al viaje equivocado.
   if (kmFinalChanged && !truckChanging) {
     const peers = await loadTruckTripPeers(tenantId, effectiveTruckId);
-    cascade = planKmFinalCascade(candidate, peers);
+    cascade = planKmFinalCascade(candidate, peers, previousKmFinal);
     validateTripScheduleAndOdometer(candidate, peers, {
       propagateKmFinalToNext: Boolean(cascade),
     });

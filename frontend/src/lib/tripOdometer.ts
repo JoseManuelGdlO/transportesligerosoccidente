@@ -68,7 +68,7 @@ export function tripBeforeLastError(
   );
 }
 
-/** Viaje inmediato siguiente de la misma unidad. */
+/** Viaje inmediato siguiente de la misma unidad, por fecha. */
 export function findNextTripForTruck(
   trip: Trip,
   trips: Trip[],
@@ -81,6 +81,36 @@ export function findNextTripForTruck(
     if (compareTripOrder(peer, key) > 0) return peer;
   }
   return null;
+}
+
+/**
+ * Sucesor de cascada: peer de la unidad cuyo km_inicial = km_final actual del viaje
+ * (eslabón de odómetro). Si no hay enlace, cae al siguiente por fecha.
+ */
+export function findCascadeSuccessorTrip(
+  trip: Trip,
+  trips: Trip[],
+  truckId = trip.truck_id,
+  opts?: { fechaSalida?: string },
+): Trip | null {
+  const others = trips.filter((t) => t.truck_id === truckId && t.id !== trip.id);
+  if (trip.km_final != null) {
+    const linked = others.filter((t) => t.km_inicial === trip.km_final);
+    if (linked.length === 1) return linked[0]!;
+    if (linked.length > 1) {
+      const key = { fecha_salida: trip.fecha_salida, folio: trip.folio };
+      const after = linked
+        .filter((p) => compareTripOrder(p, key) > 0)
+        .sort(compareTripOrder);
+      if (after[0]) return after[0];
+      return [...linked].sort(compareTripOrder)[0]!;
+    }
+  }
+  const forOrder: Trip = {
+    ...trip,
+    fecha_salida: opts?.fechaSalida ?? trip.fecha_salida,
+  };
+  return findNextTripForTruck(forOrder, trips, truckId);
 }
 
 export type KmFinalCascadePreview = {
@@ -97,8 +127,8 @@ export type KmFinalCascadePreview = {
  * Devuelve error solo si el siguiente quedaría con distancia negativa
  * (km final de este viaje mayor al km final del siguiente).
  *
- * La cascada aplica al sucesor en la unidad actual del viaje. Si `truckId` difiere
- * de `trip.truck_id`, no hay preview (el viaje está cambiando de unidad).
+ * El sucesor se ancla al odómetro (km_inicial del peer = km_final actual), no solo
+ * a la fecha. Si `truckId` difiere de `trip.truck_id`, no hay preview.
  */
 export function previewKmFinalCascade(
   trip: Trip,
@@ -112,11 +142,9 @@ export function previewKmFinalCascade(
   const truckId = opts?.truckId ?? trip.truck_id;
   if (truckId !== trip.truck_id) return { preview: null };
 
-  const synthetic: Trip = {
-    ...trip,
-    fecha_salida: opts?.fechaSalida ?? trip.fecha_salida,
-  };
-  const next = findNextTripForTruck(synthetic, trips, trip.truck_id);
+  const next = findCascadeSuccessorTrip(trip, trips, trip.truck_id, {
+    fechaSalida: opts?.fechaSalida,
+  });
   if (!next) return { preview: null };
 
   const deltaKm = newKmFinal - trip.km_final;

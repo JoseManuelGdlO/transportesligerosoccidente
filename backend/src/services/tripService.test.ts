@@ -4,6 +4,7 @@ import { FuelLoad, Trip } from "../models";
 import { removeFuel } from "./tripService";
 import {
   compareTripOrder,
+  findCascadeSuccessorPeer,
   findNextTripPeer,
   intervalsOverlap,
   planKmFinalCascade,
@@ -426,6 +427,96 @@ describe("validateTripScheduleAndOdometer", () => {
       [closedA, closedB],
     );
     assert.equal(next?.id, "b");
+  });
+
+  it("cascada ancla al eslabón de odómetro aunque la fecha del medio esté desordenada", () => {
+    // Regresión TLO12-4→6: el 5 tiene km_inicial = km_final del 4, pero su
+    // fecha_salida quedó antes del 4; el abierto 6 es el siguiente cronológico.
+    const trip4 = peer({
+      id: "4",
+      folio: "TLO12-4",
+      salida: "2026-07-15T15:00:00.000Z",
+      llegada: "2026-07-15T23:00:00.000Z",
+      km_inicial: 380849,
+      km_final: 380886,
+    });
+    const trip5 = peer({
+      id: "5",
+      folio: "TLO12-5",
+      salida: "2026-07-14T12:00:00.000Z", // fecha antes del 4 (desorden)
+      llegada: "2026-07-17T17:00:00.000Z",
+      km_inicial: 380886,
+      km_final: 382038,
+    });
+    const trip6 = peer({
+      id: "6",
+      folio: "TLO12-6",
+      salida: "2026-07-17T23:00:00.000Z",
+      llegada: null,
+      km_inicial: 382038,
+      km_final: null,
+    });
+    const peers = [trip4, trip5, trip6];
+    const candidate = {
+      tripId: "4",
+      folio: "TLO12-4",
+      fecha_salida: trip4.fecha_salida,
+      fecha_llegada: trip4.fecha_llegada,
+      km_inicial: 380849,
+      km_final: 380950,
+    };
+
+    assert.equal(findNextTripPeer(candidate, peers)?.folio, "TLO12-6");
+    assert.equal(
+      findCascadeSuccessorPeer(candidate, peers, 380886)?.folio,
+      "TLO12-5",
+    );
+
+    const plan = planKmFinalCascade(candidate, peers, 380886);
+    assert.ok(plan);
+    assert.equal(plan!.nextFolio, "TLO12-5");
+    assert.equal(plan!.newKmInicial, 380950);
+    assert.equal(plan!.previousDistance, 382038 - 380886);
+    assert.equal(plan!.newDistance, 382038 - 380950);
+  });
+
+  it("cascada por odómetro ignora fecha de salida movida en el candidato", () => {
+    const trip4 = peer({
+      id: "4",
+      folio: "TLO12-4",
+      salida: "2026-07-15T15:00:00.000Z",
+      llegada: "2026-07-15T23:00:00.000Z",
+      km_inicial: 380849,
+      km_final: 380886,
+    });
+    const trip5 = peer({
+      id: "5",
+      folio: "TLO12-5",
+      salida: "2026-07-15T23:30:00.000Z",
+      llegada: "2026-07-17T17:00:00.000Z",
+      km_inicial: 380886,
+      km_final: 382038,
+    });
+    const trip6 = peer({
+      id: "6",
+      folio: "TLO12-6",
+      salida: "2026-07-17T23:00:00.000Z",
+      llegada: null,
+      km_inicial: 382038,
+      km_final: null,
+    });
+    // Formulario movió la salida del 4 a después del 5 → cronológico apunta al 6.
+    const candidate = {
+      tripId: "4",
+      folio: "TLO12-4",
+      fecha_salida: new Date("2026-07-16T12:00:00.000Z"),
+      fecha_llegada: trip4.fecha_llegada,
+      km_inicial: 380849,
+      km_final: 380950,
+    };
+    assert.equal(findNextTripPeer(candidate, [trip4, trip5, trip6])?.folio, "TLO12-6");
+    const plan = planKmFinalCascade(candidate, [trip4, trip5, trip6], 380886);
+    assert.equal(plan?.nextFolio, "TLO12-5");
   });
 
   it("viaje abierto hasta infinito traslapa con cerrado posterior", () => {

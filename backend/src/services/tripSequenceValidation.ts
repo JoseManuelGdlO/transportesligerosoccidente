@@ -111,7 +111,7 @@ function candidateOrderKey(candidate: TripScheduleCandidate): {
   };
 }
 
-/** Viaje inmediato siguiente de la misma unidad (cualquier estado). */
+/** Viaje inmediato siguiente de la misma unidad (cualquier estado), por fecha. */
 export function findNextTripPeer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
@@ -126,7 +126,48 @@ export function findNextTripPeer(
 }
 
 /**
- * Plan de cascada: al cambiar km_final, el siguiente toma ese valor como km_inicial.
+ * Sucesor de cascada de odómetro: peer cuyo km_inicial coincide con el km_final
+ * actual (antes del cambio). Así el eslabón real de la cadena no depende de fechas.
+ * Si no hay enlace, cae al siguiente cronológico.
+ *
+ * `previousKmFinal` = km_final guardado en BD. Si se omite, se toma del peer con
+ * el mismo tripId dentro de `peers` (debe ser el valor previo al patch).
+ */
+export function findCascadeSuccessorPeer(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+  previousKmFinal?: number | null,
+): TripPeer | null {
+  const self = candidate.tripId
+    ? peers.find((p) => p.id === candidate.tripId)
+    : undefined;
+  const linkKm =
+    previousKmFinal != null
+      ? previousKmFinal
+      : self?.km_final != null
+        ? Number(self.km_final)
+        : null;
+
+  if (linkKm != null) {
+    const linked = peers.filter(
+      (p) => p.id !== candidate.tripId && Number(p.km_inicial) === linkKm,
+    );
+    if (linked.length === 1) return linked[0]!;
+    if (linked.length > 1) {
+      const key = candidateOrderKey(candidate);
+      const after = linked
+        .filter((p) => compareTripOrder(p, key) > 0)
+        .sort(compareTripOrder);
+      if (after[0]) return after[0];
+      return [...linked].sort(compareTripOrder)[0]!;
+    }
+  }
+
+  return findNextTripPeer(candidate, peers);
+}
+
+/**
+ * Plan de cascada: al cambiar km_final, el sucesor por odómetro toma ese valor como km_inicial.
  * `peers` debe ser la secuencia de la misma unidad en la que permanece el viaje
  * (no aplicar si el viaje cambia de camión).
  * Lanza si el siguiente cerrado quedaría con distancia negativa.
@@ -134,9 +175,10 @@ export function findNextTripPeer(
 export function planKmFinalCascade(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
+  previousKmFinal?: number | null,
 ): KmFinalCascadePlan | null {
   if (candidate.km_final == null) return null;
-  const next = findNextTripPeer(candidate, peers);
+  const next = findCascadeSuccessorPeer(candidate, peers, previousKmFinal);
   if (!next) return null;
 
   const newKmInicial = candidate.km_final;
