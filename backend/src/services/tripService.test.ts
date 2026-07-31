@@ -4,10 +4,13 @@ import { FuelLoad, Trip } from "../models";
 import { removeFuel } from "./tripService";
 import {
   compareTripOrder,
+  findCascadePredecessorPeer,
   findCascadeSuccessorPeer,
   findNextTripPeer,
+  findPreviousTripPeer,
   intervalsOverlap,
   planKmFinalCascade,
+  planKmInicialCascade,
   tripIntervalEndMs,
   validateTripScheduleAndOdometer,
   type TripPeer,
@@ -412,6 +415,282 @@ describe("validateTripScheduleAndOdometer", () => {
     assert.equal(plan!.previousDistance, 300);
     assert.equal(plan!.newDistance, 200);
     assert.equal(plan!.newKmInicial, 200);
+  });
+
+  it("con propagateKmInicialToPrev acepta cambio y exige distancia no negativa en el anterior", () => {
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "b",
+          folio: "TLO-2",
+          fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+          fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+          km_inicial: 150,
+          km_final: 300,
+        },
+        [closedA, closedB],
+        { propagateKmInicialToPrev: true },
+      ),
+    );
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "b",
+          folio: "TLO-2",
+          fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+          fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+          km_inicial: 100,
+          km_final: 300,
+        },
+        [closedA, closedB],
+        { propagateKmInicialToPrev: true },
+      ),
+    );
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "b",
+            folio: "TLO-2",
+            fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+            km_inicial: 99,
+            km_final: 300,
+          },
+          [closedA, closedB],
+          { propagateKmInicialToPrev: true },
+        ),
+      /mínimo permitido/,
+    );
+  });
+
+  it("planKmInicialCascade refleja transferencia de km al anterior", () => {
+    const plan = planKmInicialCascade(
+      {
+        tripId: "b",
+        folio: "TLO-2",
+        fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+        km_inicial: 150,
+        km_final: 300,
+      },
+      [closedA, closedB],
+      200,
+    );
+    assert.ok(plan);
+    assert.equal(plan!.prevFolio, "TLO-1");
+    assert.equal(plan!.newKmFinal, 150);
+    assert.equal(plan!.previousDistance, 100);
+    assert.equal(plan!.newDistance, 50);
+  });
+
+  it("planKmInicialCascade permite dejar al anterior en 0 km", () => {
+    const plan = planKmInicialCascade(
+      {
+        tripId: "b",
+        folio: "TLO-2",
+        fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+        km_inicial: 100,
+        km_final: 300,
+      },
+      [closedA, closedB],
+      200,
+    );
+    assert.ok(plan);
+    assert.equal(plan!.newKmFinal, 100);
+    assert.equal(plan!.newDistance, 0);
+  });
+
+  it("planKmInicialCascade rechaza si el anterior quedaría con distancia negativa", () => {
+    assert.throws(
+      () =>
+        planKmInicialCascade(
+          {
+            tripId: "b",
+            folio: "TLO-2",
+            fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+            fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+            km_inicial: 99,
+            km_final: 300,
+          },
+          [closedA, closedB],
+          200,
+        ),
+      /mínimo permitido/,
+    );
+  });
+
+  it("planKmInicialCascade: bajar 50 km al segundo baja 50 al primero", () => {
+    const trip1 = peer({
+      id: "1",
+      folio: "V1",
+      salida: "2026-06-01T08:00:00.000Z",
+      llegada: "2026-06-01T12:00:00.000Z",
+      km_inicial: 0,
+      km_final: 200,
+    });
+    const trip2 = peer({
+      id: "2",
+      folio: "V2",
+      salida: "2026-06-02T08:00:00.000Z",
+      llegada: "2026-06-02T12:00:00.000Z",
+      km_inicial: 200,
+      km_final: 400,
+    });
+    const plan = planKmInicialCascade(
+      {
+        tripId: "2",
+        folio: "V2",
+        fecha_salida: trip2.fecha_salida,
+        fecha_llegada: trip2.fecha_llegada,
+        km_inicial: 150,
+        km_final: 400,
+      },
+      [trip1, trip2],
+      200,
+    );
+    assert.ok(plan);
+    assert.equal(plan!.previousDistance, 200);
+    assert.equal(plan!.newDistance, 150);
+    assert.equal(plan!.newKmFinal, 150);
+  });
+
+  it("findPreviousTripPeer devuelve el inmediato anterior", () => {
+    const prev = findPreviousTripPeer(
+      {
+        tripId: "b",
+        folio: "TLO-2",
+        fecha_salida: new Date("2026-06-02T08:00:00.000Z"),
+        fecha_llegada: new Date("2026-06-02T12:00:00.000Z"),
+        km_inicial: 200,
+        km_final: 300,
+      },
+      [closedA, closedB],
+    );
+    assert.equal(prev?.id, "a");
+  });
+
+  it("cascada inversa ancla al eslabón de odómetro aunque la fecha del medio esté desordenada", () => {
+    const trip4 = peer({
+      id: "4",
+      folio: "TLO12-4",
+      salida: "2026-07-15T15:00:00.000Z",
+      llegada: "2026-07-15T23:00:00.000Z",
+      km_inicial: 380849,
+      km_final: 380886,
+    });
+    const trip5 = peer({
+      id: "5",
+      folio: "TLO12-5",
+      salida: "2026-07-14T12:00:00.000Z",
+      llegada: "2026-07-17T17:00:00.000Z",
+      km_inicial: 380886,
+      km_final: 382038,
+    });
+    const trip6 = peer({
+      id: "6",
+      folio: "TLO12-6",
+      salida: "2026-07-17T23:00:00.000Z",
+      llegada: null,
+      km_inicial: 382038,
+      km_final: null,
+    });
+    const peers = [trip4, trip5, trip6];
+    const candidate = {
+      tripId: "5",
+      folio: "TLO12-5",
+      fecha_salida: trip5.fecha_salida,
+      fecha_llegada: trip5.fecha_llegada,
+      km_inicial: 380900,
+      km_final: 382038,
+    };
+
+    assert.equal(findPreviousTripPeer(candidate, peers), null);
+    assert.equal(
+      findCascadePredecessorPeer(candidate, peers, 380886)?.folio,
+      "TLO12-4",
+    );
+
+    const plan = planKmInicialCascade(candidate, peers, 380886);
+    assert.ok(plan);
+    assert.equal(plan!.prevFolio, "TLO12-4");
+    assert.equal(plan!.newKmFinal, 380900);
+    assert.equal(plan!.previousDistance, 380886 - 380849);
+    assert.equal(plan!.newDistance, 380900 - 380849);
+  });
+
+  it("ambas propagaciones activas validan hacia atrás y hacia adelante", () => {
+    const trip1 = peer({
+      id: "1",
+      folio: "V1",
+      salida: "2026-06-01T08:00:00.000Z",
+      llegada: "2026-06-01T12:00:00.000Z",
+      km_inicial: 0,
+      km_final: 100,
+    });
+    const trip2 = peer({
+      id: "2",
+      folio: "V2",
+      salida: "2026-06-02T08:00:00.000Z",
+      llegada: "2026-06-02T12:00:00.000Z",
+      km_inicial: 100,
+      km_final: 200,
+    });
+    const trip3 = peer({
+      id: "3",
+      folio: "V3",
+      salida: "2026-06-03T08:00:00.000Z",
+      llegada: "2026-06-03T12:00:00.000Z",
+      km_inicial: 200,
+      km_final: 300,
+    });
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "2",
+          folio: "V2",
+          fecha_salida: trip2.fecha_salida,
+          fecha_llegada: trip2.fecha_llegada,
+          km_inicial: 80,
+          km_final: 220,
+        },
+        [trip1, trip2, trip3],
+        { propagateKmInicialToPrev: true, propagateKmFinalToNext: true },
+      ),
+    );
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "2",
+            folio: "V2",
+            fecha_salida: trip2.fecha_salida,
+            fecha_llegada: trip2.fecha_llegada,
+            km_inicial: -1,
+            km_final: 220,
+          },
+          [trip1, trip2, trip3],
+          { propagateKmInicialToPrev: true, propagateKmFinalToNext: true },
+        ),
+      /mínimo permitido/,
+    );
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            tripId: "2",
+            folio: "V2",
+            fecha_salida: trip2.fecha_salida,
+            fecha_llegada: trip2.fecha_llegada,
+            km_inicial: 80,
+            km_final: 301,
+          },
+          [trip1, trip2, trip3],
+          { propagateKmInicialToPrev: true, propagateKmFinalToNext: true },
+        ),
+      /máximo permitido/,
+    );
   });
 
   it("findNextTripPeer devuelve el inmediato siguiente", () => {

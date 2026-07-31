@@ -23,8 +23,10 @@ import {
   assertTripScheduleAndOdometer,
   loadTruckTripPeers,
   planKmFinalCascade,
+  planKmInicialCascade,
   validateTripScheduleAndOdometer,
   type KmFinalCascadePlan,
+  type KmInicialCascadePlan,
 } from "./tripSequenceValidation";
 import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
 import {
@@ -488,7 +490,9 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
         : null
     : null;
 
+  const previousKmInicial = Number(trip.km_inicial);
   const previousKmFinal = trip.km_final != null ? Number(trip.km_final) : null;
+  const kmInicialChanged = effectiveKmInicial !== previousKmInicial;
   const kmFinalChanged =
     isClosed &&
     effectiveKmFinal != null &&
@@ -505,15 +509,22 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
     km_final: effectiveKmFinal,
   };
 
-  let cascade: KmFinalCascadePlan | null = null;
-  // Cascada solo si la unidad no cambia: el sucesor real está en el camión actual.
+  let nextCascade: KmFinalCascadePlan | null = null;
+  let prevCascade: KmInicialCascadePlan | null = null;
+  // Cascada solo si la unidad no cambia: el eslabón real está en el camión actual.
   // Si truck_id cambia, los peers del camión nuevo aún no incluyen este viaje y
-  // planKmFinalCascade apuntaría al viaje equivocado.
-  if (kmFinalChanged && !truckChanging) {
+  // el plan apuntaría al viaje equivocado.
+  if ((kmFinalChanged || kmInicialChanged) && !truckChanging) {
     const peers = await loadTruckTripPeers(tenantId, effectiveTruckId);
-    cascade = planKmFinalCascade(candidate, peers, previousKmFinal);
+    if (kmFinalChanged) {
+      nextCascade = planKmFinalCascade(candidate, peers, previousKmFinal);
+    }
+    if (kmInicialChanged) {
+      prevCascade = planKmInicialCascade(candidate, peers, previousKmInicial);
+    }
     validateTripScheduleAndOdometer(candidate, peers, {
-      propagateKmFinalToNext: Boolean(cascade),
+      propagateKmFinalToNext: Boolean(nextCascade),
+      propagateKmInicialToPrev: Boolean(prevCascade),
     });
   } else {
     await assertTripScheduleAndOdometer(tenantId, candidate);
@@ -521,14 +532,27 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
 
   await sequelize.transaction(async (t) => {
     await trip.update(data as never, { transaction: t });
-    if (cascade) {
+    if (nextCascade) {
       const [affected] = await Trip.update(
-        { km_inicial: cascade.newKmInicial },
-        { where: { id: cascade.nextTripId, tenant_id: tenantId }, transaction: t },
+        { km_inicial: nextCascade.newKmInicial },
+        { where: { id: nextCascade.nextTripId, tenant_id: tenantId }, transaction: t },
       );
       if (affected !== 1) {
         const err = new Error(
-          `No se pudo actualizar el km inicial del viaje siguiente ${cascade.nextFolio}`,
+          `No se pudo actualizar el km inicial del viaje siguiente ${nextCascade.nextFolio}`,
+        );
+        (err as Error & { status?: number }).status = 500;
+        throw err;
+      }
+    }
+    if (prevCascade) {
+      const [affected] = await Trip.update(
+        { km_final: prevCascade.newKmFinal },
+        { where: { id: prevCascade.prevTripId, tenant_id: tenantId }, transaction: t },
+      );
+      if (affected !== 1) {
+        const err = new Error(
+          `No se pudo actualizar el km final del viaje anterior ${prevCascade.prevFolio}`,
         );
         (err as Error & { status?: number }).status = 500;
         throw err;

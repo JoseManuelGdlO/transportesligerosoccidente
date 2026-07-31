@@ -24,15 +24,28 @@ export type TripScheduleCandidate = {
 export type ValidateTripOptions = {
   /**
    * Al editar km_final de un viaje con sucesor: no exige igualdad con km_inicial del siguiente;
-   * valida que el siguiente quede con distancia > 0 tras propagar.
+   * valida que el siguiente quede con distancia no negativa tras propagar.
    */
   propagateKmFinalToNext?: boolean;
+  /**
+   * Al editar km_inicial de un viaje con predecesor: no exige igualdad con km_final del anterior;
+   * valida que el anterior quede con distancia no negativa tras propagar.
+   */
+  propagateKmInicialToPrev?: boolean;
 };
 
 export type KmFinalCascadePlan = {
   nextTripId: string;
   nextFolio: string;
   newKmInicial: number;
+  previousDistance: number | null;
+  newDistance: number | null;
+};
+
+export type KmInicialCascadePlan = {
+  prevTripId: string;
+  prevFolio: string;
+  newKmFinal: number;
   previousDistance: number | null;
   newDistance: number | null;
 };
@@ -125,6 +138,22 @@ export function findNextTripPeer(
   return null;
 }
 
+/** Viaje inmediato anterior de la misma unidad (cualquier estado), por fecha. */
+export function findPreviousTripPeer(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+): TripPeer | null {
+  const others = peers.filter((p) => p.id !== candidate.tripId);
+  const ordered = [...others].sort(compareTripOrder);
+  const key = candidateOrderKey(candidate);
+  let prev: TripPeer | null = null;
+  for (const peer of ordered) {
+    if (compareTripOrder(peer, key) < 0) prev = peer;
+    else break;
+  }
+  return prev;
+}
+
 /**
  * Sucesor de cascada de odómetro: peer cuyo km_inicial coincide con el km_final
  * actual (antes del cambio). Así el eslabón real de la cadena no depende de fechas.
@@ -167,6 +196,49 @@ export function findCascadeSuccessorPeer(
 }
 
 /**
+ * Predecesor de cascada de odómetro: peer cuyo km_final coincide con el km_inicial
+ * actual (antes del cambio). Si no hay enlace, cae al anterior cronológico.
+ *
+ * `previousKmInicial` = km_inicial guardado en BD. Si se omite, se toma del peer con
+ * el mismo tripId dentro de `peers` (debe ser el valor previo al patch).
+ */
+export function findCascadePredecessorPeer(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+  previousKmInicial?: number | null,
+): TripPeer | null {
+  const self = candidate.tripId
+    ? peers.find((p) => p.id === candidate.tripId)
+    : undefined;
+  const linkKm =
+    previousKmInicial != null
+      ? previousKmInicial
+      : self != null
+        ? Number(self.km_inicial)
+        : null;
+
+  if (linkKm != null) {
+    const linked = peers.filter(
+      (p) =>
+        p.id !== candidate.tripId &&
+        p.km_final != null &&
+        Number(p.km_final) === linkKm,
+    );
+    if (linked.length === 1) return linked[0]!;
+    if (linked.length > 1) {
+      const key = candidateOrderKey(candidate);
+      const before = linked
+        .filter((p) => compareTripOrder(p, key) < 0)
+        .sort(compareTripOrder);
+      if (before.length > 0) return before[before.length - 1]!;
+      return [...linked].sort(compareTripOrder)[linked.length - 1]!;
+    }
+  }
+
+  return findPreviousTripPeer(candidate, peers);
+}
+
+/**
  * Plan de cascada: al cambiar km_final, el sucesor por odómetro toma ese valor como km_inicial.
  * `peers` debe ser la secuencia de la misma unidad en la que permanece el viaje
  * (no aplicar si el viaje cambia de camión).
@@ -195,6 +267,37 @@ export function planKmFinalCascade(
     nextTripId: next.id,
     nextFolio: next.folio,
     newKmInicial,
+    previousDistance,
+    newDistance,
+  };
+}
+
+/**
+ * Plan de cascada inversa: al cambiar km_inicial, el predecesor por odómetro toma
+ * ese valor como km_final. Lanza si el anterior quedaría con distancia negativa.
+ */
+export function planKmInicialCascade(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+  previousKmInicial?: number | null,
+): KmInicialCascadePlan | null {
+  const prev = findCascadePredecessorPeer(candidate, peers, previousKmInicial);
+  if (!prev || prev.km_final == null) return null;
+
+  const newKmFinal = candidate.km_inicial;
+  if (prev.km_inicial > newKmFinal) {
+    throw httpError(
+      `El km inicial (${newKmFinal}) es menor al km inicial del viaje anterior ${prev.folio} (${prev.km_inicial}). El mínimo permitido es ${prev.km_inicial}`,
+    );
+  }
+
+  const previousDistance = prev.km_final - prev.km_inicial;
+  const newDistance = newKmFinal - prev.km_inicial;
+
+  return {
+    prevTripId: prev.id,
+    prevFolio: prev.folio,
+    newKmFinal,
     previousDistance,
     newDistance,
   };
@@ -284,13 +387,25 @@ export function validateTripScheduleAndOdometer(
     }
   }
 
-  if (prevClosed && prevClosed.km_final != null && candidate.km_inicial !== prevClosed.km_final) {
+  const propagatePrev = Boolean(options?.propagateKmInicialToPrev);
+  const propagateNext = Boolean(options?.propagateKmFinalToNext);
+
+  if (
+    !propagatePrev &&
+    prevClosed &&
+    prevClosed.km_final != null &&
+    candidate.km_inicial !== prevClosed.km_final
+  ) {
     throw httpError(
       `El km inicial debe ser ${prevClosed.km_final} (km final del viaje anterior ${prevClosed.folio})`,
     );
   }
 
-  if (options?.propagateKmFinalToNext) {
+  if (propagatePrev) {
+    planKmInicialCascade(candidate, peers);
+  }
+
+  if (propagateNext) {
     if (candidate.km_final != null) {
       planKmFinalCascade(candidate, peers);
     }

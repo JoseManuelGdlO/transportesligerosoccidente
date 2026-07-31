@@ -83,6 +83,23 @@ export function findNextTripForTruck(
   return null;
 }
 
+/** Viaje inmediato anterior de la misma unidad, por fecha. */
+export function findPreviousTripForTruck(
+  trip: Trip,
+  trips: Trip[],
+  truckId = trip.truck_id,
+): Trip | null {
+  const others = trips.filter((t) => t.truck_id === truckId && t.id !== trip.id);
+  const ordered = [...others].sort(compareTripOrder);
+  const key = { fecha_salida: trip.fecha_salida, folio: trip.folio };
+  let prev: Trip | null = null;
+  for (const peer of ordered) {
+    if (compareTripOrder(peer, key) < 0) prev = peer;
+    else break;
+  }
+  return prev;
+}
+
 /**
  * Sucesor de cascada: peer de la unidad cuyo km_inicial = km_final actual del viaje
  * (eslabón de odómetro). Si no hay enlace, cae al siguiente por fecha.
@@ -113,8 +130,46 @@ export function findCascadeSuccessorTrip(
   return findNextTripForTruck(forOrder, trips, truckId);
 }
 
+/**
+ * Predecesor de cascada: peer cuyo km_final = km_inicial actual del viaje.
+ * Si no hay enlace, cae al anterior por fecha.
+ */
+export function findCascadePredecessorTrip(
+  trip: Trip,
+  trips: Trip[],
+  truckId = trip.truck_id,
+  opts?: { fechaSalida?: string; previousKmInicial?: number },
+): Trip | null {
+  const others = trips.filter((t) => t.truck_id === truckId && t.id !== trip.id);
+  const linkKm = opts?.previousKmInicial ?? trip.km_inicial;
+  const linked = others.filter((t) => t.km_final != null && t.km_final === linkKm);
+  if (linked.length === 1) return linked[0]!;
+  if (linked.length > 1) {
+    const key = { fecha_salida: trip.fecha_salida, folio: trip.folio };
+    const before = linked
+      .filter((p) => compareTripOrder(p, key) < 0)
+      .sort(compareTripOrder);
+    if (before.length > 0) return before[before.length - 1]!;
+    return [...linked].sort(compareTripOrder)[linked.length - 1]!;
+  }
+  const forOrder: Trip = {
+    ...trip,
+    fecha_salida: opts?.fechaSalida ?? trip.fecha_salida,
+  };
+  return findPreviousTripForTruck(forOrder, trips, truckId);
+}
+
 export type KmFinalCascadePreview = {
   nextTrip: Trip;
+  deltaKm: number;
+  previousDistance: number | null;
+  newDistance: number | null;
+  /** Mensaje listo para el diálogo de confirmación. */
+  message: string;
+};
+
+export type KmInicialCascadePreview = {
+  prevTrip: Trip;
   deltaKm: number;
   previousDistance: number | null;
   newDistance: number | null;
@@ -177,6 +232,59 @@ export function previewKmFinalCascade(
   return {
     preview: {
       nextTrip: next,
+      deltaKm,
+      previousDistance,
+      newDistance,
+      message,
+    },
+  };
+}
+
+/**
+ * Si al cambiar km_inicial hay un viaje anterior, calcula el impacto en su recorrido.
+ * Devuelve error si el anterior quedaría con distancia negativa.
+ */
+export function previewKmInicialCascade(
+  trip: Trip,
+  trips: Trip[],
+  newKmInicial: number,
+  opts?: { truckId?: string; fechaSalida?: string },
+): { preview: KmInicialCascadePreview | null; error?: string } {
+  if (newKmInicial === trip.km_inicial) return { preview: null };
+
+  const truckId = opts?.truckId ?? trip.truck_id;
+  if (truckId !== trip.truck_id) return { preview: null };
+
+  const prev = findCascadePredecessorTrip(trip, trips, trip.truck_id, {
+    fechaSalida: opts?.fechaSalida,
+    previousKmInicial: trip.km_inicial,
+  });
+  if (!prev || prev.km_final == null) return { preview: null };
+
+  const deltaKm = newKmInicial - trip.km_inicial;
+  const previousDistance = prev.km_final - prev.km_inicial;
+  const newDistance = newKmInicial - prev.km_inicial;
+
+  if (prev.km_inicial > newKmInicial) {
+    return {
+      preview: null,
+      error:
+        `El km inicial (${newKmInicial}) es menor al km inicial del viaje anterior ${prev.folio} (${prev.km_inicial}). ` +
+        `El mínimo permitido es ${prev.km_inicial}.`,
+    };
+  }
+
+  const absDelta = Math.abs(deltaKm);
+  const verb = deltaKm > 0 ? "subir" : "bajar";
+  const rangeNote = `(km inicial ${prev.km_inicial} → km final ${newKmInicial})`;
+  const message =
+    newDistance === 0
+      ? `Al ${verb} ${absDelta} km el km inicial de este viaje, el viaje ${prev.folio} pasará de ${previousDistance} km a 0 km ${rangeNote}. ¿Continuar?`
+      : `Al ${verb} ${absDelta} km el km inicial de este viaje, el viaje ${prev.folio} pasará de ${previousDistance} km a ${newDistance} km ${rangeNote}. ¿Continuar?`;
+
+  return {
+    preview: {
+      prevTrip: prev,
       deltaKm,
       previousDistance,
       newDistance,

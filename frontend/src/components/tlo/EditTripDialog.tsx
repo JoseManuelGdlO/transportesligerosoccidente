@@ -22,7 +22,13 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, patchTrip } from "@/lib/tloApi";
-import { previewKmFinalCascade, tripBeforeLastError, type KmFinalCascadePreview } from "@/lib/tripOdometer";
+import {
+  previewKmFinalCascade,
+  previewKmInicialCascade,
+  tripBeforeLastError,
+  type KmFinalCascadePreview,
+  type KmInicialCascadePreview,
+} from "@/lib/tripOdometer";
 import type { RouteCatalog, Trip, TripType } from "@/types/tlo";
 import {
   assertNoOpenTripConflictLocal,
@@ -46,6 +52,21 @@ type TripForm = {
   km_final: number;
   fecha_llegada: string;
 };
+
+type CascadeConfirmState = {
+  next: KmFinalCascadePreview | null;
+  prev: KmInicialCascadePreview | null;
+};
+
+function cascadeConfirmTitle(state: CascadeConfirmState): string {
+  if (state.next && state.prev) return "¿Ajustar kilometraje de viajes adyacentes?";
+  if (state.prev) return "¿Ajustar kilometraje del viaje anterior?";
+  return "¿Ajustar kilometraje del viaje siguiente?";
+}
+
+function cascadeConfirmMessage(state: CascadeConfirmState): string {
+  return [state.prev?.message, state.next?.message].filter(Boolean).join("\n\n");
+}
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
 
@@ -90,7 +111,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const [selectedRouteId, setSelectedRouteId] = useState<string>("__custom__");
   const [catalogRoutes, setCatalogRoutes] = useState<RouteCatalog[]>([]);
   const [saving, setSaving] = useState(false);
-  const [cascadePreview, setCascadePreview] = useState<KmFinalCascadePreview | null>(null);
+  const [cascadePreview, setCascadePreview] = useState<CascadeConfirmState | null>(null);
   const [cascadeBlockMessage, setCascadeBlockMessage] = useState<string | null>(null);
   const [beforeLastMessage, setBeforeLastMessage] = useState<string | null>(null);
 
@@ -139,7 +160,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     if (r.tipo_viaje) setForm((f) => ({ ...f, tipo_viaje: r.tipo_viaje! }));
   };
 
-  const persist = async (confirmedCascade: KmFinalCascadePreview | null = null) => {
+  const persist = async (confirmedCascade: CascadeConfirmState | null = null) => {
     const validParadas = paradas.filter((p) => p.etiqueta.trim());
     const stops = paradasLocked ? undefined : paradasToTripStops(validParadas);
     const patch: Record<string, unknown> = {
@@ -178,10 +199,16 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       if (apiMode) {
         const updated = await patchTrip(trip.id, patch);
         onSaved(updated);
-        if (confirmedCascade) {
+        if (confirmedCascade?.next) {
           replaceTrip({
-            ...confirmedCascade.nextTrip,
+            ...confirmedCascade.next.nextTrip,
             km_inicial: +form.km_final,
+          });
+        }
+        if (confirmedCascade?.prev) {
+          replaceTrip({
+            ...confirmedCascade.prev.prevTrip,
+            km_final: +form.km_inicial,
           });
         }
         toast.success("Viaje actualizado");
@@ -213,10 +240,16 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
           : {}),
       };
       onSaved(updated);
-      if (confirmedCascade) {
+      if (confirmedCascade?.next) {
         replaceTrip({
-          ...confirmedCascade.nextTrip,
+          ...confirmedCascade.next.nextTrip,
           km_inicial: +form.km_final,
+        });
+      }
+      if (confirmedCascade?.prev) {
+        replaceTrip({
+          ...confirmedCascade.prev.prevTrip,
+          km_final: +form.km_inicial,
         });
       }
       toast.success("Viaje actualizado (demo)");
@@ -264,19 +297,37 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
 
     // Misma regla que el backend: cascada solo si la unidad no cambia.
     const truckChangingSubmit = form.truck_id !== trip.truck_id;
-    if (isClosed && trip.km_final != null && !truckChangingSubmit) {
-      const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
-        truckId: trip.truck_id,
-        fechaSalida: fechaSalidaIso,
-      });
-      if (error) {
-        setCascadeBlockMessage(error);
-        return;
+    let nextPreview: KmFinalCascadePreview | null = null;
+    let prevPreview: KmInicialCascadePreview | null = null;
+
+    if (!truckChangingSubmit) {
+      if (+form.km_inicial !== trip.km_inicial) {
+        const { preview, error } = previewKmInicialCascade(trip, trips, +form.km_inicial, {
+          truckId: trip.truck_id,
+          fechaSalida: fechaSalidaIso,
+        });
+        if (error) {
+          setCascadeBlockMessage(error);
+          return;
+        }
+        prevPreview = preview;
       }
-      if (preview) {
-        setCascadePreview(preview);
-        return;
+      if (isClosed && trip.km_final != null && +form.km_final !== trip.km_final) {
+        const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
+          truckId: trip.truck_id,
+          fechaSalida: fechaSalidaIso,
+        });
+        if (error) {
+          setCascadeBlockMessage(error);
+          return;
+        }
+        nextPreview = preview;
       }
+    }
+
+    if (nextPreview || prevPreview) {
+      setCascadePreview({ next: nextPreview, prev: prevPreview });
+      return;
     }
 
     await persist(null);
@@ -504,9 +555,11 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>¿Ajustar kilometraje del viaje siguiente?</AlertDialogTitle>
-            <AlertDialogDescription>
-              {cascadePreview?.message}
+            <AlertDialogTitle>
+              {cascadePreview ? cascadeConfirmTitle(cascadePreview) : "¿Ajustar kilometraje?"}
+            </AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-line">
+              {cascadePreview ? cascadeConfirmMessage(cascadePreview) : null}
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
