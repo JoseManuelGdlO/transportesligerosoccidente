@@ -97,7 +97,9 @@ export const patchTrip = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const t = await tripService.patchTrip(tid(req), req.params.id, parsed.data);
+  const t = await tripService.patchTrip(tid(req), req.params.id, parsed.data, {
+    isAdmin: req.user!.roleSlug === "admin",
+  });
   res.json(tripToJson(t));
 });
 

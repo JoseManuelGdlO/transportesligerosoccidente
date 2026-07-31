@@ -37,7 +37,10 @@ import {
   tripIsClosed,
 } from "@/lib/tripStatus";
 import { isoToDatetimeLocalValue } from "@/lib/format";
+import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+
+const KM_ADMIN_ONLY_MESSAGE = "Solo los administradores pueden modificar el kilometraje";
 
 type TripForm = {
   truck_id: string;
@@ -102,8 +105,10 @@ type Props = {
 
 export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const { trucks, drivers, clients, trips, replaceTrip } = useTlo();
+  const { user } = useAuth();
   const apiMode = hasApiConfigured();
   const isClosed = tripIsClosed(trip);
+  const canEditKm = user?.role === "admin";
   const paradasLocked = trip.carta_porte?.estatus === "timbrada";
 
   const [form, setForm] = useState<TripForm>(() => tripToForm(trip));
@@ -295,13 +300,21 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       return;
     }
 
+    const kmInicialChanged = +form.km_inicial !== trip.km_inicial;
+    const kmFinalChanged =
+      isClosed && trip.km_final != null && +form.km_final !== trip.km_final;
+    if (!canEditKm && (kmInicialChanged || kmFinalChanged)) {
+      setCascadeBlockMessage(KM_ADMIN_ONLY_MESSAGE);
+      return;
+    }
+
     // Misma regla que el backend: cascada solo si la unidad no cambia.
     const truckChangingSubmit = form.truck_id !== trip.truck_id;
     let nextPreview: KmFinalCascadePreview | null = null;
     let prevPreview: KmInicialCascadePreview | null = null;
 
     if (!truckChangingSubmit) {
-      if (+form.km_inicial !== trip.km_inicial) {
+      if (kmInicialChanged) {
         const { preview, error } = previewKmInicialCascade(trip, trips, +form.km_inicial, {
           truckId: trip.truck_id,
           fechaSalida: fechaSalidaIso,
@@ -312,7 +325,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
         }
         prevPreview = preview;
       }
-      if (isClosed && trip.km_final != null && +form.km_final !== trip.km_final) {
+      if (kmFinalChanged) {
         const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
           truckId: trip.truck_id,
           fechaSalida: fechaSalidaIso,
@@ -586,7 +599,11 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       >
         <AlertDialogContent>
           <AlertDialogHeader>
-            <AlertDialogTitle>No se puede aplicar este kilometraje</AlertDialogTitle>
+            <AlertDialogTitle>
+              {cascadeBlockMessage === KM_ADMIN_ONLY_MESSAGE
+                ? "Kilometraje restringido"
+                : "No se puede aplicar este kilometraje"}
+            </AlertDialogTitle>
             <AlertDialogDescription>{cascadeBlockMessage}</AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>

@@ -386,7 +386,12 @@ const PATCH_TRIP_FIELDS = [
   "comision_override",
 ] as const;
 
-export async function patchTrip(tenantId: string, id: string, patch: Partial<Record<string, unknown>>) {
+export async function patchTrip(
+  tenantId: string,
+  id: string,
+  patch: Partial<Record<string, unknown>>,
+  options?: { isAdmin?: boolean },
+) {
   const trip = await getTripOrThrow(tenantId, id, false);
   const isClosed = tripIsClosed(trip);
 
@@ -397,6 +402,24 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
       (err as Error & { status?: number }).status = 400;
       throw err;
     }
+  }
+
+  const previousKmInicial = Number(trip.km_inicial);
+  const previousKmFinal = trip.km_final != null ? Number(trip.km_final) : null;
+  const nextKmInicial =
+    patch.km_inicial !== undefined ? Number(patch.km_inicial) : previousKmInicial;
+  const nextKmFinal =
+    isClosed && patch.km_final !== undefined ? Number(patch.km_final) : previousKmFinal;
+  const kmInicialChanging = patch.km_inicial !== undefined && nextKmInicial !== previousKmInicial;
+  const kmFinalChanging =
+    isClosed &&
+    patch.km_final !== undefined &&
+    previousKmFinal != null &&
+    nextKmFinal !== previousKmFinal;
+  if ((kmInicialChanging || kmFinalChanging) && !options?.isAdmin) {
+    const err = new Error("Solo los administradores pueden modificar el kilometraje");
+    (err as Error & { status?: number }).status = 403;
+    throw err;
   }
 
   const data: Record<string, unknown> = {};
@@ -490,8 +513,6 @@ export async function patchTrip(tenantId: string, id: string, patch: Partial<Rec
         : null
     : null;
 
-  const previousKmInicial = Number(trip.km_inicial);
-  const previousKmFinal = trip.km_final != null ? Number(trip.km_final) : null;
   const kmInicialChanged = effectiveKmInicial !== previousKmInicial;
   const kmFinalChanged =
     isClosed &&
