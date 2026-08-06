@@ -116,7 +116,9 @@ const FILTER_TODOS = "todos";
 /** Filtro por defecto: viajes en curso (slug hasta resolver el id del catálogo). */
 const FILTER_EN_CURSO = "en_curso";
 const FILTER_LIQUIDADO = "liquidado";
+const FILTER_NO_LIQUIDADO = "no_liquidado";
 const FILTER_PRORRATEADO = "prorrateado";
+const FILTER_NO_PRORRATEADO = "no_prorrateado";
 const FILTER_TIMBRADO = "timbrado";
 
 const FILTERS_STORAGE_KEY = "tlo.viajes.filters";
@@ -144,7 +146,9 @@ function tripMatchesStatusFilter(trip: Trip, filter: string): boolean {
   if (filter === FILTER_TODOS) return true;
   if (!filter || filter === FILTER_EN_CURSO) return tripHasStatusSlug(trip, "en_curso");
   if (filter === FILTER_LIQUIDADO) return tripIsLiquidated(trip);
+  if (filter === FILTER_NO_LIQUIDADO) return !tripIsLiquidated(trip);
   if (filter === FILTER_PRORRATEADO) return tripIsProrated(trip);
+  if (filter === FILTER_NO_PRORRATEADO) return !tripIsProrated(trip);
   if (filter === FILTER_TIMBRADO) return FEATURE_CARTA_PORTE && tripIsTimbrado(trip);
   return tripHasStatusId(trip, filter);
 }
@@ -362,7 +366,9 @@ export default function Viajes() {
     if (
       filterStatus === FILTER_TODOS ||
       filterStatus === FILTER_LIQUIDADO ||
+      filterStatus === FILTER_NO_LIQUIDADO ||
       filterStatus === FILTER_PRORRATEADO ||
+      filterStatus === FILTER_NO_PRORRATEADO ||
       (filterStatus === FILTER_TIMBRADO && FEATURE_CARTA_PORTE)
     ) {
       return;
@@ -381,7 +387,9 @@ export default function Viajes() {
     if (filterStatus === FILTER_TODOS) return FILTER_TODOS;
     if (
       filterStatus === FILTER_LIQUIDADO ||
+      filterStatus === FILTER_NO_LIQUIDADO ||
       filterStatus === FILTER_PRORRATEADO ||
+      filterStatus === FILTER_NO_PRORRATEADO ||
       filterStatus === FILTER_TIMBRADO
     ) {
       return filterStatus;
@@ -804,7 +812,9 @@ export default function Viajes() {
                       ))}
                       <SelectSeparator />
                       <SelectItem value={FILTER_LIQUIDADO}>Liquidado</SelectItem>
+                      <SelectItem value={FILTER_NO_LIQUIDADO}>No Liquidado</SelectItem>
                       <SelectItem value={FILTER_PRORRATEADO}>Prorrateado</SelectItem>
+                      <SelectItem value={FILTER_NO_PRORRATEADO}>No Prorrateado</SelectItem>
                       {FEATURE_CARTA_PORTE && (
                         <SelectItem value={FILTER_TIMBRADO}>Timbrado</SelectItem>
                       )}
