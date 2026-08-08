@@ -5,7 +5,7 @@ import { useAuth } from "@/context/AuthContext";
 import type { SettlementSummary } from "@/lib/calc";
 import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
-import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload } from "@/lib/settlementSnapshot";
+import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
@@ -46,7 +46,7 @@ const clampDate = (day: string, inicio: string, fin: string) => {
 
 export default function Liquidaciones() {
   const nav = useNavigate();
-  const { drivers, trucks } = useTlo();
+  const { drivers, trucks, trips } = useTlo();
   const { tenant, hasApiSession, permissions, user } = useAuth();
   const canClose = permissions.includes("liquidaciones.cerrar");
   const canCancel = user?.role === "admin";
@@ -483,7 +483,8 @@ export default function Liquidaciones() {
       toast.error("No hay datos para generar el PDF");
       return;
     }
-    const recordDriver = resolveSettlementDriver(record.snapshot, drivers);
+    const enriched = enrichSnapshotTripRoutes(record.snapshot, trips);
+    const recordDriver = resolveSettlementDriver(enriched, drivers);
     if (!recordDriver) {
       toast.error("Operador no encontrado");
       return;
@@ -492,7 +493,7 @@ export default function Liquidaciones() {
       driver: recordDriver,
       inicio: record.fecha_inicio,
       fin: record.fecha_fin,
-      summary: snapshotToPdfSummary(record.snapshot),
+      summary: snapshotToPdfSummary(enriched),
     });
   };
 
@@ -514,12 +515,17 @@ export default function Liquidaciones() {
 
   const summaryForPdf = useMemo(() => {
     if (!effectiveSummary) return null;
-    return snapshotToPdfSummary(effectiveSummary);
-  }, [effectiveSummary]);
+    return snapshotToPdfSummary(enrichSnapshotTripRoutes(effectiveSummary, trips));
+  }, [effectiveSummary, trips]);
 
   const viewingHistoryDriver = viewingHistory?.snapshot
     ? resolveSettlementDriver(viewingHistory.snapshot, drivers)
     : null;
+
+  const viewingHistorySummary = useMemo(() => {
+    if (!viewingHistory?.snapshot) return null;
+    return enrichSnapshotTripRoutes(viewingHistory.snapshot, trips);
+  }, [viewingHistory, trips]);
 
   return (
     <div className="space-y-4">
@@ -762,7 +768,7 @@ export default function Liquidaciones() {
 
       <Dialog open={viewingHistory !== null} onOpenChange={(open) => !open && setViewingHistory(null)}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto sm:max-w-5xl">
-          {viewingHistory && viewingHistory.snapshot && viewingHistoryDriver && (
+          {viewingHistory && viewingHistorySummary && viewingHistoryDriver && (
             <>
               <DialogHeader>
                 <DialogTitle>
@@ -770,7 +776,7 @@ export default function Liquidaciones() {
                 </DialogTitle>
               </DialogHeader>
               <SettlementSummaryPanel
-                summary={viewingHistory.snapshot}
+                summary={viewingHistorySummary}
                 driver={viewingHistoryDriver}
                 readOnly
               />
@@ -781,7 +787,7 @@ export default function Liquidaciones() {
               </div>
             </>
           )}
-          {viewingHistory && (!viewingHistory.snapshot || !viewingHistoryDriver) && (
+          {viewingHistory && (!viewingHistorySummary || !viewingHistoryDriver) && (
             <p className="text-muted-foreground text-sm py-4">No hay datos guardados para esta liquidación.</p>
           )}
         </DialogContent>

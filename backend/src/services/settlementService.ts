@@ -117,6 +117,8 @@ export async function settlementSummary(
       { association: "expenses" },
       { association: "Client", attributes: ["id", "razon_social"] },
       { association: "Driver", attributes: ["id", "nombre"], required: false },
+      { association: "paradas" },
+      { association: "Route", attributes: ["id", "nombre"], required: false },
     ],
   });
   const { advances, discounts, compensations, total_anticipos, total_descuentos, total_compensaciones } =
@@ -201,11 +203,60 @@ export async function settlementSummary(
 export async function listSettlements(tenantId: string, driverId?: string) {
   const where: Record<string, unknown> = { tenant_id: tenantId };
   if (driverId) where.driver_id = driverId;
-  return Settlement.findAll({
+  const rows = await Settlement.findAll({
     where,
     order: [["fecha_inicio", "DESC"]],
     include: [{ model: Driver, attributes: ["id", "nombre"] }],
   });
+  await enrichSettlementSnapshotsWithRoutes(tenantId, rows);
+  return rows;
+}
+
+/**
+ * Completa route_nombre / ruta_resumen / paradas en snapshots antiguos
+ * (guardados sin Route/paradas) para que PDF e histórico muestren la ruta como en Viajes.
+ */
+async function enrichSettlementSnapshotsWithRoutes(tenantId: string, settlements: Settlement[]) {
+  const tripIds = new Set<string>();
+  for (const row of settlements) {
+    const snap = row.snapshot as { trips?: { id?: string }[] } | null | undefined;
+    if (!snap?.trips) continue;
+    for (const t of snap.trips) {
+      if (t?.id) tripIds.add(String(t.id));
+    }
+  }
+  if (tripIds.size === 0) return;
+
+  const trips = await Trip.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: [...tripIds] } },
+    include: [
+      { association: "paradas" },
+      { association: "Route", attributes: ["id", "nombre"], required: false },
+    ],
+  });
+  const byId = new Map(trips.map((t) => [String(t.id), tripToJson(t)]));
+
+  for (const row of settlements) {
+    const snap = row.snapshot as Record<string, unknown> | null | undefined;
+    if (!snap || !Array.isArray(snap.trips)) continue;
+    let changed = false;
+    const nextTrips = (snap.trips as Record<string, unknown>[]).map((st) => {
+      const live = byId.get(String(st.id));
+      if (!live) return st;
+      changed = true;
+      return {
+        ...st,
+        route_nombre: live.route_nombre ?? st.route_nombre,
+        ruta_resumen: live.ruta_resumen ?? st.ruta_resumen,
+        paradas: live.paradas ?? st.paradas,
+        origen: live.origen ?? st.origen,
+        destino: live.destino ?? st.destino,
+      };
+    });
+    if (changed) {
+      row.setDataValue("snapshot", { ...snap, trips: nextTrips });
+    }
+  }
 }
 
 async function findOpenDraft(

@@ -5,9 +5,33 @@ import {
   previewAccountInstallments,
   type SettlementSummary,
 } from "@/lib/calc";
-import type { Driver, SettlementSummaryApi } from "@/types/tlo";
+import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
 
 export type TripInclusionPayload = { id: string; included: boolean };
+
+/** Completa la ruta de viajes en snapshots viejos usando el catálogo actual (mismo criterio que Viajes). */
+export function enrichSnapshotTripRoutes(
+  snapshot: SettlementSummaryApi,
+  catalogTrips: Trip[],
+): SettlementSummaryApi {
+  if (catalogTrips.length === 0) return snapshot;
+  const byId = new Map(catalogTrips.map((t) => [t.id, t]));
+  return {
+    ...snapshot,
+    trips: snapshot.trips.map((t) => {
+      const live = byId.get(t.id);
+      if (!live) return t;
+      return {
+        ...t,
+        route_nombre: live.route_nombre ?? t.route_nombre,
+        ruta_resumen: live.ruta_resumen || t.ruta_resumen,
+        paradas: live.paradas?.length ? live.paradas : t.paradas,
+        origen: live.origen || t.origen,
+        destino: live.destino || t.destino,
+      };
+    }),
+  };
+}
 
 export function buildTripInclusionsFromTrips(trips: { id: string; included?: boolean }[]): Record<string, boolean> {
   return Object.fromEntries(trips.map((t) => [t.id, t.included !== false]));
