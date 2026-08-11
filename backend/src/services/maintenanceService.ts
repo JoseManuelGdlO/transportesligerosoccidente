@@ -1,3 +1,5 @@
+import fs from "node:fs";
+import path from "node:path";
 import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import {
@@ -7,11 +9,13 @@ import {
   FuelTicket,
   Truck,
   Notification,
+  Supplier,
 } from "../models";
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
 import { num } from "../utils/numbers";
 import { usersWithPermission } from "../utils/notifyUsers";
 import { getClosedStatusIds } from "./tripStatusService";
+import { uploadRootDir } from "../middlewares/uploadDocument";
 
 const tipoLabel: Record<MaintenanceType, string> = {
   preventivo: "Preventivo",
@@ -26,9 +30,11 @@ function maintenancePendingKey(userId: string, truckId: string, tipo: string, cr
 }
 
 function addDays(dateIso: string, days: number): string {
-  const d = new Date(`${dateIso}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateIso).trim());
+  if (!m) return dateIso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
 }
 
 function daysBetween(fromIso: string, toIso: string): number {
@@ -215,6 +221,61 @@ export async function maintenanceCostMaps(
   };
 }
 
+export async function getRecordOrThrow(tenantId: string, id: string) {
+  const record = await MaintenanceRecord.findOne({ where: { id, tenant_id: tenantId } });
+  if (!record) {
+    const err = new Error("Registro de mantenimiento no encontrado");
+    (err as Error & { status?: number }).status = 404;
+    throw err;
+  }
+  return record;
+}
+
+function unlinkFacturaIfExists(relPath: string | null | undefined) {
+  if (!relPath) return;
+  const abs = path.isAbsolute(relPath) ? relPath : path.join(uploadRootDir(), relPath);
+  try {
+    if (fs.existsSync(abs)) fs.unlinkSync(abs);
+  } catch {
+    /* ignore */
+  }
+}
+
+export async function setRecordFactura(
+  tenantId: string,
+  recordId: string,
+  file: { path: string; originalname: string; mimetype: string },
+) {
+  const record = await getRecordOrThrow(tenantId, recordId);
+  unlinkFacturaIfExists(record.factura_path);
+  const absPath = file.path;
+  const rel = path.relative(uploadRootDir(), absPath).replace(/\\/g, "/");
+  await record.update({
+    factura_path: rel,
+    factura_nombre: file.originalname.slice(0, 255),
+    factura_mime: file.mimetype.slice(0, 100),
+  } as never);
+  return record;
+}
+
+export async function clearRecordFactura(tenantId: string, recordId: string) {
+  const record = await getRecordOrThrow(tenantId, recordId);
+  unlinkFacturaIfExists(record.factura_path);
+  await record.update({
+    factura_path: null,
+    factura_nombre: null,
+    factura_mime: null,
+  } as never);
+  return record;
+}
+
+export function resolveFacturaAbsolutePath(record: MaintenanceRecord): string | null {
+  if (!record.factura_path) return null;
+  return path.isAbsolute(record.factura_path)
+    ? record.factura_path
+    : path.join(uploadRootDir(), record.factura_path);
+}
+
 export async function createRecord(
   tenantId: string,
   data: {
@@ -234,10 +295,30 @@ export async function createRecord(
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
+
+  let taller = data.taller?.trim() || undefined;
+  let supplierId = data.supplier_id ?? null;
+  if (supplierId) {
+    const supplier = await Supplier.findOne({ where: { id: supplierId, tenant_id: tenantId } });
+    if (!supplier) {
+      const err = new Error("Proveedor no encontrado");
+      (err as Error & { status?: number }).status = 404;
+      throw err;
+    }
+    taller = supplier.razon_social;
+  }
+
   const record = await MaintenanceRecord.create({
     id: randomUUID(),
     tenant_id: tenantId,
-    ...data,
+    truck_id: data.truck_id,
+    tipo: data.tipo,
+    km_odometro: data.km_odometro,
+    fecha: data.fecha,
+    costo: data.costo,
+    descripcion: data.descripcion,
+    taller: taller ?? null,
+    supplier_id: supplierId,
   } as never);
 
   const schedule = await MaintenanceSchedule.findOne({

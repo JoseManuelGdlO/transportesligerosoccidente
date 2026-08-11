@@ -22,9 +22,24 @@ export const fmtNumber = (n: number, decimals = 0) =>
 export const fmtPct = (n: number, decimals = 1) =>
   `${(n || 0).toFixed(decimals)}%`;
 
+/** Parsea `YYYY-MM-DD` como fecha de calendario local (evita el desfase UTC de `new Date("YYYY-MM-DD")`). */
+export function parseDateOnlyLocal(iso: string): Date | null {
+  const m = /^(\d{4})-(\d{2})-(\d{2})$/.exec(String(iso).trim().slice(0, 10));
+  if (!m) return null;
+  const y = Number(m[1]);
+  const month = Number(m[2]);
+  const day = Number(m[3]);
+  if (!y || month < 1 || month > 12 || day < 1 || day > 31) return null;
+  return new Date(y, month - 1, day);
+}
+
 export const fmtDate = (iso?: string) => {
   if (!iso) return "—";
-  const d = new Date(iso);
+  const raw = String(iso).trim();
+  // Solo-día: evitar `new Date("YYYY-MM-DD")` (UTC) que en Américas resta un día.
+  const local = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? parseDateOnlyLocal(raw) : null;
+  const d = local ?? new Date(raw);
+  if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("es-MX", {
     day: "2-digit",
     month: "short",

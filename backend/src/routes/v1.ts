@@ -17,6 +17,7 @@ import * as settlementC from "../controllers/settlementController";
 import * as driverFinanceC from "../controllers/driverFinanceController";
 import * as maintenanceC from "../controllers/maintenanceController";
 import { uploadFuelReceipt } from "../middlewares/uploadFuelReceipt";
+import { uploadMaintenanceInvoice } from "../middlewares/uploadMaintenanceInvoice";
 import * as userC from "../controllers/userController";
 import * as roleC from "../controllers/roleController";
 import * as reportsC from "../controllers/reportsController";
@@ -398,6 +399,25 @@ r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ed
 r.delete("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.deleteSchedule);
 r.get("/maintenance/records", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listRecords);
 r.post("/maintenance/records", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.createRecord);
+r.post(
+  "/maintenance/records/:id/factura",
+  authenticateJwt,
+  requirePermission("catalogos.editar"),
+  uploadMaintenanceInvoice.single("file"),
+  maintenanceC.uploadFactura,
+);
+r.get(
+  "/maintenance/records/:id/factura",
+  authenticateJwt,
+  requirePermission("catalogos.ver"),
+  maintenanceC.streamFactura,
+);
+r.delete(
+  "/maintenance/records/:id/factura",
+  authenticateJwt,
+  requirePermission("catalogos.editar"),
+  maintenanceC.deleteFactura,
+);
 
 r.get("/users", authenticateJwt, requirePermission("usuarios.gestionar"), userC.listUsers);
 r.post("/users", authenticateJwt, requirePermission("usuarios.gestionar"), userC.createUser);

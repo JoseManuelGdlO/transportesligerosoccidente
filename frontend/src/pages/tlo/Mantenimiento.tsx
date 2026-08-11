@@ -1,17 +1,73 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useTlo } from "@/context/TloContext";
+import { useAuth } from "@/context/AuthContext";
 import { apiFetch, readJson } from "@/lib/api";
-import type { MaintenanceOverviewUnit, MaintenanceType } from "@/types/tlo";
+import {
+  createMaintenanceRecordApi,
+  deleteMaintenanceInvoice,
+  fetchMaintenanceRecords,
+  fetchSuppliers,
+  openAuthenticatedFile,
+  uploadMaintenanceInvoice,
+} from "@/lib/tloApi";
+import type {
+  MaintenanceOverviewUnit,
+  MaintenanceRecordRow,
+  MaintenanceType,
+  Supplier,
+} from "@/types/tlo";
+import { KpiCard } from "@/components/tlo/KpiCard";
+import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
-import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { Wrench, AlertTriangle, X } from "lucide-react";
-import { fmtNumber, fmtDate } from "@/lib/format";
+import { Progress } from "@/components/ui/progress";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
+import {
+  AlertTriangle,
+  ArrowDown,
+  ArrowUp,
+  ArrowUpDown,
+  CalendarClock,
+  CheckCircle2,
+  ClipboardPlus,
+  ExternalLink,
+  FileText,
+  Gauge,
+  Loader2,
+  Plus,
+  RefreshCw,
+  Trash2,
+  Upload,
+  Wrench,
+  X,
+} from "lucide-react";
+import { fmtDate, fmtMXN, fmtNumber } from "@/lib/format";
+import { normalizeSearch, slicePage } from "@/lib/tableFilters";
+import { cn } from "@/lib/utils";
 import { toast } from "sonner";
 
 const tipoLabel: Record<MaintenanceType, string> = {
@@ -22,20 +78,223 @@ const tipoLabel: Record<MaintenanceType, string> = {
   correctivo: "Correctivo",
 };
 
+const KM_ALERT_THRESHOLD = 1000;
+const DAYS_ALERT_THRESHOLD = 30;
+const FACTURA_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/png";
+
+type StatusFilter = "todos" | "vencidos" | "proximos" | "al_dia" | "sin_prog";
+type UnitHealth = "vencido" | "proximo" | "al_dia" | "sin_prog";
+type PendingDelete = { truckId: string; tipo: MaintenanceType; label: string };
+type BitacoraSortColumn = "fecha" | "unidad" | "tipo" | "km" | "costo" | "proveedor" | "descripcion";
+type SortDirection = "asc" | "desc";
+
 function addDaysIso(dateIso: string, days: number): string {
-  const d = new Date(`${dateIso}T12:00:00`);
-  d.setDate(d.getDate() + days);
-  return d.toISOString().slice(0, 10);
+  const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateIso).trim());
+  if (!m) return dateIso;
+  const d = new Date(Number(m[1]), Number(m[2]) - 1, Number(m[3]) + days);
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+}
+
+function isNearDue(p: MaintenanceOverviewUnit["proximos"][number]): boolean {
+  if (p.vencido) return false;
+  const kmNear = p.km_restantes != null && p.km_restantes <= KM_ALERT_THRESHOLD;
+  const daysNear = p.dias_restantes != null && p.dias_restantes <= DAYS_ALERT_THRESHOLD;
+  return kmNear || daysNear;
+}
+
+function unitHealth(u: MaintenanceOverviewUnit): UnitHealth {
+  if (u.proximos.length === 0) return "sin_prog";
+  if (u.proximos.some((p) => p.vencido)) return "vencido";
+  if (u.proximos.some(isNearDue)) return "proximo";
+  return "al_dia";
+}
+
+const healthMeta: Record<
+  UnitHealth,
+  { label: string; badge: "destructive" | "secondary" | "outline" | "default"; className: string }
+> = {
+  vencido: {
+    label: "Vencido",
+    badge: "destructive",
+    className: "border-destructive/40 bg-destructive/[0.03]",
+  },
+  proximo: {
+    label: "Por vencer",
+    badge: "secondary",
+    className: "border-warning/50 bg-warning/5",
+  },
+  al_dia: {
+    label: "Al día",
+    badge: "outline",
+    className: "",
+  },
+  sin_prog: {
+    label: "Sin programación",
+    badge: "outline",
+    className: "border-dashed",
+  },
+};
+
+function kmProgressPct(kmRestantes: number | null, intervaloHint = 10000): number {
+  if (kmRestantes == null) return 0;
+  if (kmRestantes <= 0) return 100;
+  const used = Math.max(0, intervaloHint - kmRestantes);
+  return Math.min(100, Math.round((used / intervaloHint) * 100));
+}
+
+function daysProgressPct(diasRestantes: number | null, intervaloHint = 180): number {
+  if (diasRestantes == null) return 0;
+  if (diasRestantes <= 0) return 100;
+  const used = Math.max(0, intervaloHint - diasRestantes);
+  return Math.min(100, Math.round((used / intervaloHint) * 100));
+}
+
+function isAllowedFactura(file: File): boolean {
+  const mimeOk = ["image/jpeg", "image/png", "application/pdf"].includes(file.type);
+  const name = file.name.toLowerCase();
+  const extOk = name.endsWith(".pdf") || name.endsWith(".jpg") || name.endsWith(".jpeg") || name.endsWith(".png");
+  return mimeOk || extOk;
+}
+
+function compareSortValues(
+  a: string | number | null,
+  b: string | number | null,
+  direction: SortDirection,
+): number {
+  const aNull = a === null;
+  const bNull = b === null;
+  if (aNull && bNull) return 0;
+  if (aNull) return 1;
+  if (bNull) return -1;
+  let cmp: number;
+  if (typeof a === "number" && typeof b === "number") cmp = a - b;
+  else cmp = String(a).localeCompare(String(b), "es", { numeric: true, sensitivity: "base" });
+  return direction === "asc" ? cmp : -cmp;
+}
+
+function SortableTableHead({
+  label,
+  column,
+  activeColumn,
+  direction,
+  onSort,
+  className,
+}: {
+  label: string;
+  column: BitacoraSortColumn;
+  activeColumn: BitacoraSortColumn | null;
+  direction: SortDirection;
+  onSort: (column: BitacoraSortColumn) => void;
+  className?: string;
+}) {
+  const active = activeColumn === column;
+  const Icon = active ? (direction === "asc" ? ArrowUp : ArrowDown) : ArrowUpDown;
+  const alignRight = className?.includes("text-right");
+  return (
+    <TableHead className={className}>
+      <button
+        type="button"
+        onClick={() => onSort(column)}
+        className={cn(
+          "inline-flex items-center gap-1 font-medium hover:text-foreground",
+          alignRight && "w-full justify-end",
+        )}
+      >
+        {label}
+        <Icon className={cn("h-3.5 w-3.5 shrink-0", !active && "text-muted-foreground opacity-60")} />
+      </button>
+    </TableHead>
+  );
+}
+
+function FacturaThumb({
+  fileUrl,
+  mime,
+  nombre,
+}: {
+  fileUrl: string;
+  mime?: string;
+  nombre?: string;
+}) {
+  const [src, setSrc] = useState<string | null>(null);
+  const isImage = Boolean(mime?.startsWith("image/"));
+
+  useEffect(() => {
+    if (!isImage) {
+      setSrc(null);
+      return;
+    }
+    let revoked = false;
+    let objectUrl: string | null = null;
+    void (async () => {
+      try {
+        const res = await apiFetch(fileUrl);
+        if (!res.ok) return;
+        const blob = await res.blob();
+        objectUrl = URL.createObjectURL(blob);
+        if (!revoked) setSrc(objectUrl);
+      } catch {
+        /* ignore */
+      }
+    })();
+    return () => {
+      revoked = true;
+      if (objectUrl) URL.revokeObjectURL(objectUrl);
+    };
+  }, [fileUrl, isImage]);
+
+  if (isImage && src) {
+    return (
+      <img
+        src={src}
+        alt={nombre || "Factura"}
+        className="h-10 w-10 rounded object-cover border border-border/60"
+      />
+    );
+  }
+  return (
+    <span className="flex h-10 w-10 items-center justify-center rounded border border-border/60 bg-secondary">
+      <FileText className="h-4 w-4 text-muted-foreground" />
+    </span>
+  );
 }
 
 export default function Mantenimiento() {
   const { trucks } = useTlo();
+  const { hasPermission } = useAuth();
+  const canEdit = hasPermission("catalogos.editar");
+
   const [units, setUnits] = useState<MaintenanceOverviewUnit[]>([]);
+  const [records, setRecords] = useState<MaintenanceRecordRow[]>([]);
+  const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [loading, setLoading] = useState(false);
+  const [recordsLoading, setRecordsLoading] = useState(false);
   const [recordOpen, setRecordOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [porKm, setPorKm] = useState(true);
   const [porDias, setPorDias] = useState(false);
+  const [unitFilter, setUnitFilter] = useState("todas");
+  const [statusFilter, setStatusFilter] = useState<StatusFilter>("todos");
+  const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
+  const [deleting, setDeleting] = useState(false);
+  const [savingRecord, setSavingRecord] = useState(false);
+  const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
+  const [invoicePreviewUrl, setInvoicePreviewUrl] = useState<string | null>(null);
+  const replaceInputRef = useRef<HTMLInputElement>(null);
+  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null);
+  const [facturaBusyId, setFacturaBusyId] = useState<string | null>(null);
+
+  const [bitSearch, setBitSearch] = useState("");
+  const [bitUnit, setBitUnit] = useState("todas");
+  const [bitTipo, setBitTipo] = useState<MaintenanceType | "todos">("todos");
+  const [bitDesde, setBitDesde] = useState("");
+  const [bitHasta, setBitHasta] = useState("");
+  const [sortColumn, setSortColumn] = useState<BitacoraSortColumn>("fecha");
+  const [sortDirection, setSortDirection] = useState<SortDirection>("desc");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
+
   const [form, setForm] = useState({
     truck_id: "",
     tipo: "preventivo" as MaintenanceType,
@@ -43,14 +302,38 @@ export default function Mantenimiento() {
     fecha: new Date().toISOString().slice(0, 10),
     costo: 0,
     descripcion: "",
-    taller: "",
+    supplier_id: "",
     intervalo_km: 10000,
     intervalo_dias: 180,
     ultimo_km: 0,
     ultima_fecha: new Date().toISOString().slice(0, 10),
   });
 
-  const load = useCallback(async () => {
+  const activeSuppliers = useMemo(
+    () => suppliers.filter((s) => (s.estatus ?? "activo") === "activo"),
+    [suppliers],
+  );
+
+  const truckLabel = useCallback(
+    (truckId: string) => {
+      const t = trucks.find((x) => x.id === truckId);
+      return t?.numero_economico ?? units.find((u) => u.truck_id === truckId)?.numero_economico ?? "—";
+    },
+    [trucks, units],
+  );
+
+  const supplierLabel = useCallback(
+    (r: MaintenanceRecordRow) => {
+      if (r.supplier_id) {
+        const s = suppliers.find((x) => x.id === r.supplier_id);
+        if (s) return s.razon_social;
+      }
+      return r.taller?.trim() || "—";
+    },
+    [suppliers],
+  );
+
+  const loadOverview = useCallback(async () => {
     setLoading(true);
     try {
       const res = await apiFetch("/maintenance/overview");
@@ -63,9 +346,206 @@ export default function Mantenimiento() {
     }
   }, []);
 
+  const loadRecords = useCallback(async () => {
+    setRecordsLoading(true);
+    try {
+      setRecords(await fetchMaintenanceRecords());
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al cargar bitácora");
+    } finally {
+      setRecordsLoading(false);
+    }
+  }, []);
+
+  const load = useCallback(async () => {
+    await Promise.all([loadOverview(), loadRecords()]);
+  }, [loadOverview, loadRecords]);
+
   useEffect(() => {
     void load();
   }, [load]);
+
+  useEffect(() => {
+    void fetchSuppliers()
+      .then(setSuppliers)
+      .catch(() => toast.error("No se pudieron cargar los proveedores"));
+  }, []);
+
+  useEffect(() => {
+    if (!invoiceFile) {
+      setInvoicePreviewUrl(null);
+      return;
+    }
+    if (!invoiceFile.type.startsWith("image/")) {
+      setInvoicePreviewUrl(null);
+      return;
+    }
+    const url = URL.createObjectURL(invoiceFile);
+    setInvoicePreviewUrl(url);
+    return () => URL.revokeObjectURL(url);
+  }, [invoiceFile]);
+
+  const stats = useMemo(() => {
+    let vencidos = 0;
+    let proximos = 0;
+    let alDia = 0;
+    let sinProg = 0;
+    for (const u of units) {
+      const h = unitHealth(u);
+      if (h === "vencido") vencidos += 1;
+      else if (h === "proximo") proximos += 1;
+      else if (h === "al_dia") alDia += 1;
+      else sinProg += 1;
+    }
+    return { total: units.length, vencidos, proximos, alDia, sinProg };
+  }, [units]);
+
+  const filteredUnits = useMemo(() => {
+    const healthOrder: Record<UnitHealth, number> = {
+      vencido: 0,
+      proximo: 1,
+      sin_prog: 2,
+      al_dia: 3,
+    };
+
+    return units
+      .filter((u) => {
+        const h = unitHealth(u);
+        if (statusFilter === "vencidos" && h !== "vencido") return false;
+        if (statusFilter === "proximos" && h !== "proximo") return false;
+        if (statusFilter === "al_dia" && h !== "al_dia") return false;
+        if (statusFilter === "sin_prog" && h !== "sin_prog") return false;
+        if (unitFilter !== "todas" && u.truck_id !== unitFilter) return false;
+        return true;
+      })
+      .sort((a, b) => {
+        const ha = unitHealth(a);
+        const hb = unitHealth(b);
+        if (healthOrder[ha] !== healthOrder[hb]) return healthOrder[ha] - healthOrder[hb];
+        return a.numero_economico.localeCompare(b.numero_economico, "es", { numeric: true });
+      });
+  }, [units, unitFilter, statusFilter]);
+
+  const filteredRecords = useMemo(() => {
+    const q = normalizeSearch(bitSearch);
+    return records.filter((r) => {
+      if (bitUnit !== "todas" && r.truck_id !== bitUnit) return false;
+      if (bitTipo !== "todos" && r.tipo !== bitTipo) return false;
+      const fecha = String(r.fecha).slice(0, 10);
+      if (bitDesde && fecha < bitDesde) return false;
+      if (bitHasta && fecha > bitHasta) return false;
+      if (q) {
+        const hay = normalizeSearch(
+          `${r.descripcion} ${supplierLabel(r)} ${truckLabel(r.truck_id)} ${tipoLabel[r.tipo]}`,
+        );
+        if (!hay.includes(q)) return false;
+      }
+      return true;
+    });
+  }, [records, bitSearch, bitUnit, bitTipo, bitDesde, bitHasta, supplierLabel, truckLabel]);
+
+  const sortedRecords = useMemo(() => {
+    const rows = [...filteredRecords];
+    rows.sort((a, b) => {
+      let va: string | number | null = null;
+      let vb: string | number | null = null;
+      switch (sortColumn) {
+        case "fecha":
+          va = a.fecha;
+          vb = b.fecha;
+          break;
+        case "unidad":
+          va = truckLabel(a.truck_id);
+          vb = truckLabel(b.truck_id);
+          break;
+        case "tipo":
+          va = tipoLabel[a.tipo];
+          vb = tipoLabel[b.tipo];
+          break;
+        case "km":
+          va = a.km_odometro;
+          vb = b.km_odometro;
+          break;
+        case "costo":
+          va = a.costo;
+          vb = b.costo;
+          break;
+        case "proveedor":
+          va = supplierLabel(a);
+          vb = supplierLabel(b);
+          break;
+        case "descripcion":
+          va = a.descripcion;
+          vb = b.descripcion;
+          break;
+      }
+      return compareSortValues(va, vb, sortDirection);
+    });
+    return rows;
+  }, [filteredRecords, sortColumn, sortDirection, truckLabel, supplierLabel]);
+
+  const pageData = useMemo(
+    () => slicePage(sortedRecords, page, pageSize),
+    [sortedRecords, page, pageSize],
+  );
+
+  useEffect(() => {
+    setPage(1);
+  }, [bitSearch, bitUnit, bitTipo, bitDesde, bitHasta, pageSize]);
+
+  const toggleSort = (column: BitacoraSortColumn) => {
+    if (sortColumn === column) {
+      setSortDirection((d) => (d === "asc" ? "desc" : "asc"));
+    } else {
+      setSortColumn(column);
+      setSortDirection(column === "fecha" ? "desc" : "asc");
+    }
+  };
+
+  const clearInvoiceFile = () => setInvoiceFile(null);
+
+  const onPickInvoice = (file: File | null) => {
+    if (!file) {
+      clearInvoiceFile();
+      return;
+    }
+    if (!isAllowedFactura(file)) {
+      toast.error("Solo se permiten archivos PDF, JPG o PNG");
+      return;
+    }
+    setInvoiceFile(file);
+  };
+
+  const openSchedule = (truckId?: string, kmActual = 0) => {
+    setForm((f) => ({
+      ...f,
+      truck_id: truckId ?? "",
+      km_odometro: kmActual,
+      ultimo_km: kmActual,
+      ultima_fecha: new Date().toISOString().slice(0, 10),
+      tipo: "preventivo",
+      intervalo_km: 10000,
+      intervalo_dias: 180,
+    }));
+    setPorKm(true);
+    setPorDias(false);
+    setScheduleOpen(true);
+  };
+
+  const openRecord = (truckId?: string, kmActual = 0) => {
+    setForm((f) => ({
+      ...f,
+      truck_id: truckId ?? "",
+      km_odometro: kmActual,
+      fecha: new Date().toISOString().slice(0, 10),
+      costo: 0,
+      descripcion: "",
+      supplier_id: "",
+      tipo: "preventivo",
+    }));
+    clearInvoiceFile();
+    setRecordOpen(true);
+  };
 
   const saveSchedule = async () => {
     if (!form.truck_id) {
@@ -102,188 +582,784 @@ export default function Mantenimiento() {
       });
       toast.success("Programación guardada");
       setScheduleOpen(false);
-      await load();
+      await loadOverview();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
     }
   };
 
-  const removeSchedule = async (truckId: string, tipo: MaintenanceType) => {
+  const confirmRemoveSchedule = async () => {
+    if (!pendingDelete) return;
+    setDeleting(true);
     try {
-      const params = new URLSearchParams({ truck_id: truckId, tipo });
+      const params = new URLSearchParams({
+        truck_id: pendingDelete.truckId,
+        tipo: pendingDelete.tipo,
+      });
       const res = await apiFetch(`/maintenance/schedules?${params}`, { method: "DELETE" });
       if (!res.ok) await readJson(res);
       toast.success("Programación eliminada");
-      await load();
+      setPendingDelete(null);
+      await loadOverview();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar");
+    } finally {
+      setDeleting(false);
     }
   };
 
   const saveRecord = async () => {
-    if (!form.truck_id || !form.descripcion.trim()) return;
+    if (!form.truck_id) {
+      toast.error("Selecciona una unidad");
+      return;
+    }
+    if (!form.descripcion.trim()) {
+      toast.error("Indica una descripción del servicio");
+      return;
+    }
+    setSavingRecord(true);
     try {
-      await apiFetch("/maintenance/records", {
-        method: "POST",
-        body: JSON.stringify({
-          truck_id: form.truck_id,
-          tipo: form.tipo,
-          km_odometro: form.km_odometro,
-          fecha: form.fecha,
-          costo: form.costo,
-          descripcion: form.descripcion,
-          taller: form.taller || undefined,
-        }),
+      const row = await createMaintenanceRecordApi({
+        truck_id: form.truck_id,
+        tipo: form.tipo,
+        km_odometro: form.km_odometro,
+        fecha: form.fecha,
+        costo: form.costo,
+        descripcion: form.descripcion,
+        supplier_id: form.supplier_id || null,
       });
+      if (invoiceFile) {
+        try {
+          await uploadMaintenanceInvoice(row.id, invoiceFile);
+        } catch (e) {
+          toast.error(
+            e instanceof Error
+              ? `Servicio guardado, pero falló la factura: ${e.message}`
+              : "Servicio guardado, pero falló la factura",
+          );
+          setRecordOpen(false);
+          clearInvoiceFile();
+          await load();
+          return;
+        }
+      }
       toast.success("Servicio registrado");
       setRecordOpen(false);
+      clearInvoiceFile();
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
+    } finally {
+      setSavingRecord(false);
     }
   };
 
+  const viewFactura = async (r: MaintenanceRecordRow) => {
+    if (!r.factura_url) return;
+    try {
+      await openAuthenticatedFile(r.factura_url);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo abrir la factura");
+    }
+  };
+
+  const removeFactura = async (r: MaintenanceRecordRow) => {
+    setFacturaBusyId(r.id);
+    try {
+      const updated = await deleteMaintenanceInvoice(r.id);
+      setRecords((prev) => prev.map((x) => (x.id === r.id ? updated : x)));
+      toast.success("Factura eliminada");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al eliminar factura");
+    } finally {
+      setFacturaBusyId(null);
+    }
+  };
+
+  const startReplaceFactura = (recordId: string) => {
+    setReplaceTargetId(recordId);
+    replaceInputRef.current?.click();
+  };
+
+  const onReplaceFacturaPicked = async (file: File | null) => {
+    const id = replaceTargetId;
+    setReplaceTargetId(null);
+    if (!id || !file) return;
+    if (!isAllowedFactura(file)) {
+      toast.error("Solo se permiten archivos PDF, JPG o PNG");
+      return;
+    }
+    setFacturaBusyId(id);
+    try {
+      const updated = await uploadMaintenanceInvoice(id, file);
+      setRecords((prev) => prev.map((x) => (x.id === id ? updated : x)));
+      toast.success("Factura actualizada");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al subir factura");
+    } finally {
+      setFacturaBusyId(null);
+    }
+  };
+
+  const filterChips: { id: StatusFilter; label: string; count: number }[] = [
+    { id: "todos", label: "Todas", count: stats.total },
+    { id: "vencidos", label: "Vencidas", count: stats.vencidos },
+    { id: "proximos", label: "Por vencer", count: stats.proximos },
+    { id: "al_dia", label: "Al día", count: stats.alDia },
+    { id: "sin_prog", label: "Sin prog.", count: stats.sinProg },
+  ];
+
   return (
-    <div className="space-y-4">
-      <div className="flex flex-wrap gap-2 justify-between items-center">
-        <p className="text-sm text-muted-foreground">
-          Odómetro estimado por último viaje cerrado o ticket de combustible. Alertas por km y por tiempo para
-          cualquier tipo de servicio.
-        </p>
-        <Button variant="outline" onClick={() => void load()} disabled={loading}>
-          Actualizar
-        </Button>
+    <div className="space-y-6">
+      <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div className="max-w-2xl space-y-1">
+          <p className="text-sm text-muted-foreground">
+            Programa intervalos por km o por tiempo, registra servicios realizados y prioriza unidades
+            vencidas. El odómetro se estima con el último viaje cerrado o ticket de combustible.
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2 shrink-0">
+          <Button variant="outline" size="sm" onClick={() => void load()} disabled={loading || recordsLoading}>
+            <RefreshCw className={cn("h-4 w-4 mr-2", (loading || recordsLoading) && "animate-spin")} />
+            Actualizar
+          </Button>
+          <Button variant="outline" onClick={() => openSchedule()}>
+            <CalendarClock className="h-4 w-4 mr-2" />
+            Programar
+          </Button>
+          <Button onClick={() => openRecord()} className="bg-primary text-primary-foreground hover:bg-primary-glow">
+            <ClipboardPlus className="h-4 w-4 mr-2" />
+            Registrar servicio
+          </Button>
+        </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        {units.map((u) => (
-          <Card key={u.truck_id} className="tlo-shadow-md">
-            <CardHeader className="pb-2">
-              <CardTitle className="text-base flex items-center justify-between gap-2">
-                <span className="flex items-center gap-2">
-                  <Wrench className="h-4 w-4" />
-                  {u.numero_economico} · {u.placas}
-                </span>
-                <Badge variant="outline">{fmtNumber(u.km_actual)} km</Badge>
-              </CardTitle>
-            </CardHeader>
-            <CardContent className="space-y-3 text-sm">
-              {u.proximos.length === 0 ? (
-                <p className="text-muted-foreground">Sin programación de servicios por km o tiempo.</p>
-              ) : (
-                u.proximos.map((p) => (
-                  <div
-                    key={p.tipo}
-                    className={`flex items-start gap-2 rounded border px-3 py-2 ${p.vencido ? "border-destructive/50 bg-destructive/5" : ""}`}
+      <input
+        ref={replaceInputRef}
+        type="file"
+        accept={FACTURA_ACCEPT}
+        className="hidden"
+        onChange={(e) => {
+          const file = e.target.files?.[0] ?? null;
+          e.target.value = "";
+          void onReplaceFacturaPicked(file);
+        }}
+      />
+
+      <Tabs defaultValue="unidades">
+        <TabsList>
+          <TabsTrigger value="unidades">Unidades</TabsTrigger>
+          <TabsTrigger value="bitacora">Bitácora</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="unidades" className="space-y-6 mt-4">
+          <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <KpiCard
+              label="Unidades"
+              value={String(stats.total)}
+              hint="Activas en flota"
+              icon={Wrench}
+              tone="default"
+            />
+            <KpiCard
+              label="Vencidas"
+              value={String(stats.vencidos)}
+              hint="Requieren servicio ya"
+              icon={AlertTriangle}
+              tone={stats.vencidos > 0 ? "destructive" : "success"}
+            />
+            <KpiCard
+              label="Por vencer"
+              value={String(stats.proximos)}
+              hint={`≤ ${fmtNumber(KM_ALERT_THRESHOLD)} km o ${DAYS_ALERT_THRESHOLD} días`}
+              icon={CalendarClock}
+              tone={stats.proximos > 0 ? "warning" : "success"}
+            />
+            <KpiCard
+              label="Sin programación"
+              value={String(stats.sinProg)}
+              hint="Aún sin intervalos"
+              icon={Plus}
+              tone={stats.sinProg > 0 ? "accent" : "success"}
+            />
+          </div>
+
+          <Card className="tlo-shadow-md border-border/60">
+            <CardContent className="p-4 space-y-3">
+              <div className="flex flex-wrap gap-2">
+                {filterChips.map((chip) => (
+                  <Button
+                    key={chip.id}
+                    size="sm"
+                    variant={statusFilter === chip.id ? "default" : "outline"}
+                    className={cn(
+                      "h-8",
+                      statusFilter === chip.id && "bg-primary text-primary-foreground hover:bg-primary-glow",
+                    )}
+                    onClick={() => setStatusFilter(chip.id)}
                   >
-                    <span className="flex-1 min-w-0 space-y-0.5">
-                      <span className="block font-medium">{tipoLabel[p.tipo]}</span>
-                      {p.km_proximo != null && (
-                        <span className="block text-xs text-muted-foreground">
-                          Por km: {fmtNumber(p.km_proximo)} km
-                          {p.vencido_km
-                            ? " — vencido"
-                            : p.km_restantes != null
-                              ? ` — ${fmtNumber(p.km_restantes)} km rest.`
-                              : ""}
-                        </span>
+                    {chip.label}
+                    <Badge
+                      variant="secondary"
+                      className={cn(
+                        "ml-2 h-5 min-w-5 justify-center px-1.5 text-[10px]",
+                        statusFilter === chip.id && "bg-primary-foreground/20 text-primary-foreground",
                       )}
-                      {p.fecha_proxima && (
-                        <span className="block text-xs text-muted-foreground">
-                          Por tiempo: {fmtDate(p.fecha_proxima)}
-                          {p.vencido_tiempo
-                            ? " — vencido"
-                            : p.dias_restantes != null
-                              ? ` — ${fmtNumber(p.dias_restantes)} días rest.`
-                              : ""}
-                        </span>
-                      )}
-                    </span>
-                    {p.vencido ? (
-                      <Badge variant="destructive" className="gap-1 shrink-0">
-                        <AlertTriangle className="h-3 w-3" /> Vencido
-                      </Badge>
-                    ) : null}
-                    <Button
-                      variant="ghost"
-                      size="icon"
-                      className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
-                      aria-label={`Eliminar programación ${tipoLabel[p.tipo]}`}
-                      onClick={() => void removeSchedule(u.truck_id, p.tipo)}
                     >
-                      <X className="h-4 w-4" />
-                    </Button>
-                  </div>
-                ))
-              )}
-              {u.ultimos_registros.length > 0 && (
-                <div className="pt-2 border-t">
-                  <p className="text-xs uppercase text-muted-foreground mb-1">Últimos servicios</p>
-                  {u.ultimos_registros.map((r) => (
-                    <p key={r.id} className="text-xs">
-                      {fmtDate(r.fecha)} · {tipoLabel[r.tipo]} @ {fmtNumber(r.km_odometro)} km — {r.descripcion}
-                    </p>
-                  ))}
+                      {chip.count}
+                    </Badge>
+                  </Button>
+                ))}
+              </div>
+              <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-2 w-full sm:max-w-xs">
+                  <Label htmlFor="unit-filter" className="shrink-0 text-sm">
+                    Unidad:
+                  </Label>
+                  <Select value={unitFilter} onValueChange={setUnitFilter}>
+                    <SelectTrigger id="unit-filter" className="w-full">
+                      <SelectValue placeholder="Todas" />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="todas">Todas</SelectItem>
+                      {units.map((u) => (
+                        <SelectItem key={u.truck_id} value={u.truck_id}>
+                          {u.numero_economico} · {u.placas}
+                        </SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
                 </div>
-              )}
-              <div className="flex gap-2 pt-2">
-                <Button
-                  size="sm"
-                  variant="outline"
-                  onClick={() => {
-                    setForm((f) => ({
-                      ...f,
-                      truck_id: u.truck_id,
-                      km_odometro: u.km_actual,
-                      ultimo_km: u.km_actual,
-                      ultima_fecha: new Date().toISOString().slice(0, 10),
-                    }));
-                    setPorKm(true);
-                    setPorDias(false);
-                    setScheduleOpen(true);
-                  }}
-                >
-                  Programar
-                </Button>
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    setForm((f) => ({ ...f, truck_id: u.truck_id, km_odometro: u.km_actual }));
-                    setRecordOpen(true);
-                  }}
-                >
-                  Registrar servicio
-                </Button>
+                <p className="text-xs text-muted-foreground sm:text-right">
+                  Mostrando <span className="font-medium text-foreground">{filteredUnits.length}</span> de{" "}
+                  {stats.total}
+                </p>
               </div>
             </CardContent>
           </Card>
-        ))}
-      </div>
 
-      {units.length === 0 && !loading && (
-        <p className="text-center text-muted-foreground py-12">No hay unidades activas.</p>
-      )}
+          <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            {filteredUnits.map((u) => {
+              const health = unitHealth(u);
+              const meta = healthMeta[health];
+              return (
+                <Card key={u.truck_id} className={cn("tlo-shadow-md flex flex-col", meta.className)}>
+                  <CardHeader className="pb-3 space-y-3">
+                    <div className="flex items-start justify-between gap-2">
+                      <CardTitle className="text-base flex items-center gap-2 min-w-0">
+                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-secondary">
+                          <Wrench className="h-4 w-4" />
+                        </span>
+                        <span className="min-w-0">
+                          <span className="block truncate font-semibold">{u.numero_economico}</span>
+                          <span className="block text-xs font-normal text-muted-foreground">{u.placas}</span>
+                        </span>
+                      </CardTitle>
+                      <Badge variant={meta.badge} className="shrink-0 gap-1">
+                        {health === "vencido" && <AlertTriangle className="h-3 w-3" />}
+                        {health === "al_dia" && <CheckCircle2 className="h-3 w-3" />}
+                        {meta.label}
+                      </Badge>
+                    </div>
+                    <div className="flex items-center gap-2 text-xs text-muted-foreground">
+                      <Gauge className="h-3.5 w-3.5" />
+                      Odómetro estimado:{" "}
+                      <span className="font-medium tabular-nums text-foreground">
+                        {fmtNumber(u.km_actual)} km
+                      </span>
+                    </div>
+                  </CardHeader>
+
+                  <CardContent className="flex flex-1 flex-col gap-3 pt-0 text-sm">
+                    {u.proximos.length === 0 ? (
+                      <div className="rounded-lg border border-dashed px-3 py-4 text-center space-y-2">
+                        <p className="text-muted-foreground text-xs">
+                          Esta unidad no tiene intervalos programados. Define cuándo debe hacerse el
+                          próximo servicio.
+                        </p>
+                        <Button size="sm" variant="outline" onClick={() => openSchedule(u.truck_id, u.km_actual)}>
+                          <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
+                          Crear programación
+                        </Button>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Próximos servicios
+                        </p>
+                        {u.proximos.map((p) => {
+                          const near = isNearDue(p);
+                          return (
+                            <div
+                              key={p.tipo}
+                              className={cn(
+                                "rounded-lg border px-3 py-2.5 space-y-2",
+                                p.vencido && "border-destructive/50 bg-destructive/5",
+                                !p.vencido && near && "border-warning/40 bg-warning/5",
+                              )}
+                            >
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="font-medium">{tipoLabel[p.tipo]}</p>
+                                  {p.vencido ? (
+                                    <Badge variant="destructive" className="gap-1 h-5 text-[10px]">
+                                      <AlertTriangle className="h-3 w-3" /> Vencido
+                                    </Badge>
+                                  ) : near ? (
+                                    <Badge variant="secondary" className="h-5 text-[10px]">
+                                      Por vencer
+                                    </Badge>
+                                  ) : null}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-7 w-7 shrink-0 text-muted-foreground hover:text-destructive"
+                                  aria-label={`Eliminar programación ${tipoLabel[p.tipo]}`}
+                                  onClick={() =>
+                                    setPendingDelete({
+                                      truckId: u.truck_id,
+                                      tipo: p.tipo,
+                                      label: `${u.numero_economico} · ${tipoLabel[p.tipo]}`,
+                                    })
+                                  }
+                                >
+                                  <X className="h-4 w-4" />
+                                </Button>
+                              </div>
+
+                              {p.km_proximo != null && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="flex items-center gap-1 text-muted-foreground">
+                                      <Gauge className="h-3 w-3" />
+                                      Por km
+                                    </span>
+                                    <span className="tabular-nums font-medium">
+                                      {p.vencido_km
+                                        ? "Vencido"
+                                        : p.km_restantes != null
+                                          ? `${fmtNumber(p.km_restantes)} km rest.`
+                                          : "—"}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={p.vencido_km ? 100 : kmProgressPct(p.km_restantes)}
+                                    className={cn(
+                                      "h-1.5",
+                                      p.vencido_km && "[&>div]:bg-destructive",
+                                      !p.vencido_km &&
+                                        p.km_restantes != null &&
+                                        p.km_restantes <= KM_ALERT_THRESHOLD &&
+                                        "[&>div]:bg-warning",
+                                    )}
+                                  />
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Meta: {fmtNumber(p.km_proximo)} km
+                                  </p>
+                                </div>
+                              )}
+
+                              {p.fecha_proxima && (
+                                <div className="space-y-1">
+                                  <div className="flex items-center justify-between gap-2 text-xs">
+                                    <span className="flex items-center gap-1 text-muted-foreground">
+                                      <CalendarClock className="h-3 w-3" />
+                                      Por tiempo
+                                    </span>
+                                    <span className="tabular-nums font-medium">
+                                      {p.vencido_tiempo
+                                        ? "Vencido"
+                                        : p.dias_restantes != null
+                                          ? `${fmtNumber(p.dias_restantes)} días rest.`
+                                          : "—"}
+                                    </span>
+                                  </div>
+                                  <Progress
+                                    value={p.vencido_tiempo ? 100 : daysProgressPct(p.dias_restantes)}
+                                    className={cn(
+                                      "h-1.5",
+                                      p.vencido_tiempo && "[&>div]:bg-destructive",
+                                      !p.vencido_tiempo &&
+                                        p.dias_restantes != null &&
+                                        p.dias_restantes <= DAYS_ALERT_THRESHOLD &&
+                                        "[&>div]:bg-warning",
+                                    )}
+                                  />
+                                  <p className="text-[11px] text-muted-foreground">
+                                    Meta: {fmtDate(p.fecha_proxima)}
+                                  </p>
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    )}
+
+                    {u.ultimos_registros.length > 0 && (
+                      <div className="border-t pt-3 space-y-1.5">
+                        <p className="text-[11px] font-medium uppercase tracking-wider text-muted-foreground">
+                          Últimos servicios
+                        </p>
+                        {u.ultimos_registros.map((r) => (
+                          <div key={r.id} className="text-xs leading-snug">
+                            <span className="text-muted-foreground">{fmtDate(r.fecha)}</span>
+                            {" · "}
+                            <span className="font-medium">{tipoLabel[r.tipo]}</span>
+                            <span className="text-muted-foreground">
+                              {" "}
+                              @ {fmtNumber(r.km_odometro)} km — {r.descripcion}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+
+                    <div className="mt-auto flex gap-2 pt-1">
+                      <Button
+                        size="sm"
+                        variant="outline"
+                        className="flex-1"
+                        onClick={() => openSchedule(u.truck_id, u.km_actual)}
+                      >
+                        <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
+                        Programar
+                      </Button>
+                      <Button size="sm" className="flex-1" onClick={() => openRecord(u.truck_id, u.km_actual)}>
+                        <ClipboardPlus className="h-3.5 w-3.5 mr-1.5" />
+                        Registrar
+                      </Button>
+                    </div>
+                  </CardContent>
+                </Card>
+              );
+            })}
+          </div>
+
+          {filteredUnits.length === 0 && !loading && (
+            <Card className="tlo-shadow-md">
+              <CardContent className="py-12 text-center space-y-3">
+                <Wrench className="h-8 w-8 mx-auto text-muted-foreground/60" />
+                <div className="space-y-1">
+                  <p className="font-medium">
+                    {units.length === 0
+                      ? "No hay unidades activas"
+                      : "Ninguna unidad coincide con el filtro"}
+                  </p>
+                  <p className="text-sm text-muted-foreground">
+                    {units.length === 0
+                      ? "Cuando tengas camiones activos aparecerán aquí para programar y registrar mantenimiento."
+                      : "Prueba otra unidad o selecciona «Todas»."}
+                  </p>
+                </div>
+                {units.length > 0 && (
+                  <Button
+                    variant="outline"
+                    size="sm"
+                    onClick={() => {
+                      setUnitFilter("todas");
+                      setStatusFilter("todos");
+                    }}
+                  >
+                    Limpiar filtros
+                  </Button>
+                )}
+              </CardContent>
+            </Card>
+          )}
+        </TabsContent>
+
+        <TabsContent value="bitacora" className="space-y-4 mt-4">
+          <Card className="p-4 tlo-shadow-md space-y-3">
+            <div className="grid gap-3 md:grid-cols-2 lg:grid-cols-4">
+              <div className="lg:col-span-2">
+                <Label htmlFor="bit-search">Buscar</Label>
+                <Input
+                  id="bit-search"
+                  value={bitSearch}
+                  onChange={(e) => setBitSearch(e.target.value)}
+                  placeholder="Descripción, proveedor o unidad…"
+                />
+              </div>
+              <div>
+                <Label>Unidad</Label>
+                <Select value={bitUnit} onValueChange={setBitUnit}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todas">Todas</SelectItem>
+                    {trucks
+                      .filter((t) => t.estatus !== "baja")
+                      .map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.numero_economico}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Tipo</Label>
+                <Select
+                  value={bitTipo}
+                  onValueChange={(v) => setBitTipo(v as MaintenanceType | "todos")}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="preventivo">Preventivo</SelectItem>
+                    <SelectItem value="menor">Menor</SelectItem>
+                    <SelectItem value="intermedio">Intermedio</SelectItem>
+                    <SelectItem value="mayor">Mayor</SelectItem>
+                    <SelectItem value="correctivo">Correctivo</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Desde</Label>
+                <Input type="date" value={bitDesde} onChange={(e) => setBitDesde(e.target.value)} />
+              </div>
+              <div>
+                <Label>Hasta</Label>
+                <Input type="date" value={bitHasta} onChange={(e) => setBitHasta(e.target.value)} />
+              </div>
+            </div>
+          </Card>
+
+          <Card className="tlo-shadow-md overflow-hidden">
+            {recordsLoading ? (
+              <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
+                <Loader2 className="h-5 w-5 animate-spin" />
+                Cargando bitácora…
+              </div>
+            ) : (
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50 [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-secondary/95">
+                    <SortableTableHead
+                      label="Fecha"
+                      column="fecha"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableTableHead
+                      label="Unidad"
+                      column="unidad"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableTableHead
+                      label="Tipo"
+                      column="tipo"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableTableHead
+                      label="Km"
+                      column="km"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                      className="text-right"
+                    />
+                    <SortableTableHead
+                      label="Costo"
+                      column="costo"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                      className="text-right"
+                    />
+                    <SortableTableHead
+                      label="Proveedor"
+                      column="proveedor"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableTableHead
+                      label="Descripción"
+                      column="descripcion"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <TableHead>Factura</TableHead>
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {pageData.slice.map((r) => {
+                    const busy = facturaBusyId === r.id;
+                    return (
+                      <TableRow key={r.id} className="hover:bg-muted/40">
+                        <TableCell className="whitespace-nowrap">{fmtDate(r.fecha)}</TableCell>
+                        <TableCell className="font-medium">{truckLabel(r.truck_id)}</TableCell>
+                        <TableCell>
+                          <Badge variant="outline">{tipoLabel[r.tipo]}</Badge>
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {fmtNumber(r.km_odometro)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">{fmtMXN(r.costo)}</TableCell>
+                        <TableCell className="max-w-[10rem] truncate">{supplierLabel(r)}</TableCell>
+                        <TableCell className="max-w-[16rem] truncate text-muted-foreground">
+                          {r.descripcion}
+                        </TableCell>
+                        <TableCell>
+                          {r.factura_url ? (
+                            <div className="flex items-center gap-2">
+                              <FacturaThumb
+                                fileUrl={r.factura_url}
+                                mime={r.factura_mime}
+                                nombre={r.factura_nombre}
+                              />
+                              <div className="flex flex-col gap-1">
+                                <Button
+                                  size="sm"
+                                  variant="ghost"
+                                  className="h-7 px-2 justify-start"
+                                  disabled={busy}
+                                  onClick={() => void viewFactura(r)}
+                                >
+                                  <ExternalLink className="h-3.5 w-3.5 mr-1" />
+                                  Ver
+                                </Button>
+                                {canEdit && (
+                                  <div className="flex gap-1">
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2"
+                                      disabled={busy}
+                                      onClick={() => startReplaceFactura(r.id)}
+                                    >
+                                      <Upload className="h-3.5 w-3.5 mr-1" />
+                                      Reemplazar
+                                    </Button>
+                                    <Button
+                                      size="sm"
+                                      variant="ghost"
+                                      className="h-7 px-2 text-destructive hover:text-destructive"
+                                      disabled={busy}
+                                      onClick={() => void removeFactura(r)}
+                                    >
+                                      <Trash2 className="h-3.5 w-3.5" />
+                                    </Button>
+                                  </div>
+                                )}
+                              </div>
+                            </div>
+                          ) : canEdit ? (
+                            <Button
+                              size="sm"
+                              variant="outline"
+                              disabled={busy}
+                              onClick={() => startReplaceFactura(r.id)}
+                            >
+                              <Upload className="h-3.5 w-3.5 mr-1.5" />
+                              Subir
+                            </Button>
+                          ) : (
+                            <span className="text-xs text-muted-foreground">—</span>
+                          )}
+                        </TableCell>
+                      </TableRow>
+                    );
+                  })}
+                  {!pageData.slice.length && (
+                    <TableRow>
+                      <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                        Sin resultados
+                      </TableCell>
+                    </TableRow>
+                  )}
+                </TableBody>
+              </Table>
+            )}
+          </Card>
+
+          {!recordsLoading && pageData.total > 0 && (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <p className="text-sm text-muted-foreground">
+                Mostrando {pageData.rangeStart}–{pageData.rangeEnd} de {pageData.total}
+              </p>
+              <div className="flex flex-wrap items-center gap-2">
+                <Select value={String(pageSize)} onValueChange={(v) => setPageSize(Number(v))}>
+                  <SelectTrigger className="w-[100px]">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="10">10</SelectItem>
+                    <SelectItem value="20">20</SelectItem>
+                    <SelectItem value="50">50</SelectItem>
+                  </SelectContent>
+                </Select>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page <= 1}
+                  onClick={() => setPage((p) => Math.max(1, p - 1))}
+                >
+                  Anterior
+                </Button>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  disabled={page >= pageData.totalPages}
+                  onClick={() => setPage((p) => p + 1)}
+                >
+                  Siguiente
+                </Button>
+              </div>
+            </div>
+          )}
+        </TabsContent>
+      </Tabs>
 
       <Dialog open={scheduleOpen} onOpenChange={setScheduleOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Programar servicio</DialogTitle></DialogHeader>
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Programar servicio</DialogTitle>
+            <DialogDescription>
+              Define cada cuántos kilómetros y/o días debe repetirse un tipo de servicio. La alerta
+              se dispara con el primer criterio que se cumpla.
+            </DialogDescription>
+          </DialogHeader>
           <div className="grid gap-4">
             <div className="grid grid-cols-2 gap-3">
               <div>
                 <Label>Unidad</Label>
                 <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
-                  <SelectTrigger><SelectValue placeholder="Selecciona" /></SelectTrigger>
+                  <SelectTrigger>
+                    <SelectValue placeholder="Selecciona" />
+                  </SelectTrigger>
                   <SelectContent>
-                    {trucks.filter((t) => t.estatus !== "baja").map((t) => (
-                      <SelectItem key={t.id} value={t.id}>{t.numero_economico}</SelectItem>
-                    ))}
+                    {trucks
+                      .filter((t) => t.estatus !== "baja")
+                      .map((t) => (
+                        <SelectItem key={t.id} value={t.id}>
+                          {t.numero_economico}
+                        </SelectItem>
+                      ))}
                   </SelectContent>
                 </Select>
               </div>
               <div>
                 <Label>Tipo de servicio</Label>
-                <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}>
-                  <SelectTrigger><SelectValue /></SelectTrigger>
+                <Select
+                  value={form.tipo}
+                  onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
                   <SelectContent>
                     <SelectItem value="preventivo">Preventivo</SelectItem>
                     <SelectItem value="menor">Menor</SelectItem>
@@ -295,15 +1371,16 @@ export default function Mantenimiento() {
             </div>
 
             <div className="space-y-1">
-              <p className="text-sm font-medium">Programar por</p>
+              <p className="text-sm font-medium">Criterios de alerta</p>
               <p className="text-xs text-muted-foreground">
-                Elige uno o ambos criterios. La alerta se genera con el primero que se cumpla.
+                Activa uno o ambos. Puedes combinar km y tiempo en la misma programación.
               </p>
             </div>
 
-            <div className={`rounded-lg border p-3 space-y-3 ${porKm ? "" : "bg-muted/40"}`}>
+            <div className={cn("rounded-lg border p-3 space-y-3", !porKm && "bg-muted/40")}>
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox checked={porKm} onCheckedChange={(v) => setPorKm(v === true)} />
+                <Gauge className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Por kilómetros</span>
               </label>
               {porKm && (
@@ -326,16 +1403,21 @@ export default function Mantenimiento() {
                       onChange={(e) => setForm({ ...form, ultimo_km: +e.target.value })}
                     />
                   </div>
-                  <p className="col-span-2 text-xs text-muted-foreground">
-                    Próximo servicio a los {fmtNumber((form.ultimo_km || 0) + (form.intervalo_km || 0))} km.
+                  <p className="col-span-2 text-xs text-muted-foreground rounded-md bg-secondary/60 px-2.5 py-2">
+                    Próximo servicio a los{" "}
+                    <span className="font-medium text-foreground">
+                      {fmtNumber((form.ultimo_km || 0) + (form.intervalo_km || 0))} km
+                    </span>
+                    .
                   </p>
                 </div>
               )}
             </div>
 
-            <div className={`rounded-lg border p-3 space-y-3 ${porDias ? "" : "bg-muted/40"}`}>
+            <div className={cn("rounded-lg border p-3 space-y-3", !porDias && "bg-muted/40")}>
               <label className="flex items-center gap-2 cursor-pointer">
                 <Checkbox checked={porDias} onCheckedChange={(v) => setPorDias(v === true)} />
+                <CalendarClock className="h-4 w-4 text-muted-foreground" />
                 <span className="text-sm font-medium">Por días</span>
               </label>
               {porDias && (
@@ -358,8 +1440,12 @@ export default function Mantenimiento() {
                     />
                   </div>
                   {form.ultima_fecha && form.intervalo_dias > 0 && (
-                    <p className="col-span-2 text-xs text-muted-foreground">
-                      Próximo servicio el {fmtDate(addDaysIso(form.ultima_fecha, form.intervalo_dias))}.
+                    <p className="col-span-2 text-xs text-muted-foreground rounded-md bg-secondary/60 px-2.5 py-2">
+                      Próximo servicio el{" "}
+                      <span className="font-medium text-foreground">
+                        {fmtDate(addDaysIso(form.ultima_fecha, form.intervalo_dias))}
+                      </span>
+                      .
                     </p>
                   )}
                 </div>
@@ -367,31 +1453,58 @@ export default function Mantenimiento() {
             </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setScheduleOpen(false)}>Cancelar</Button>
-            <Button onClick={saveSchedule} disabled={!porKm && !porDias}>Guardar</Button>
+            <Button variant="outline" onClick={() => setScheduleOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void saveSchedule()} disabled={!porKm && !porDias}>
+              Guardar programación
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={recordOpen} onOpenChange={setRecordOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Registrar mantenimiento</DialogTitle></DialogHeader>
+      <Dialog
+        open={recordOpen}
+        onOpenChange={(open) => {
+          setRecordOpen(open);
+          if (!open) clearInvoiceFile();
+        }}
+      >
+        <DialogContent className="max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Registrar servicio</DialogTitle>
+            <DialogDescription>
+              Captura un mantenimiento ya realizado (costo, proveedor, factura y odómetro). Si hay
+              programación del mismo tipo, se actualiza el último servicio.
+            </DialogDescription>
+          </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label>Unidad</Label>
               <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona" />
+                </SelectTrigger>
                 <SelectContent>
-                  {trucks.map((t) => (
-                    <SelectItem key={t.id} value={t.id}>{t.numero_economico}</SelectItem>
-                  ))}
+                  {trucks
+                    .filter((t) => t.estatus !== "baja")
+                    .map((t) => (
+                      <SelectItem key={t.id} value={t.id}>
+                        {t.numero_economico}
+                      </SelectItem>
+                    ))}
                 </SelectContent>
               </Select>
             </div>
             <div>
               <Label>Tipo</Label>
-              <Select value={form.tipo} onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}>
-                <SelectTrigger><SelectValue /></SelectTrigger>
+              <Select
+                value={form.tipo}
+                onValueChange={(v) => setForm({ ...form, tipo: v as MaintenanceType })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
                 <SelectContent>
                   <SelectItem value="preventivo">Preventivo</SelectItem>
                   <SelectItem value="menor">Menor</SelectItem>
@@ -401,18 +1514,139 @@ export default function Mantenimiento() {
                 </SelectContent>
               </Select>
             </div>
-            <div><Label>Fecha</Label><Input type="date" value={form.fecha} onChange={(e) => setForm({ ...form, fecha: e.target.value })} /></div>
-            <div><Label>Km odómetro</Label><Input type="number" value={form.km_odometro} onChange={(e) => setForm({ ...form, km_odometro: +e.target.value })} /></div>
-            <div><Label>Costo</Label><Input type="number" value={form.costo} onChange={(e) => setForm({ ...form, costo: +e.target.value })} /></div>
-            <div className="col-span-2"><Label>Taller</Label><Input value={form.taller} onChange={(e) => setForm({ ...form, taller: e.target.value })} /></div>
-            <div className="col-span-2"><Label>Descripción</Label><Input value={form.descripcion} onChange={(e) => setForm({ ...form, descripcion: e.target.value })} /></div>
+            <div>
+              <Label>Fecha</Label>
+              <Input
+                type="date"
+                value={form.fecha}
+                onChange={(e) => setForm({ ...form, fecha: e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Km odómetro</Label>
+              <Input
+                type="number"
+                value={form.km_odometro}
+                onChange={(e) => setForm({ ...form, km_odometro: +e.target.value })}
+              />
+            </div>
+            <div>
+              <Label>Costo</Label>
+              <Input
+                type="number"
+                value={form.costo}
+                onChange={(e) => setForm({ ...form, costo: +e.target.value })}
+              />
+            </div>
+            <div className="col-span-2">
+              <Label>Proveedor</Label>
+              <SupplierCombobox
+                suppliers={activeSuppliers}
+                value={form.supplier_id}
+                onChange={(supplierId) => setForm({ ...form, supplier_id: supplierId })}
+                placeholder="Opcional — buscar proveedor…"
+              />
+            </div>
+            <div className="col-span-2">
+              <Label>Descripción</Label>
+              <Textarea
+                value={form.descripcion}
+                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
+                placeholder="Qué se realizó…"
+                rows={4}
+                className="resize-y min-h-[96px]"
+              />
+            </div>
+            <div className="col-span-2 space-y-2">
+              <Label>Factura</Label>
+              {!invoiceFile ? (
+                <Input
+                  type="file"
+                  accept={FACTURA_ACCEPT}
+                  onChange={(e) => onPickInvoice(e.target.files?.[0] ?? null)}
+                />
+              ) : (
+                <div className="rounded-lg border p-3 flex items-start gap-3">
+                  {invoicePreviewUrl ? (
+                    <img
+                      src={invoicePreviewUrl}
+                      alt="Vista previa"
+                      className="h-16 w-16 rounded object-cover border"
+                    />
+                  ) : (
+                    <span className="flex h-16 w-16 items-center justify-center rounded border bg-secondary">
+                      <FileText className="h-6 w-6 text-muted-foreground" />
+                    </span>
+                  )}
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-sm font-medium truncate">{invoiceFile.name}</p>
+                    <p className="text-xs text-muted-foreground">
+                      {(invoiceFile.size / 1024).toFixed(0)} KB · se subirá al guardar
+                    </p>
+                    <div className="flex gap-2 pt-1">
+                      <Button type="button" size="sm" variant="outline" onClick={clearInvoiceFile}>
+                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                        Quitar
+                      </Button>
+                      <label className="inline-flex">
+                        <Button type="button" size="sm" variant="ghost" asChild>
+                          <span>
+                            <Upload className="h-3.5 w-3.5 mr-1.5" />
+                            Cambiar
+                          </span>
+                        </Button>
+                        <input
+                          type="file"
+                          accept={FACTURA_ACCEPT}
+                          className="hidden"
+                          onChange={(e) => onPickInvoice(e.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                    </div>
+                  </div>
+                </div>
+              )}
+              <p className="text-xs text-muted-foreground">PDF, JPG o PNG.</p>
+            </div>
           </div>
           <DialogFooter>
-            <Button variant="outline" onClick={() => setRecordOpen(false)}>Cancelar</Button>
-            <Button onClick={saveRecord}>Registrar</Button>
+            <Button variant="outline" onClick={() => setRecordOpen(false)} disabled={savingRecord}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void saveRecord()} disabled={savingRecord}>
+              {savingRecord ? "Guardando…" : "Registrar servicio"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AlertDialog
+        open={pendingDelete != null}
+        onOpenChange={(open) => {
+          if (!open) setPendingDelete(null);
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Eliminar programación?</AlertDialogTitle>
+            <AlertDialogDescription>
+              Se quitará la alerta de{" "}
+              <span className="font-medium text-foreground">{pendingDelete?.label}</span>. Los
+              registros de servicio ya capturados no se borran.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={deleting}>Cancelar</AlertDialogCancel>
+            <Button
+              variant="destructive"
+              disabled={deleting}
+              onClick={() => void confirmRemoveSchedule()}
+            >
+              {deleting ? "Eliminando…" : "Eliminar"}
+            </Button>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

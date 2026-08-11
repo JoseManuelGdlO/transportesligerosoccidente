@@ -22,6 +22,9 @@ export class MaintenanceRecord extends Model<
   declare descripcion: string;
   declare taller: CreationOptional<string | null>;
   declare supplier_id: CreationOptional<string | null>;
+  declare factura_path: CreationOptional<string | null>;
+  declare factura_nombre: CreationOptional<string | null>;
+  declare factura_mime: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -42,6 +45,9 @@ export function initMaintenanceRecord(sequelize: Sequelize) {
       descripcion: { type: DataTypes.STRING(512), allowNull: false },
       taller: { type: DataTypes.STRING(255), allowNull: true },
       supplier_id: { type: DataTypes.CHAR(36), allowNull: true },
+      factura_path: { type: DataTypes.STRING(512), allowNull: true },
+      factura_nombre: { type: DataTypes.STRING(255), allowNull: true },
+      factura_mime: { type: DataTypes.STRING(100), allowNull: true },
     } as never,
     { sequelize, tableName: "maintenance_records", underscored: true },
   );

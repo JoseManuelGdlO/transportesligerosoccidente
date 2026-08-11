@@ -1043,6 +1043,10 @@ export interface MaintenanceRecordRow {
   costo: number;
   descripcion: string;
   taller?: string;
+  supplier_id?: string;
+  factura_url?: string;
+  factura_nombre?: string;
+  factura_mime?: string;
 }
 
 export interface MaintenanceOverviewUnit {

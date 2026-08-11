@@ -1,8 +1,11 @@
+import fs from "node:fs";
+import path from "node:path";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import * as maintenanceService from "../services/maintenanceService";
 import { num } from "../utils/numbers";
+import type { MaintenanceRecord } from "../models/MaintenanceRecord";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -27,6 +30,24 @@ const recordSchema = z.object({
   taller: z.string().optional(),
   supplier_id: z.string().uuid().optional().nullable(),
 });
+
+function recordToJson(r: MaintenanceRecord) {
+  const hasFactura = Boolean(r.factura_path);
+  return {
+    id: r.id,
+    truck_id: r.truck_id,
+    tipo: r.tipo,
+    km_odometro: r.km_odometro,
+    fecha: r.fecha,
+    costo: num(r.costo),
+    descripcion: r.descripcion,
+    taller: r.taller ?? undefined,
+    supplier_id: r.supplier_id ?? undefined,
+    factura_url: hasFactura ? `/maintenance/records/${r.id}/factura` : undefined,
+    factura_nombre: r.factura_nombre ?? undefined,
+    factura_mime: r.factura_mime ?? undefined,
+  };
+}
 
 export const getOverview = asyncHandler(async (req: Request, res: Response) => {
   const data = await maintenanceService.maintenanceOverview(tid(req));
@@ -83,19 +104,7 @@ export const deleteSchedule = asyncHandler(async (req: Request, res: Response) =
 export const listRecords = asyncHandler(async (req: Request, res: Response) => {
   const truckId = typeof req.query.truck_id === "string" ? req.query.truck_id : undefined;
   const rows = await maintenanceService.listRecords(tid(req), truckId);
-  res.json(
-    rows.map((r) => ({
-      id: r.id,
-      truck_id: r.truck_id,
-      tipo: r.tipo,
-      km_odometro: r.km_odometro,
-      fecha: r.fecha,
-      costo: num(r.costo),
-      descripcion: r.descripcion,
-      taller: r.taller ?? undefined,
-      supplier_id: r.supplier_id ?? undefined,
-    })),
-  );
+  res.json(rows.map(recordToJson));
 });
 
 export const createRecord = asyncHandler(async (req: Request, res: Response) => {
@@ -106,15 +115,34 @@ export const createRecord = asyncHandler(async (req: Request, res: Response) => 
   }
   const row = await maintenanceService.createRecord(tid(req), parsed.data);
   await maintenanceService.checkMaintenanceAlerts(tid(req));
-  res.status(201).json({
-    id: row.id,
-    truck_id: row.truck_id,
-    tipo: row.tipo,
-    km_odometro: row.km_odometro,
-    fecha: row.fecha,
-    costo: num(row.costo),
-    descripcion: row.descripcion,
-    taller: row.taller ?? undefined,
-    supplier_id: row.supplier_id ?? undefined,
-  });
+  res.status(201).json(recordToJson(row));
+});
+
+export const uploadFactura = asyncHandler(async (req: Request, res: Response) => {
+  const file = req.file;
+  if (!file) {
+    res.status(400).json({ error: "Archivo requerido" });
+    return;
+  }
+  const row = await maintenanceService.setRecordFactura(tid(req), req.params.id, file);
+  res.status(201).json(recordToJson(row));
+});
+
+export const streamFactura = asyncHandler(async (req: Request, res: Response) => {
+  const row = await maintenanceService.getRecordOrThrow(tid(req), req.params.id);
+  const abs = maintenanceService.resolveFacturaAbsolutePath(row);
+  if (!abs || !fs.existsSync(abs)) {
+    res.status(404).json({ error: "Factura no encontrada" });
+    return;
+  }
+  res.setHeader("Content-Type", row.factura_mime || "application/octet-stream");
+  const disp = (req.query.disposition as string) === "attachment" ? "attachment" : "inline";
+  const filename = row.factura_nombre || path.basename(abs);
+  res.setHeader("Content-Disposition", `${disp}; filename="${encodeURIComponent(filename)}"`);
+  res.sendFile(abs);
+});
+
+export const deleteFactura = asyncHandler(async (req: Request, res: Response) => {
+  const row = await maintenanceService.clearRecordFactura(tid(req), req.params.id);
+  res.json(recordToJson(row));
 });

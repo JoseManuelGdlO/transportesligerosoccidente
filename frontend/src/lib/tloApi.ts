@@ -1422,6 +1422,69 @@ export async function cancelDriverAccountItem(
 
 /* —— CXC / CXP —— */
 
+function normalizeMaintenanceRecord(raw: Record<string, unknown>): import("@/types/tlo").MaintenanceRecordRow {
+  return {
+    id: String(raw.id),
+    truck_id: String(raw.truck_id),
+    tipo: raw.tipo as import("@/types/tlo").MaintenanceType,
+    km_odometro: Number(raw.km_odometro) || 0,
+    fecha: String(raw.fecha ?? "").slice(0, 10),
+    costo: Number(raw.costo) || 0,
+    descripcion: String(raw.descripcion ?? ""),
+    taller: raw.taller != null ? String(raw.taller) : undefined,
+    supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : undefined,
+    factura_url: raw.factura_url != null ? String(raw.factura_url) : undefined,
+    factura_nombre: raw.factura_nombre != null ? String(raw.factura_nombre) : undefined,
+    factura_mime: raw.factura_mime != null ? String(raw.factura_mime) : undefined,
+  };
+}
+
+export async function fetchMaintenanceRecords(
+  truckId?: string,
+): Promise<import("@/types/tlo").MaintenanceRecordRow[]> {
+  const qs = truckId ? `?truck_id=${encodeURIComponent(truckId)}` : "";
+  const res = await apiFetch(`/maintenance/records${qs}`);
+  const data = await readJson<unknown[]>(res);
+  return data.map((r) => normalizeMaintenanceRecord(r as Record<string, unknown>));
+}
+
+export async function createMaintenanceRecordApi(body: {
+  truck_id: string;
+  tipo: import("@/types/tlo").MaintenanceType;
+  km_odometro: number;
+  fecha: string;
+  costo: number;
+  descripcion: string;
+  taller?: string;
+  supplier_id?: string | null;
+}): Promise<import("@/types/tlo").MaintenanceRecordRow> {
+  const res = await apiFetch("/maintenance/records", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return normalizeMaintenanceRecord(await readJson(res));
+}
+
+export async function uploadMaintenanceInvoice(
+  recordId: string,
+  file: File,
+): Promise<import("@/types/tlo").MaintenanceRecordRow> {
+  const fd = new FormData();
+  fd.append("file", file);
+  const res = await apiFetch(`/maintenance/records/${recordId}/factura`, {
+    method: "POST",
+    body: fd,
+  });
+  return normalizeMaintenanceRecord(await readJson(res));
+}
+
+export async function deleteMaintenanceInvoice(
+  recordId: string,
+): Promise<import("@/types/tlo").MaintenanceRecordRow> {
+  const res = await apiFetch(`/maintenance/records/${recordId}/factura`, { method: "DELETE" });
+  return normalizeMaintenanceRecord(await readJson(res));
+}
+
 export async function fetchSuppliers(): Promise<import("@/types/tlo").Supplier[]> {
   const res = await apiFetch("/suppliers");
   const data = await readJson<unknown[]>(res);
