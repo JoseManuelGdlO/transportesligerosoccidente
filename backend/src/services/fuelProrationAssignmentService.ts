@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import {
   FuelProrationAssignment,
@@ -23,33 +24,37 @@ export type FuelProrationAssignmentInput = {
   fuel_ticket_id: string | null;
 };
 
+export type DraftAssignmentPair = {
+  trip_id: string;
+  fuel_ticket_id: string;
+};
+
 export async function getAssignmentsForTruck(
   tenantId: string,
   truckId: string,
-): Promise<Map<string, string>> {
+): Promise<DraftAssignmentPair[]> {
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, truck_id: truckId },
     attributes: ["id"],
   });
   const tripIds = trips.map((t) => String(t.id));
-  if (tripIds.length === 0) return new Map();
+  if (tripIds.length === 0) return [];
 
   const rows = await FuelProrationAssignment.findAll({
     where: { tenant_id: tenantId, trip_id: { [Op.in]: tripIds } },
   });
 
-  const map = new Map<string, string>();
-  for (const row of rows) {
-    map.set(String(row.trip_id), String(row.fuel_ticket_id));
-  }
-  return map;
+  return rows.map((row) => ({
+    trip_id: String(row.trip_id),
+    fuel_ticket_id: String(row.fuel_ticket_id),
+  }));
 }
 
 /** Asignaciones borrador (solo tickets pendientes de confirmación). */
 export async function getDraftAssignmentsForTruck(
   tenantId: string,
   truckId: string,
-): Promise<Map<string, string>> {
+): Promise<DraftAssignmentPair[]> {
   const pendingTickets = await FuelTicket.findAll({
     where: {
       tenant_id: tenantId,
@@ -59,14 +64,14 @@ export async function getDraftAssignmentsForTruck(
     attributes: ["id"],
   });
   const pendingTicketIds = pendingTickets.map((t) => String(t.id));
-  if (pendingTicketIds.length === 0) return new Map();
+  if (pendingTicketIds.length === 0) return [];
 
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, truck_id: truckId },
     attributes: ["id"],
   });
   const tripIds = trips.map((t) => String(t.id));
-  if (tripIds.length === 0) return new Map();
+  if (tripIds.length === 0) return [];
 
   const rows = await FuelProrationAssignment.findAll({
     where: {
@@ -76,14 +81,13 @@ export async function getDraftAssignmentsForTruck(
     },
   });
 
-  const map = new Map<string, string>();
-  for (const row of rows) {
-    map.set(String(row.trip_id), String(row.fuel_ticket_id));
-  }
-  return map;
+  return rows.map((row) => ({
+    trip_id: String(row.trip_id),
+    fuel_ticket_id: String(row.fuel_ticket_id),
+  }));
 }
 
-/** Viajes bloqueados por tickets ya confirmados. */
+/** Viajes con asignación en tickets ya confirmados (para UI sin_asignar). */
 export async function getConfirmedTripIdsForTruck(
   tenantId: string,
   truckId: string,
@@ -110,23 +114,28 @@ export async function getConfirmedTripIdsForTruck(
   return new Set(rows.map((r) => String(r.trip_id)));
 }
 
+/**
+ * Reemplaza borradores de tickets *sin* source_trip_id.
+ * Las asignaciones de tickets nacidos desde viaje no se tocan.
+ */
 export async function saveDraftAssignmentsForTruck(
   tenantId: string,
   truckId: string,
-  assignments: { trip_id: string; fuel_ticket_id: string }[],
+  assignments: DraftAssignmentPair[],
 ): Promise<void> {
   const pendingTickets = await FuelTicket.findAll({
     where: {
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
+      source_trip_id: null,
     },
     attributes: ["id"],
   });
   const pendingTicketIds = pendingTickets.map((t) => String(t.id));
   if (pendingTicketIds.length === 0) return;
 
-  const tripIds = [...new Set(assignments.map((a) => a.trip_id))];
+  const filtered = assignments.filter((a) => pendingTicketIds.includes(a.fuel_ticket_id));
 
   await sequelize.transaction(async (t) => {
     await FuelProrationAssignment.destroy({
@@ -137,20 +146,10 @@ export async function saveDraftAssignmentsForTruck(
       transaction: t,
     });
 
-    if (tripIds.length > 0) {
-      await FuelProrationAssignment.destroy({
-        where: {
-          tenant_id: tenantId,
-          trip_id: { [Op.in]: tripIds },
-          fuel_ticket_id: { [Op.in]: pendingTicketIds },
-        },
-        transaction: t,
-      });
-    }
-
-    if (assignments.length > 0) {
+    if (filtered.length > 0) {
       await FuelProrationAssignment.bulkCreate(
-        assignments.map((a) => ({
+        filtered.map((a) => ({
+          id: randomUUID(),
           tenant_id: tenantId,
           trip_id: a.trip_id,
           fuel_ticket_id: a.fuel_ticket_id,
@@ -178,12 +177,15 @@ export async function saveTicketAssignments(
   }
 
   const truckId = String(ticket.truck_id);
-  const uniqueTripIds = [...new Set(tripIds)];
+  let uniqueTripIds = [...new Set(tripIds)];
 
-  const confirmedTripIds = await getConfirmedTripIdsForTruck(tenantId, truckId);
-  for (const tripId of uniqueTripIds) {
-    if (confirmedTripIds.has(tripId)) {
-      throw Object.assign(new Error("Uno o más viajes ya están en un ticket confirmado"), { status: 400 });
+  if (ticket.source_trip_id) {
+    const sourceId = String(ticket.source_trip_id);
+    if (uniqueTripIds.length !== 1 || uniqueTripIds[0] !== sourceId) {
+      throw Object.assign(
+        new Error("Este ticket nació del viaje; la asignación debe ser solo ese viaje"),
+        { status: 400 },
+      );
     }
   }
 
@@ -213,6 +215,7 @@ export async function saveTicketAssignments(
     if (uniqueTripIds.length > 0) {
       await FuelProrationAssignment.bulkCreate(
         uniqueTripIds.map((tripId) => ({
+          id: randomUUID(),
           tenant_id: tenantId,
           trip_id: tripId,
           fuel_ticket_id: ticketId,
@@ -220,10 +223,7 @@ export async function saveTicketAssignments(
           litros_asignados: null,
           costo_asignado: null,
         })) as never[],
-        {
-          transaction: t,
-          updateOnDuplicate: ["fuel_ticket_id", "km_recorridos", "litros_asignados", "costo_asignado"],
-        },
+        { transaction: t },
       );
     }
   });
@@ -242,12 +242,20 @@ export async function saveAssignments(
   if (assignments.length === 0) return;
 
   const tripIds = [...new Set(assignments.map((a) => a.trip_id))];
-  if (tripIds.length !== assignments.length) {
-    throw Object.assign(new Error("Asignaciones duplicadas para el mismo viaje"), { status: 400 });
-  }
   const ticketIdsToAssign = [
     ...new Set(assignments.map((a) => a.fuel_ticket_id).filter((id): id is string => id != null)),
   ];
+
+  // Same trip may appear with different tickets; reject only exact duplicate pairs.
+  const pairKeys = new Set<string>();
+  for (const a of assignments) {
+    if (a.fuel_ticket_id == null) continue;
+    const key = `${a.trip_id}:${a.fuel_ticket_id}`;
+    if (pairKeys.has(key)) {
+      throw Object.assign(new Error("Asignaciones duplicadas para el mismo viaje y ticket"), { status: 400 });
+    }
+    pairKeys.add(key);
+  }
 
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
@@ -279,6 +287,12 @@ export async function saveAssignments(
       if (ticket.prorrateo_confirmado_at) {
         throw Object.assign(new Error("No se pueden modificar asignaciones de un ticket confirmado"), { status: 400 });
       }
+      if (ticket.source_trip_id) {
+        throw Object.assign(
+          new Error("No se pueden reasignar tickets creados desde un viaje"),
+          { status: 400 },
+        );
+      }
       const ticketDate = dateOnly(ticket.fecha);
       if (ticketDate < inicio || ticketDate > fin) {
         throw Object.assign(new Error("El ticket no está en el período seleccionado"), { status: 400 });
@@ -295,6 +309,7 @@ export async function saveAssignments(
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
+      source_trip_id: null,
       fecha: { [Op.between]: [inicio, fin] },
     },
     attributes: ["id"],
@@ -305,13 +320,18 @@ export async function saveAssignments(
 
   await sequelize.transaction(async (t) => {
     await FuelProrationAssignment.destroy({
-      where: { tenant_id: tenantId, trip_id: { [Op.in]: tripIds } },
+      where: {
+        tenant_id: tenantId,
+        trip_id: { [Op.in]: tripIds },
+        fuel_ticket_id: { [Op.in]: [...pendingTicketIds] },
+      },
       transaction: t,
     });
 
     if (filtered.length > 0) {
       await FuelProrationAssignment.bulkCreate(
         filtered.map((a) => ({
+          id: randomUUID(),
           tenant_id: tenantId,
           trip_id: a.trip_id,
           fuel_ticket_id: a.fuel_ticket_id,

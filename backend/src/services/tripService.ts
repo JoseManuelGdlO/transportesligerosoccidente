@@ -1,6 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { Op, type Transaction } from "sequelize";
-import { Trip, FuelLoad, Expense, Driver, Truck, Client, CartaPorte, sequelize } from "../models";
+import { Trip, FuelLoad, Expense, Driver, Truck, Client, CartaPorte, FuelTicket, FuelProrationAssignment, AccountDocument, sequelize } from "../models";
 import * as routeService from "./routeService";
 import {
   saveTripStops,
@@ -166,7 +166,13 @@ export async function getTripOrThrow(
     { association: "Client", attributes: ["id", "razon_social"], required: false },
   ];
   if (withNested) {
-    include.push({ association: "fuel" }, { association: "expenses" });
+    include.push(
+      {
+        association: "fuel",
+        include: [{ association: "FuelTicket", attributes: ["id", "prorrateo_confirmado_at", "es_foraneo"], required: false }],
+      },
+      { association: "expenses" },
+    );
   }
   if (withFiscal) {
     include.push(
@@ -273,30 +279,115 @@ export async function addFuel(
     comprobante_url?: string;
   },
 ) {
-  await getTripOrThrow(tenantId, tripId, false);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
   const esForaneo = !!body.es_foraneo;
-  const load = await FuelLoad.create({
-    id: randomUUID(),
-    tenant_id: tenantId,
-    trip_id: tripId,
-    litros: body.litros,
-    precio_litro: body.precio_litro,
-    ubicacion: body.ubicacion,
-    es_foraneo: esForaneo,
-    estacion_nombre: body.estacion_nombre?.trim() || body.ubicacion,
-    es_estacion_empresa: esForaneo ? false : body.es_estacion_empresa !== false,
-    comprobante_url: body.comprobante_url ?? null,
-    fecha: body.fecha ? new Date(body.fecha) : new Date(),
-  } as never);
+  const fuelFecha = body.fecha ? new Date(body.fecha) : new Date();
+  const fechaOnly = fuelFecha.toISOString().slice(0, 10);
+  const hora = fuelFecha.toISOString().slice(11, 19);
+  const odometro =
+    trip.km_final != null && Number.isFinite(Number(trip.km_final))
+      ? Number(trip.km_final)
+      : Number(trip.km_inicial);
+  const litros = body.litros;
+  const precio = body.precio_litro;
+  const importe = Math.round(litros * precio * 100) / 100;
+  const ubicacion = body.ubicacion.trim();
+  const estacion = body.estacion_nombre?.trim() || ubicacion;
+  const ticketId = randomUUID();
+  const loadId = randomUUID();
+  const assignmentId = randomUUID();
+
+  const truck = await Truck.findOne({
+    where: { id: trip.truck_id, tenant_id: tenantId },
+    attributes: ["id", "numero_economico", "placas"],
+  });
+
+  let load: Awaited<ReturnType<typeof FuelLoad.create>>;
+  let ticket: Awaited<ReturnType<typeof FuelTicket.create>>;
   try {
-    const { upsertFromFuelLoad } = await import("./accountDocumentService");
-    await upsertFromFuelLoad(load);
+    const result = await sequelize.transaction(async (t) => {
+      const createdTicket = await FuelTicket.create(
+        {
+          id: ticketId,
+          tenant_id: tenantId,
+          truck_id: String(trip.truck_id),
+          fecha: fechaOnly,
+          hora,
+          folio: null,
+          tag: null,
+          numero_economico_raw: truck?.numero_economico ?? null,
+          placas_raw: truck?.placas ?? null,
+          odometro,
+          litros: String(litros),
+          precio_litro: String(precio),
+          importe_total: String(importe),
+          ubicacion,
+          origen: "manual",
+          external_id: `trip:${tripId}:fuel:${loadId}`,
+          supplier_id: null,
+          prorrateo_confirmado_at: null,
+          es_foraneo: esForaneo,
+          source_trip_id: tripId,
+        } as never,
+        { transaction: t },
+      );
+
+      await FuelProrationAssignment.create(
+        {
+          id: assignmentId,
+          tenant_id: tenantId,
+          trip_id: tripId,
+          fuel_ticket_id: ticketId,
+          km_recorridos: null,
+          litros_asignados: null,
+          costo_asignado: null,
+        } as never,
+        { transaction: t },
+      );
+
+      const createdLoad = await FuelLoad.create(
+        {
+          id: loadId,
+          tenant_id: tenantId,
+          trip_id: tripId,
+          litros: String(litros),
+          precio_litro: String(precio),
+          ubicacion,
+          es_foraneo: esForaneo,
+          estacion_nombre: estacion,
+          es_estacion_empresa: esForaneo ? false : body.es_estacion_empresa !== false,
+          comprobante_url: body.comprobante_url ?? null,
+          fuel_ticket_id: ticketId,
+          fecha: fuelFecha,
+        } as never,
+        { transaction: t },
+      );
+
+      return { load: createdLoad, ticket: createdTicket };
+    });
+    load = result.load;
+    ticket = result.ticket;
+  } catch (e) {
+    const err = e as Error & { name?: string; parent?: { code?: string } };
+    if (
+      err.name === "SequelizeUniqueConstraintError" ||
+      err.parent?.code === "ER_DUP_ENTRY"
+    ) {
+      throw httpError("Ya existe un ticket similar para esta unidad, fecha, odómetro y litros", 409);
+    }
+    throw e;
+  }
+
+  try {
+    const { upsertFromFuelTicket } = await import("./accountDocumentService");
+    await upsertFromFuelTicket(ticket);
   } catch (syncErr) {
     console.warn(
-      "[trip] Carga de combustible creada pero falló sync de documento CXP:",
+      "[trip] Ticket de combustible creado pero falló sync de documento CXP:",
       syncErr instanceof Error ? syncErr.message : syncErr,
     );
   }
+
   return load;
 }
 
@@ -308,12 +399,41 @@ export async function removeFuel(tenantId: string, tripId: string, fuelId: strin
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
-  if (f.fuel_ticket_id) {
-    const err = new Error("Carga generada por prorrateo; no se puede eliminar");
+
+  if (!f.fuel_ticket_id) {
+    await f.destroy();
+    return;
+  }
+
+  const ticket = await FuelTicket.findOne({
+    where: { id: f.fuel_ticket_id, tenant_id: tenantId },
+  });
+  if (!ticket) {
+    await f.destroy();
+    return;
+  }
+
+  if (ticket.prorrateo_confirmado_at) {
+    const err = new Error("Carga de ticket confirmado; reabra o elimine el prorrateo en Combustibles");
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
-  await f.destroy();
+
+  await sequelize.transaction(async (t) => {
+    await FuelLoad.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticket.id },
+      transaction: t,
+    });
+    await FuelProrationAssignment.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticket.id },
+      transaction: t,
+    });
+    await AccountDocument.destroy({
+      where: { tenant_id: tenantId, fuel_ticket_id: ticket.id },
+      transaction: t,
+    }).catch(() => undefined);
+    await ticket.destroy({ transaction: t });
+  });
 }
 
 export async function addExpense(
@@ -714,7 +834,10 @@ export async function listTripsForReports(tenantId: string) {
     where: { tenant_id: tenantId },
     include: [
       STATUSES_INCLUDE,
-      { association: "fuel" },
+      {
+        association: "fuel",
+        include: [{ association: "FuelTicket", attributes: ["id", "prorrateo_confirmado_at", "es_foraneo"], required: false }],
+      },
       { association: "expenses" },
       { association: "paradas" },
       { association: "Route", attributes: ["id", "nombre"], required: false },

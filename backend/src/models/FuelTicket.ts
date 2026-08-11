@@ -33,6 +33,8 @@ export class FuelTicket extends Model<
   declare external_id: CreationOptional<string | null>;
   declare prorrateo_confirmado_at: CreationOptional<Date | null>;
   declare supplier_id: CreationOptional<string | null>;
+  declare es_foraneo: CreationOptional<boolean>;
+  declare source_trip_id: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -64,6 +66,8 @@ export function initFuelTicket(sequelize: Sequelize) {
       external_id: { type: DataTypes.STRING(128), allowNull: true },
       prorrateo_confirmado_at: { type: DataTypes.DATE, allowNull: true },
       supplier_id: { type: DataTypes.CHAR(36), allowNull: true },
+      es_foraneo: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
+      source_trip_id: { type: DataTypes.CHAR(36), allowNull: true },
     } as never,
     {
       sequelize,
@@ -81,6 +85,7 @@ export function initFuelTicket(sequelize: Sequelize) {
           fields: ["tenant_id", "truck_id", "fecha", "odometro", "litros"],
         },
         { name: "fuel_tickets_truck_fecha_idx", fields: ["tenant_id", "truck_id", "fecha"] },
+        { name: "fuel_tickets_tenant_source_trip_idx", fields: ["tenant_id", "source_trip_id"] },
       ],
     },
   );

@@ -14,6 +14,7 @@ export class FuelProrationAssignment extends Model<
   InferAttributes<FuelProrationAssignment>,
   InferCreationAttributes<FuelProrationAssignment>
 > {
+  declare id: CreationOptional<string>;
   declare tenant_id: string;
   declare trip_id: string;
   declare fuel_ticket_id: string;
@@ -30,8 +31,9 @@ export class FuelProrationAssignment extends Model<
 export function initFuelProrationAssignment(sequelize: Sequelize) {
   FuelProrationAssignment.init(
     {
+      id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
-      trip_id: { type: DataTypes.CHAR(36), primaryKey: true },
+      trip_id: { type: DataTypes.CHAR(36), allowNull: false },
       fuel_ticket_id: { type: DataTypes.CHAR(36), allowNull: false },
       km_recorridos: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
       litros_asignados: { type: DataTypes.DECIMAL(12, 2), allowNull: true },
@@ -43,9 +45,9 @@ export function initFuelProrationAssignment(sequelize: Sequelize) {
       underscored: true,
       indexes: [
         {
-          name: "fuel_proration_assignments_tenant_trip_unique",
+          name: "fuel_proration_assignments_tenant_trip_ticket_unique",
           unique: true,
-          fields: ["tenant_id", "trip_id"],
+          fields: ["tenant_id", "trip_id", "fuel_ticket_id"],
         },
         {
           name: "fuel_proration_assignments_tenant_ticket_idx",

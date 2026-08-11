@@ -919,6 +919,11 @@ export function normalizeFuelTicket(raw: Record<string, unknown>): FuelTicket {
     ubicacion: String(raw.ubicacion ?? ""),
     origen: o,
     external_id: raw.external_id != null ? String(raw.external_id) : undefined,
+    supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : undefined,
+    es_foraneo: !!raw.es_foraneo,
+    source_trip_id: raw.source_trip_id != null ? String(raw.source_trip_id) : undefined,
+    prorrateo_confirmado_at:
+      raw.prorrateo_confirmado_at != null ? String(raw.prorrateo_confirmado_at) : null,
     numero_economico: raw.numero_economico != null ? String(raw.numero_economico) : undefined,
     placas: raw.placas != null ? String(raw.placas) : undefined,
   };

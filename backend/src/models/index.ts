@@ -181,10 +181,13 @@ export function initModels() {
 
   Tenant.hasMany(FuelProrationAssignment, { foreignKey: "tenant_id" });
   FuelProrationAssignment.belongsTo(Tenant, { foreignKey: "tenant_id" });
-  Trip.hasOne(FuelProrationAssignment, { foreignKey: "trip_id", as: "fuelProrationAssignment" });
+  Trip.hasMany(FuelProrationAssignment, { foreignKey: "trip_id", as: "fuelProrationAssignments" });
   FuelProrationAssignment.belongsTo(Trip, { foreignKey: "trip_id" });
   FuelTicket.hasMany(FuelProrationAssignment, { foreignKey: "fuel_ticket_id", as: "prorationAssignments" });
   FuelProrationAssignment.belongsTo(FuelTicket, { foreignKey: "fuel_ticket_id" });
+  FuelTicket.belongsTo(Trip, { foreignKey: "source_trip_id", as: "sourceTrip" });
+  FuelLoad.belongsTo(FuelTicket, { foreignKey: "fuel_ticket_id", as: "FuelTicket" });
+  FuelTicket.hasMany(FuelLoad, { foreignKey: "fuel_ticket_id", as: "fuelLoads" });
 
   Settlement.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(Settlement, { foreignKey: "driver_id" });

@@ -276,6 +276,10 @@ export interface FuelTicket {
   ubicacion: string;
   origen: FuelTicketOrigen;
   external_id?: string;
+  supplier_id?: string;
+  es_foraneo?: boolean;
+  source_trip_id?: string;
+  prorrateo_confirmado_at?: string | null;
   numero_economico?: string;
   placas?: string;
 }
@@ -323,6 +327,8 @@ export interface ProratedTicketBlock {
   rendimiento_periodo: number | null;
   sin_asignar: boolean;
   prorrateo_confirmado_at?: string | null;
+  es_foraneo?: boolean;
+  source_trip_id?: string | null;
   viajes: ProratedTripRow[];
 }
 
@@ -825,8 +831,10 @@ export interface FuelLoad {
   estacion_nombre?: string;
   es_estacion_empresa?: boolean;
   comprobante_url?: string;
-  /** Presente si la carga se generó al confirmar un ticket de prorrateo. */
+  /** Presente si la carga está ligada a un ticket de combustibles. */
   fuel_ticket_id?: string;
+  /** null = ticket pendiente; ISO = confirmado; undefined = sin ticket o sin dato. */
+  ticket_prorrateo_confirmado_at?: string | null;
 }
 
 export interface Expense {

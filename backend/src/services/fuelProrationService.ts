@@ -122,6 +122,8 @@ export type ProratedTicketBlock = {
   rendimiento_periodo: number | null;
   sin_asignar: boolean;
   prorrateo_confirmado_at?: string | null;
+  es_foraneo?: boolean;
+  source_trip_id?: string | null;
   viajes: ProratedTripRow[];
 };
 
@@ -201,6 +203,8 @@ export function buildProratedBlock(
     prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
       ? ticket.prorrateo_confirmado_at.toISOString()
       : null,
+    es_foraneo: !!ticket.es_foraneo,
+    source_trip_id: ticket.source_trip_id ? String(ticket.source_trip_id) : null,
     viajes,
   };
 }
@@ -209,14 +213,9 @@ function buildEmptyTicketBlock(ticket: FuelTicketModel): ProratedTicketBlock {
   return buildProratedBlock(ticket, []);
 }
 
-function filterTripsExcludingLocked(allTrips: TripModel[], lockedTripIds: Set<string>): TripModel[] {
-  if (lockedTripIds.size === 0) return allTrips;
-  return allTrips.filter((t) => !lockedTripIds.has(String(t.id)));
-}
-
 function buildBlocksFromDraftMap(
   sortedTickets: FuelTicketModel[],
-  draftMap: Map<string, string>,
+  draftAssignments: { trip_id: string; fuel_ticket_id: string }[],
   allTrips: TripModel[],
 ): ProratedTicketBlock[] {
   const tripById = new Map(allTrips.map((t) => [String(t.id), t]));
@@ -224,14 +223,60 @@ function buildBlocksFromDraftMap(
   for (const ticket of sortedTickets) {
     tripsPerTicket.set(String(ticket.id), []);
   }
-  for (const [tripId, ticketId] of draftMap) {
+  for (const { trip_id: tripId, fuel_ticket_id: ticketId } of draftAssignments) {
     const trip = tripById.get(tripId);
-    if (!trip || tripKmRecorridos(trip) <= 0) continue;
+    if (!trip || tripKmRecorridos(trip) <= 0) {
+      // Tickets from trip may be assigned before km_final; still show the trip with 0 km
+      // so the block is not empty for source tickets. For auto tickets skip without km.
+      const ticket = sortedTickets.find((t) => String(t.id) === ticketId);
+      if (ticket?.source_trip_id && trip) {
+        const list = tripsPerTicket.get(ticketId);
+        if (list && !list.some((x) => String(x.id) === tripId)) list.push(trip);
+      }
+      continue;
+    }
     const list = tripsPerTicket.get(ticketId);
-    if (list) list.push(trip);
+    if (list && !list.some((x) => String(x.id) === tripId)) list.push(trip);
   }
   return sortedTickets.map((ticket) => {
     const trips = tripsPerTicket.get(String(ticket.id)) ?? [];
+    if (ticket.source_trip_id && trips.length === 1) {
+      // 100% del ticket al viaje de origen aunque haya varios km o cero
+      const litros = num(ticket.litros);
+      const precio = num(ticket.precio_litro);
+      const trip = trips[0]!;
+      const km = tripKmRecorridos(trip);
+      return {
+        ticket_id: String(ticket.id),
+        fecha: dateOnly(ticket.fecha),
+        hora: ticket.hora ? String(ticket.hora).slice(0, 8) : undefined,
+        litros,
+        precio_litro: precio,
+        importe_total: num(ticket.importe_total),
+        odometro: ticket.odometro,
+        ubicacion: ticket.ubicacion,
+        km_total_periodo: km,
+        rendimiento_periodo: litros > 0 && km > 0 ? Math.round((km / litros) * 100) / 100 : null,
+        sin_asignar: false,
+        prorrateo_confirmado_at: null,
+        es_foraneo: !!ticket.es_foraneo,
+        source_trip_id: String(ticket.source_trip_id),
+        viajes: [
+          {
+            trip_id: String(trip.id),
+            folio: trip.folio,
+            origen: trip.origen,
+            destino: trip.destino,
+            ruta: tripRutaLabel(trip),
+            fecha_salida: dateOnly(trip.fecha_salida),
+            km_recorridos: km,
+            litros_asignados: Math.round(litros * 100) / 100,
+            costo_asignado: Math.round(litros * precio * 100) / 100,
+            asignacion_manual: true,
+          },
+        ],
+      };
+    }
     return buildProratedBlock(ticket, trips);
   });
 }
@@ -294,6 +339,8 @@ async function buildConfirmedBlocks(
       prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
         ? ticket.prorrateo_confirmado_at.toISOString()
         : null,
+      es_foraneo: !!ticket.es_foraneo,
+      source_trip_id: ticket.source_trip_id ? String(ticket.source_trip_id) : null,
       viajes,
     });
   }
@@ -520,11 +567,11 @@ export async function prorateRange(
   }
 
   const confirmedTripIds = await getConfirmedTripIdsForTruck(tenantId, truckId);
-  const availableTrips = filterTripsExcludingLocked(allTrips, confirmedTripIds);
-  const draftMap = await getDraftAssignmentsForTruck(tenantId, truckId);
+  // Multi-ticket: no excluir viajes de ventanas/asignaciones pendientes solo por estar confirmados.
+  const draftAssignments = await getDraftAssignmentsForTruck(tenantId, truckId);
 
-  if (draftMap.size > 0) {
-    blocks = buildBlocksFromDraftMap(sorted, draftMap, availableTrips);
+  if (draftAssignments.length > 0) {
+    blocks = buildBlocksFromDraftMap(sorted, draftAssignments, allTrips);
   } else {
     blocks = sorted.map((t) => buildEmptyTicketBlock(t));
   }
@@ -565,6 +612,7 @@ export async function autoProratePending(
         truck_id: truckId,
         fecha: { [Op.between]: [inicio, fin] },
         prorrateo_confirmado_at: null,
+        source_trip_id: null,
       },
     });
     if (pendingTickets.length === 0) continue;
@@ -574,6 +622,7 @@ export async function autoProratePending(
         tenant_id: tenantId,
         truck_id: truckId,
         fecha: { [Op.lt]: inicio },
+        source_trip_id: null,
       },
       order: [
         ["fecha", "DESC"],
@@ -587,11 +636,9 @@ export async function autoProratePending(
       order: [["fecha_salida", "ASC"]],
     });
 
-    const confirmedTripIds = await getConfirmedTripIdsForTruck(tenantId, truckId);
-    const availableTrips = filterTripsExcludingLocked(allTrips, confirmedTripIds);
     const sorted = [...pendingTickets].sort(compareTicketOrder);
 
-    let blocks = buildProrationBlocks(sorted, availableTrips, truckId, fin, anchorTicket);
+    let blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
 
     const draftAssignments: { trip_id: string; fuel_ticket_id: string }[] = [];
     for (const block of blocks) {
@@ -622,23 +669,81 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
     throw Object.assign(new Error("El ticket no tiene viajes asignados"), { status: 400 });
   }
 
+  if (ticket.source_trip_id) {
+    const sourceId = String(ticket.source_trip_id);
+    if (assignments.length !== 1 || String(assignments[0]!.trip_id) !== sourceId) {
+      throw Object.assign(
+        new Error("Ticket desde viaje: la asignación debe ser únicamente el viaje de origen"),
+        { status: 400 },
+      );
+    }
+  }
+
   const tripIds = assignments.map((a) => String(a.trip_id));
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
   });
+
+  const isSourceTicket = !!ticket.source_trip_id;
   const withKm = trips.filter((t) => tripKmRecorridos(t) > 0);
-  if (withKm.length === 0) {
+  if (!isSourceTicket && withKm.length === 0) {
     throw Object.assign(new Error("Ningún viaje asignado tiene km registrado"), { status: 400 });
   }
-
-  const block = buildProratedBlock(ticket, withKm);
-  const rowByTripId = new Map(block.viajes.map((v) => [v.trip_id, v]));
 
   const precioLitro = num(ticket.precio_litro);
   const ubicacion = ticket.ubicacion;
   const fuelFecha = new Date(ticketTimestampMs(ticket));
+  const ticketLitros = num(ticket.litros);
+  const esForaneo = !!ticket.es_foraneo;
 
   await sequelize.transaction(async (t) => {
+    if (isSourceTicket) {
+      const trip = trips[0]!;
+      const assignment = assignments[0]!;
+      const km = tripKmRecorridos(trip);
+      await assignment.update(
+        {
+          km_recorridos: String(km),
+          litros_asignados: String(ticketLitros),
+          costo_asignado: String(Math.round(ticketLitros * precioLitro * 100) / 100),
+        },
+        { transaction: t },
+      );
+
+      const existingLoad = await FuelLoad.findOne({
+        where: {
+          tenant_id: tenantId,
+          trip_id: String(trip.id),
+          fuel_ticket_id: ticketId,
+        },
+        transaction: t,
+      });
+      if (!existingLoad && ticketLitros > 0) {
+        await FuelLoad.create(
+          {
+            id: randomUUID(),
+            tenant_id: tenantId,
+            trip_id: String(trip.id),
+            litros: String(ticketLitros),
+            precio_litro: String(precioLitro),
+            ubicacion,
+            estacion_nombre: ubicacion,
+            es_foraneo: esForaneo,
+            es_estacion_empresa: !esForaneo,
+            comprobante_url: null,
+            fuel_ticket_id: ticketId,
+            fecha: fuelFecha,
+          } as never,
+          { transaction: t },
+        );
+      }
+      await ticket.update({ prorrateo_confirmado_at: new Date() }, { transaction: t });
+      return;
+    }
+
+    const block = buildProratedBlock(ticket, withKm);
+    const rowByTripId = new Map(block.viajes.map((v) => [v.trip_id, v]));
+
     for (const assignment of assignments) {
       const row = rowByTripId.get(String(assignment.trip_id));
       if (!row) {

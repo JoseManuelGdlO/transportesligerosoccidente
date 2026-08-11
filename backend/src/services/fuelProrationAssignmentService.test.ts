@@ -175,17 +175,47 @@ describe("saveAssignments", () => {
     ticketFindAll.mock.restore();
   });
 
-  it("rechaza trip_id duplicado en el payload", async () => {
+  it("permite el mismo viaje en dos tickets distintos", async () => {
+    const truckFindOne = mock.method(Truck, "findOne", async () => mockTruck());
+    const tripFindAll = mock.method(Trip, "findAll", async () => [mockTrip({ id: "v1" })] as never);
+    const ticketFindAll = mock.method(FuelTicket, "findAll", async () => [
+      mockTicket({ id: "tk1", fecha: "2026-06-02" }),
+      mockTicket({ id: "tk2", fecha: "2026-06-03" }),
+    ] as never);
+    const destroy = mock.method(FuelProrationAssignment, "destroy", async () => 0 as never);
+    const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => [] as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({});
+    });
+
+    await saveAssignments(tenantId, truckId, inicio, fin, [
+      { trip_id: "v1", fuel_ticket_id: "tk1" },
+      { trip_id: "v1", fuel_ticket_id: "tk2" },
+    ]);
+
+    assert.equal(bulkCreate.mock.callCount(), 1);
+    const rows = bulkCreate.mock.calls[0]!.arguments[0] as Array<{ trip_id: string; fuel_ticket_id: string }>;
+    assert.equal(rows.length, 2);
+
+    truckFindOne.mock.restore();
+    tripFindAll.mock.restore();
+    ticketFindAll.mock.restore();
+    destroy.mock.restore();
+    bulkCreate.mock.restore();
+    transaction.mock.restore();
+  });
+
+  it("rechaza par viaje+ticket duplicado en el payload", async () => {
     const truckFindOne = mock.method(Truck, "findOne", async () => mockTruck());
 
     await expectError(
       () =>
         saveAssignments(tenantId, truckId, inicio, fin, [
           { trip_id: "v1", fuel_ticket_id: "tk1" },
-          { trip_id: "v1", fuel_ticket_id: "tk2" },
+          { trip_id: "v1", fuel_ticket_id: "tk1" },
         ]),
       400,
-      "Asignaciones duplicadas para el mismo viaje",
+      "Asignaciones duplicadas para el mismo viaje y ticket",
     );
 
     truckFindOne.mock.restore();
@@ -249,6 +279,7 @@ describe("saveAssignments", () => {
 
     assert.equal(bulkCreate.mock.callCount(), 1);
     const createRows = bulkCreate.mock.calls[0]!.arguments[0] as Array<{
+      id: string;
       tenant_id: string;
       trip_id: string;
       fuel_ticket_id: string;
@@ -256,16 +287,11 @@ describe("saveAssignments", () => {
       litros_asignados: null;
       costo_asignado: null;
     }>;
-    assert.deepEqual(createRows, [
-      {
-        tenant_id: tenantId,
-        trip_id: "v1",
-        fuel_ticket_id: "tk1",
-        km_recorridos: null,
-        litros_asignados: null,
-        costo_asignado: null,
-      },
-    ]);
+    assert.equal(createRows.length, 1);
+    assert.equal(createRows[0]!.tenant_id, tenantId);
+    assert.equal(createRows[0]!.trip_id, "v1");
+    assert.equal(createRows[0]!.fuel_ticket_id, "tk1");
+    assert.ok(createRows[0]!.id);
 
     truckFindOne.mock.restore();
     tripFindAll.mock.restore();
@@ -291,26 +317,26 @@ describe("saveTicketAssignments", () => {
     ticketFindOne.mock.restore();
   });
 
-  it("rechaza viaje en ticket confirmado", async () => {
+  it("permite viaje ya presente en otro ticket confirmado", async () => {
     const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
       mockTicket({ id: "tk1", fecha: "2026-06-02" }),
     );
-    const confirmedTickets = mock.method(FuelTicket, "findAll", async () => [
-      mockTicket({ id: "tk-conf", fecha: "2026-06-01", prorrateo_confirmado_at: new Date() }),
-    ] as never);
-    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [
-      { trip_id: "v1", fuel_ticket_id: "tk-conf" },
-    ] as never);
+    const tripFindAll = mock.method(Trip, "findAll", async () => [mockTrip({ id: "v1" })] as never);
+    const destroy = mock.method(FuelProrationAssignment, "destroy", async () => 0 as never);
+    const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => [] as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({});
+    });
 
-    await expectError(
-      () => saveTicketAssignments(tenantId, "tk1", ["v1"]),
-      400,
-      "Uno o más viajes ya están en un ticket confirmado",
-    );
+    await saveTicketAssignments(tenantId, "tk1", ["v1"]);
+
+    assert.equal(bulkCreate.mock.callCount(), 1);
 
     ticketFindOne.mock.restore();
-    confirmedTickets.mock.restore();
-    assignmentFindAll.mock.restore();
+    tripFindAll.mock.restore();
+    destroy.mock.restore();
+    bulkCreate.mock.restore();
+    transaction.mock.restore();
   });
 
   it("solo borra asignaciones del ticket editado, no las de otros tickets pendientes", async () => {

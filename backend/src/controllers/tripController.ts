@@ -14,7 +14,10 @@ export const listTrips = asyncHandler(async (req: Request, res: Response) => {
     where: { tenant_id: tid(req) },
     order: [["fecha_salida", "DESC"]],
     include: [
-      { association: "fuel" },
+      {
+        association: "fuel",
+        include: [{ association: "FuelTicket", attributes: ["id", "prorrateo_confirmado_at", "es_foraneo"], required: false }],
+      },
       { association: "expenses" },
       { association: "paradas" },
       { association: "statuses", through: { attributes: [] } },

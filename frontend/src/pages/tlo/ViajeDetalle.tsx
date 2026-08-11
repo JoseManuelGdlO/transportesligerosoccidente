@@ -200,7 +200,11 @@ export default function ViajeDetalle() {
     setFuel({ litros: 0, precio_litro: 26, ubicacion: "", es_foraneo: false, estacion_nombre: "" });
     setFuelReceipt(null);
     setFuelOpen(false);
-    toast.success(fuel.es_foraneo ? "Ticket foráneo registrado" : "Carga de diesel registrada");
+    toast.success(
+      fuel.es_foraneo
+        ? "Ticket foráneo registrado (pendiente en Combustibles)"
+        : "Carga de diesel registrada (ticket pendiente en Combustibles)",
+    );
     await reloadTrip();
   };
   const openExpModal = () => {
@@ -527,7 +531,11 @@ export default function ViajeDetalle() {
                             <Badge variant="outline">Empresa</Badge>
                           )}
                           {f.fuel_ticket_id && (
-                            <Badge variant="secondary" className="text-[10px]">Prorrateo</Badge>
+                            f.ticket_prorrateo_confirmado_at ? (
+                              <Badge variant="secondary" className="text-[10px]">Confirmado</Badge>
+                            ) : (
+                              <Badge variant="outline" className="text-[10px]">Ticket pendiente</Badge>
+                            )
                           )}
                         </div>
                       </TableCell>
@@ -535,7 +543,7 @@ export default function ViajeDetalle() {
                       <TableCell className="text-right font-mono">{fmtMXN(f.precio_litro)}</TableCell>
                       <TableCell className="text-right font-semibold">{fmtMXN(f.litros * f.precio_litro)}</TableCell>
                       <TableCell className="text-right">
-                        {!f.fuel_ticket_id && (
+                        {(!f.fuel_ticket_id || f.ticket_prorrateo_confirmado_at == null) && (
                           <Button variant="ghost" size="sm" onClick={async () => { removeFuel(trip.id, f.id); await reloadTrip(); }}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>

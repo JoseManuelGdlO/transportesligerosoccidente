@@ -47,6 +47,11 @@ export function fuelTicketToJson(
     origen: p.origen,
     external_id: p.external_id ?? undefined,
     supplier_id: p.supplier_id ?? undefined,
+    es_foraneo: !!p.es_foraneo,
+    source_trip_id: p.source_trip_id ?? undefined,
+    prorrateo_confirmado_at: p.prorrateo_confirmado_at
+      ? iso(p.prorrateo_confirmado_at as Date | string)
+      : null,
     numero_economico: truck?.numero_economico,
     placas: truck?.placas,
   };
@@ -54,6 +59,10 @@ export function fuelTicketToJson(
 
 export function fuelToJson(f: FuelLoad): Record<string, unknown> {
   const p = f.get({ plain: true }) as Record<string, unknown>;
+  const ticket = (f as FuelLoad & { FuelTicket?: FuelTicket }).FuelTicket;
+  const ticketPlain = ticket
+    ? ((ticket.get ? ticket.get({ plain: true }) : ticket) as Record<string, unknown>)
+    : null;
   return {
     id: p.id,
     litros: num(p.litros),
@@ -65,6 +74,11 @@ export function fuelToJson(f: FuelLoad): Record<string, unknown> {
     es_estacion_empresa: p.es_estacion_empresa !== false,
     comprobante_url: p.comprobante_url ?? undefined,
     fuel_ticket_id: p.fuel_ticket_id ?? undefined,
+    ticket_prorrateo_confirmado_at: ticketPlain?.prorrateo_confirmado_at
+      ? iso(ticketPlain.prorrateo_confirmado_at as Date | string)
+      : ticketPlain
+        ? null
+        : undefined,
   };
 }
 

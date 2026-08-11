@@ -1,7 +1,15 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
-import { FuelLoad, Trip } from "../models";
-import { removeFuel } from "./tripService";
+import {
+  AccountDocument,
+  FuelLoad,
+  FuelProrationAssignment,
+  FuelTicket,
+  Trip,
+  Truck,
+  sequelize,
+} from "../models";
+import { addFuel, removeFuel } from "./tripService";
 import {
   compareTripOrder,
   findCascadePredecessorPeer,
@@ -21,7 +29,7 @@ const tripId = "trip-1";
 const fuelId = "fuel-1";
 
 describe("removeFuel", () => {
-  it("rechaza eliminar carga generada por prorrateo", async () => {
+  it("rechaza eliminar carga de ticket confirmado", async () => {
     const tripFindOne = mock.method(Trip, "findOne", async () => ({ id: tripId }) as never);
     const fuelFindOne = mock.method(FuelLoad, "findOne", async () =>
       ({
@@ -32,18 +40,25 @@ describe("removeFuel", () => {
         destroy: async () => {},
       }) as never,
     );
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      ({
+        id: "ticket-proration-1",
+        prorrateo_confirmado_at: new Date(),
+      }) as never,
+    );
 
     await assert.rejects(
       () => removeFuel(tenantId, tripId, fuelId),
       (err: Error & { status?: number }) => {
         assert.equal(err.status, 400);
-        assert.equal(err.message, "Carga generada por prorrateo; no se puede eliminar");
+        assert.match(err.message, /ticket confirmado/);
         return true;
       },
     );
 
     tripFindOne.mock.restore();
     fuelFindOne.mock.restore();
+    ticketFindOne.mock.restore();
   });
 
   it("elimina carga manual sin fuel_ticket_id", async () => {
@@ -65,6 +80,113 @@ describe("removeFuel", () => {
 
     tripFindOne.mock.restore();
     fuelFindOne.mock.restore();
+  });
+
+  it("cascada borra load, assignment y ticket pendiente", async () => {
+    const ticketDestroy = mock.fn(async () => {});
+    const tripFindOne = mock.method(Trip, "findOne", async () => ({ id: tripId }) as never);
+    const fuelFindOne = mock.method(FuelLoad, "findOne", async () =>
+      ({
+        id: fuelId,
+        trip_id: tripId,
+        tenant_id: tenantId,
+        fuel_ticket_id: "tk-pending",
+      }) as never,
+    );
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      ({
+        id: "tk-pending",
+        prorrateo_confirmado_at: null,
+        destroy: ticketDestroy,
+      }) as never,
+    );
+    const fuelDestroy = mock.method(FuelLoad, "destroy", async () => 1);
+    const assignDestroy = mock.method(FuelProrationAssignment, "destroy", async () => 1);
+    const docDestroy = mock.method(AccountDocument, "destroy", async () => 1);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({ tx: true });
+    });
+
+    await removeFuel(tenantId, tripId, fuelId);
+
+    assert.equal(fuelDestroy.mock.callCount(), 1);
+    assert.equal(assignDestroy.mock.callCount(), 1);
+    assert.equal(ticketDestroy.mock.callCount(), 1);
+
+    tripFindOne.mock.restore();
+    fuelFindOne.mock.restore();
+    ticketFindOne.mock.restore();
+    fuelDestroy.mock.restore();
+    assignDestroy.mock.restore();
+    docDestroy.mock.restore();
+    transaction.mock.restore();
+  });
+});
+
+describe("addFuel", () => {
+  it("crea ticket pendiente, assignment y FuelLoad enlazado", async () => {
+    const trip = {
+      id: tripId,
+      truck_id: "truck-1",
+      km_inicial: 1000,
+      km_final: 1200,
+    };
+    const tripFindOne = mock.method(Trip, "findOne", async () => trip as never);
+    const truckFindOne = mock.method(Truck, "findOne", async () =>
+      ({ id: "truck-1", numero_economico: "TL01", placas: "ABC-123" }) as never,
+    );
+
+    const created: Record<string, unknown>[] = [];
+    const ticketCreate = mock.method(FuelTicket, "create", async (row: Record<string, unknown>) => {
+      created.push({ type: "ticket", ...row });
+      return row as never;
+    });
+    const assignCreate = mock.method(FuelProrationAssignment, "create", async (row: Record<string, unknown>) => {
+      created.push({ type: "assignment", ...row });
+      return row as never;
+    });
+    const loadCreate = mock.method(FuelLoad, "create", async (row: Record<string, unknown>) => {
+      created.push({ type: "load", ...row });
+      return row as never;
+    });
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<unknown>) => {
+      return fn({ tx: true });
+    });
+
+    const load = await addFuel(tenantId, tripId, {
+      litros: 50,
+      precio_litro: 26,
+      ubicacion: "Pemex Norte",
+      es_foraneo: true,
+    });
+
+    assert.equal(ticketCreate.mock.callCount(), 1);
+    assert.equal(assignCreate.mock.callCount(), 1);
+    assert.equal(loadCreate.mock.callCount(), 1);
+
+    const ticket = created.find((c) => c.type === "ticket")!;
+    assert.equal(ticket.source_trip_id, tripId);
+    assert.equal(ticket.es_foraneo, true);
+    assert.equal(ticket.prorrateo_confirmado_at, null);
+    assert.equal(ticket.odometro, 1200);
+
+    const assignment = created.find((c) => c.type === "assignment")!;
+    assert.equal(assignment.trip_id, tripId);
+    assert.equal(assignment.fuel_ticket_id, ticket.id);
+
+    assert.equal((load as { fuel_ticket_id?: string }).fuel_ticket_id, ticket.id);
+    assert.equal((load as { es_foraneo?: boolean }).es_foraneo, true);
+    assert.equal((load as { litros?: string }).litros, "50");
+    assert.equal((load as { precio_litro?: string }).precio_litro, "26");
+    assert.equal(typeof (load as { litros?: string }).litros, "string");
+    assert.equal(typeof (load as { precio_litro?: string }).precio_litro, "string");
+
+    tripFindOne.mock.restore();
+    truckFindOne.mock.restore();
+    ticketCreate.mock.restore();
+    assignCreate.mock.restore();
+    loadCreate.mock.restore();
+    transaction.mock.restore();
   });
 });
 
@@ -709,8 +831,6 @@ describe("validateTripScheduleAndOdometer", () => {
   });
 
   it("cascada ancla al eslabón de odómetro aunque la fecha del medio esté desordenada", () => {
-    // Regresión TLO12-4→6: el 5 tiene km_inicial = km_final del 4, pero su
-    // fecha_salida quedó antes del 4; el abierto 6 es el siguiente cronológico.
     const trip4 = peer({
       id: "4",
       folio: "TLO12-4",
@@ -722,7 +842,7 @@ describe("validateTripScheduleAndOdometer", () => {
     const trip5 = peer({
       id: "5",
       folio: "TLO12-5",
-      salida: "2026-07-14T12:00:00.000Z", // fecha antes del 4 (desorden)
+      salida: "2026-07-14T12:00:00.000Z",
       llegada: "2026-07-17T17:00:00.000Z",
       km_inicial: 380886,
       km_final: 382038,
@@ -784,7 +904,6 @@ describe("validateTripScheduleAndOdometer", () => {
       km_inicial: 382038,
       km_final: null,
     });
-    // Formulario movió la salida del 4 a después del 5 → cronológico apunta al 6.
     const candidate = {
       tripId: "4",
       folio: "TLO12-4",
@@ -799,7 +918,6 @@ describe("validateTripScheduleAndOdometer", () => {
   });
 
   it("viaje abierto hasta infinito traslapa con cerrado posterior", () => {
-    // Crear antes del último: mensaje de fecha anterior (prioritario).
     assert.throws(
       () =>
         validateTripScheduleAndOdometer(
@@ -813,7 +931,6 @@ describe("validateTripScheduleAndOdometer", () => {
         ),
       /fecha anterior al último viaje/,
     );
-    // Editar histórico abierto que se solapa con un cerrado posterior.
     assert.throws(
       () =>
         validateTripScheduleAndOdometer(

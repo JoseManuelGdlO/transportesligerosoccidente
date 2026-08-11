@@ -474,6 +474,7 @@ const emptyTicket = (): Omit<FuelTicket, "id" | "numero_economico" | "placas"> =
   importe_total: 0,
   ubicacion: "Gasolinera",
   origen: "manual",
+  es_foraneo: false,
 });
 
 type ImportReviewStatus = "pendiente" | "guardado" | "omitido";
@@ -1179,7 +1180,22 @@ export default function Combustibles() {
                       <TableCell className="text-right">{fmtMXN(t.precio_litro)}</TableCell>
                       <TableCell className="text-right">{fmtMXN(t.importe_total)}</TableCell>
                       <TableCell>
-                        <Badge variant="outline">{t.origen}</Badge>
+                        <div className="flex flex-wrap gap-1">
+                          <Badge variant="outline">{t.origen}</Badge>
+                          {t.prorrateo_confirmado_at && (
+                            <Badge variant="secondary" className="text-[10px]">
+                              Confirmado
+                            </Badge>
+                          )}
+                          {t.es_foraneo && (
+                            <Badge variant="outline" className="text-warning-foreground border-warning/40">
+                              Foráneo
+                            </Badge>
+                          )}
+                          {t.source_trip_id && (
+                            <Badge variant="secondary" className="text-[10px]">Desde viaje</Badge>
+                          )}
+                        </div>
                       </TableCell>
                       <TableCell className="text-right space-x-1">
                         {canCreate && (
@@ -1299,6 +1315,16 @@ export default function Combustibles() {
                           {fmtNumber(block.litros, 2)} L · {fmtMXN(block.importe_total)} · odómetro{" "}
                           {fmtNumber(block.odometro)}
                         </span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {block.es_foraneo && (
+                            <Badge variant="outline" className="text-warning-foreground border-warning/40 text-[10px]">
+                              Foráneo
+                            </Badge>
+                          )}
+                          {block.source_trip_id && (
+                            <Badge variant="secondary" className="text-[10px]">Desde viaje</Badge>
+                          )}
+                        </div>
                       </div>
                       <div className="flex flex-wrap items-center gap-3">
                         {block.sin_asignar ? (
@@ -1315,10 +1341,12 @@ export default function Combustibles() {
                         )}
                         {canCreate && (
                           <>
-                            <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit, block)}>
-                              <Pencil className="h-4 w-4 mr-1.5" />
-                              Editar
-                            </Button>
+                            {!block.source_trip_id && (
+                              <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit, block)}>
+                                <Pencil className="h-4 w-4 mr-1.5" />
+                                Editar
+                              </Button>
+                            )}
                             <Button
                               variant="default"
                               size="sm"
@@ -1418,6 +1446,16 @@ export default function Combustibles() {
                           {fmtNumber(block.litros, 2)} L · {fmtMXN(block.importe_total)} · odómetro{" "}
                           {fmtNumber(block.odometro)}
                         </span>
+                        <div className="flex flex-wrap gap-1 mt-1">
+                          {block.es_foraneo && (
+                            <Badge variant="outline" className="text-warning-foreground border-warning/40 text-[10px]">
+                              Foráneo
+                            </Badge>
+                          )}
+                          {block.source_trip_id && (
+                            <Badge variant="secondary" className="text-[10px]">Desde viaje</Badge>
+                          )}
+                        </div>
                         {block.prorrateo_confirmado_at && (
                           <p className="text-xs text-muted-foreground mt-0.5">
                             Confirmado {formatIsoDateEs(block.prorrateo_confirmado_at.slice(0, 10))}
