@@ -216,7 +216,7 @@ export async function assertTripAllowsFiscalEdit(trip: Trip) {
 export async function closeTrip(
   tenantId: string,
   id: string,
-  data: { km_final: number; fecha_llegada: string; num_factura?: string },
+  data: { km_final: number; fecha_llegada: string; num_factura?: string; notas?: string },
 ) {
   const trip = await getTripOrThrow(tenantId, id, true);
   await assertTripOpen(trip);
@@ -241,11 +241,16 @@ export async function closeTrip(
     km_inicial: trip.km_inicial,
     km_final: data.km_final,
   });
-  await trip.update({
+  const closePatch: Record<string, unknown> = {
     km_final: data.km_final,
     fecha_llegada: fechaLlegada,
     num_factura: factura,
-  });
+  };
+  if (data.notas !== undefined) {
+    const n = data.notas.trim();
+    closePatch.notas = n || null;
+  }
+  await trip.update(closePatch);
   await swapSystemStatus(tenantId, id, "en_curso", "cerrado");
   const closed = await getTripOrThrow(tenantId, id, true, undefined, true);
   try {
@@ -504,6 +509,7 @@ const PATCH_TRIP_FIELDS = [
   "tipo_viaje",
   "num_factura",
   "comision_override",
+  "notas",
 ] as const;
 
 export async function patchTrip(
@@ -544,12 +550,21 @@ export async function patchTrip(
 
   const data: Record<string, unknown> = {};
   for (const k of PATCH_TRIP_FIELDS) {
-    if (k === "fecha_salida" || k === "num_factura" || k === "comision_override") continue;
+    if (k === "fecha_salida" || k === "num_factura" || k === "comision_override" || k === "notas") {
+      continue;
+    }
     if (patch[k] !== undefined) data[k] = patch[k];
   }
   if (patch.num_factura !== undefined) {
     const v = String(patch.num_factura).trim();
     data.num_factura = v || null;
+  }
+  if (patch.notas !== undefined) {
+    if (patch.notas === null) data.notas = null;
+    else {
+      const v = String(patch.notas).trim();
+      data.notas = v || null;
+    }
   }
   if (patch.fecha_salida !== undefined) {
     data.fecha_salida = new Date(String(patch.fecha_salida));
@@ -766,6 +781,7 @@ export async function createTrip(
     viaticos_entregados?: number;
     num_factura?: string;
     tipo_viaje?: "local" | "foraneo";
+    notas?: string;
   },
 ) {
   await assertCatalogRefs(tenantId, {
@@ -819,6 +835,7 @@ export async function createTrip(
         viaticos_entregados: data.viaticos_entregados ?? 0,
         num_factura: data.num_factura?.trim() || null,
         tipo_viaje: data.tipo_viaje ?? "local",
+        notas: data.notas?.trim() || null,
       } as never,
       { transaction: t },
     );

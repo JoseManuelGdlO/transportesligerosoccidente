@@ -902,6 +902,8 @@ export interface Trip {
   tipo_viaje: TripType;
   settlement_id?: string;
   cfdi_conceptos?: TripCfdiConcepto[];
+  /** Notas internas del viaje (texto libre). */
+  notas?: string;
   included?: boolean;
   en_periodo?: boolean;
   statuses: TripStatusRef[];

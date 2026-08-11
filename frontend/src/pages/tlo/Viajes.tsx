@@ -7,7 +7,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -24,6 +24,8 @@ import {
   paradasToTripStops,
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
+import { TripFormSection } from "@/components/tlo/TripFormSection";
+import { Textarea } from "@/components/ui/textarea";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import {
   fetchRoutes,
@@ -89,6 +91,7 @@ type NewTripForm = {
   tarifa: number;
   viaticos_entregados: number;
   tipo_viaje: TripType;
+  notas: string;
 };
 
 const defaultForm = (): NewTripForm => ({
@@ -101,6 +104,7 @@ const defaultForm = (): NewTripForm => ({
   tarifa: 0,
   viaticos_entregados: 0,
   tipo_viaje: "local",
+  notas: "",
 });
 
 const emptyStatusForm = (): TripStatusRef => ({
@@ -673,6 +677,7 @@ export default function Viajes() {
         tarifa: +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
+        notas: form.notas.trim() || undefined,
       });
       toast.success(`Viaje ${t.folio} abierto`);
       setOpen(false);
@@ -1204,161 +1209,188 @@ export default function Viajes() {
       ) : null}
 
       <Dialog open={open} onOpenChange={setOpen}>
-        <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto">
-          <DialogHeader>
+        <DialogContent className="max-w-2xl max-h-[95vh] overflow-y-auto gap-0 p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
             <DialogTitle>Abrir nuevo viaje</DialogTitle>
+            <DialogDescription>
+              Asigna unidad y operador, define la ruta y captura tarifas. Las notas son internas.
+            </DialogDescription>
           </DialogHeader>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <Label>Camión</Label>
-              <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {trucks
-                    .filter((t) => t.estatus === "activo")
-                    .map((t) => {
-                      const busy = openByTruck.get(t.id);
-                      return (
-                        <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
-                          {t.numero_economico} · {t.placas}
-                          {busy ? ` (en curso — ${busy.folio})` : ""}
+
+          <div className="px-6 py-4 space-y-4">
+            <TripFormSection title="Asignación" description="Camión, operador y cliente">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Camión</Label>
+                  <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {trucks
+                        .filter((t) => t.estatus === "activo")
+                        .map((t) => {
+                          const busy = openByTruck.get(t.id);
+                          return (
+                            <SelectItem key={t.id} value={t.id} disabled={Boolean(busy)}>
+                              {t.numero_economico} · {t.placas}
+                              {busy ? ` (en curso — ${busy.folio})` : ""}
+                            </SelectItem>
+                          );
+                        })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Operador</Label>
+                  <Select value={form.driver_id} onValueChange={(v) => setForm({ ...form, driver_id: v })}>
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {drivers
+                        .filter((d) => d.estatus === "activo")
+                        .map((d) => {
+                          const busy = openByDriver.get(d.id);
+                          return (
+                            <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
+                              {d.nombre}
+                              {busy ? ` (en curso — ${busy.folio})` : ""}
+                            </SelectItem>
+                          );
+                        })}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="sm:col-span-2 space-y-1.5">
+                  <Label>Cliente</Label>
+                  <Select
+                    value={form.client_id}
+                    onValueChange={(v) => {
+                      setForm({ ...form, client_id: v });
+                      setSelectedRouteId("__custom__");
+                      setParadas(emptyParadas());
+                    }}
+                  >
+                    <SelectTrigger>
+                      <SelectValue placeholder="Seleccionar..." />
+                    </SelectTrigger>
+                    <SelectContent>
+                      {clients.map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.razon_social}
                         </SelectItem>
-                      );
-                    })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Operador</Label>
-              <Select value={form.driver_id} onValueChange={(v) => setForm({ ...form, driver_id: v })}>
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {drivers
-                    .filter((d) => d.estatus === "activo")
-                    .map((d) => {
-                      const busy = openByDriver.get(d.id);
-                      return (
-                        <SelectItem key={d.id} value={d.id} disabled={Boolean(busy)}>
-                          {d.nombre}
-                          {busy ? ` (en curso — ${busy.folio})` : ""}
-                        </SelectItem>
-                      );
-                    })}
-                </SelectContent>
-              </Select>
-            </div>
-            <div className="col-span-2">
-              <Label>Cliente</Label>
-              <Select
-                value={form.client_id}
-                onValueChange={(v) => {
-                  setForm({ ...form, client_id: v });
-                  setSelectedRouteId("__custom__");
-                  setParadas(emptyParadas());
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.razon_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
-            </div>
-            {form.client_id && apiMode && (
-              <div className="col-span-2">
-                <Label>Ruta del catálogo</Label>
-                <Select value={selectedRouteId} onValueChange={applyRoute}>
-                  <SelectTrigger>
-                    <SelectValue placeholder="Personalizada o del catálogo" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="__custom__">Personalizada (editar paradas)</SelectItem>
-                    {catalogRoutes.map((r) => (
-                      <SelectItem key={r.id} value={r.id}>
-                        {r.nombre} — {r.ruta_resumen}
-                        {r.client_id ? "" : " (global)"}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
               </div>
-            )}
-            <div className="col-span-2">
-              <TripParadasEditor
-                paradas={paradas}
-                onChange={(p) => {
-                  setParadas(p);
-                  setSelectedRouteId("__custom__");
-                }}
+            </TripFormSection>
+
+            <TripFormSection title="Ruta" description="Catálogo o paradas personalizadas">
+              <div className="space-y-3">
+                {form.client_id && apiMode && (
+                  <div className="space-y-1.5">
+                    <Label>Ruta del catálogo</Label>
+                    <Select value={selectedRouteId} onValueChange={applyRoute}>
+                      <SelectTrigger>
+                        <SelectValue placeholder="Personalizada o del catálogo" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="__custom__">Personalizada (editar paradas)</SelectItem>
+                        {catalogRoutes.map((r) => (
+                          <SelectItem key={r.id} value={r.id}>
+                            {r.nombre} — {r.ruta_resumen}
+                            {r.client_id ? "" : " (global)"}
+                          </SelectItem>
+                        ))}
+                      </SelectContent>
+                    </Select>
+                  </div>
+                )}
+                <TripParadasEditor
+                  paradas={paradas}
+                  onChange={(p) => {
+                    setParadas(p);
+                    setSelectedRouteId("__custom__");
+                  }}
+                />
+              </div>
+            </TripFormSection>
+
+            <TripFormSection title="Operación y tarifas" description="Salida, kilometraje y condiciones económicas">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Fecha y hora salida</Label>
+                  <Input
+                    type="datetime-local"
+                    value={form.fecha_salida}
+                    onChange={(e) => setForm({ ...form, fecha_salida: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Kilometraje inicial</Label>
+                  <Input
+                    type="number"
+                    value={form.km_inicial}
+                    disabled={kmLoading}
+                    onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tarifa pactada (MXN)</Label>
+                  <Input
+                    type="number"
+                    value={form.tarifa}
+                    onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Tipo de viaje</Label>
+                  <Select
+                    value={form.tipo_viaje}
+                    onValueChange={(v) => setForm({ ...form, tipo_viaje: v as TripType })}
+                  >
+                    <SelectTrigger>
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="local">Local</SelectItem>
+                      <SelectItem value="foraneo">Foráneo</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Viáticos entregados</Label>
+                  <Input
+                    type="number"
+                    value={form.viaticos_entregados}
+                    onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Número de factura</Label>
+                  <Input
+                    value={form.num_factura}
+                    onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
+                    placeholder="F-8826 (opcional)"
+                  />
+                </div>
+              </div>
+            </TripFormSection>
+
+            <TripFormSection title="Notas" description="Observaciones internas (opcional)">
+              <Textarea
+                value={form.notas}
+                onChange={(e) => setForm({ ...form, notas: e.target.value })}
+                placeholder="Ej. cliente pidió entrega en andén 3, revisar sello…"
+                rows={3}
+                maxLength={5000}
               />
-            </div>
-            <div className="col-span-2">
-              <Label>Número de factura</Label>
-              <Input
-                value={form.num_factura}
-                onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
-                placeholder="F-8826 (opcional)"
-              />
-            </div>
-            <div>
-              <Label>Fecha y hora salida</Label>
-              <Input
-                type="datetime-local"
-                value={form.fecha_salida}
-                onChange={(e) => setForm({ ...form, fecha_salida: e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>Kilometraje inicial</Label>
-              <Input
-                type="number"
-                value={form.km_inicial}
-                disabled={kmLoading}
-                onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>Tarifa pactada (MXN)</Label>
-              <Input
-                type="number"
-                value={form.tarifa}
-                onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
-              />
-            </div>
-            <div>
-              <Label>Tipo de viaje</Label>
-              <Select
-                value={form.tipo_viaje}
-                onValueChange={(v) => setForm({ ...form, tipo_viaje: v as TripType })}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="local">Local</SelectItem>
-                  <SelectItem value="foraneo">Foráneo</SelectItem>
-                </SelectContent>
-              </Select>
-            </div>
-            <div>
-              <Label>Viáticos entregados</Label>
-              <Input
-                type="number"
-                value={form.viaticos_entregados}
-                onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
-              />
-            </div>
+            </TripFormSection>
           </div>
-          <DialogFooter>
+
+          <DialogFooter className="px-6 py-4 border-t bg-muted/30 sm:justify-end gap-2">
             <Button variant="outline" onClick={() => setOpen(false)}>
               Cancelar
             </Button>

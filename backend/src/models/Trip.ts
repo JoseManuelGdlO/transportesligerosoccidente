@@ -36,6 +36,7 @@ export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<T
   declare route_id: CreationOptional<string | null>;
   declare settlement_id: CreationOptional<string | null>;
   declare cfdi_conceptos: CreationOptional<TripCfdiConcepto[] | null>;
+  declare notas: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -70,6 +71,7 @@ export function initTrip(sequelize: Sequelize) {
       route_id: { type: DataTypes.CHAR(36), allowNull: true },
       settlement_id: { type: DataTypes.CHAR(36), allowNull: true },
       cfdi_conceptos: { type: DataTypes.JSON, allowNull: true },
+      notas: { type: DataTypes.TEXT, allowNull: true },
     } as never,
     { sequelize, tableName: "trips", underscored: true },
   );

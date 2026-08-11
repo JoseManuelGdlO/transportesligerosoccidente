@@ -8,17 +8,19 @@ import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
-import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
+import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Badge } from "@/components/ui/badge";
+import { Textarea } from "@/components/ui/textarea";
 import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
+import { TripFormSection } from "@/components/tlo/TripFormSection";
 import { fmtMXN, fmtMXNDecimal, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
-import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw, HandCoins } from "lucide-react";
+import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw, HandCoins, StickyNote } from "lucide-react";
 import type { AccountDocument, Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
-import { fetchAccountDocuments, fetchTripStatuses, normalizeTrip, setTripStatuses } from "@/lib/tloApi";
+import { fetchAccountDocuments, fetchTripStatuses, normalizeTrip, patchTrip, setTripStatuses } from "@/lib/tloApi";
 import { customStatusesFromTrip, tripIsClosed, tripIsOpen, SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -98,7 +100,14 @@ export default function ViajeDetalle() {
   });
   const [fuelReceipt, setFuelReceipt] = useState<File | null>(null);
   const [exp, setExp] = useState<ExpForm>(defaultExpForm);
-  const [closeData, setCloseData] = useState({ km_final: 0, fecha_llegada: new Date().toISOString().slice(0, 16), num_factura: "" });
+  const [closeData, setCloseData] = useState({
+    km_final: 0,
+    fecha_llegada: new Date().toISOString().slice(0, 16),
+    num_factura: "",
+    notas: "",
+  });
+  const [notasDraft, setNotasDraft] = useState("");
+  const [savingNotas, setSavingNotas] = useState(false);
   const [allStatuses, setAllStatuses] = useState<TripStatusRef[]>([SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO]);
   const [selectedCustomIds, setSelectedCustomIds] = useState<string[]>([]);
   const [savingStatuses, setSavingStatuses] = useState(false);
@@ -118,8 +127,9 @@ export default function ViajeDetalle() {
   useEffect(() => {
     if (trip) {
       setSelectedCustomIds(customStatusesFromTrip(trip).map((s) => s.id));
+      setNotasDraft(trip.notas ?? "");
     }
-  }, [trip?.id, trip?.statuses]);
+  }, [trip?.id, trip?.statuses, trip?.notas]);
 
   if (!trip) {
     return (
@@ -144,6 +154,30 @@ export default function ViajeDetalle() {
   const onTripSaved = (updated: Trip) => {
     replaceTrip(updated);
     setTripOverride(updated);
+  };
+
+  const saveNotas = async () => {
+    const next = notasDraft.trim();
+    const prev = (trip.notas ?? "").trim();
+    if (next === prev) {
+      toast.message("Sin cambios en las notas");
+      return;
+    }
+    setSavingNotas(true);
+    try {
+      if (hasApiConfigured()) {
+        const updated = await patchTrip(trip.id, { notas: next || null });
+        onTripSaved(updated);
+      } else {
+        const updated = { ...trip, notas: next || undefined };
+        onTripSaved(updated);
+      }
+      toast.success("Notas guardadas");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudieron guardar las notas");
+    } finally {
+      setSavingNotas(false);
+    }
   };
 
   const saveCustomStatuses = async () => {
@@ -247,6 +281,7 @@ export default function ViajeDetalle() {
         km_final: +closeData.km_final,
         fecha_llegada: new Date(closeData.fecha_llegada).toISOString(),
         num_factura: closeData.num_factura,
+        notas: closeData.notas.trim(),
       });
       setCloseOpen(false);
       toast.success("Viaje cerrado");
@@ -330,7 +365,8 @@ export default function ViajeDetalle() {
                 setCloseData({
                   km_final: trip.km_inicial,
                   fecha_llegada: new Date().toISOString().slice(0, 16),
-                  num_factura: "",
+                  num_factura: trip.num_factura ?? "",
+                  notas: trip.notas ?? "",
                 });
                 setCloseOpen(true);
               }}
@@ -403,6 +439,13 @@ export default function ViajeDetalle() {
           <TabsTrigger value="diesel">Diesel ({trip.fuel.length})</TabsTrigger>
           <TabsTrigger value="gastos">Gastos/Ingresos ({trip.expenses.length})</TabsTrigger>
           <TabsTrigger value="comision">Comisión</TabsTrigger>
+          <TabsTrigger value="notas" className="gap-1.5">
+            <StickyNote className="h-3.5 w-3.5" />
+            Notas
+            {trip.notas?.trim() ? (
+              <span className="ml-0.5 h-1.5 w-1.5 rounded-full bg-primary" aria-hidden />
+            ) : null}
+          </TabsTrigger>
           {showCartaPorte ? <TabsTrigger value="carta-porte">Carta Porte</TabsTrigger> : null}
         </TabsList>
 
@@ -725,6 +768,47 @@ export default function ViajeDetalle() {
           </Card>
         </TabsContent>
 
+        <TabsContent value="notas" className="mt-4">
+          <Card className="tlo-shadow-md">
+            <CardHeader className="pb-3">
+              <CardTitle className="text-base flex items-center gap-2">
+                <StickyNote className="h-4 w-4 text-muted-foreground" />
+                Notas del viaje
+              </CardTitle>
+              <p className="text-sm text-muted-foreground">
+                Observaciones internas (no se incluyen en el PDF del viaje).
+              </p>
+            </CardHeader>
+            <CardContent className="space-y-3">
+              <Textarea
+                value={notasDraft}
+                onChange={(e) => setNotasDraft(e.target.value)}
+                placeholder="Ej. cliente pidió entrega en andén 3, revisar sello…"
+                rows={8}
+                maxLength={5000}
+                disabled={!canEditTrip || savingNotas}
+                className="min-h-[180px] resize-y"
+              />
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <p className="text-xs text-muted-foreground">
+                  {notasDraft.length}/5000 caracteres
+                </p>
+                {canEditTrip ? (
+                  <Button
+                    onClick={() => void saveNotas()}
+                    disabled={savingNotas || notasDraft.trim() === (trip.notas ?? "").trim()}
+                    className="bg-primary text-primary-foreground hover:bg-primary-glow"
+                  >
+                    {savingNotas ? "Guardando…" : "Guardar notas"}
+                  </Button>
+                ) : (
+                  <p className="text-xs text-muted-foreground">Solo lectura</p>
+                )}
+              </div>
+            </CardContent>
+          </Card>
+        </TabsContent>
+
         {showCartaPorte ? (
           <TabsContent value="carta-porte" className="mt-4">
             <TripCartaPorte
@@ -836,23 +920,79 @@ export default function ViajeDetalle() {
 
       {/* Modal cerrar viaje */}
       <Dialog open={closeOpen} onOpenChange={setCloseOpen}>
-        <DialogContent>
-          <DialogHeader><DialogTitle>Cerrar viaje {trip.folio}</DialogTitle></DialogHeader>
-          <div className="space-y-3">
-            <div>
-              <Label>Kilometraje anterior</Label>
-              <Input
-                type="number"
-                readOnly
-                value={trip.km_inicial}
-                className="bg-muted"
+        <DialogContent className="max-w-lg gap-0 p-0">
+          <DialogHeader className="px-6 pt-6 pb-4 border-b">
+            <DialogTitle>Cerrar viaje {trip.folio}</DialogTitle>
+            <DialogDescription>
+              Confirma kilometraje de llegada, factura y notas finales antes de cerrar.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="px-6 py-4 space-y-4">
+            <TripFormSection title="Kilometraje" description="El km final debe ser mayor al de salida">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div className="space-y-1.5">
+                  <Label>Km de salida</Label>
+                  <Input type="number" readOnly value={trip.km_inicial} className="bg-muted" />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Km final</Label>
+                  <Input
+                    type="number"
+                    value={closeData.km_final}
+                    onChange={(e) => setCloseData({ ...closeData, km_final: +e.target.value })}
+                  />
+                </div>
+              </div>
+              {closeData.km_final > trip.km_inicial ? (
+                <p className="text-xs text-muted-foreground">
+                  Recorrido estimado:{" "}
+                  <span className="font-medium text-foreground">
+                    {fmtNumber(closeData.km_final - trip.km_inicial)} km
+                  </span>
+                </p>
+              ) : null}
+            </TripFormSection>
+
+            <TripFormSection title="Cierre administrativo">
+              <div className="space-y-3">
+                <div className="space-y-1.5">
+                  <Label>Fecha y hora de llegada</Label>
+                  <Input
+                    type="datetime-local"
+                    value={closeData.fecha_llegada}
+                    onChange={(e) => setCloseData({ ...closeData, fecha_llegada: e.target.value })}
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label>Número de factura</Label>
+                  <Input
+                    value={closeData.num_factura}
+                    onChange={(e) => setCloseData({ ...closeData, num_factura: e.target.value })}
+                    placeholder="F-8826"
+                  />
+                </div>
+              </div>
+            </TripFormSection>
+
+            <TripFormSection title="Notas" description="Observaciones internas al cerrar (opcional)">
+              <Textarea
+                value={closeData.notas}
+                onChange={(e) => setCloseData({ ...closeData, notas: e.target.value })}
+                placeholder="Ej. entrega completa, pendiente factura digital…"
+                rows={3}
+                maxLength={5000}
               />
-            </div>
-            <div><Label>Kilometraje final</Label><Input type="number" value={closeData.km_final} onChange={e => setCloseData({ ...closeData, km_final: +e.target.value })} /></div>
-            <div><Label>Fecha y hora de llegada</Label><Input type="datetime-local" value={closeData.fecha_llegada} onChange={e => setCloseData({ ...closeData, fecha_llegada: e.target.value })} /></div>
-            <div><Label>Número de factura</Label><Input value={closeData.num_factura} onChange={e => setCloseData({ ...closeData, num_factura: e.target.value })} placeholder="F-8826" /></div>
+            </TripFormSection>
           </div>
-          <DialogFooter><Button variant="outline" onClick={() => setCloseOpen(false)}>Cancelar</Button><Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90"><Lock className="h-4 w-4 mr-2" />Cerrar viaje</Button></DialogFooter>
+          <DialogFooter className="px-6 py-4 border-t bg-muted/30 sm:justify-end gap-2">
+            <Button variant="outline" onClick={() => setCloseOpen(false)}>
+              Cancelar
+            </Button>
+            <Button onClick={onClose} className="bg-success text-success-foreground hover:bg-success/90">
+              <Lock className="h-4 w-4 mr-2" />
+              Cerrar viaje
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
 

@@ -58,6 +58,7 @@ const createSchema = z
     viaticos_entregados: z.number().optional(),
     num_factura: z.string().optional(),
     tipo_viaje: z.enum(["local", "foraneo"]).optional(),
+    notas: z.string().max(5000).optional(),
   })
   .refine((d) => d.route_id || d.paradas || (d.origen && d.destino), {
     message: "Indica route_id, paradas (mín. 2) u origen y destino",
@@ -91,6 +92,7 @@ const patchSchema = z
     tipo_viaje: z.enum(["local", "foraneo"]).optional(),
     km_final: z.number().int().optional(),
     fecha_llegada: z.string().optional(),
+    notas: z.string().max(5000).nullable().optional(),
   })
   .strict();
 
@@ -110,6 +112,7 @@ const closeSchema = z.object({
   km_final: z.number().int(),
   fecha_llegada: z.string(),
   num_factura: z.string().optional(),
+  notas: z.string().max(5000).optional(),
 });
 
 export const postCloseTrip = asyncHandler(async (req: Request, res: Response) => {

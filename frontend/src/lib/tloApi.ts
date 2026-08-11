@@ -236,6 +236,7 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
           objeto_imp: c.objeto_imp === "01" || c.objeto_imp === "02" ? c.objeto_imp : undefined,
         }))
       : undefined,
+    notas: raw.notas != null && String(raw.notas).trim() ? String(raw.notas) : undefined,
     statuses,
     fuel,
     expenses,

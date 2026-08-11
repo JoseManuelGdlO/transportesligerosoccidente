@@ -253,6 +253,7 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     tipo_viaje: t.tipo_viaje ?? "local",
     settlement_id: t.settlement_id ?? undefined,
     cfdi_conceptos: Array.isArray(t.cfdi_conceptos) ? t.cfdi_conceptos : undefined,
+    notas: t.notas?.trim() ? t.notas : undefined,
     statuses,
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),
