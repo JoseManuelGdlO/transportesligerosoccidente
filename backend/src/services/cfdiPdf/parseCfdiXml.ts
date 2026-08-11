@@ -137,6 +137,7 @@ export interface ParsedCfdi {
   conceptos: CfdiConcepto[];
   impuestos: CfdiImpuesto[];
   timbre: {
+    version?: string;
     uuid: string;
     fechaTimbrado: string;
     noCertificadoSAT?: string;
@@ -456,6 +457,7 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     conceptos: conceptos.map(({ impuestos: _i, ...c }) => c),
     impuestos,
     timbre: {
+      version: attr(tfd, "Version") || undefined,
       uuid: attr(tfd, "UUID"),
       fechaTimbrado: attr(tfd, "FechaTimbrado"),
       noCertificadoSAT: attr(tfd, "NoCertificadoSAT") || undefined,

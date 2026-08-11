@@ -9,33 +9,51 @@ import {
   formatDomicilioCartaPorte,
   parseCfdiXml,
   type ParsedCfdi,
+  type CfdiAutotransporte,
   type CfdiCartaPorte,
   type CfdiConcepto,
   type CfdiMercancia,
+  type CfdiUbicacion,
 } from "./parseCfdiXml";
 import {
-  BOTTOM_RESERVE,
-  CONTENT_W,
-  MARGIN,
-  PAGE_H,
-  PAGE_W,
-  RED,
   BLACK,
-  drawFlatBlackHeader,
-  drawAllCfdiFooters,
-  drawDataTable,
-  drawGraySectionBar,
-  drawFlatBox,
-  drawSellosYQr,
-  drawFieldColumns,
-  drawSegurosBox,
-  drawMetaRows,
-  measureMetaRows,
-  drawUbicacionSicofiBlock,
-  drawMercanciasSummary6Col,
-  drawIdentificacionVehicularInline,
-  drawSellosCartaPorte,
-  PAGE2_BOTTOM_RESERVE,
+  BLUE,
+  CONTENT_L,
+  CONTENT_R,
+  CONTENT_W,
+  GG_LINK_TEXT,
+  GG_URL,
+  GRAY,
+  GRID,
+  PAGE_H,
+  PURPLE,
+  RED,
+  WHITE,
+  blockHeight,
+  box,
+  cadenaOriginal,
+  centerTop,
+  drawCell,
+  drawCellRow,
+  drawColumnField,
+  drawGrayBar,
+  drawInlineField,
+  drawPanel,
+  drawPanelFrame,
+  drawPlainSeal,
+  drawPurpleBand,
+  drawPurpleCell,
+  drawPurpleSeal,
+  drawQr,
+  drawStackedCell,
+  drawValueCell,
+  hRule,
+  line,
+  lineCount,
+  measure,
+  text,
+  textCenter,
+  textRight,
   type PdfDoc,
 } from "./pdfLayout";
 import { catalogDescription, formatCatalogCode } from "./satCatalogLabels";
@@ -43,7 +61,98 @@ import { numeroEnLetra } from "./numeroEnLetra";
 
 type CatalogLookup = Record<string, string>;
 
-const PAGE2_CONTENT_BOTTOM = PAGE_H - MARGIN - PAGE2_BOTTOM_RESERVE;
+/** Interlínea Sicofi para cuerpos de 7 pt en tablas y descripciones. */
+const LEAD_7 = 8.05;
+
+/** Geometría de la hoja fiscal (página 1 de la plantilla Sicofi). */
+const P1 = {
+  logo: { x: 21, y: 20, w: 198, h: 98 },
+  invoice: { x: 371, y: 20, w: 221, h: 95, headerH: 18 },
+  lugarExpedicion: { x: 295, top: 118.4 },
+  emisor: { x: 20, y: 123, w: 265, h: 53, headerH: 15, textX: 28, top: 141.7, pitch: 11 },
+  cert: {
+    x: 293,
+    y: 141,
+    w: 299,
+    h: 35,
+    headerH: 21,
+    cols: [
+      [299, 374],
+      [374, 484],
+      [484, 586],
+    ] as [number, number][],
+    valueSizes: [6, 6, 5],
+  },
+  receptor: {
+    x: 20,
+    y: 182,
+    w: 572,
+    h: 71,
+    headerH: 15,
+    leftX: 29,
+    leftTops: [200, 213, 228],
+    rightEdge: 587,
+    rightTops: [200, 213],
+  },
+  conceptos: { y: 253, headerH: 14, xs: [20, 70, 149, 452, 522, 592], minRowH: 25 },
+  totals: { labelX: 369, labelW: 106, valueX: 475, valueW: 115, rowH: 12, gapAfterTable: 16 },
+  letra: { x: 23, labelOffset: 4, valueOffset: 12.8, referenciaOffset: 4.35 },
+  seals: { x: 21, w: 389, y: 581, heights: [58, 44, 56], gap: 2 },
+  metodoOffsets: [-22.1, -13.3],
+  qr: { x: 423, dy: -8, size: 170 },
+  footer: { docTop: 745.8, linkTop: 759.1, pageTop: 759.8, pageRight: 562, linkCenterRight: 466 },
+};
+
+/** Geometría de la hoja Carta Porte (página 2 de la plantilla Sicofi). */
+const P2 = {
+  logo: { x: 20, y: 35, w: 160, h: 79 },
+  center: { x: 182, w: 236 },
+  meta: { right: 591, narrowLeft: 437, wideLeft: 308 },
+  title: { y: 138, h: 15 },
+  fields: { cols: [22, 212, 402], top: 155.4, pitch: 12 },
+  ubicacion: {
+    cols: [
+      [22, 208],
+      [212, 398],
+      [402, 590],
+    ] as [number, number][],
+    pitch: 8.8,
+    rows: 4,
+    domicilioGap: 3,
+    domicilioH: 11,
+    domicilioLabelW: 68,
+  },
+  mercancias: {
+    summaryXs: [20, 105, 190, 290, 390, 490, 592],
+    summaryH: 17,
+    detailXs: [20, 102, 197, 442, 492, 542, 592],
+    rowH: 10,
+    pesoX: 404,
+    gapAfter: 18,
+  },
+  cantidadTransporta: { xs: [20, 163, 306, 449, 592], headerH: 10, rowH: 18 },
+  autotransporte: {
+    permXs: [20, 106, 306, 419, 592],
+    identXs: [20, 163, 592],
+    rowH: 11,
+    segurosH: 35,
+    segurosSplit: 306,
+    segurosPitch: LEAD_7,
+    leftEdge: 304,
+    rightEdge: 590,
+  },
+  figura: {
+    xs: [20, 96, 219, 362, 592],
+    rowH: 11,
+    extraXs: [20, 115, 306, 412, 592],
+    partesXs: [20, 176, 592],
+    gapBefore: 12,
+  },
+  seals: { x: 20, w: 418, tops: [566, 608, 651], labelH: 10, bodyH: 33 },
+  qr: { x: 447, y: 566, size: 128 },
+  footer: { docTop: 761.5, pageTop: 759.8, pageRight: 562 },
+  contentBottom: 556,
+};
 
 function tipoLabel(tipo: string): string {
   if (tipo === "I" || tipo === "FA") return "I - Factura";
@@ -75,8 +184,8 @@ function fmtCantidad(n: string): string {
 
 function impuestoTotalLabel(tipo: "traslado" | "retencion", impuesto: string, tasa?: string): string {
   const base = impuestoLabel(impuesto);
-  if (tipo === "retencion") return `${base}R`;
-  return tasa ? `${base}T ${tasa}` : `${base}T`;
+  const suffix = tipo === "retencion" ? "R" : "T";
+  return tasa ? `${base}${suffix} ${tasa}` : `${base}${suffix}`;
 }
 
 async function loadTenantLogo(tenant: Tenant): Promise<Buffer | null> {
@@ -113,7 +222,7 @@ async function buildCatalogLookup(cfdi: ParsedCfdi): Promise<CatalogLookup> {
 
 function conceptoClaveUnidad(c: CfdiConcepto): string {
   const clave = c.claveUnidad?.trim();
-  if (!clave) return "—";
+  if (!clave) return "";
   if (c.unidad?.trim()) return `${clave} - ${c.unidad.trim()}`;
   return formatCatalogCode(clave, "claveUnidad");
 }
@@ -125,50 +234,38 @@ function conceptoClaveProdServLine(c: CfdiConcepto, lookup: CatalogLookup): stri
   return desc ? `ClaveProdServ - ${clave} - ${desc}` : `ClaveProdServ - ${clave}`;
 }
 
+/** Sicofi imprime primero la descripción del concepto y debajo la ClaveProdServ. */
 function conceptoDescripcion(c: CfdiConcepto, lookup: CatalogLookup): string {
-  const claveLine = conceptoClaveProdServLine(c, lookup);
-  if (!claveLine) return c.descripcion;
-  return c.descripcion?.trim() ? `${claveLine}\n${c.descripcion}` : claveLine;
+  return [c.descripcion?.trim(), conceptoClaveProdServLine(c, lookup)].filter(Boolean).join("\n");
 }
 
-function dash(v?: string | null): string {
-  const t = v?.trim();
-  return t || "—";
+/** Sicofi deja los campos sin dato en blanco. */
+function val(v?: string | null): string {
+  return v?.trim() || "";
 }
 
 function ubicacionPoloLabel(cp: CfdiCartaPorte): string {
-  const orig = cp.ubicacionPoloOrigen?.trim();
-  const dest = cp.ubicacionPoloDestino?.trim();
-  if (orig || dest) return [orig, dest].filter(Boolean).join(" - ");
-  return "—";
-}
-
-function mercanciaClaveUnidadCode(m: CfdiMercancia): string {
-  return m.claveUnidad?.trim() || "—";
-}
-
-function mercanciaUnidadLabel(m: CfdiMercancia): string {
-  return m.unidad?.trim() || "—";
+  const parts = [cp.ubicacionPoloOrigen?.trim(), cp.ubicacionPoloDestino?.trim()].filter(Boolean);
+  return parts.length > 0 ? parts.join(" - ") : "";
 }
 
 function regimenFiscalDescripcion(code?: string | null): string {
   const trimmed = (code ?? "").trim();
-  if (!trimmed) return "—";
+  if (!trimmed) return "";
   return catalogDescription(trimmed, "regimenFiscal") || trimmed;
 }
 
-function drawLogo(doc: PdfDoc, logo: Buffer | null, x: number, y: number, w: number, h: number): number {
+function drawLogo(doc: PdfDoc, logo: Buffer | null, x: number, y: number, w: number, h: number): void {
   if (logo) {
     try {
       doc.image(logo, x, y, { fit: [w, h] });
-      return h;
+      return;
     } catch {
-      /* fallback to text */
+      /* fallback a texto */
     }
   }
-  doc.font("Helvetica-Bold").fontSize(22).text("TLO", x, y);
-  doc.font("Helvetica").fontSize(8).text("Transportes Ligeros de Occidente", x, y + 24, { width: w });
-  return 36;
+  text(doc, "TLO", x, y, { size: 22, bold: true });
+  text(doc, "Transportes Ligeros de Occidente", x, y + 30, { size: 8, width: w });
 }
 
 function formatTenantDomicilioLine(tenant: Tenant | null | undefined, cfdi: ParsedCfdi): string {
@@ -186,61 +283,164 @@ function formatTenantDomicilioLine(tenant: Tenant | null | undefined, cfdi: Pars
   return parts.join(", ");
 }
 
-function formatTenantDomicilioLines(tenant: Tenant | null | undefined, cfdi: ParsedCfdi): string[] {
-  const line = formatTenantDomicilioLine(tenant, cfdi);
-  return [line];
-}
-
-function drawInvoiceBox(doc: PdfDoc, cfdi: ParsedCfdi, x: number, y: number, w: number): number {
-  const headerH = 13;
-  const boxH = 96;
-  drawFlatBlackHeader(doc, x, y, w, headerH, `${tipoLabel(cfdi.tipoDeComprobante)} - VERSIÓN ${cfdi.version}`, 7);
-  drawFlatBox(doc, x, y + headerH, w, boxH - headerH);
-  const bodyY = y + headerH;
-  doc
-    .fillColor(RED)
-    .font("Helvetica-Bold")
-    .fontSize(20)
-    .text(cfdi.folio || "—", x, bodyY + 4, { width: w, align: "center" });
-  doc.fillColor(BLACK).font("Helvetica").fontSize(6.5);
-  let hy = bodyY + 28;
-  const metaLines = [
-    `No. de serie del CSD del emisor: ${cfdi.noCertificado || "—"}`,
-    `Fecha y Hora de emisión: ${cfdi.fecha}`,
-    `Folio Fiscal: ${cfdi.timbre.uuid}`,
+function drawInvoicePanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
+  const { x, y, w, h, headerH } = P1.invoice;
+  drawPanel(doc, x, y, w, h, headerH, `${tipoLabel(cfdi.tipoDeComprobante)} - VERSIÓN ${cfdi.version}`, 8);
+  textCenter(doc, cfdi.folio || "", x, x + w, 40.2, { size: 8, bold: true, color: RED });
+  const rows = [
+    { label: "No. de serie del CSD del emisor", value: val(cfdi.noCertificado), labelTop: 50.7, valueTop: 62 },
+    { label: "Fecha y Hora de emisión", value: cfdi.fecha, labelTop: 71.7, valueTop: 83 },
+    { label: "Folio Fiscal", value: cfdi.timbre.uuid, labelTop: 91.7, valueTop: 102 },
   ];
-  for (const line of metaLines) {
-    doc.text(line, x + 5, hy, { width: w - 10, align: "left" });
-    hy += 11;
+  for (const row of rows) {
+    textCenter(doc, row.label, x, x + w, row.labelTop, { size: 8, bold: true });
+    textCenter(doc, row.value, x + 3, x + w - 3, row.valueTop, { size: 6, bold: true, color: PURPLE });
   }
-  return boxH;
 }
 
-function drawEmisorBlock(doc: PdfDoc, cfdi: ParsedCfdi, x: number, y: number, w: number, h: number) {
-  drawFlatBlackHeader(doc, x, y, w, 13, "Emisor", 7);
-  drawFlatBox(doc, x, y + 13, w, h - 13);
-  doc.fontSize(7).text(`RFC: ${cfdi.emisor.rfc}`, x + 5, y + 17);
-  doc.text(`Razón Social: ${cfdi.emisor.nombre}`, x + 5, y + 28, { width: w - 10 });
-  doc.text(`Regimen Fiscal: ${formatCatalogCode(cfdi.emisor.regimenFiscal, "regimenFiscal")}`, x + 5, y + 39, {
-    width: w - 10,
+function drawEmisorPanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
+  const e = P1.emisor;
+  drawPanel(doc, e.x, e.y, e.w, e.h, e.headerH, "Emisor", 8);
+  const lines = [
+    `RFC: ${cfdi.emisor.rfc}`,
+    `Razón Social: ${cfdi.emisor.nombre}`,
+    `Regimen Fiscal: ${formatCatalogCode(cfdi.emisor.regimenFiscal, "regimenFiscal")}`,
+  ];
+  lines.forEach((l, i) => {
+    text(doc, l, e.textX, e.top + i * e.pitch, {
+      size: 6,
+      color: PURPLE,
+      width: e.w - (e.textX - e.x) * 2,
+      height: 9,
+      ellipsis: true,
+    });
   });
 }
 
-function drawCertificationBlock(doc: PdfDoc, cfdi: ParsedCfdi, x: number, y: number, w: number, h: number) {
-  const colW = w / 3;
-  const headerH = 13;
-  const bodyH = h - headerH;
-  drawFlatBlackHeader(doc, x, y, colW, headerH, "Fecha y hora de certificación", 5.5);
-  drawFlatBlackHeader(doc, x + colW, y, colW, headerH, "No. de serie del CSD del SAT", 5.5);
-  drawFlatBlackHeader(doc, x + colW * 2, y, colW, headerH, "Forma de Pago", 5.5);
-  doc.rect(x, y + headerH, colW, bodyH).stroke(BLACK);
-  doc.rect(x + colW, y + headerH, colW, bodyH).stroke(BLACK);
-  doc.rect(x + colW * 2, y + headerH, colW, bodyH).stroke(BLACK);
-  doc.fontSize(6).text(cfdi.timbre.fechaTimbrado, x + 2, y + headerH + 4, { width: colW - 4, align: "center" });
-  doc.text(cfdi.timbre.noCertificadoSAT || "—", x + colW + 2, y + headerH + 4, { width: colW - 4, align: "center" });
-  doc.text(formatCatalogCode(cfdi.formaPago, "formaPago"), x + colW * 2 + 2, y + headerH + 4, {
-    width: colW - 4,
-    align: "center",
+function drawCertPanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
+  const c = P1.cert;
+  const bodyY = drawPanelFrame(doc, c.x, c.y, c.w, c.h, c.headerH);
+  const titles = ["Fecha y hora de certificación", "No. de serie del CSD del SAT", "Forma de Pago"];
+  const values = [
+    cfdi.timbre.fechaTimbrado,
+    val(cfdi.timbre.noCertificadoSAT),
+    formatCatalogCode(cfdi.formaPago, "formaPago"),
+  ];
+  const bodyH = c.h - c.headerH;
+  c.cols.forEach(([left, right], i) => {
+    const titleLines = lineCount(doc, titles[i], right - left, 7, true);
+    const titleTop = c.y + (c.headerH - titleLines * P2.ubicacion.pitch) / 2;
+    textCenter(doc, titles[i], left, right, titleTop, {
+      size: 7,
+      bold: true,
+      color: WHITE,
+      leading: P2.ubicacion.pitch,
+    });
+    let size = c.valueSizes[i];
+    while (size > 4 && measure(doc, values[i], size, true) > right - left - 4) size -= 0.5;
+    textCenter(doc, values[i], left, right, centerTop(bodyY, bodyH, size), {
+      size,
+      bold: true,
+      color: PURPLE,
+    });
+  });
+}
+
+function drawReceptorPanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
+  const r = P1.receptor;
+  drawPanel(doc, r.x, r.y, r.w, r.h, r.headerH, "Receptor", 8);
+  const left = [
+    `RFC: ${cfdi.receptor.rfc}`,
+    `Razón Social: ${cfdi.receptor.nombre}`,
+    `Uso de CFDI: ${formatCatalogCode(cfdi.receptor.usoCFDI, "usoCfdi")}`,
+  ];
+  left.forEach((l, i) => {
+    text(doc, l, r.leftX, r.leftTops[i], { size: 7, color: PURPLE, width: 340 });
+  });
+  const right = [
+    `Regimen Fiscal Receptor: ${
+      cfdi.receptor.regimenFiscal ? formatCatalogCode(cfdi.receptor.regimenFiscal, "regimenFiscal") : ""
+    }`,
+    `Domicilio Fiscal Receptor: ${val(cfdi.receptor.domicilioFiscal)}`,
+  ];
+  right.forEach((l, i) => {
+    textRight(doc, l, r.rightEdge, r.rightTops[i], { size: 7, color: PURPLE, width: 250 });
+  });
+}
+
+function drawConceptosTable(doc: PdfDoc, cfdi: ParsedCfdi, lookup: CatalogLookup): number {
+  const t = P1.conceptos;
+  const xs = t.xs;
+  drawPurpleBand(doc, CONTENT_L, t.y, CONTENT_W, t.headerH);
+  const headers = ["Cantidad", "Clave Unidad", "Descripción", "Valor Unitario", "Importe"];
+  headers.forEach((h, i) => {
+    textCenter(doc, h, xs[i], xs[i + 1], centerTop(t.y, t.headerH, 8), { size: 8, bold: true, color: WHITE });
+  });
+
+  const descW = xs[3] - xs[2] - 4;
+  let y = t.y + t.headerH;
+  for (const c of cfdi.conceptos) {
+    const desc = conceptoDescripcion(c, lookup);
+    const rowH = Math.max(t.minRowH, lineCount(doc, desc, descW, 7) * LEAD_7);
+    for (let i = 0; i < xs.length - 1; i++) {
+      box(doc, xs[i], y, xs[i + 1] - xs[i], rowH, BLACK, 1);
+    }
+    const mid = centerTop(y, rowH, 7);
+    textCenter(doc, fmtCantidad(c.cantidad), xs[0], xs[1], mid, { size: 7, color: PURPLE });
+    textCenter(doc, conceptoClaveUnidad(c), xs[1], xs[2], mid, { size: 7, color: PURPLE });
+    text(doc, desc, xs[2] + 2, y - 0.5, { size: 7, color: PURPLE, width: descW, leading: LEAD_7 });
+    textRight(doc, fmtMoney(c.valorUnitario), xs[4] - 2, mid, { size: 7, color: PURPLE, width: xs[4] - xs[3] - 4 });
+    textRight(doc, fmtMoney(c.importe), xs[5] - 2, mid, { size: 7, color: PURPLE, width: xs[5] - xs[4] - 4 });
+    y += rowH;
+  }
+  return y;
+}
+
+function drawTotales(doc: PdfDoc, cfdi: ParsedCfdi, y: number): number {
+  const t = P1.totals;
+  const rows: [string, string][] = [["Subtotal", fmtMoney(cfdi.subTotal, cfdi.moneda)]];
+  for (const i of cfdi.impuestos) {
+    rows.push([impuestoTotalLabel(i.tipo, i.impuesto, i.tasaOCuota), fmtMoney(i.importe, cfdi.moneda)]);
+  }
+  rows.push(["Total", fmtMoney(cfdi.total, cfdi.moneda)]);
+
+  let ty = y;
+  rows.forEach(([label, value], i) => {
+    const last = i === rows.length - 1;
+    drawPurpleCell(doc, t.labelX, ty, t.labelW, t.rowH, BLACK);
+    drawValueCell(doc, t.valueX, ty, t.valueW, t.rowH, last ? BLACK : PURPLE);
+    const mid = centerTop(ty, t.rowH, 7);
+    textRight(doc, label, t.valueX - 3, mid, { size: 7, color: WHITE, width: t.labelW - 6 });
+    textRight(doc, value, t.valueX + t.valueW - 2, mid, { size: 7, color: PURPLE, width: t.valueW - 4 });
+    ty += t.rowH;
+  });
+
+  const total = parseFloat(cfdi.total);
+  const letra = Number.isNaN(total) ? "" : numeroEnLetra(total, cfdi.moneda || "MXN");
+  const letraW = t.labelX - P1.letra.x - 8;
+  text(doc, "TOTAL EN LETRA:", P1.letra.x, y + P1.letra.labelOffset, { size: 7, bold: true });
+  text(doc, letra, P1.letra.x, y + P1.letra.valueOffset, { size: 7, bold: true, width: letraW, leading: LEAD_7 });
+  let letraBottom = y + P1.letra.valueOffset + blockHeight(doc, letra, letraW, 7, LEAD_7, true);
+
+  const referencias = [...new Set(cfdi.conceptos.map((c) => c.noIdentificacion?.trim()).filter(Boolean))].join(" / ");
+  if (referencias) {
+    text(doc, referencias, P1.letra.x, letraBottom + P1.letra.referenciaOffset, { size: 6, width: letraW });
+    letraBottom += P1.letra.referenciaOffset + 8.3;
+  }
+  return Math.max(ty, letraBottom);
+}
+
+function drawPage1Footer(doc: PdfDoc): void {
+  const f = P1.footer;
+  textCenter(doc, "Este documento es una representacion impresa de un CFDI", CONTENT_L, CONTENT_R, f.docTop, {
+    size: 8,
+    color: PURPLE,
+  });
+  textCenter(doc, GG_LINK_TEXT, CONTENT_L, f.linkCenterRight, f.linkTop, {
+    size: 9,
+    color: BLUE,
+    underline: true,
+    link: GG_URL,
   });
 }
 
@@ -250,137 +450,57 @@ async function renderPage1(
   logo: Buffer | null,
   lookup: CatalogLookup,
 ): Promise<void> {
-  let y = MARGIN;
-  const headerRightW = 195;
-  const logoW = 185;
-  const logoH = 72;
-  const boxX = PAGE_W - MARGIN - headerRightW;
-
-  const logoUsedH = drawLogo(doc, logo, MARGIN, y, logoW, logoH);
-  const boxH = drawInvoiceBox(doc, cfdi, boxX, y, headerRightW);
-  y += Math.max(logoUsedH, boxH) + 6;
-
-  doc.fontSize(7).text(`Lugar de expedición: ${cfdi.lugarExpedicion}`, MARGIN, y, {
-    width: CONTENT_W,
-    align: "right",
+  drawLogo(doc, logo, P1.logo.x, P1.logo.y, P1.logo.w, P1.logo.h);
+  drawInvoicePanel(doc, cfdi);
+  text(doc, `Lugar de expedición: ${cfdi.lugarExpedicion}`, P1.lugarExpedicion.x, P1.lugarExpedicion.top, {
+    size: 7,
+    bold: true,
   });
-  y += 12;
+  drawEmisorPanel(doc, cfdi);
+  drawCertPanel(doc, cfdi);
+  drawReceptorPanel(doc, cfdi);
 
-  const blockH = 52;
-  const emisorW = Math.round(CONTENT_W * 0.58);
-  const certW = CONTENT_W - emisorW - 6;
-  drawEmisorBlock(doc, cfdi, MARGIN, y, emisorW, blockH);
-  drawCertificationBlock(doc, cfdi, MARGIN + emisorW + 6, y, certW, blockH);
-  y += blockH + 4;
-
-  drawFlatBlackHeader(doc, MARGIN, y, CONTENT_W, 13, "Receptor", 7);
-  drawFlatBox(doc, MARGIN, y + 13, CONTENT_W, blockH - 13);
-  doc.fontSize(7);
-  doc.text(`RFC: ${cfdi.receptor.rfc}`, MARGIN + 5, y + 17);
-  doc.text(`Razón Social: ${cfdi.receptor.nombre}`, MARGIN + 5, y + 28);
-  doc.text(`Uso de CFDI: ${formatCatalogCode(cfdi.receptor.usoCFDI, "usoCfdi")}`, MARGIN + 5, y + 39);
-  const rx = MARGIN + CONTENT_W / 2;
-  doc.text(
-    `Regimen Fiscal Receptor: ${cfdi.receptor.regimenFiscal ? formatCatalogCode(cfdi.receptor.regimenFiscal, "regimenFiscal") : "—"}`,
-    rx,
-    y + 17,
-  );
-  doc.text(`Domicilio Fiscal Receptor: ${cfdi.receptor.domicilioFiscal || "—"}`, rx, y + 28);
-  y += blockH + 4;
-
+  let y = P1.conceptos.y + P1.conceptos.headerH;
   const isIngreso = cfdi.tipoDeComprobante === "I" || cfdi.tipoDeComprobante === "FA";
-
   if (isIngreso && cfdi.conceptos.length > 0) {
-    const cols = [
-      { label: "Cantidad", w: 52 },
-      { label: "Clave Unidad", w: 72 },
-      { label: "Descripción", w: CONTENT_W - 52 - 72 - 64 - 64 },
-      { label: "Valor Unitario", w: 64 },
-      { label: "Importe", w: 64 },
-    ];
-    let cx = MARGIN;
-    const th = 13;
-    for (const col of cols) {
-      drawFlatBlackHeader(doc, cx, y, col.w, th, col.label, 6);
-      cx += col.w;
-    }
-    let tableBodyY = y + th;
-    for (const c of cfdi.conceptos) {
-      const desc = conceptoDescripcion(c, lookup);
-      const descH = doc.heightOfString(desc, { width: cols[2].w - 4, lineGap: 0 });
-      const rowHConcept = Math.max(24, descH + 6);
-      cx = MARGIN;
-      doc.rect(cx, tableBodyY, cols[0].w, rowHConcept).stroke(BLACK);
-      doc.fontSize(6.5).text(fmtCantidad(c.cantidad), cx + 2, tableBodyY + 4, { width: cols[0].w - 4, align: "center" });
-      cx += cols[0].w;
-      doc.rect(cx, tableBodyY, cols[1].w, rowHConcept).stroke(BLACK);
-      doc.text(conceptoClaveUnidad(c), cx + 2, tableBodyY + 4, { width: cols[1].w - 4 });
-      cx += cols[1].w;
-      doc.rect(cx, tableBodyY, cols[2].w, rowHConcept).stroke(BLACK);
-      doc.text(desc, cx + 2, tableBodyY + 2, { width: cols[2].w - 4, lineGap: 0 });
-      cx += cols[2].w;
-      doc.rect(cx, tableBodyY, cols[3].w, rowHConcept).stroke(BLACK);
-      doc.text(fmtMoney(c.valorUnitario, undefined, 2), cx + 2, tableBodyY + 4, { width: cols[3].w - 4, align: "right" });
-      cx += cols[3].w;
-      doc.rect(cx, tableBodyY, cols[4].w, rowHConcept).stroke(BLACK);
-      doc.text(fmtMoney(c.importe, undefined, 2), cx + 2, tableBodyY + 4, { width: cols[4].w - 4, align: "right" });
-      tableBodyY += rowHConcept;
-    }
-    y = tableBodyY + 6;
-
-    const totalBoxW = 162;
-    const totalX = PAGE_W - MARGIN - totalBoxW;
-    const traslados = cfdi.impuestos.filter((i) => i.tipo === "traslado");
-    const retenciones = cfdi.impuestos.filter((i) => i.tipo === "retencion");
-    const rows: [string, string][] = [["Subtotal", fmtMoney(cfdi.subTotal, cfdi.moneda)]];
-    for (const t of traslados) {
-      rows.push([impuestoTotalLabel("traslado", t.impuesto, t.tasaOCuota), fmtMoney(t.importe, cfdi.moneda)]);
-    }
-    for (const r of retenciones) {
-      rows.push([impuestoTotalLabel("retencion", r.impuesto), fmtMoney(r.importe, cfdi.moneda)]);
-    }
-    rows.push(["Total", fmtMoney(cfdi.total, cfdi.moneda)]);
-
-    const labelW = 82;
-    const valueW = totalBoxW - labelW;
-    let ty = y;
-    for (const [label, val] of rows) {
-      drawFlatBlackHeader(doc, totalX, ty, labelW, 12, label, 6);
-      doc.rect(totalX + labelW, ty, valueW, 12).stroke(BLACK);
-      doc.fontSize(6.5).text(val, totalX + labelW + 2, ty + 2, { width: valueW - 4, align: "right" });
-      ty += 12;
-    }
-
-    const totalNum = parseFloat(cfdi.total);
-    const totalLetra = Number.isNaN(totalNum)
-      ? "—"
-      : numeroEnLetra(totalNum, cfdi.moneda || "MXN");
-    const letraLabel = "Importe con letra:";
-    const letraW = totalX - MARGIN - 8;
-    doc.font("Helvetica-Bold").fontSize(6.5).text(letraLabel, MARGIN, y, { width: letraW });
-    doc
-      .font("Helvetica")
-      .fontSize(6.5)
-      .text(totalLetra, MARGIN, y + 10, { width: letraW, lineGap: 0 });
-
-    y = Math.max(ty, y + 10 + doc.heightOfString(totalLetra, { width: letraW, lineGap: 0 })) + 4;
-
-    if (cfdi.metodoPago || cfdi.condicionesDePago) {
-      doc.fontSize(7);
-      if (cfdi.metodoPago) {
-        doc.text(`Método de Pago: ${formatCatalogCode(cfdi.metodoPago, "metodoPago")}`, MARGIN, y);
-        y += 9;
-      }
-      if (cfdi.condicionesDePago) {
-        doc.text(`Condiciones de Pago: ${cfdi.condicionesDePago}`, MARGIN, y);
-        y += 9;
-      }
-      y += 2;
-    }
+    y = drawConceptosTable(doc, cfdi, lookup);
+    y = drawTotales(doc, cfdi, y + P1.totals.gapAfterTable);
   }
 
-  const footerTop = Math.max(y + 8, PAGE_H - MARGIN - BOTTOM_RESERVE);
-  await drawSellosYQr(doc, cfdi, footerTop);
+  let sealsY = P1.seals.y;
+  if (y > sealsY - 26) {
+    drawPage1Footer(doc);
+    doc.addPage();
+    sealsY = 60;
+  }
+
+  const pagos = [
+    cfdi.metodoPago ? `Método de Pago: ${formatCatalogCode(cfdi.metodoPago, "metodoPago")}` : "",
+    cfdi.condicionesDePago ? `Condiciones de Pago: ${cfdi.condicionesDePago}` : "",
+  ].filter(Boolean);
+  pagos.forEach((p, i) => {
+    text(doc, p, P1.letra.x, sealsY + P1.metodoOffsets[i], { size: 7 });
+  });
+
+  await drawQr(doc, cfdi, P1.qr.x, sealsY + P1.qr.dy, P1.qr.size);
+
+  const titles = [
+    "Cadena original del complemento de certificación digital del SAT",
+    "Sello digital del emisor",
+    "Sello digital del SAT",
+  ];
+  const contents = [
+    cadenaOriginal(cfdi),
+    cfdi.sello || cfdi.timbre.selloCFD || "",
+    cfdi.timbre.selloSAT || "",
+  ];
+  let sy = sealsY;
+  P1.seals.heights.forEach((h, i) => {
+    drawPurpleSeal(doc, P1.seals.x, sy, P1.seals.w, h, titles[i], contents[i]);
+    sy += h + P1.seals.gap;
+  });
+
+  drawPage1Footer(doc);
 }
 
 function drawPage2Header(
@@ -390,49 +510,346 @@ function drawPage2Header(
   tenant: Tenant | null | undefined,
   logo: Buffer | null,
 ): number {
-  const y0 = MARGIN;
-  const logoW = 95;
-  const centerX = MARGIN + logoW + 6;
-  const centerW = CONTENT_W * 0.38;
-  const rightX = centerX + centerW + 6;
-  const rightW = PAGE_W - MARGIN - rightX;
+  drawLogo(doc, logo, P2.logo.x, P2.logo.y, P2.logo.w, P2.logo.h);
 
-  const logoH = drawLogo(doc, logo, MARGIN, y0, logoW, 48);
-
+  const { x: cx, w: cw } = P2.center;
   const nombre = tenant?.razon_social || cfdi.emisor.nombre;
-  doc.font("Helvetica-Bold").fontSize(7.5).text(nombre, centerX, y0, { width: centerW, lineGap: 0 });
-  let cy = y0 + doc.heightOfString(nombre, { width: centerW, lineGap: 0 }) + 2;
-  doc.font("Helvetica").fontSize(5.5);
-  const centerLines = [
-    `R.F.C. ${tenant?.rfc || cfdi.emisor.rfc}`,
-    ...formatTenantDomicilioLines(tenant, cfdi),
-    `Lugar de Expedición: ${cfdi.lugarExpedicion}`,
-    `Regimen Fiscal: ${regimenFiscalDescripcion(tenant?.regimen_fiscal || cfdi.emisor.regimenFiscal)}`,
-    `No. de serie del CSD del SAT: ${cfdi.timbre.noCertificadoSAT || "—"}`,
-    `No. de serie del CSD del emisor: ${cfdi.noCertificado || "—"}`,
-    `Fecha de certificación: ${cfdi.timbre.fechaTimbrado}`,
+  text(doc, nombre, cx, 19.9, { size: 10, bold: true, width: cw, leading: 13.8 });
+  text(doc, `R.F.C. ${tenant?.rfc || cfdi.emisor.rfc}`, cx, 34.4, { size: 7, bold: true, width: cw });
+  const domicilio = formatTenantDomicilioLine(tenant, cfdi);
+  const pitch = P2.ubicacion.pitch;
+  let cy = 47.6;
+  text(doc, domicilio, cx, cy, { size: 7, bold: true, width: cw, leading: pitch });
+  cy += lineCount(doc, domicilio, cw, 7, true) * pitch + 4.4;
+  text(doc, `Lugar de Expedición: ${cfdi.lugarExpedicion}`, cx, cy, { size: 7, bold: true, width: cw });
+  cy += 14;
+  text(doc, `Regimen Fiscal: ${regimenFiscalDescripcion(tenant?.regimen_fiscal || cfdi.emisor.regimenFiscal)}`, cx, cy, {
+    size: 7,
+    bold: true,
+    width: cw,
+  });
+
+  const m = P2.meta;
+  const metaRows = [
+    { value: "Factura Número", size: 8, top: 35.2, ruleY: 46, left: m.narrowLeft },
+    { value: val(cfdi.folio), size: 8, top: 46.2, ruleY: 57, left: m.narrowLeft },
+    { value: "UUID", size: 8, top: 58.2, ruleY: 69, left: m.narrowLeft },
+    { value: cfdi.timbre.uuid, size: 6, top: 70.5, ruleY: 80, left: m.narrowLeft },
+    { value: "Fecha y Hora de emisión", size: 8, top: 81.2, ruleY: 92, left: m.narrowLeft },
+    { value: cfdi.fecha, size: 8, top: 93.2, ruleY: 104, left: m.narrowLeft },
+    {
+      value: `No. de serie del CSD del SAT: ${val(cfdi.timbre.noCertificadoSAT)}`,
+      size: 7,
+      top: 105.9,
+      ruleY: 116,
+      left: m.wideLeft,
+    },
+    {
+      value: `No. de serie del CSD del emisor: ${val(cfdi.noCertificado)}`,
+      size: 7,
+      top: 116.9,
+      ruleY: 127,
+      left: m.wideLeft,
+    },
+    {
+      value: `Fecha de certificación: ${cfdi.timbre.fechaTimbrado}`,
+      size: 7,
+      top: 127.9,
+      ruleY: 138,
+      left: m.wideLeft,
+    },
   ];
-  for (const line of centerLines) {
-    doc.text(line, centerX, cy, { width: centerW, lineGap: 0 });
-    cy += doc.heightOfString(line, { width: centerW, lineGap: 0 }) + 1;
+  for (const row of metaRows) {
+    textRight(doc, row.value, m.right, row.top, { size: row.size, bold: true, width: m.right - row.left });
+    hRule(doc, row.left, row.ruleY, m.right - row.left, BLACK, 0.5);
   }
 
-  const rightFields: [string, string][] = [
-    ["Factura Número", cfdi.folio || "—"],
-    ["UUID", cfdi.timbre.uuid],
-    ["Fecha y Hora de emisión", cfdi.fecha],
-    ["No. Certificado CSD del SAT", cfdi.timbre.noCertificadoSAT || "—"],
-    ["No. de serie del CSD del emisor", cfdi.noCertificado || "—"],
-    ["Fecha de certificación", cfdi.timbre.fechaTimbrado],
-  ];
-  const metaTop = y0;
-  const metaH = measureMetaRows(doc, rightW, rightFields, 5.5);
-  drawFlatBox(doc, rightX, metaTop, rightW, metaH);
-  const metaBottom = drawMetaRows(doc, rightX, metaTop, rightW, rightFields, 5.5);
+  const t = P2.title;
+  hRule(doc, CONTENT_L, t.y, CONTENT_W, BLACK, 0.5);
+  hRule(doc, CONTENT_L, t.y + t.h, CONTENT_W, BLACK, 0.5);
+  line(doc, CONTENT_L, t.y, CONTENT_L, t.y + t.h, BLACK, 0.5);
+  line(doc, CONTENT_R, t.y, CONTENT_R, t.y + t.h, BLACK, 0.5);
+  textCenter(doc, `Complemento Carta Porte Version ${cp.version}`, CONTENT_L, CONTENT_R, t.y + 0.9, {
+    size: 10,
+    bold: true,
+  });
+  return t.y + t.h;
+}
 
-  let y = Math.max(cy, metaBottom, y0 + logoH) + 6;
-  y = drawGraySectionBar(doc, y, `Complemento Carta Porte Version ${cp.version}`, 8);
-  return y + 4;
+function drawCartaPorteFields(doc: PdfDoc, cp: CfdiCartaPorte): number {
+  const f = P2.fields;
+  const rows: [string, string][][] = [
+    [
+      ["IdCCP", val(cp.idCCP)],
+      ["Entrada Salida Merc", val(cp.entradaSalidaMerc)],
+      ["Total Dist Rec", val(cp.totalDistRec)],
+    ],
+    [
+      ["Transp Internac", val(cp.transpInternac)],
+      ["Pais origen - Destino", val(cp.paisOrigenDestino)],
+      ["Registro ISTMO", val(cp.registroISTMO)],
+    ],
+    [
+      ["Via Entrada Salida", val(cp.viaEntradaSalida)],
+      ["Ubicación Origen - Destino", ubicacionPoloLabel(cp)],
+    ],
+    [["Regimenes Aduaneros", val(cp.regimenesAduaneros.filter(Boolean).join(", "))]],
+  ];
+  rows.forEach((row, r) => {
+    row.forEach(([label, value], c) => {
+      drawInlineField(doc, f.cols[c], f.top + r * f.pitch, label, value);
+    });
+  });
+  return f.top + rows.length * f.pitch - 1.4;
+}
+
+function drawUbicacion(doc: PdfDoc, y: number, u: CfdiUbicacion): number {
+  const g = P2.ubicacion;
+  const columns: [string, string][][] = [
+    [
+      ["Tipo Ubicacion", val(u.tipoUbicacion)],
+      ["ID Ubicacion", val(u.idUbicacion)],
+      ["RFC Remitente Destinatario", val(u.rfcRemitenteDestinatario)],
+      ["Nombre", val(u.nombreRemitenteDestinatario)],
+    ],
+    [
+      ["NumRegIdTrib", val(u.numRegIdTrib)],
+      ["Residencia Fiscal", val(u.residenciaFiscal)],
+      ["Num Estacion", val(u.numEstacion)],
+      ["Nombre Estacion", val(u.nombreEstacion)],
+    ],
+    [
+      ["Navegacion Trafico", val(u.navegacionTrafico)],
+      ["Fecha Hora Salida Llegada", val(u.fechaHoraSalidaLlegada)],
+      ["Tipo Estacion", val(u.tipoEstacion)],
+      ["Distancia Recorrida", val(u.distanciaRecorrida)],
+    ],
+  ];
+  const top = y - 0.2;
+  columns.forEach((fields, c) => {
+    const [left, right] = g.cols[c];
+    fields.forEach(([label, value], r) => {
+      drawColumnField(doc, left, right, top + r * g.pitch, label, value);
+    });
+  });
+
+  const domY = top + g.rows * g.pitch + g.domicilioGap;
+  const domicilio = u.domicilio ? formatDomicilioCartaPorte(u.domicilio) : "";
+  drawCell(doc, CONTENT_L, domY, g.domicilioLabelW, g.domicilioH, "Domicilio:", {
+    fill: GRAY,
+    align: "left",
+    bold: true,
+  });
+  drawCell(doc, CONTENT_L + g.domicilioLabelW, domY, CONTENT_R - CONTENT_L - g.domicilioLabelW, g.domicilioH, domicilio, {
+    align: "left",
+    bold: true,
+  });
+  return domY + g.domicilioH;
+}
+
+function mercanciaRow(m: CfdiMercancia): string[] {
+  return [
+    val(m.bienesTransp),
+    val(m.claveSTCC),
+    val(m.descripcion),
+    m.cantidad ? fmtCantidad(m.cantidad) : "",
+    val(m.claveUnidad),
+    val(m.unidad),
+  ];
+}
+
+function drawMercancias(doc: PdfDoc, y: number, cp: CfdiCartaPorte): number {
+  const g = P2.mercancias;
+  y = drawGrayBar(doc, y, 12, "Mercancias");
+  const summary: [string, string][] = [
+    ["Peso Bruto Total", val(cp.pesoBrutoTotal)],
+    ["Unidad Peso", cp.unidadPeso ? formatCatalogCode(cp.unidadPeso, "claveUnidad", { codeOnly: true }) : ""],
+    ["Peso Neto Total", val(cp.pesoNetoTotal)],
+    ["Num Total Mercancias", val(cp.numTotalMercancias)],
+    ["Cargo Por Tasacion", val(cp.cargoPorTasacion)],
+    ["Recolección - Devolución", val(cp.logisticaInversaRecoleccionDevolucion)],
+  ];
+  summary.forEach(([label, value], i) => {
+    drawStackedCell(
+      doc,
+      g.summaryXs[i],
+      y,
+      g.summaryXs[i + 1] - g.summaryXs[i],
+      g.summaryH,
+      label,
+      value,
+    );
+  });
+  y += g.summaryH;
+
+  y = drawCellRow(
+    doc,
+    g.detailXs,
+    y,
+    g.rowH,
+    ["Bienes Transp", "Clave STCC", "Descripcion", "Cantidad", "Clave Unidad", "Unidad"],
+    { fill: GRAY, bold: true },
+  );
+  const rows = cp.mercancias.length > 0 ? cp.mercancias.map(mercanciaRow) : [["", "", "", "", "", ""]];
+  for (const row of rows) {
+    y = drawCellRow(doc, g.detailXs, y, g.rowH, row, { bold: true });
+  }
+
+  const pesoKg = cp.mercancias.find((m) => m.pesoEnKg)?.pesoEnKg || cp.pesoBrutoTotal;
+  if (pesoKg) text(doc, `Peso En Kg ${pesoKg}`, g.pesoX, y, { size: 7, bold: true });
+  return y + g.gapAfter;
+}
+
+function drawCantidadTransporta(doc: PdfDoc, y: number, cp: CfdiCartaPorte): number {
+  const g = P2.cantidadTransporta;
+  y = drawGrayBar(doc, y, g.headerH, "Cantidad Transporta");
+  y = drawCellRow(doc, g.xs, y, g.headerH, ["Cantidad", "ID Origen", "ID. Destino", "Cves Transporte"], {
+    fill: GRAY,
+    bold: true,
+  });
+  const items = cp.mercancias.flatMap((m) => m.cantidadTransporta ?? []);
+  const rows =
+    items.length > 0 ? items.map((ct) => [val(ct.cantidad), val(ct.idOrigen), val(ct.idDestino), ""]) : [["", "", "", ""]];
+  for (const row of rows) {
+    y = drawCellRow(doc, g.xs, y, g.rowH, row, { bold: true, align: ["left", "center", "center", "center"] });
+  }
+  return y;
+}
+
+function identificacionVehicularLine(a: CfdiAutotransporte): string {
+  const parts = [
+    a.configVehicular?.trim() ? `Config Vehicula: ${a.configVehicular.trim()}` : "",
+    a.placaVM?.trim() ? `Placa VM: ${a.placaVM.trim()}` : "",
+    a.anioModeloVM?.trim() ? `Año Modelo VM: ${a.anioModeloVM.trim()}` : "",
+    a.pesoBrutoVehicular?.trim() ? `Peso Bruto Vehicular: ${a.pesoBrutoVehicular.trim()}` : "",
+  ].filter(Boolean);
+  return parts.join(", ");
+}
+
+function drawAutotransporte(doc: PdfDoc, y: number, a: CfdiAutotransporte | undefined): number {
+  const g = P2.autotransporte;
+  y = drawGrayBar(doc, y, g.rowH, "Autotransporte", false);
+
+  const permValues = ["Perm SCT", val(a?.permSCT), "Num Permiso SCT", val(a?.numPermisoSCT)];
+  g.permXs.slice(0, -1).forEach((x, i) => {
+    drawCell(doc, x, y, g.permXs[i + 1] - x, g.rowH, permValues[i], {
+      fill: i % 2 === 0 ? GRAY : undefined,
+      align: i === 0 ? "left" : "center",
+    });
+  });
+  y += g.rowH;
+
+  drawCell(doc, g.identXs[0], y, g.identXs[1] - g.identXs[0], g.rowH, "Identificacion Vehicular", {
+    fill: GRAY,
+    align: "left",
+  });
+  drawCell(doc, g.identXs[1], y, g.identXs[2] - g.identXs[1], g.rowH, a ? identificacionVehicularLine(a) : "", {
+    align: "left",
+  });
+  y += g.rowH;
+
+  box(doc, CONTENT_L, y, CONTENT_W, g.segurosH, GRID, 0.5);
+  line(doc, g.segurosSplit, y, g.segurosSplit, y + g.segurosH, GRID, 0.5);
+  const left: [string, string][] = [
+    ["Asegura Resp Civil", val(a?.aseguraRespCivil)],
+    ["Poliza Resp Civil", val(a?.polizaRespCivil)],
+    ["Asegura Med Ambiente", val(a?.aseguraMedAmbiente)],
+    ["Poliza Med Ambiente", val(a?.polizaMedAmbiente)],
+  ];
+  const right: [string, string][] = [
+    ["Asegura Carga", val(a?.aseguraCarga)],
+    ["Poliza Carga", val(a?.polizaCarga)],
+    ["Prima Seguro", val(a?.primaSeguro)],
+  ];
+  left.forEach(([label, value], i) => {
+    drawColumnField(doc, CONTENT_L + 2, g.leftEdge, y + 0.4 + i * g.segurosPitch, label, value, {
+      labelBold: false,
+    });
+  });
+  right.forEach(([label, value], i) => {
+    drawColumnField(doc, g.segurosSplit + 2, g.rightEdge, y - 1 + i * g.segurosPitch, label, value, {
+      labelBold: false,
+    });
+  });
+  return y + g.segurosH;
+}
+
+function drawFiguraTransporte(doc: PdfDoc, y: number, cp: CfdiCartaPorte): number {
+  const g = P2.figura;
+  y = drawGrayBar(doc, y + g.gapBefore, g.rowH, "Figura Transporte", false);
+  y = drawCellRow(doc, g.xs, y, g.rowH, ["Tipo Figura", "RFC Figura", "Num Licencia", "Nombre Figura"], {
+    fill: GRAY,
+  });
+  const figuras = cp.figuras.length > 0 ? cp.figuras : [{}];
+  for (const f of figuras) {
+    y = drawCellRow(doc, g.xs, y, g.rowH, [
+      val(f.tipoFigura),
+      val(f.rfcFigura),
+      val(f.numLicencia),
+      val(f.nombreFigura),
+    ]);
+  }
+  const first = figuras[0];
+  const extras: [string, string][] = [
+    ["Num Reg IdTrib Figura", val(first.numRegIdTribFigura)],
+    ["Residencia Fiscal Figura", val(first.residenciaFiscalFigura)],
+  ];
+  extras.forEach(([label, value], i) => {
+    const lx = g.extraXs[i * 2];
+    const vx = g.extraXs[i * 2 + 1];
+    drawCell(doc, lx, y, vx - lx, g.rowH, label, { fill: GRAY });
+    drawCell(doc, vx, y, g.extraXs[i * 2 + 2] - vx, g.rowH, value);
+  });
+  y += g.rowH;
+  y = drawCellRow(doc, g.partesXs, y, g.rowH, ["Partes Transporte", "Domicilio"], { fill: GRAY });
+  y = drawCellRow(doc, g.partesXs, y, g.rowH, [
+    val(first.partesTransporte),
+    first.domicilio ? formatDomicilio(first.domicilio) : "",
+  ]);
+  return y;
+}
+
+function drawPage2Seals(doc: PdfDoc, cfdi: ParsedCfdi, offset: number): void {
+  const g = P2.seals;
+  const titles = ["Cadena Original", "Sello Digital", "Timbre Fiscal Digital"];
+  const contents = [
+    cadenaOriginal(cfdi),
+    cfdi.sello || cfdi.timbre.selloCFD || "",
+    cfdi.timbre.selloSAT || "",
+  ];
+  titles.forEach((title, i) => {
+    drawPlainSeal(doc, g.x, g.tops[i] + offset, g.w, g.labelH, g.bodyH, title, contents[i]);
+  });
+}
+
+function drawPage2Footer(doc: PdfDoc): void {
+  const f = P2.footer;
+  textCenter(doc, "Este documento es una representacion impresa de un CFDI", CONTENT_L, CONTENT_R - 2, f.docTop, {
+    size: 6,
+    bold: true,
+  });
+}
+
+/**
+ * Sicofi numera cada sección por separado (la hoja fiscal y el complemento Carta
+ * Porte arrancan en "Página 1 de N"), por eso se sella al final con las páginas
+ * ya bufferizadas.
+ */
+function stampPageNumbers(doc: PdfDoc, fiscalPages: number, totalPages: number): void {
+  const sections = [
+    { start: 0, count: fiscalPages, footer: P1.footer, color: PURPLE },
+    { start: fiscalPages, count: totalPages - fiscalPages, footer: P2.footer, color: BLACK },
+  ];
+  for (const s of sections) {
+    for (let i = 0; i < s.count; i++) {
+      doc.switchToPage(s.start + i);
+      textRight(doc, `Página ${i + 1} de  ${s.count}`, s.footer.pageRight, s.footer.pageTop, {
+        size: 8,
+        width: 120,
+        color: s.color,
+      });
+    }
+  }
 }
 
 async function renderPage2(
@@ -442,221 +859,48 @@ async function renderPage2(
   tenant: Tenant | null | undefined,
   logo: Buffer | null,
 ): Promise<void> {
-  let cartaPortePageIndex = doc.bufferedPageRange().count - 1;
   let y = drawPage2Header(doc, cfdi, cp, tenant, logo);
+  y = drawCartaPorteFields(doc, cp);
 
   const ensureSpace = (needed: number) => {
-    if (y + needed > PAGE2_CONTENT_BOTTOM) {
-      doc.addPage();
-      cartaPortePageIndex = doc.bufferedPageRange().count - 1;
-      y = MARGIN;
-      doc.font("Helvetica-Bold").fontSize(8).text("Complemento Carta Porte (continuación)", MARGIN, y);
-      y += 16;
-    }
+    if (y + needed <= P2.contentBottom) return;
+    drawPage2Footer(doc);
+    doc.addPage();
+    y = 40;
+    text(doc, "Complemento Carta Porte (continuación)", CONTENT_L, y, { size: 8, bold: true });
+    y += 18;
   };
 
-  y = drawFieldColumns(
-    doc,
-    y,
-    [
-      ["IdCCP", dash(cp.idCCP)],
-      ["Entrada Salida Merc", dash(cp.entradaSalidaMerc)],
-      ["Total Dist Rec", dash(cp.totalDistRec)],
-    ],
-    3,
-    5.5,
-    2,
-  );
-  y = drawFieldColumns(
-    doc,
-    y,
-    [
-      ["Transp Internac", dash(cp.transpInternac)],
-      ["Pais origen - Destino", dash(cp.paisOrigenDestino)],
-      ["Registro ISTMO", dash(cp.registroISTMO)],
-    ],
-    3,
-    5.5,
-    2,
-  );
-  y = drawFieldColumns(
-    doc,
-    y,
-    [
-      ["Via Entrada Salida", dash(cp.viaEntradaSalida)],
-      ["Ubicación Origen - Destino", ubicacionPoloLabel(cp)],
-    ],
-    3,
-    5.5,
-    2,
-  );
-  y = drawFieldColumns(
-    doc,
-    y,
-    [["Regimenes Aduaneros", dash(cp.regimenesAduaneros.filter(Boolean).join(", ") || null)]],
-    3,
-    5.5,
-    2,
-  );
-
-  ensureSpace(40);
-  y = drawGraySectionBar(doc, y, "Ubicaciones");
+  ensureSpace(60);
+  y = drawGrayBar(doc, y, 11, "Ubicaciones");
   for (const u of cp.ubicaciones) {
-    ensureSpace(72);
-    y = drawUbicacionSicofiBlock(
-      doc,
-      y,
-      u,
-      u.domicilio ? formatDomicilioCartaPorte(u.domicilio) : undefined,
-    );
+    ensureSpace(52);
+    y = drawUbicacion(doc, y, u);
   }
 
-  ensureSpace(50);
-  y = drawGraySectionBar(doc, y, "Mercancias");
-  y = drawMercanciasSummary6Col(doc, y, [
-    dash(cp.logisticaInversaRecoleccionDevolucion),
-    cp.unidadPeso ? formatCatalogCode(cp.unidadPeso, "claveUnidad", { codeOnly: true }) : "—",
-    dash(cp.cargoPorTasacion),
-    dash(cp.pesoNetoTotal),
-    dash(cp.numTotalMercancias),
-    dash(cp.pesoBrutoTotal),
-  ]);
-  y += 4;
+  ensureSpace(29 + Math.max(cp.mercancias.length, 1) * 10 + 18);
+  y = drawMercancias(doc, y, cp);
 
-  const colUnidad = 40;
-  const colCant = 40;
-  const colClaveUnidad = 48;
-  const colBienes = 52;
-  const colStcc = 44;
-  const colDesc = CONTENT_W - colBienes - colStcc - colCant - colClaveUnidad - colUnidad;
-  const mHeaders = ["Bienes Transp", "Clave STCC", "Descripcion", "Cantidad", "Clave Unidad", "Unidad"];
-  const mw = [colBienes, colStcc, colDesc, colCant, colClaveUnidad, colUnidad];
-  const mRows = cp.mercancias.map((m) => [
-    dash(m.bienesTransp),
-    dash(m.claveSTCC),
-    dash(m.descripcion),
-    m.cantidad ? fmtCantidad(m.cantidad) : "—",
-    mercanciaClaveUnidadCode(m),
-    mercanciaUnidadLabel(m),
-  ]);
-  ensureSpace(20 + Math.max(mRows.length, 1) * 14);
-  y = drawDataTable(doc, y, mHeaders, mRows.length > 0 ? mRows : [["—", "—", "—", "—", "—", "—"]], mw, 10, 11, 5.5);
+  const ctRows = Math.max(cp.mercancias.flatMap((m) => m.cantidadTransporta ?? []).length, 1);
+  ensureSpace(20 + ctRows * P2.cantidadTransporta.rowH);
+  y = drawCantidadTransporta(doc, y, cp);
 
-  const pesoKg = cp.mercancias.find((m) => m.pesoEnKg)?.pesoEnKg || cp.pesoBrutoTotal;
-  if (pesoKg) {
-    const boxW = 90;
-    doc.fontSize(6).text(`Peso En Kg ${pesoKg}`, PAGE_W - MARGIN - boxW, y + 2, { width: boxW, align: "right" });
-    y += 11;
-  }
+  ensureSpace(68);
+  y = drawAutotransporte(doc, y, cp.autotransporte);
 
-  ensureSpace(24);
-  y = drawGraySectionBar(doc, y, "Cantidad Transporta");
-  const cantTransp = cp.mercancias.flatMap((m) => m.cantidadTransporta || []);
-  const ctRows =
-    cantTransp.length > 0
-      ? cantTransp.map((ct) => [ct.cantidad, ct.idOrigen, ct.idDestino])
-      : [["—", "—", "—"]];
-  y = drawDataTable(doc, y, ["Cantidad", "ID Origen", "ID. Destino"], ctRows, [60, 150, 150], 10, 11, 5.5);
+  ensureSpace(12 + 11 * (4 + Math.max(cp.figuras.length, 1)));
+  y = drawFiguraTransporte(doc, y, cp);
 
-  ensureSpace(48);
-  y = drawGraySectionBar(doc, y, "Autotransporte");
-  const a = cp.autotransporte;
-  if (a) {
-    y = drawFieldColumns(
-      doc,
-      y,
-      [
-        ["Perm SCT", dash(a.permSCT)],
-        ["Num Permiso SCT", dash(a.numPermisoSCT)],
-      ],
-      2,
-      5.5,
-      2,
-    );
-    y = drawIdentificacionVehicularInline(doc, y, a);
-    y = drawSegurosBox(
-      doc,
-      y,
-      [
-        ["Asegura Resp Civil", dash(a.aseguraRespCivil)],
-        ["Poliza Resp Civil", dash(a.polizaRespCivil)],
-        ["Asegura Med Ambiente", dash(a.aseguraMedAmbiente)],
-        ["Poliza Med Ambiente", dash(a.polizaMedAmbiente)],
-      ],
-      [
-        ["Asegura Carga", dash(a.aseguraCarga)],
-        ["Poliza Carga", dash(a.polizaCarga)],
-        ["Prima Seguro", dash(a.primaSeguro)],
-      ],
-    );
+  if (y > P2.seals.tops[0]) {
+    drawPage2Footer(doc);
+    doc.addPage();
+    drawPage2Seals(doc, cfdi, 40 - P2.seals.tops[0]);
+    await drawQr(doc, cfdi, P2.qr.x, 40, P2.qr.size);
   } else {
-    doc.fontSize(6).text("—", MARGIN, y + 2);
-    y += 12;
+    drawPage2Seals(doc, cfdi, 0);
+    await drawQr(doc, cfdi, P2.qr.x, P2.qr.y, P2.qr.size);
   }
-
-  ensureSpace(50);
-  y = drawGraySectionBar(doc, y, "Figura Transporte");
-  const figRows =
-    cp.figuras.length > 0
-      ? cp.figuras.map((f) => [
-          dash(f.tipoFigura),
-          dash(f.rfcFigura),
-          dash(f.numLicencia),
-          dash(f.nombreFigura),
-        ])
-      : [["—", "—", "—", "—"]];
-  y = drawDataTable(
-    doc,
-    y,
-    ["Tipo Figura", "RFC Figura", "Num Licencia", "Nombre Figura"],
-    figRows,
-    [55, 80, 80, CONTENT_W - 215],
-    10,
-    11,
-    5.5,
-  );
-  for (const f of cp.figuras) {
-    const hasExtra =
-      f.numRegIdTribFigura?.trim() ||
-      f.residenciaFiscalFigura?.trim() ||
-      f.partesTransporte?.trim() ||
-      f.domicilio;
-    if (!hasExtra) continue;
-    ensureSpace(24);
-    y = drawDataTable(
-      doc,
-      y,
-      ["Num Reg IdTrib Figura", "Residencia Fiscal Figura", "Partes Transporte", "Domicilio"],
-      [
-        [
-          dash(f.numRegIdTribFigura),
-          dash(f.residenciaFiscalFigura),
-          dash(f.partesTransporte),
-          f.domicilio ? formatDomicilio(f.domicilio) : "—",
-        ],
-      ],
-      [CONTENT_W * 0.22, CONTENT_W * 0.22, CONTENT_W * 0.22, CONTENT_W * 0.34],
-      12,
-      20,
-      5.5,
-    );
-  }
-  if (cp.figuras.length === 0) {
-    y = drawDataTable(
-      doc,
-      y,
-      ["Num Reg IdTrib Figura", "Residencia Fiscal Figura", "Partes Transporte", "Domicilio"],
-      [["—", "—", "—", "—"]],
-      [CONTENT_W * 0.22, CONTENT_W * 0.22, CONTENT_W * 0.22, CONTENT_W * 0.34],
-      12,
-      14,
-      6,
-    );
-  }
-
-  const sealTop = PAGE_H - MARGIN - PAGE2_BOTTOM_RESERVE;
-  doc.switchToPage(cartaPortePageIndex);
-  drawSellosCartaPorte(doc, cfdi, sealTop);
+  drawPage2Footer(doc);
 }
 
 /** Genera el PDF fiscal (CFDI + Carta Porte) a partir del XML timbrado. */
@@ -666,7 +910,7 @@ export async function renderCfdiPdfFromXml(xml: string, tenant?: Tenant | null):
   const logo = tenant ? await loadTenantLogo(tenant) : null;
 
   return new Promise((resolve, reject) => {
-    const doc = new PDFDocument({ size: [PAGE_W, PAGE_H], margin: 0, autoFirstPage: true, bufferPages: true });
+    const doc = new PDFDocument({ size: [612, PAGE_H], margin: 0, autoFirstPage: true, bufferPages: true });
     const chunks: Buffer[] = [];
     doc.on("data", (c: Buffer) => chunks.push(c));
     doc.on("end", () => resolve(Buffer.concat(chunks)));
@@ -675,11 +919,12 @@ export async function renderCfdiPdfFromXml(xml: string, tenant?: Tenant | null):
     void (async () => {
       try {
         await renderPage1(doc, cfdi, logo, lookup);
+        const fiscalPages = doc.bufferedPageRange().count;
         if (cfdi.cartaPorte) {
           doc.addPage();
           await renderPage2(doc, cfdi, cfdi.cartaPorte, tenant, logo);
         }
-        drawAllCfdiFooters(doc);
+        stampPageNumbers(doc, fiscalPages, doc.bufferedPageRange().count);
         doc.end();
       } catch (e) {
         reject(e);
