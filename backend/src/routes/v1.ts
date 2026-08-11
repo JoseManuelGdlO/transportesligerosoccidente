@@ -16,6 +16,7 @@ import { uploadCsd } from "../middlewares/uploadCsd";
 import * as settlementC from "../controllers/settlementController";
 import * as driverFinanceC from "../controllers/driverFinanceController";
 import * as maintenanceC from "../controllers/maintenanceController";
+import * as maintenanceCategoryC from "../controllers/maintenanceCategoryController";
 import { uploadFuelReceipt } from "../middlewares/uploadFuelReceipt";
 import { uploadMaintenanceInvoice } from "../middlewares/uploadMaintenanceInvoice";
 import * as userC from "../controllers/userController";
@@ -394,6 +395,10 @@ r.post(
 );
 
 r.get("/maintenance/overview", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.getOverview);
+r.get("/maintenance/categories", authenticateJwt, requirePermission("catalogos.ver"), maintenanceCategoryC.listCategories);
+r.post("/maintenance/categories", authenticateJwt, requirePermission("catalogos.editar"), maintenanceCategoryC.createCategory);
+r.patch("/maintenance/categories/:id", authenticateJwt, requirePermission("catalogos.editar"), maintenanceCategoryC.updateCategory);
+r.delete("/maintenance/categories/:id", authenticateJwt, requirePermission("catalogos.editar"), maintenanceCategoryC.deleteCategory);
 r.get("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listSchedules);
 r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.upsertSchedule);
 r.delete("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.deleteSchedule);

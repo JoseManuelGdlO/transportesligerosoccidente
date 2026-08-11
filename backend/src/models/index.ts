@@ -27,6 +27,7 @@ import { DriverAccountItem, initDriverAccountItem } from "./DriverAccountItem";
 import { DriverAccountMovement, initDriverAccountMovement } from "./DriverAccountMovement";
 import { MaintenanceSchedule, initMaintenanceSchedule } from "./MaintenanceSchedule";
 import { MaintenanceRecord, initMaintenanceRecord } from "./MaintenanceRecord";
+import { MaintenanceCategory, initMaintenanceCategory } from "./MaintenanceCategory";
 import { ClientUbicacion, initClientUbicacion } from "./ClientUbicacion";
 import { Route, initRoute } from "./Route";
 import { RouteStop, initRouteStop } from "./RouteStop";
@@ -78,6 +79,7 @@ export function initModels() {
   initDriverAccountItem(sequelize);
   initDriverAccountMovement(sequelize);
   initMaintenanceSchedule(sequelize);
+  initMaintenanceCategory(sequelize);
   initMaintenanceRecord(sequelize);
   initAccountDocument(sequelize);
   initAccountDocumentPayment(sequelize);
@@ -226,6 +228,11 @@ export function initModels() {
   Truck.hasMany(MaintenanceRecord, { foreignKey: "truck_id", as: "maintenanceRecords" });
   MaintenanceRecord.belongsTo(Truck, { foreignKey: "truck_id" });
 
+  Tenant.hasMany(MaintenanceCategory, { foreignKey: "tenant_id" });
+  MaintenanceCategory.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  MaintenanceCategory.hasMany(MaintenanceRecord, { foreignKey: "category_id" });
+  MaintenanceRecord.belongsTo(MaintenanceCategory, { foreignKey: "category_id" });
+
   Tenant.hasMany(DocumentType, { foreignKey: "tenant_id" });
   DocumentType.belongsTo(Tenant, { foreignKey: "tenant_id" });
 
@@ -313,6 +320,7 @@ export {
   DriverAccountMovement,
   MaintenanceSchedule,
   MaintenanceRecord,
+  MaintenanceCategory,
   TripStatus,
   TripStatusAssignment,
   FuelProrationAssignment,

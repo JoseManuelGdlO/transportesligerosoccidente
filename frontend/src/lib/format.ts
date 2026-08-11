@@ -30,15 +30,26 @@ export function parseDateOnlyLocal(iso: string): Date | null {
   const month = Number(m[2]);
   const day = Number(m[3]);
   if (!y || month < 1 || month > 12 || day < 1 || day > 31) return null;
-  return new Date(y, month - 1, day);
+  const d = new Date(y, month - 1, day);
+  // Rechaza overflow del Date (p. ej. 2025-02-31 → 3 mar).
+  if (d.getFullYear() !== y || d.getMonth() !== month - 1 || d.getDate() !== day) return null;
+  return d;
 }
 
 export const fmtDate = (iso?: string) => {
   if (!iso) return "—";
   const raw = String(iso).trim();
   // Solo-día: evitar `new Date("YYYY-MM-DD")` (UTC) que en Américas resta un día.
-  const local = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? parseDateOnlyLocal(raw) : null;
-  const d = local ?? new Date(raw);
+  if (/^\d{4}-\d{2}-\d{2}$/.test(raw)) {
+    const local = parseDateOnlyLocal(raw);
+    if (!local) return "—";
+    return local.toLocaleDateString("es-MX", {
+      day: "2-digit",
+      month: "short",
+      year: "numeric",
+    });
+  }
+  const d = new Date(raw);
   if (Number.isNaN(d.getTime())) return "—";
   return d.toLocaleDateString("es-MX", {
     day: "2-digit",

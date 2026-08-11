@@ -1,22 +1,27 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import { apiFetch, readJson } from "@/lib/api";
 import {
   createMaintenanceRecordApi,
   deleteMaintenanceInvoice,
+  fetchMaintenanceCategories,
   fetchMaintenanceRecords,
   fetchSuppliers,
   openAuthenticatedFile,
   uploadMaintenanceInvoice,
 } from "@/lib/tloApi";
 import type {
+  MaintenanceCategory,
   MaintenanceOverviewUnit,
   MaintenanceRecordRow,
   MaintenanceType,
   Supplier,
 } from "@/types/tlo";
 import { KpiCard } from "@/components/tlo/KpiCard";
+import { CategoryCombobox } from "@/components/tlo/CategoryCombobox";
+import { MaintenanceCategoriesTab } from "@/components/tlo/MaintenanceCategoriesTab";
 import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -85,8 +90,17 @@ const FACTURA_ACCEPT = ".pdf,.jpg,.jpeg,.png,application/pdf,image/jpeg,image/pn
 type StatusFilter = "todos" | "vencidos" | "proximos" | "al_dia" | "sin_prog";
 type UnitHealth = "vencido" | "proximo" | "al_dia" | "sin_prog";
 type PendingDelete = { truckId: string; tipo: MaintenanceType; label: string };
-type BitacoraSortColumn = "fecha" | "unidad" | "tipo" | "km" | "costo" | "proveedor" | "descripcion";
+type BitacoraSortColumn =
+  | "fecha"
+  | "unidad"
+  | "tipo"
+  | "km"
+  | "costo"
+  | "categoria"
+  | "proveedor"
+  | "descripcion";
 type SortDirection = "asc" | "desc";
+type MainTab = "unidades" | "bitacora" | "categorias";
 
 function addDaysIso(dateIso: string, days: number): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateIso).trim());
@@ -136,7 +150,7 @@ const healthMeta: Record<
   },
 };
 
-function kmProgressPct(kmRestantes: number | null, intervaloHint = 10000): number {
+function kmProgressPct(kmRestantes: number | null, intervaloHint = 20000): number {
   if (kmRestantes == null) return 0;
   if (kmRestantes <= 0) return 100;
   const used = Math.max(0, intervaloHint - kmRestantes);
@@ -264,12 +278,15 @@ export default function Mantenimiento() {
   const { trucks } = useTlo();
   const { hasPermission } = useAuth();
   const canEdit = hasPermission("catalogos.editar");
+  const navigate = useNavigate();
 
   const [units, setUnits] = useState<MaintenanceOverviewUnit[]>([]);
   const [records, setRecords] = useState<MaintenanceRecordRow[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
+  const [categories, setCategories] = useState<MaintenanceCategory[]>([]);
   const [loading, setLoading] = useState(false);
   const [recordsLoading, setRecordsLoading] = useState(false);
+  const [mainTab, setMainTab] = useState<MainTab>("unidades");
   const [recordOpen, setRecordOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [porKm, setPorKm] = useState(true);
@@ -287,6 +304,8 @@ export default function Mantenimiento() {
 
   const [bitSearch, setBitSearch] = useState("");
   const [bitUnit, setBitUnit] = useState("todas");
+  const [bitSupplier, setBitSupplier] = useState("todos");
+  const [bitCategory, setBitCategory] = useState("todos");
   const [bitTipo, setBitTipo] = useState<MaintenanceType | "todos">("todos");
   const [bitDesde, setBitDesde] = useState("");
   const [bitHasta, setBitHasta] = useState("");
@@ -303,7 +322,8 @@ export default function Mantenimiento() {
     costo: 0,
     descripcion: "",
     supplier_id: "",
-    intervalo_km: 10000,
+    category_id: "",
+    intervalo_km: 20000,
     intervalo_dias: 180,
     ultimo_km: 0,
     ultima_fecha: new Date().toISOString().slice(0, 10),
@@ -312,6 +332,11 @@ export default function Mantenimiento() {
   const activeSuppliers = useMemo(
     () => suppliers.filter((s) => (s.estatus ?? "activo") === "activo"),
     [suppliers],
+  );
+
+  const activeCategories = useMemo(
+    () => categories.filter((c) => (c.estatus ?? "activo") === "activo"),
+    [categories],
   );
 
   const truckLabel = useCallback(
@@ -331,6 +356,55 @@ export default function Mantenimiento() {
       return r.taller?.trim() || "—";
     },
     [suppliers],
+  );
+
+  const categoryLabel = useCallback(
+    (r: MaintenanceRecordRow) => {
+      if (r.category_id) {
+        const c = categories.find((x) => x.id === r.category_id);
+        if (c) return c.nombre;
+      }
+      return "—";
+    },
+    [categories],
+  );
+
+  /** Km actual y tipo sugerido (programación más urgente) al elegir una unidad. */
+  const recordDefaultsForTruck = useCallback(
+    (truckId: string): { km_odometro: number; tipo: MaintenanceType } => {
+      const unit = units.find((u) => u.truck_id === truckId);
+      const km_odometro = unit?.km_actual ?? 0;
+      if (!unit || unit.proximos.length === 0) {
+        return { km_odometro, tipo: "preventivo" };
+      }
+      const sorted = [...unit.proximos].sort((a, b) => {
+        if (a.vencido !== b.vencido) return a.vencido ? -1 : 1;
+        const aNear = isNearDue(a);
+        const bNear = isNearDue(b);
+        if (aNear !== bNear) return aNear ? -1 : 1;
+        const aKm = a.km_restantes ?? Number.POSITIVE_INFINITY;
+        const bKm = b.km_restantes ?? Number.POSITIVE_INFINITY;
+        if (aKm !== bKm) return aKm - bKm;
+        const aDays = a.dias_restantes ?? Number.POSITIVE_INFINITY;
+        const bDays = b.dias_restantes ?? Number.POSITIVE_INFINITY;
+        return aDays - bDays;
+      });
+      return { km_odometro, tipo: sorted[0].tipo };
+    },
+    [units],
+  );
+
+  const applyTruckToRecordForm = useCallback(
+    (truckId: string) => {
+      const defaults = recordDefaultsForTruck(truckId);
+      setForm((f) => ({
+        ...f,
+        truck_id: truckId,
+        km_odometro: defaults.km_odometro,
+        tipo: defaults.tipo,
+      }));
+    },
+    [recordDefaultsForTruck],
   );
 
   const loadOverview = useCallback(async () => {
@@ -369,6 +443,16 @@ export default function Mantenimiento() {
     void fetchSuppliers()
       .then(setSuppliers)
       .catch(() => toast.error("No se pudieron cargar los proveedores"));
+  }, []);
+
+  useEffect(() => {
+    void fetchMaintenanceCategories()
+      .then(setCategories)
+      .catch(() => toast.error("No se pudieron cargar las categorías"));
+  }, []);
+
+  const onCategoriesChanged = useCallback((rows: MaintenanceCategory[]) => {
+    setCategories(rows);
   }, []);
 
   useEffect(() => {
@@ -430,19 +514,41 @@ export default function Mantenimiento() {
     const q = normalizeSearch(bitSearch);
     return records.filter((r) => {
       if (bitUnit !== "todas" && r.truck_id !== bitUnit) return false;
+      if (bitSupplier === "sin") {
+        if (r.supplier_id) return false;
+      } else if (bitSupplier !== "todos" && r.supplier_id !== bitSupplier) {
+        return false;
+      }
+      if (bitCategory === "sin") {
+        if (r.category_id) return false;
+      } else if (bitCategory !== "todos" && r.category_id !== bitCategory) {
+        return false;
+      }
       if (bitTipo !== "todos" && r.tipo !== bitTipo) return false;
       const fecha = String(r.fecha).slice(0, 10);
       if (bitDesde && fecha < bitDesde) return false;
       if (bitHasta && fecha > bitHasta) return false;
       if (q) {
         const hay = normalizeSearch(
-          `${r.descripcion} ${supplierLabel(r)} ${truckLabel(r.truck_id)} ${tipoLabel[r.tipo]}`,
+          `${r.descripcion} ${supplierLabel(r)} ${categoryLabel(r)} ${truckLabel(r.truck_id)} ${tipoLabel[r.tipo]}`,
         );
         if (!hay.includes(q)) return false;
       }
       return true;
     });
-  }, [records, bitSearch, bitUnit, bitTipo, bitDesde, bitHasta, supplierLabel, truckLabel]);
+  }, [
+    records,
+    bitSearch,
+    bitUnit,
+    bitSupplier,
+    bitCategory,
+    bitTipo,
+    bitDesde,
+    bitHasta,
+    supplierLabel,
+    categoryLabel,
+    truckLabel,
+  ]);
 
   const sortedRecords = useMemo(() => {
     const rows = [...filteredRecords];
@@ -470,6 +576,10 @@ export default function Mantenimiento() {
           va = a.costo;
           vb = b.costo;
           break;
+        case "categoria":
+          va = categoryLabel(a);
+          vb = categoryLabel(b);
+          break;
         case "proveedor":
           va = supplierLabel(a);
           vb = supplierLabel(b);
@@ -482,7 +592,7 @@ export default function Mantenimiento() {
       return compareSortValues(va, vb, sortDirection);
     });
     return rows;
-  }, [filteredRecords, sortColumn, sortDirection, truckLabel, supplierLabel]);
+  }, [filteredRecords, sortColumn, sortDirection, truckLabel, supplierLabel, categoryLabel]);
 
   const pageData = useMemo(
     () => slicePage(sortedRecords, page, pageSize),
@@ -491,7 +601,7 @@ export default function Mantenimiento() {
 
   useEffect(() => {
     setPage(1);
-  }, [bitSearch, bitUnit, bitTipo, bitDesde, bitHasta, pageSize]);
+  }, [bitSearch, bitUnit, bitSupplier, bitCategory, bitTipo, bitDesde, bitHasta, pageSize]);
 
   const toggleSort = (column: BitacoraSortColumn) => {
     if (sortColumn === column) {
@@ -524,7 +634,7 @@ export default function Mantenimiento() {
       ultimo_km: kmActual,
       ultima_fecha: new Date().toISOString().slice(0, 10),
       tipo: "preventivo",
-      intervalo_km: 10000,
+      intervalo_km: 20000,
       intervalo_dias: 180,
     }));
     setPorKm(true);
@@ -532,16 +642,20 @@ export default function Mantenimiento() {
     setScheduleOpen(true);
   };
 
-  const openRecord = (truckId?: string, kmActual = 0) => {
+  const openRecord = (truckId?: string) => {
+    const defaults = truckId
+      ? recordDefaultsForTruck(truckId)
+      : { km_odometro: 0, tipo: "preventivo" as MaintenanceType };
     setForm((f) => ({
       ...f,
       truck_id: truckId ?? "",
-      km_odometro: kmActual,
+      km_odometro: defaults.km_odometro,
       fecha: new Date().toISOString().slice(0, 10),
       costo: 0,
       descripcion: "",
       supplier_id: "",
-      tipo: "preventivo",
+      category_id: "",
+      tipo: defaults.tipo,
     }));
     clearInvoiceFile();
     setRecordOpen(true);
@@ -627,6 +741,7 @@ export default function Mantenimiento() {
         costo: form.costo,
         descripcion: form.descripcion,
         supplier_id: form.supplier_id || null,
+        category_id: form.category_id || null,
       });
       if (invoiceFile) {
         try {
@@ -746,10 +861,14 @@ export default function Mantenimiento() {
         }}
       />
 
-      <Tabs defaultValue="unidades">
+      <Tabs
+        value={mainTab}
+        onValueChange={(v) => setMainTab(v as MainTab)}
+      >
         <TabsList>
           <TabsTrigger value="unidades">Unidades</TabsTrigger>
           <TabsTrigger value="bitacora">Bitácora</TabsTrigger>
+          <TabsTrigger value="categorias">Categorías</TabsTrigger>
         </TabsList>
 
         <TabsContent value="unidades" className="space-y-6 mt-4">
@@ -1026,7 +1145,7 @@ export default function Mantenimiento() {
                         <CalendarClock className="h-3.5 w-3.5 mr-1.5" />
                         Programar
                       </Button>
-                      <Button size="sm" className="flex-1" onClick={() => openRecord(u.truck_id, u.km_actual)}>
+                      <Button size="sm" className="flex-1" onClick={() => openRecord(u.truck_id)}>
                         <ClipboardPlus className="h-3.5 w-3.5 mr-1.5" />
                         Registrar
                       </Button>
@@ -1079,7 +1198,7 @@ export default function Mantenimiento() {
                   id="bit-search"
                   value={bitSearch}
                   onChange={(e) => setBitSearch(e.target.value)}
-                  placeholder="Descripción, proveedor o unidad…"
+                  placeholder="Descripción, categoría, proveedor o unidad…"
                 />
               </div>
               <div>
@@ -1095,6 +1214,48 @@ export default function Mantenimiento() {
                       .map((t) => (
                         <SelectItem key={t.id} value={t.id}>
                           {t.numero_economico}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Categoría</Label>
+                <Select value={bitCategory} onValueChange={setBitCategory}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todas</SelectItem>
+                    <SelectItem value="sin">Sin categoría</SelectItem>
+                    {categories
+                      .slice()
+                      .sort((a, b) => a.nombre.localeCompare(b.nombre, "es", { sensitivity: "base" }))
+                      .map((c) => (
+                        <SelectItem key={c.id} value={c.id}>
+                          {c.nombre}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Proveedor</Label>
+                <Select value={bitSupplier} onValueChange={setBitSupplier}>
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="todos">Todos</SelectItem>
+                    <SelectItem value="sin">Sin proveedor</SelectItem>
+                    {suppliers
+                      .slice()
+                      .sort((a, b) =>
+                        a.razon_social.localeCompare(b.razon_social, "es", { sensitivity: "base" }),
+                      )
+                      .map((s) => (
+                        <SelectItem key={s.id} value={s.id}>
+                          {s.razon_social}
                         </SelectItem>
                       ))}
                   </SelectContent>
@@ -1178,6 +1339,13 @@ export default function Mantenimiento() {
                       className="text-right"
                     />
                     <SortableTableHead
+                      label="Categoría"
+                      column="categoria"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
+                    <SortableTableHead
                       label="Proveedor"
                       column="proveedor"
                       activeColumn={sortColumn}
@@ -1208,6 +1376,7 @@ export default function Mantenimiento() {
                           {fmtNumber(r.km_odometro)}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{fmtMXN(r.costo)}</TableCell>
+                        <TableCell className="max-w-[10rem] truncate">{categoryLabel(r)}</TableCell>
                         <TableCell className="max-w-[10rem] truncate">{supplierLabel(r)}</TableCell>
                         <TableCell className="max-w-[16rem] truncate text-muted-foreground">
                           {r.descripcion}
@@ -1275,7 +1444,7 @@ export default function Mantenimiento() {
                   })}
                   {!pageData.slice.length && (
                     <TableRow>
-                      <TableCell colSpan={8} className="text-center text-muted-foreground py-10">
+                      <TableCell colSpan={9} className="text-center text-muted-foreground py-10">
                         Sin resultados
                       </TableCell>
                     </TableRow>
@@ -1320,6 +1489,10 @@ export default function Mantenimiento() {
               </div>
             </div>
           )}
+        </TabsContent>
+
+        <TabsContent value="categorias" className="mt-4">
+          <MaintenanceCategoriesTab canEdit={canEdit} onChanged={onCategoriesChanged} />
         </TabsContent>
       </Tabs>
 
@@ -1481,7 +1654,7 @@ export default function Mantenimiento() {
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label>Unidad</Label>
-              <Select value={form.truck_id} onValueChange={(v) => setForm({ ...form, truck_id: v })}>
+              <Select value={form.truck_id} onValueChange={applyTruckToRecordForm}>
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona" />
                 </SelectTrigger>
@@ -1539,12 +1712,29 @@ export default function Mantenimiento() {
               />
             </div>
             <div className="col-span-2">
+              <Label>Categoría</Label>
+              <CategoryCombobox
+                categories={activeCategories}
+                value={form.category_id}
+                onChange={(categoryId) => setForm({ ...form, category_id: categoryId })}
+                placeholder="Opcional — buscar categoría…"
+                onCreateNavigate={() => {
+                  setRecordOpen(false);
+                  setMainTab("categorias");
+                }}
+              />
+            </div>
+            <div className="col-span-2">
               <Label>Proveedor</Label>
               <SupplierCombobox
                 suppliers={activeSuppliers}
                 value={form.supplier_id}
                 onChange={(supplierId) => setForm({ ...form, supplier_id: supplierId })}
                 placeholder="Opcional — buscar proveedor…"
+                onCreateNavigate={() => {
+                  setRecordOpen(false);
+                  navigate("/proveedores");
+                }}
               />
             </div>
             <div className="col-span-2">

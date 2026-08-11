@@ -10,6 +10,7 @@ import {
   Truck,
   Notification,
   Supplier,
+  MaintenanceCategory,
 } from "../models";
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
 import { num } from "../utils/numbers";
@@ -287,6 +288,7 @@ export async function createRecord(
     descripcion: string;
     taller?: string;
     supplier_id?: string | null;
+    category_id?: string | null;
   },
 ) {
   const truck = await Truck.findOne({ where: { id: data.truck_id, tenant_id: tenantId } });
@@ -308,6 +310,18 @@ export async function createRecord(
     taller = supplier.razon_social;
   }
 
+  let categoryId = data.category_id ?? null;
+  if (categoryId) {
+    const category = await MaintenanceCategory.findOne({
+      where: { id: categoryId, tenant_id: tenantId },
+    });
+    if (!category) {
+      const err = new Error("Categoría no encontrada");
+      (err as Error & { status?: number }).status = 404;
+      throw err;
+    }
+  }
+
   const record = await MaintenanceRecord.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -319,6 +333,7 @@ export async function createRecord(
     descripcion: data.descripcion,
     taller: taller ?? null,
     supplier_id: supplierId,
+    category_id: categoryId,
   } as never);
 
   const schedule = await MaintenanceSchedule.findOne({

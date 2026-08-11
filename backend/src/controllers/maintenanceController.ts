@@ -29,6 +29,7 @@ const recordSchema = z.object({
   descripcion: z.string().min(1),
   taller: z.string().optional(),
   supplier_id: z.string().uuid().optional().nullable(),
+  category_id: z.string().uuid().optional().nullable(),
 });
 
 function recordToJson(r: MaintenanceRecord) {
@@ -43,6 +44,7 @@ function recordToJson(r: MaintenanceRecord) {
     descripcion: r.descripcion,
     taller: r.taller ?? undefined,
     supplier_id: r.supplier_id ?? undefined,
+    category_id: r.category_id ?? undefined,
     factura_url: hasFactura ? `/maintenance/records/${r.id}/factura` : undefined,
     factura_nombre: r.factura_nombre ?? undefined,
     factura_mime: r.factura_mime ?? undefined,

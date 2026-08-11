@@ -1433,6 +1433,7 @@ function normalizeMaintenanceRecord(raw: Record<string, unknown>): import("@/typ
     descripcion: String(raw.descripcion ?? ""),
     taller: raw.taller != null ? String(raw.taller) : undefined,
     supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : undefined,
+    category_id: raw.category_id != null ? String(raw.category_id) : undefined,
     factura_url: raw.factura_url != null ? String(raw.factura_url) : undefined,
     factura_nombre: raw.factura_nombre != null ? String(raw.factura_nombre) : undefined,
     factura_mime: raw.factura_mime != null ? String(raw.factura_mime) : undefined,
@@ -1457,6 +1458,7 @@ export async function createMaintenanceRecordApi(body: {
   descripcion: string;
   taller?: string;
   supplier_id?: string | null;
+  category_id?: string | null;
 }): Promise<import("@/types/tlo").MaintenanceRecordRow> {
   const res = await apiFetch("/maintenance/records", {
     method: "POST",
@@ -1483,6 +1485,51 @@ export async function deleteMaintenanceInvoice(
 ): Promise<import("@/types/tlo").MaintenanceRecordRow> {
   const res = await apiFetch(`/maintenance/records/${recordId}/factura`, { method: "DELETE" });
   return normalizeMaintenanceRecord(await readJson(res));
+}
+
+function normalizeMaintenanceCategory(
+  raw: Record<string, unknown>,
+): import("@/types/tlo").MaintenanceCategory {
+  return {
+    id: String(raw.id),
+    nombre: String(raw.nombre ?? ""),
+    descripcion: raw.descripcion != null ? String(raw.descripcion) : undefined,
+    estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+  };
+}
+
+export async function fetchMaintenanceCategories(): Promise<
+  import("@/types/tlo").MaintenanceCategory[]
+> {
+  const res = await apiFetch("/maintenance/categories");
+  const data = await readJson<unknown[]>(res);
+  return data.map((r) => normalizeMaintenanceCategory(r as Record<string, unknown>));
+}
+
+export async function upsertMaintenanceCategoryApi(
+  body: Partial<import("@/types/tlo").MaintenanceCategory> & { nombre: string },
+): Promise<import("@/types/tlo").MaintenanceCategory> {
+  const payload = {
+    nombre: body.nombre,
+    descripcion: body.descripcion || null,
+    estatus: body.estatus ?? "activo",
+  };
+  if (body.id) {
+    const res = await apiFetch(`/maintenance/categories/${body.id}`, {
+      method: "PATCH",
+      body: JSON.stringify(payload),
+    });
+    return normalizeMaintenanceCategory(await readJson(res));
+  }
+  const res = await apiFetch("/maintenance/categories", {
+    method: "POST",
+    body: JSON.stringify(payload),
+  });
+  return normalizeMaintenanceCategory(await readJson(res));
+}
+
+export async function deleteMaintenanceCategoryApi(id: string): Promise<void> {
+  await apiFetch(`/maintenance/categories/${id}`, { method: "DELETE" });
 }
 
 export async function fetchSuppliers(): Promise<import("@/types/tlo").Supplier[]> {

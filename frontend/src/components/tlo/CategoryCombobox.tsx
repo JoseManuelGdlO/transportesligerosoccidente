@@ -11,12 +11,12 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import type { Supplier } from "@/types/tlo";
+import type { MaintenanceCategory } from "@/types/tlo";
 
 type Props = {
-  suppliers: Supplier[];
+  categories: MaintenanceCategory[];
   value: string;
-  onChange: (supplierId: string) => void;
+  onChange: (categoryId: string) => void;
   disabled?: boolean;
   placeholder?: string;
   className?: string;
@@ -24,12 +24,12 @@ type Props = {
   onCreateNavigate?: () => void;
 };
 
-export function SupplierCombobox({
-  suppliers,
+export function CategoryCombobox({
+  categories,
   value,
   onChange,
   disabled,
-  placeholder = "Buscar proveedor…",
+  placeholder = "Buscar categoría…",
   className,
   allowClear = true,
   onCreateNavigate,
@@ -37,11 +37,11 @@ export function SupplierCombobox({
   const [open, setOpen] = useState(false);
 
   const selected = useMemo(
-    () => suppliers.find((s) => s.id === value) ?? null,
-    [suppliers, value],
+    () => categories.find((c) => c.id === value) ?? null,
+    [categories, value],
   );
 
-  const label = selected?.razon_social ?? placeholder;
+  const label = selected?.nombre ?? placeholder;
 
   return (
     <Popover modal open={open} onOpenChange={setOpen}>
@@ -72,40 +72,35 @@ export function SupplierCombobox({
             className="h-60 max-h-60 overflow-y-auto overscroll-y-contain"
             onWheel={(e) => e.stopPropagation()}
           >
-            <CommandEmpty>Sin proveedores</CommandEmpty>
+            <CommandEmpty>Sin categorías</CommandEmpty>
             <CommandGroup>
               {allowClear && (
                 <CommandItem
-                  value="__none__ sin proveedor"
+                  value="__none__ sin categoria"
                   onSelect={() => {
                     onChange("");
                     setOpen(false);
                   }}
                 >
                   <Check className={cn("mr-2 h-4 w-4", !value ? "opacity-100" : "opacity-0")} />
-                  <span className="text-muted-foreground">Sin proveedor</span>
+                  <span className="text-muted-foreground">Sin categoría</span>
                 </CommandItem>
               )}
-              {suppliers.map((s) => {
-                const search = [s.razon_social, s.rfc, s.contacto].filter(Boolean).join(" ");
+              {categories.map((c) => {
+                const search = [c.nombre, c.descripcion].filter(Boolean).join(" ");
                 return (
                   <CommandItem
-                    key={s.id}
+                    key={c.id}
                     value={search}
                     onSelect={() => {
-                      onChange(s.id);
+                      onChange(c.id);
                       setOpen(false);
                     }}
                   >
                     <Check
-                      className={cn("mr-2 h-4 w-4 shrink-0", value === s.id ? "opacity-100" : "opacity-0")}
+                      className={cn("mr-2 h-4 w-4 shrink-0", value === c.id ? "opacity-100" : "opacity-0")}
                     />
-                    <span className="min-w-0 flex-1 truncate">{s.razon_social}</span>
-                    {s.rfc ? (
-                      <span className="ml-2 shrink-0 font-mono text-[10px] text-muted-foreground">
-                        {s.rfc}
-                      </span>
-                    ) : null}
+                    <span className="min-w-0 flex-1 truncate">{c.nombre}</span>
                   </CommandItem>
                 );
               })}
@@ -125,7 +120,7 @@ export function SupplierCombobox({
               }}
             >
               <Plus className="mr-2 h-3.5 w-3.5" />
-              Nuevo proveedor
+              Nueva categoría
             </Button>
           ) : null}
           {allowClear && value ? (
@@ -140,7 +135,7 @@ export function SupplierCombobox({
               }}
             >
               <X className="mr-2 h-3.5 w-3.5" />
-              Quitar proveedor
+              Quitar categoría
             </Button>
           ) : null}
         </div>

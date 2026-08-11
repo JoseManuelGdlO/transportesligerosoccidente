@@ -746,6 +746,15 @@ export interface Supplier {
   observaciones?: string;
 }
 
+export type MaintenanceCategoryStatus = "activo" | "inactivo";
+
+export interface MaintenanceCategory {
+  id: string;
+  nombre: string;
+  descripcion?: string;
+  estatus?: MaintenanceCategoryStatus;
+}
+
 export type AccountDocumentTipo = "cxc" | "cxp";
 export type AccountDocumentEstatus = "abierta" | "pagada" | "cancelada";
 export type AccountDocumentOrigen =
@@ -1044,6 +1053,7 @@ export interface MaintenanceRecordRow {
   descripcion: string;
   taller?: string;
   supplier_id?: string;
+  category_id?: string;
   factura_url?: string;
   factura_nombre?: string;
   factura_mime?: string;
