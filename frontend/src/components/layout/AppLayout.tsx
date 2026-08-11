@@ -41,10 +41,10 @@ export default function AppLayout() {
 
   return (
     <SidebarProvider>
-      <div className="min-h-screen flex w-full bg-background">
+      <div className="h-svh flex w-full bg-background overflow-hidden">
         <AppSidebar />
-        <div className="flex-1 flex flex-col min-w-0">
-          <header className="h-14 flex items-center gap-3 border-b bg-card px-4 sticky top-0 z-10">
+        <div className="flex-1 flex flex-col min-w-0 min-h-0">
+          <header className="h-14 shrink-0 flex items-center gap-3 border-b bg-card px-4 z-30">
             <SidebarTrigger />
             <div className="flex-1">
               <h1 className="text-base font-semibold text-foreground">{title}</h1>
@@ -60,7 +60,7 @@ export default function AppLayout() {
             </div>
           </header>
           <PushOptInBanner />
-          <main className="flex-1 p-4 md:p-6 overflow-auto">
+          <main className="flex-1 min-h-0 p-4 md:p-6 overflow-auto">
             <Outlet />
           </main>
           <footer className="border-t bg-card/50 px-4 py-2 text-center text-[11px] text-muted-foreground shrink-0">

@@ -95,12 +95,22 @@ type BitacoraSortColumn =
   | "unidad"
   | "tipo"
   | "km"
+  | "km_recorridos"
   | "costo"
   | "categoria"
   | "proveedor"
   | "descripcion";
 type SortDirection = "asc" | "desc";
 type MainTab = "unidades" | "bitacora" | "categorias";
+
+/** Orden cronológico de servicios de una misma unidad (fecha, luego odómetro). */
+function compareRecordsChronological(a: MaintenanceRecordRow, b: MaintenanceRecordRow): number {
+  const fa = String(a.fecha).slice(0, 10);
+  const fb = String(b.fecha).slice(0, 10);
+  if (fa !== fb) return fa.localeCompare(fb);
+  if (a.km_odometro !== b.km_odometro) return a.km_odometro - b.km_odometro;
+  return a.id.localeCompare(b.id);
+}
 
 function addDaysIso(dateIso: string, days: number): string {
   const m = /^(\d{4})-(\d{2})-(\d{2})/.exec(String(dateIso).trim());
@@ -510,6 +520,47 @@ export default function Mantenimiento() {
       });
   }, [units, unitFilter, statusFilter]);
 
+  /** Km recorridos entre el servicio anterior y éste (por unidad). */
+  const kmRecorridosById = useMemo(() => {
+    const byTruck = new Map<string, MaintenanceRecordRow[]>();
+    for (const r of records) {
+      const list = byTruck.get(r.truck_id) ?? [];
+      list.push(r);
+      byTruck.set(r.truck_id, list);
+    }
+    const map = new Map<string, number | null>();
+    for (const list of byTruck.values()) {
+      list.sort(compareRecordsChronological);
+      for (let i = 0; i < list.length; i++) {
+        const cur = list[i];
+        if (i === 0) {
+          map.set(cur.id, null);
+        } else {
+          map.set(cur.id, cur.km_odometro - list[i - 1].km_odometro);
+        }
+      }
+    }
+    return map;
+  }, [records]);
+
+  const lastRecordForFormTruck = useMemo(() => {
+    if (!form.truck_id) return null;
+    const fechaForm = String(form.fecha).slice(0, 10);
+    const earlier = records
+      .filter((r) => r.truck_id === form.truck_id)
+      .filter((r) => {
+        const fecha = String(r.fecha).slice(0, 10);
+        if (fecha < fechaForm) return true;
+        if (fecha > fechaForm) return false;
+        return r.km_odometro < form.km_odometro;
+      })
+      .sort((a, b) => compareRecordsChronological(b, a));
+    return earlier[0] ?? null;
+  }, [records, form.truck_id, form.fecha, form.km_odometro]);
+
+  const kmDesdeUltimoServicio =
+    lastRecordForFormTruck != null ? form.km_odometro - lastRecordForFormTruck.km_odometro : null;
+
   const filteredRecords = useMemo(() => {
     const q = normalizeSearch(bitSearch);
     return records.filter((r) => {
@@ -572,6 +623,10 @@ export default function Mantenimiento() {
           va = a.km_odometro;
           vb = b.km_odometro;
           break;
+        case "km_recorridos":
+          va = kmRecorridosById.get(a.id) ?? null;
+          vb = kmRecorridosById.get(b.id) ?? null;
+          break;
         case "costo":
           va = a.costo;
           vb = b.costo;
@@ -592,7 +647,15 @@ export default function Mantenimiento() {
       return compareSortValues(va, vb, sortDirection);
     });
     return rows;
-  }, [filteredRecords, sortColumn, sortDirection, truckLabel, supplierLabel, categoryLabel]);
+  }, [
+    filteredRecords,
+    sortColumn,
+    sortDirection,
+    truckLabel,
+    supplierLabel,
+    categoryLabel,
+    kmRecorridosById,
+  ]);
 
   const pageData = useMemo(
     () => slicePage(sortedRecords, page, pageSize),
@@ -1331,6 +1394,14 @@ export default function Mantenimiento() {
                       className="text-right"
                     />
                     <SortableTableHead
+                      label="Km recorridos"
+                      column="km_recorridos"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                      className="text-right"
+                    />
+                    <SortableTableHead
                       label="Costo"
                       column="costo"
                       activeColumn={sortColumn}
@@ -1365,6 +1436,7 @@ export default function Mantenimiento() {
                 <TableBody>
                   {pageData.slice.map((r) => {
                     const busy = facturaBusyId === r.id;
+                    const kmRecorridos = kmRecorridosById.get(r.id);
                     return (
                       <TableRow key={r.id} className="hover:bg-muted/40">
                         <TableCell className="whitespace-nowrap">{fmtDate(r.fecha)}</TableCell>
@@ -1374,6 +1446,13 @@ export default function Mantenimiento() {
                         </TableCell>
                         <TableCell className="text-right tabular-nums">
                           {fmtNumber(r.km_odometro)}
+                        </TableCell>
+                        <TableCell className="text-right tabular-nums">
+                          {kmRecorridos == null ? (
+                            <span className="text-muted-foreground">—</span>
+                          ) : (
+                            fmtNumber(kmRecorridos)
+                          )}
                         </TableCell>
                         <TableCell className="text-right tabular-nums">{fmtMXN(r.costo)}</TableCell>
                         <TableCell className="max-w-[10rem] truncate">{categoryLabel(r)}</TableCell>
@@ -1702,6 +1781,24 @@ export default function Mantenimiento() {
                 value={form.km_odometro}
                 onChange={(e) => setForm({ ...form, km_odometro: +e.target.value })}
               />
+              {form.truck_id ? (
+                lastRecordForFormTruck && kmDesdeUltimoServicio != null ? (
+                  <p
+                    className={cn(
+                      "text-xs mt-1.5",
+                      kmDesdeUltimoServicio < 0 ? "text-destructive" : "text-muted-foreground",
+                    )}
+                  >
+                    {kmDesdeUltimoServicio < 0
+                      ? `El odómetro es menor al del último servicio (${fmtNumber(lastRecordForFormTruck.km_odometro)} km el ${fmtDate(lastRecordForFormTruck.fecha)}).`
+                      : `${fmtNumber(kmDesdeUltimoServicio)} km desde el último servicio (${fmtNumber(lastRecordForFormTruck.km_odometro)} km el ${fmtDate(lastRecordForFormTruck.fecha)}).`}
+                  </p>
+                ) : (
+                  <p className="text-xs text-muted-foreground mt-1.5">
+                    Sin servicios previos en bitácora para esta unidad.
+                  </p>
+                )
+              ) : null}
             </div>
             <div>
               <Label>Costo</Label>

@@ -358,8 +358,8 @@ export async function maintenanceReportSummary(
     .sort((a, b) => {
       const fa = String(a.fecha).slice(0, 10);
       const fb = String(b.fecha).slice(0, 10);
-      if (fa !== fb) return fb.localeCompare(fa);
-      return (b.km_odometro ?? 0) - (a.km_odometro ?? 0);
+      if (fa !== fb) return fa.localeCompare(fb);
+      return (a.km_odometro ?? 0) - (b.km_odometro ?? 0);
     })
     .map((r) => {
       const truck = truckMap.get(r.truck_id);

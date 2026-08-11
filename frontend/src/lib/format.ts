@@ -89,6 +89,38 @@ export const fmtDateTime = (iso?: string) => {
   });
 };
 
+/** Fecha numérica corta (p. ej. `07/08/2026`). */
+export const fmtDateNumeric = (iso?: string) => {
+  if (!iso) return "—";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "—";
+  return d.toLocaleDateString("es-MX", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+  });
+};
+
+/** Hora desde ISO datetime (p. ej. `14:30`). */
+export const fmtClockFromIso = (iso?: string) => {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleTimeString("es-MX", {
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+};
+
+/** Fecha numérica corta con hora (p. ej. `07/08/2026, 14:30`). */
+export const fmtDateTimeNumeric = (iso?: string) => {
+  if (!iso) return "—";
+  const date = fmtDateNumeric(iso);
+  const time = fmtClockFromIso(iso);
+  if (date === "—") return "—";
+  return time ? `${date}, ${time}` : date;
+};
+
 /** Hora sin segundos (p. ej. `08:00:00` → `08:00`). */
 export function fmtTime(value?: string | null): string {
   if (value == null || String(value).trim() === "") return "";

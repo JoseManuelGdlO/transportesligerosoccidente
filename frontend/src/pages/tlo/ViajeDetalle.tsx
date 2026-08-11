@@ -281,7 +281,7 @@ export default function ViajeDetalle() {
         km_final: +closeData.km_final,
         fecha_llegada: new Date(closeData.fecha_llegada).toISOString(),
         num_factura: closeData.num_factura,
-        notas: closeData.notas.trim(),
+        notas: closeData.notas.trim() || undefined,
       });
       setCloseOpen(false);
       toast.success("Viaje cerrado");

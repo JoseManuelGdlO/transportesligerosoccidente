@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Link } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import {
@@ -264,7 +265,12 @@ function ProrationTripsTable({
         {sortedViajes.map((v) => (
           <TableRow key={v.trip_id}>
             <TableCell className="font-mono">
-              <span>{v.folio}</span>
+              <Link
+                to={`/viajes/${v.trip_id}`}
+                className="text-primary underline-offset-2 hover:underline"
+              >
+                {v.folio}
+              </Link>
               {showManualBadge && v.asignacion_manual && (
                 <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0">
                   Manual
@@ -362,7 +368,15 @@ function TicketAssignDialog({
                       onCheckedChange={(checked) => onToggleTrip(trip.trip_id, checked === true)}
                     />
                   </TableCell>
-                  <TableCell className="font-mono">{trip.folio}</TableCell>
+                  <TableCell className="font-mono">
+                    <Link
+                      to={`/viajes/${trip.trip_id}`}
+                      className="text-primary underline-offset-2 hover:underline"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      {trip.folio}
+                    </Link>
+                  </TableCell>
                   <TableCell>{formatProrationRoute(trip)}</TableCell>
                   <TableCell>{formatIsoDateEs(trip.fecha_salida)}</TableCell>
                   <TableCell className="text-right">{fmtNumber(trip.km_recorridos)}</TableCell>
@@ -450,7 +464,14 @@ function ProrationExtraTripsTable({
         <TableBody>
           {sortedRows.map((v) => (
             <TableRow key={v.trip_id}>
-              <TableCell className="font-mono">{v.folio}</TableCell>
+              <TableCell className="font-mono">
+                <Link
+                  to={`/viajes/${v.trip_id}`}
+                  className="text-primary underline-offset-2 hover:underline"
+                >
+                  {v.folio}
+                </Link>
+              </TableCell>
               <TableCell>{formatProrationRoute(v)}</TableCell>
               <TableCell>{formatIsoDateEs(v.fecha_salida)}</TableCell>
               <TableCell className="text-right">{fmtNumber(v.km_recorridos)}</TableCell>
@@ -1237,7 +1258,8 @@ export default function Combustibles() {
             </div>
             <p className="text-xs text-muted-foreground mt-3">
               Solo se muestran tickets sin confirmar. Use &quot;Prorratear automáticamente&quot; o edite cada ticket
-              manualmente; al confirmar, el prorrateo se guarda y el ticket desaparece de esta vista.
+              manualmente; al confirmar, el prorrateo se guarda y el ticket desaparece de esta vista. Haga clic en el
+              folio de un viaje para abrir su detalle.
             </p>
           </Card>
 

@@ -26,7 +26,7 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
 import { Textarea } from "@/components/ui/textarea";
-import { fmtMXN, fmtDate, fmtNumber, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
+import { fmtMXN, fmtDateNumeric, fmtClockFromIso, fmtNumber, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import {
   fetchRoutes,
   fetchTruckLastKm,
@@ -61,7 +61,6 @@ import { Switch } from "@/components/ui/switch";
 import {
   Plus,
   Search,
-  ArrowRight,
   Tags,
   Pencil,
   Trash2,
@@ -947,7 +946,7 @@ export default function Viajes() {
         </Collapsible>
       </Card>
 
-      <Card className="tlo-shadow-md overflow-hidden">
+      <Card className="tlo-shadow-md">
         {catalogLoading ? (
           <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
             <Loader2 className="h-4 w-4 animate-spin" />
@@ -1034,13 +1033,12 @@ export default function Viajes() {
                 onSort={toggleSort}
                 className="text-right w-[1%] px-1.5"
               />
-              <TableHead className="w-8 px-1"></TableHead>
             </TableRow>
           </TableHeader>
           <TableBody>
             {pageData.total === 0 && (
               <TableRow>
-                <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                   Sin resultados
                 </TableCell>
               </TableRow>
@@ -1061,15 +1059,20 @@ export default function Viajes() {
                       <div className="leading-tight space-y-1">
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Inicio</p>
-                          <p>{fmtDate(t.fecha_salida)}</p>
+                          <p>{fmtDateNumeric(t.fecha_salida)}</p>
+                          <p className="text-xs text-muted-foreground">{fmtClockFromIso(t.fecha_salida)}</p>
                         </div>
                         <div>
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Llegada</p>
-                          <p>{fmtDate(t.fecha_llegada)}</p>
+                          <p>{fmtDateNumeric(t.fecha_llegada)}</p>
+                          <p className="text-xs text-muted-foreground">{fmtClockFromIso(t.fecha_llegada)}</p>
                         </div>
                       </div>
                     ) : (
-                      fmtDate(t.fecha_salida)
+                      <div className="leading-tight">
+                        <p>{fmtDateNumeric(t.fecha_salida)}</p>
+                        <p className="text-xs text-muted-foreground">{fmtClockFromIso(t.fecha_salida)}</p>
+                      </div>
                     )}
                   </TableCell>
                   <TableCell className="text-sm whitespace-normal break-words min-w-[8rem]">
@@ -1102,6 +1105,10 @@ export default function Viajes() {
                           <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Final</p>
                           <p>{fmtNumber(t.km_final)}</p>
                         </div>
+                        <div>
+                          <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recorridos</p>
+                          <p>{fmtNumber(fin.km_recorridos)}</p>
+                        </div>
                       </div>
                     ) : (
                       fmtNumber(t.km_inicial)
@@ -1131,9 +1138,6 @@ export default function Viajes() {
                     ) : (
                       <span className="text-muted-foreground text-xs">—</span>
                     )}
-                  </TableCell>
-                  <TableCell className="w-8 px-1">
-                    <ArrowRight className="h-4 w-4 text-muted-foreground" />
                   </TableCell>
                 </TableRow>
               );
