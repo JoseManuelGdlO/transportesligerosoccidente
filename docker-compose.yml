@@ -54,11 +54,12 @@ services:
       JWT_ACCESS_EXPIRES_SEC: ${JWT_ACCESS_EXPIRES_SEC:-3600}
       JWT_REFRESH_EXPIRES_SEC: ${JWT_REFRESH_EXPIRES_SEC:-7d}
       CORS_ORIGIN: ${CORS_ORIGIN:-${PUBLIC_WEB_ORIGIN:-http://127.0.0.1:8088}}
-      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@tlo.mx}
-      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-ChangeMe123!}
+      POSTALIA_API_BASE_URL: ${POSTALIA_API_BASE_URL:-}
+      POSTALIA_API_TOKEN: ${POSTALIA_API_TOKEN:-}
+      POSTALIA_TIMEOUT_MS: ${POSTALIA_TIMEOUT_MS:-10000}
     healthcheck:
       test: ["CMD-SHELL", "wget -qO- http://127.0.0.1:4100/health || exit 1"]
-      interval: 15s
+      interval: 1h
       timeout: 5s
       retries: 5
       start_period: 120s
