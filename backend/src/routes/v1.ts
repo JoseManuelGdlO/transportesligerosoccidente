@@ -25,6 +25,7 @@ import * as reportsC from "../controllers/reportsController";
 import * as fuelTicketC from "../controllers/fuelTicketController";
 import * as fuelConfigC from "../controllers/fuelConfigController";
 import * as reportsFuelC from "../controllers/reportsFuelController";
+import * as reportsMaintenanceC from "../controllers/reportsMaintenanceController";
 import * as fuelProrationC from "../controllers/fuelProrationController";
 import { uploadFuelImport } from "../middlewares/uploadFuelImport";
 import * as docTypeC from "../controllers/documentTypeController";
@@ -445,6 +446,12 @@ r.get(
   authenticateJwt,
   requirePermission("combustibles.ver", "reportes.ver"),
   reportsFuelC.getFuelSummary,
+);
+r.get(
+  "/reports/maintenance",
+  authenticateJwt,
+  requirePermission("reportes.ver"),
+  reportsMaintenanceC.getMaintenanceReports,
 );
 
 r.put(

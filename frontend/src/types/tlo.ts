@@ -1059,6 +1059,38 @@ export interface MaintenanceRecordRow {
   factura_mime?: string;
 }
 
+export interface MaintenanceReportsSummary {
+  periodo: { desde: string; hasta: string };
+  totales: { registros: number; costo: number };
+  by_truck: {
+    truck_id: string;
+    numero_economico: string;
+    placas: string;
+    registros: number;
+    costo: number;
+  }[];
+  by_supplier: {
+    supplier_id: string | null;
+    nombre: string;
+    registros: number;
+    costo: number;
+  }[];
+  by_time: { fecha: string; registros: number; costo: number }[];
+  timeline: {
+    id: string;
+    fecha: string;
+    truck_id: string;
+    numero_economico: string;
+    placas: string;
+    supplier_id: string | null;
+    proveedor: string;
+    tipo: MaintenanceType;
+    costo: number;
+    descripcion: string;
+    km_odometro: number;
+  }[];
+}
+
 export interface MaintenanceOverviewUnit {
   truck_id: string;
   numero_economico: string;

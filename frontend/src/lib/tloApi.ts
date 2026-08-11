@@ -13,6 +13,7 @@ import type {
   FuelProrationAssignmentInput,
   FuelSummaryRow,
   FuelImportResult,
+  MaintenanceReportsSummary,
   ReportsOverview,
   FuelImportPreviewResult,
   Trip,
@@ -1082,6 +1083,15 @@ export async function fetchFuelSummary(
   const q = new URLSearchParams({ inicio, fin });
   const res = await apiFetch(`/reports/fuel/summary?${q}`);
   return readJson(res);
+}
+
+export async function fetchMaintenanceReports(
+  desde: string,
+  hasta: string,
+): Promise<MaintenanceReportsSummary> {
+  const q = new URLSearchParams({ desde, hasta });
+  const res = await apiFetch(`/reports/maintenance?${q}`);
+  return readJson<MaintenanceReportsSummary>(res);
 }
 
 export async function fetchReportsOverview(

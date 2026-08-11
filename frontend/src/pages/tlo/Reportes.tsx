@@ -2,12 +2,14 @@ import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
-import { fetchFuelSummary, fetchReportsOverview } from "@/lib/tloApi";
+import { fetchFuelSummary, fetchMaintenanceReports, fetchReportsOverview } from "@/lib/tloApi";
 import { exportCsv, exportCsvSections } from "@/lib/exportCsv";
 import { fmtMXN, fmtNumber, fmtPct, fmtDate, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import type {
   ExpenseCategory,
   FuelSummaryRow,
+  MaintenanceReportsSummary,
+  MaintenanceType,
   ReportsCriterioFecha,
   ReportsOverview,
   ReportsTripRow,
@@ -35,6 +37,8 @@ import {
   Truck,
   Wrench,
   ChevronDown,
+  Building2,
+  Hash,
 } from "lucide-react";
 import {
   ResponsiveContainer,
@@ -64,8 +68,17 @@ type ReportTab =
   | "cliente"
   | "rutas"
   | "gastos"
-  | "combustible";
+  | "combustible"
+  | "mantenimientos";
 type RouteTripSort = "margen" | "utilidad" | "utilidad_km";
+
+const MAINTENANCE_TIPO_LABEL: Record<MaintenanceType, string> = {
+  preventivo: "Preventivo",
+  menor: "Menor",
+  intermedio: "Intermedio",
+  mayor: "Mayor",
+  correctivo: "Correctivo",
+};
 
 function routeKey(row: { ruta: string; origen: string; destino: string }): string {
   return row.ruta || `${row.origen} → ${row.destino}`;
@@ -194,8 +207,10 @@ export default function Reportes() {
   const [criterioFecha, setCriterioFecha] = useState<ReportsCriterioFecha>("salida");
   const [overview, setOverview] = useState<ReportsOverview | null>(null);
   const [fuelSummary, setFuelSummary] = useState<FuelSummaryRow[]>([]);
+  const [maintenanceSummary, setMaintenanceSummary] = useState<MaintenanceReportsSummary | null>(null);
   const [loading, setLoading] = useState(false);
   const [fuelLoading, setFuelLoading] = useState(false);
+  const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>("resumen");
   const [expandedRuta, setExpandedRuta] = useState<string | null>(null);
@@ -242,6 +257,19 @@ export default function Reportes() {
     }
   }, [apiMode]);
 
+  const loadMaintenance = useCallback(async (r: DateRange) => {
+    if (!apiMode) return;
+    setMaintenanceLoading(true);
+    try {
+      const data = await fetchMaintenanceReports(r.desde, r.hasta);
+      setMaintenanceSummary(data);
+    } catch {
+      setMaintenanceSummary(null);
+    } finally {
+      setMaintenanceLoading(false);
+    }
+  }, [apiMode]);
+
   useEffect(() => {
     if (!apiMode || !hasPermission("reportes.ver")) return;
     void loadOverview(range, criterioFecha);
@@ -256,7 +284,67 @@ export default function Reportes() {
     void loadFuel(range);
   }, [apiMode, hasPermission, range, activeTab, loadFuel]);
 
+  useEffect(() => {
+    if (!apiMode || !hasPermission("reportes.ver") || activeTab !== "mantenimientos") return;
+    void loadMaintenance(range);
+  }, [apiMode, hasPermission, range, activeTab, loadMaintenance]);
+
   const handleExport = () => {
+    const filename = `reportes_${range.desde}_${range.hasta}`;
+
+    if (activeTab === "mantenimientos") {
+      if (!maintenanceSummary) {
+        toast.error("No hay datos para exportar");
+        return;
+      }
+      const periodLabel = `${formatIsoDateEs(range.desde)} – ${formatIsoDateEs(range.hasta)}`;
+      exportCsvSections(
+        [
+          {
+            title: "KPIs mantenimiento",
+            lines: [
+              `Periodo,${periodLabel}`,
+              `Registros,${maintenanceSummary.totales.registros}`,
+              `Costo total,${maintenanceSummary.totales.costo}`,
+              `Unidades,${maintenanceSummary.by_truck.length}`,
+              `Proveedores,${maintenanceSummary.by_supplier.length}`,
+            ],
+          },
+          {
+            title: "Por unidad",
+            lines: [
+              "Unidad,Placas,Registros,Costo",
+              ...maintenanceSummary.by_truck.map(
+                (r) => `${r.numero_economico},${r.placas},${r.registros},${r.costo}`,
+              ),
+            ],
+          },
+          {
+            title: "Por proveedor",
+            lines: [
+              "Proveedor,Visitas,Costo",
+              ...maintenanceSummary.by_supplier.map(
+                (r) => `"${r.nombre.replace(/"/g, '""')}",${r.registros},${r.costo}`,
+              ),
+            ],
+          },
+          {
+            title: "Timeline",
+            lines: [
+              "Fecha,Unidad,Proveedor,Tipo,Km,Costo,Descripcion",
+              ...maintenanceSummary.timeline.map(
+                (r) =>
+                  `${r.fecha},${r.numero_economico},"${r.proveedor.replace(/"/g, '""')}",${MAINTENANCE_TIPO_LABEL[r.tipo]},${r.km_odometro},${r.costo},"${r.descripcion.replace(/"/g, '""')}"`,
+              ),
+            ],
+          },
+        ],
+        filename,
+      );
+      toast.success("Exportado a CSV");
+      return;
+    }
+
     if (!overview) {
       toast.error("No hay datos para exportar");
       return;
@@ -284,8 +372,6 @@ export default function Reportes() {
         `Var margen %,${variacion.margen_pct ?? ""}`,
       );
     }
-
-    const filename = `reportes_${range.desde}_${range.hasta}`;
 
     if (activeTab === "viajes") {
       const rows = overview.by_trip ?? [];
@@ -633,7 +719,15 @@ export default function Reportes() {
             </Select>
           </div>
           <div className="lg:ml-auto">
-            <Button variant="outline" onClick={handleExport} disabled={!overview || loading}>
+            <Button
+              variant="outline"
+              onClick={handleExport}
+              disabled={
+                activeTab === "mantenimientos"
+                  ? !maintenanceSummary || maintenanceLoading
+                  : !overview || loading
+              }
+            >
               <Download className="h-4 w-4 mr-2" /> Exportar CSV
             </Button>
           </div>
@@ -719,6 +813,7 @@ export default function Reportes() {
           <TabsTrigger value="rutas">Rutas</TabsTrigger>
           <TabsTrigger value="gastos">Gastos</TabsTrigger>
           <TabsTrigger value="combustible">Combustible</TabsTrigger>
+          <TabsTrigger value="mantenimientos">Mantenimientos</TabsTrigger>
         </TabsList>
 
         {/* Resumen */}
@@ -1455,6 +1550,254 @@ export default function Reportes() {
                 </TableBody>
               </Table>
             </Card>
+          )}
+        </TabsContent>
+
+        {/* Mantenimientos */}
+        <TabsContent value="mantenimientos" className="mt-4 space-y-4">
+          {maintenanceLoading ? (
+            <p className="text-sm text-muted-foreground">Cargando resumen de mantenimientos…</p>
+          ) : !maintenanceSummary || maintenanceSummary.totales.registros === 0 ? (
+            <Card className="tlo-shadow-md">
+              <CardContent className="py-10 text-center text-muted-foreground text-sm">
+                Sin mantenimientos en el periodo
+              </CardContent>
+            </Card>
+          ) : (
+            <>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+                <KpiCard
+                  label="Registros"
+                  value={fmtNumber(maintenanceSummary.totales.registros)}
+                  icon={Hash}
+                />
+                <KpiCard
+                  label="Costo total"
+                  value={fmtMXN(maintenanceSummary.totales.costo)}
+                  icon={DollarSign}
+                />
+                <KpiCard
+                  label="Unidades"
+                  value={fmtNumber(maintenanceSummary.by_truck.length)}
+                  icon={Truck}
+                />
+                <KpiCard
+                  label="Proveedores"
+                  value={fmtNumber(maintenanceSummary.by_supplier.length)}
+                  icon={Building2}
+                />
+              </div>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card className="tlo-shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-base">Frecuencia por proveedor</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-64">
+                    <ResponsiveContainer>
+                      <BarChart
+                        data={[...maintenanceSummary.by_supplier]
+                          .sort((a, b) => b.registros - a.registros)
+                          .slice(0, 10)
+                          .map((s) => ({
+                            name: s.nombre.length > 18 ? `${s.nombre.slice(0, 16)}…` : s.nombre,
+                            visitas: s.registros,
+                          }))}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis allowDecimals={false} tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }} />
+                        <Tooltip
+                          contentStyle={{
+                            background: "hsl(var(--card))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: 8,
+                            fontSize: 12,
+                          }}
+                        />
+                        <Bar dataKey="visitas" name="Visitas" fill="hsl(var(--primary))" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+
+                <Card className="tlo-shadow-md">
+                  <CardHeader>
+                    <CardTitle className="text-base">Costos por proveedor</CardTitle>
+                  </CardHeader>
+                  <CardContent className="h-64">
+                    <ResponsiveContainer>
+                      <BarChart
+                        data={[...maintenanceSummary.by_supplier]
+                          .sort((a, b) => b.costo - a.costo)
+                          .slice(0, 10)
+                          .map((s) => ({
+                            name: s.nombre.length > 18 ? `${s.nombre.slice(0, 16)}…` : s.nombre,
+                            costo: Math.round(s.costo),
+                          }))}
+                      >
+                        <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                        <XAxis dataKey="name" tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }} />
+                        <YAxis
+                          tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                          tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                        />
+                        <Tooltip
+                          contentStyle={{
+                            background: "hsl(var(--card))",
+                            border: "1px solid hsl(var(--border))",
+                            borderRadius: 8,
+                            fontSize: 12,
+                          }}
+                          formatter={(v: number) => fmtMXN(v)}
+                        />
+                        <Bar dataKey="costo" name="Costo" fill="hsl(var(--accent))" radius={[6, 6, 0, 0]} />
+                      </BarChart>
+                    </ResponsiveContainer>
+                  </CardContent>
+                </Card>
+              </div>
+
+              <Card className="tlo-shadow-md">
+                <CardHeader>
+                  <CardTitle className="text-base">Línea del tiempo (costo diario)</CardTitle>
+                </CardHeader>
+                <CardContent className="h-64">
+                  <ResponsiveContainer>
+                    <LineChart
+                      data={maintenanceSummary.by_time.map((d) => ({
+                        fecha: d.fecha,
+                        label: formatIsoDateEs(d.fecha),
+                        costo: Math.round(d.costo),
+                        registros: d.registros,
+                      }))}
+                    >
+                      <CartesianGrid strokeDasharray="3 3" stroke="hsl(var(--border))" />
+                      <XAxis
+                        dataKey="label"
+                        tick={{ fontSize: 11, fill: "hsl(var(--muted-foreground))" }}
+                      />
+                      <YAxis
+                        tick={{ fontSize: 12, fill: "hsl(var(--muted-foreground))" }}
+                        tickFormatter={(v) => `$${(v / 1000).toFixed(0)}k`}
+                      />
+                      <Tooltip
+                        contentStyle={{
+                          background: "hsl(var(--card))",
+                          border: "1px solid hsl(var(--border))",
+                          borderRadius: 8,
+                          fontSize: 12,
+                        }}
+                        formatter={(v: number, name: string) =>
+                          name === "costo" ? fmtMXN(v) : v
+                        }
+                      />
+                      <Legend />
+                      <Line
+                        type="monotone"
+                        dataKey="costo"
+                        name="Costo"
+                        stroke="hsl(var(--accent))"
+                        strokeWidth={2}
+                        dot={{ r: 3 }}
+                      />
+                    </LineChart>
+                  </ResponsiveContainer>
+                </CardContent>
+              </Card>
+
+              <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                <Card className="tlo-shadow-md overflow-hidden">
+                  <CardHeader>
+                    <CardTitle className="text-base">Por unidad</CardTitle>
+                  </CardHeader>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-secondary/50">
+                        <TableHead>Unidad</TableHead>
+                        <TableHead>Placas</TableHead>
+                        <TableHead className="text-right">Registros</TableHead>
+                        <TableHead className="text-right">Costo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {maintenanceSummary.by_truck.map((row) => (
+                        <TableRow key={row.truck_id}>
+                          <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
+                          <TableCell className="text-muted-foreground">{row.placas}</TableCell>
+                          <TableCell className="text-right">{row.registros}</TableCell>
+                          <TableCell className="text-right font-semibold">{fmtMXN(row.costo)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+
+                <Card className="tlo-shadow-md overflow-hidden">
+                  <CardHeader>
+                    <CardTitle className="text-base">Por proveedor</CardTitle>
+                  </CardHeader>
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-secondary/50">
+                        <TableHead>Proveedor</TableHead>
+                        <TableHead className="text-right">Visitas</TableHead>
+                        <TableHead className="text-right">Costo</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {maintenanceSummary.by_supplier.map((row) => (
+                        <TableRow key={`${row.supplier_id ?? "none"}-${row.nombre}`}>
+                          <TableCell className="font-medium">{row.nombre}</TableCell>
+                          <TableCell className="text-right">{row.registros}</TableCell>
+                          <TableCell className="text-right font-semibold">{fmtMXN(row.costo)}</TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </Card>
+              </div>
+
+              <Card className="tlo-shadow-md overflow-hidden">
+                <CardHeader>
+                  <CardTitle className="text-base">Timeline de mantenimientos</CardTitle>
+                </CardHeader>
+                <div className="overflow-x-auto">
+                  <Table>
+                    <TableHeader>
+                      <TableRow className="bg-secondary/50">
+                        <TableHead>Fecha</TableHead>
+                        <TableHead>Unidad</TableHead>
+                        <TableHead>Proveedor</TableHead>
+                        <TableHead>Tipo</TableHead>
+                        <TableHead className="text-right">Km</TableHead>
+                        <TableHead className="text-right">Costo</TableHead>
+                        <TableHead>Descripción</TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {maintenanceSummary.timeline.map((row) => (
+                        <TableRow key={row.id}>
+                          <TableCell className="text-sm whitespace-nowrap">
+                            {formatIsoDateEs(row.fecha)}
+                          </TableCell>
+                          <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
+                          <TableCell className="text-sm">{row.proveedor}</TableCell>
+                          <TableCell>
+                            <Badge variant="outline">{MAINTENANCE_TIPO_LABEL[row.tipo]}</Badge>
+                          </TableCell>
+                          <TableCell className="text-right font-mono">{fmtNumber(row.km_odometro)}</TableCell>
+                          <TableCell className="text-right font-semibold">{fmtMXN(row.costo)}</TableCell>
+                          <TableCell className="text-sm text-muted-foreground max-w-[280px] truncate">
+                            {row.descripcion}
+                          </TableCell>
+                        </TableRow>
+                      ))}
+                    </TableBody>
+                  </Table>
+                </div>
+              </Card>
+            </>
           )}
         </TabsContent>
       </Tabs>

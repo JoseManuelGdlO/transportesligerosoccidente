@@ -191,6 +191,203 @@ export async function listRecordsInRange(tenantId: string, desde?: string, hasta
   });
 }
 
+/** Registros de mantenimiento en rango con campos para reportes. */
+export async function listRecordsInRangeFull(tenantId: string, desde: string, hasta: string) {
+  return MaintenanceRecord.findAll({
+    where: {
+      tenant_id: tenantId,
+      fecha: { [Op.gte]: desde, [Op.lte]: hasta },
+    },
+    attributes: [
+      "id",
+      "truck_id",
+      "supplier_id",
+      "taller",
+      "tipo",
+      "fecha",
+      "costo",
+      "descripcion",
+      "category_id",
+      "km_odometro",
+    ],
+    order: [["fecha", "ASC"], ["km_odometro", "ASC"]],
+  });
+}
+
+export type MaintenanceReportSummary = {
+  periodo: { desde: string; hasta: string };
+  totales: { registros: number; costo: number };
+  by_truck: {
+    truck_id: string;
+    numero_economico: string;
+    placas: string;
+    registros: number;
+    costo: number;
+  }[];
+  by_supplier: {
+    supplier_id: string | null;
+    nombre: string;
+    registros: number;
+    costo: number;
+  }[];
+  by_time: { fecha: string; registros: number; costo: number }[];
+  timeline: {
+    id: string;
+    fecha: string;
+    truck_id: string;
+    numero_economico: string;
+    placas: string;
+    supplier_id: string | null;
+    proveedor: string;
+    tipo: MaintenanceType;
+    costo: number;
+    descripcion: string;
+    km_odometro: number;
+  }[];
+};
+
+function supplierAggKey(supplierId: string | null | undefined, taller: string | null | undefined): string {
+  if (supplierId) return `s:${supplierId}`;
+  const t = (taller ?? "").trim();
+  if (t) return `t:${t.toLowerCase()}`;
+  return "none";
+}
+
+function supplierAggNombre(
+  supplierId: string | null | undefined,
+  taller: string | null | undefined,
+  supplierNames: Map<string, string>,
+): string {
+  if (supplierId) {
+    return supplierNames.get(supplierId) || (taller ?? "").trim() || "Sin proveedor";
+  }
+  const t = (taller ?? "").trim();
+  return t || "Sin proveedor";
+}
+
+/** Resumen de reportes de mantenimiento para un rango de fechas. */
+export async function maintenanceReportSummary(
+  tenantId: string,
+  desde: string,
+  hasta: string,
+): Promise<MaintenanceReportSummary> {
+  const records = await listRecordsInRangeFull(tenantId, desde, hasta);
+  const truckIds = [...new Set(records.map((r) => r.truck_id))];
+  const supplierIds = [
+    ...new Set(records.map((r) => r.supplier_id).filter((id): id is string => Boolean(id))),
+  ];
+
+  const [trucks, suppliers] = await Promise.all([
+    truckIds.length
+      ? Truck.findAll({
+          where: { tenant_id: tenantId, id: truckIds },
+          attributes: ["id", "numero_economico", "placas"],
+        })
+      : Promise.resolve([]),
+    supplierIds.length
+      ? Supplier.findAll({
+          where: { tenant_id: tenantId, id: supplierIds },
+          attributes: ["id", "razon_social"],
+        })
+      : Promise.resolve([]),
+  ]);
+
+  const truckMap = new Map(trucks.map((t) => [t.id, t]));
+  const supplierNames = new Map(suppliers.map((s) => [s.id, s.razon_social]));
+
+  let totalCosto = 0;
+  const byTruck = new Map<string, { registros: number; costo: number }>();
+  const bySupplier = new Map<
+    string,
+    { supplier_id: string | null; nombre: string; registros: number; costo: number }
+  >();
+  const byTime = new Map<string, { registros: number; costo: number }>();
+
+  for (const r of records) {
+    const costo = num(r.costo);
+    const fecha = String(r.fecha).slice(0, 10);
+    totalCosto += costo;
+
+    const truckAgg = byTruck.get(r.truck_id) ?? { registros: 0, costo: 0 };
+    truckAgg.registros += 1;
+    truckAgg.costo += costo;
+    byTruck.set(r.truck_id, truckAgg);
+
+    const sKey = supplierAggKey(r.supplier_id, r.taller);
+    const existing = bySupplier.get(sKey);
+    if (existing) {
+      existing.registros += 1;
+      existing.costo += costo;
+    } else {
+      bySupplier.set(sKey, {
+        supplier_id: r.supplier_id ?? null,
+        nombre: supplierAggNombre(r.supplier_id, r.taller, supplierNames),
+        registros: 1,
+        costo,
+      });
+    }
+
+    const day = byTime.get(fecha) ?? { registros: 0, costo: 0 };
+    day.registros += 1;
+    day.costo += costo;
+    byTime.set(fecha, day);
+  }
+
+  const by_truck = [...byTruck.entries()]
+    .map(([truck_id, agg]) => {
+      const truck = truckMap.get(truck_id);
+      return {
+        truck_id,
+        numero_economico: truck?.numero_economico ?? truck_id,
+        placas: truck?.placas ?? "",
+        registros: agg.registros,
+        costo: agg.costo,
+      };
+    })
+    .sort((a, b) => b.costo - a.costo || a.numero_economico.localeCompare(b.numero_economico));
+
+  const by_supplier = [...bySupplier.values()].sort(
+    (a, b) => b.costo - a.costo || a.nombre.localeCompare(b.nombre),
+  );
+
+  const by_time = [...byTime.entries()]
+    .map(([fecha, agg]) => ({ fecha, registros: agg.registros, costo: agg.costo }))
+    .sort((a, b) => a.fecha.localeCompare(b.fecha));
+
+  const timeline = [...records]
+    .sort((a, b) => {
+      const fa = String(a.fecha).slice(0, 10);
+      const fb = String(b.fecha).slice(0, 10);
+      if (fa !== fb) return fb.localeCompare(fa);
+      return (b.km_odometro ?? 0) - (a.km_odometro ?? 0);
+    })
+    .map((r) => {
+      const truck = truckMap.get(r.truck_id);
+      return {
+        id: r.id,
+        fecha: String(r.fecha).slice(0, 10),
+        truck_id: r.truck_id,
+        numero_economico: truck?.numero_economico ?? r.truck_id,
+        placas: truck?.placas ?? "",
+        supplier_id: r.supplier_id ?? null,
+        proveedor: supplierAggNombre(r.supplier_id, r.taller, supplierNames),
+        tipo: r.tipo,
+        costo: num(r.costo),
+        descripcion: r.descripcion,
+        km_odometro: r.km_odometro,
+      };
+    });
+
+  return {
+    periodo: { desde, hasta },
+    totales: { registros: records.length, costo: totalCosto },
+    by_truck,
+    by_supplier,
+    by_time,
+    timeline,
+  };
+}
+
 export async function maintenanceCostByTruck(
   tenantId: string,
   desde?: string,
