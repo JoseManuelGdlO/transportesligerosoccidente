@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { AccountDocument, AccountDocumentPayment } from "../models";
+import { AccountDocument, AccountDocumentPayment, Supplier } from "../models";
 import {
   assertMaintenanceCxpSyncAllowed,
   computeAgingBucket,
@@ -246,6 +246,57 @@ describe("assertMaintenanceCxpSyncAllowed / upsertFromMaintenance", () => {
 
     assert.equal(doc.estatus, "cancelada");
     assert.equal(dto?.estatus, "cancelada");
+  });
+
+  it("upsertFromMaintenance reabre y actualiza un CXP cancelado al volver a monto positivo", async () => {
+    const doc = {
+      id: "cxp-1",
+      tenant_id: "t1",
+      tipo: "cxp" as const,
+      client_id: null,
+      supplier_id: "supplier-1",
+      entidad_nombre: "Taller anterior",
+      folio: "F-OLD",
+      concepto: "Mantenimiento menor: Ajuste anterior",
+      conceptos: [{ descripcion: "Ajuste anterior", precio: 0 }],
+      fecha_emision: "2026-01-01",
+      plazo_credito_dias: null as number | null,
+      fecha_vencimiento: null as string | null,
+      monto_original: "0",
+      estatus: "cancelada" as "abierta" | "pagada" | "cancelada",
+      origen: "mantenimiento" as const,
+      maintenance_record_id: "mant-1",
+      update: async (patch: Record<string, unknown>) => {
+        Object.assign(doc, patch);
+      },
+    };
+    const supplier = {
+      id: "supplier-1",
+      razon_social: "Taller actualizado",
+      dias_credito: 15,
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(Supplier, "findByPk", async () => supplier as never);
+    mock.method(Supplier, "findOne", async () => supplier as never);
+
+    const dto = await upsertFromMaintenance({
+      id: "mant-1",
+      tenant_id: "t1",
+      tipo: "menor",
+      num_factura: "F-NEW",
+      conceptos: [{ descripcion: "Ajuste nuevo", precio: 250 }],
+      fecha: "2026-02-01",
+      supplier_id: "supplier-1",
+      taller: "Taller actualizado",
+    } as MaintenanceRecord);
+
+    assert.equal(doc.estatus, "abierta");
+    assert.equal(doc.folio, "F-NEW");
+    assert.equal(doc.monto_original, "250");
+    assert.deepEqual(doc.conceptos, [{ descripcion: "Ajuste nuevo", precio: 250 }]);
+    assert.equal(dto?.estatus, "abierta");
+    assert.equal(dto?.monto_original, 250);
   });
 
   it("upsertFromMaintenance lanza 400 si el monto es menor a los abonos", async () => {

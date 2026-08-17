@@ -1,7 +1,8 @@
 import fs from "node:fs";
 import path from "node:path";
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
+import { sequelize } from "../config/database";
 import {
   MaintenanceSchedule,
   MaintenanceRecord,
@@ -420,8 +421,12 @@ export async function maintenanceCostMaps(
   };
 }
 
-export async function getRecordOrThrow(tenantId: string, id: string) {
-  const record = await MaintenanceRecord.findOne({ where: { id, tenant_id: tenantId } });
+export async function getRecordOrThrow(tenantId: string, id: string, t?: Transaction) {
+  const record = await MaintenanceRecord.findOne({
+    where: { id, tenant_id: tenantId },
+    transaction: t,
+    lock: t ? t.LOCK.UPDATE : undefined,
+  });
   if (!record) {
     const err = new Error("Registro de mantenimiento no encontrado");
     (err as Error & { status?: number }).status = 404;
@@ -527,9 +532,12 @@ export async function refreshScheduleLastService(
   tenantId: string,
   truckId: string,
   tipo: MaintenanceType,
+  t?: Transaction,
 ) {
   const schedule = await MaintenanceSchedule.findOne({
     where: { tenant_id: tenantId, truck_id: truckId, tipo },
+    transaction: t,
+    lock: t ? t.LOCK.UPDATE : undefined,
   });
   if (!schedule) return;
   const latest = await MaintenanceRecord.findOne({
@@ -538,15 +546,19 @@ export async function refreshScheduleLastService(
       ["fecha", "DESC"],
       ["km_odometro", "DESC"],
     ],
+    transaction: t,
   });
   if (latest) {
-    await schedule.update({
-      ultimo_km: latest.km_odometro,
-      ultima_fecha: latest.fecha,
-    } as never);
+    await schedule.update(
+      {
+        ultimo_km: latest.km_odometro,
+        ultima_fecha: latest.fecha,
+      } as never,
+      { transaction: t },
+    );
     return;
   }
-  await schedule.update({ ultimo_km: 0, ultima_fecha: null } as never);
+  await schedule.update({ ultimo_km: 0, ultima_fecha: null } as never, { transaction: t });
 }
 
 function isHttpClientError(err: unknown): boolean {
@@ -559,20 +571,22 @@ async function syncRecordSideEffects(
   record: MaintenanceRecord,
   action: string,
   previous?: { truck_id: string; tipo: MaintenanceType },
+  t?: Transaction,
+  strictSync = false,
 ) {
-  await refreshScheduleLastService(tenantId, record.truck_id, record.tipo);
+  await refreshScheduleLastService(tenantId, record.truck_id, record.tipo, t);
   if (
     previous &&
     (previous.truck_id !== record.truck_id || previous.tipo !== record.tipo)
   ) {
-    await refreshScheduleLastService(tenantId, previous.truck_id, previous.tipo);
+    await refreshScheduleLastService(tenantId, previous.truck_id, previous.tipo, t);
   }
 
   try {
     const { upsertFromMaintenance } = await import("./accountDocumentService");
-    await upsertFromMaintenance(record);
+    await upsertFromMaintenance(record, t);
   } catch (syncErr) {
-    if (isHttpClientError(syncErr)) throw syncErr;
+    if (strictSync || isHttpClientError(syncErr)) throw syncErr;
     console.warn(
       `[maintenance] Registro ${action} pero falló sync de documento CXP:`,
       syncErr instanceof Error ? syncErr.message : syncErr,
@@ -608,33 +622,38 @@ export async function createRecord(tenantId: string, data: RecordInput) {
 }
 
 export async function updateRecord(tenantId: string, id: string, data: RecordInput) {
-  const record = await getRecordOrThrow(tenantId, id);
-  const previous = { truck_id: record.truck_id, tipo: record.tipo };
   const { taller, supplierId, categoryId } = await resolveRecordRefs(tenantId, data);
   const conceptos = validateConceptos(data.conceptos);
   const costo = sumConceptos(conceptos);
   const descripcion = summarizeConceptos(conceptos);
   const numFactura = data.num_factura?.trim() || null;
 
-  const { assertMaintenanceCxpSyncAllowed } = await import("./accountDocumentService");
-  await assertMaintenanceCxpSyncAllowed(tenantId, id, costo);
+  return sequelize.transaction(async (t) => {
+    const record = await getRecordOrThrow(tenantId, id, t);
+    const previous = { truck_id: record.truck_id, tipo: record.tipo };
+    const { assertMaintenanceCxpSyncAllowed } = await import("./accountDocumentService");
+    await assertMaintenanceCxpSyncAllowed(tenantId, id, costo, t);
 
-  await record.update({
-    truck_id: data.truck_id,
-    tipo: data.tipo,
-    km_odometro: data.km_odometro,
-    fecha: data.fecha,
-    costo,
-    descripcion,
-    num_factura: numFactura,
-    conceptos,
-    taller,
-    supplier_id: supplierId,
-    category_id: categoryId,
-  } as never);
+    await record.update(
+      {
+        truck_id: data.truck_id,
+        tipo: data.tipo,
+        km_odometro: data.km_odometro,
+        fecha: data.fecha,
+        costo,
+        descripcion,
+        num_factura: numFactura,
+        conceptos,
+        taller,
+        supplier_id: supplierId,
+        category_id: categoryId,
+      } as never,
+      { transaction: t },
+    );
 
-  await syncRecordSideEffects(tenantId, record, "actualizado", previous);
-  return record;
+    await syncRecordSideEffects(tenantId, record, "actualizado", previous, t, true);
+    return record;
+  });
 }
 
 export async function checkMaintenanceAlerts(tenantId: string) {

@@ -306,6 +306,7 @@ export interface CreateDocumentInput {
 async function resolveEntityName(
   tenantId: string,
   input: CreateDocumentInput,
+  t?: Transaction,
 ): Promise<{ client_id: string | null; supplier_id: string | null; entidad_nombre: string }> {
   if (input.tipo === "cxc") {
     if (!input.client_id && !input.entidad_nombre?.trim()) {
@@ -313,7 +314,10 @@ async function resolveEntityName(
     }
     let nombre = input.entidad_nombre?.trim() || "";
     if (input.client_id) {
-      const c = await Client.findOne({ where: { id: input.client_id, tenant_id: tenantId } });
+      const c = await Client.findOne({
+        where: { id: input.client_id, tenant_id: tenantId },
+        transaction: t,
+      });
       if (!c) throw httpError("Cliente no encontrado", 404);
       nombre = nombre || c.razon_social;
     }
@@ -324,7 +328,10 @@ async function resolveEntityName(
   }
   let nombre = input.entidad_nombre?.trim() || "";
   if (input.supplier_id) {
-    const s = await Supplier.findOne({ where: { id: input.supplier_id, tenant_id: tenantId } });
+    const s = await Supplier.findOne({
+      where: { id: input.supplier_id, tenant_id: tenantId },
+      transaction: t,
+    });
     if (!s) throw httpError("Proveedor no encontrado", 404);
     nombre = nombre || s.razon_social;
   }
@@ -341,7 +348,7 @@ export async function createDocument(
   t?: Transaction,
 ): Promise<AccountDocumentDto> {
   if (input.monto_original <= 0) throw httpError("El monto debe ser mayor a 0", 400);
-  const entity = await resolveEntityName(tenantId, input);
+  const entity = await resolveEntityName(tenantId, input, t);
   const plazo =
     input.plazo_credito_dias != null && Number.isFinite(input.plazo_credito_dias)
       ? Math.floor(input.plazo_credito_dias)
@@ -589,11 +596,14 @@ async function syncDocumentToSource(
 async function refreshDocumentStatus(
   doc: AccountDocument,
   payments: AccountDocumentPayment[],
+  t?: Transaction,
 ) {
   if (doc.estatus === "cancelada") return;
   const saldo = roundMoney(Math.max(0, num(doc.monto_original) - paidTotal(payments)));
   const next: AccountDocumentEstatus = saldo <= 0 ? "pagada" : "abierta";
-  if (doc.estatus !== next) await doc.update({ estatus: next } as never);
+  if (doc.estatus !== next) {
+    await doc.update({ estatus: next } as never, { transaction: t });
+  }
 }
 
 export async function addPayment(
@@ -687,22 +697,28 @@ async function upsertBySource(
     | "maintenance_record_id"
     | "expense_id",
   sourceId: string,
-  input: CreateDocumentInput & { skipIfCancelada?: boolean },
+  input: CreateDocumentInput & { reopenIfCancelada?: boolean },
+  t?: Transaction,
 ): Promise<AccountDocumentDto | null> {
   const existing = await AccountDocument.findOne({
     where: { tenant_id: tenantId, [sourceField]: sourceId },
+    transaction: t,
+    lock: t ? t.LOCK.UPDATE : undefined,
   });
   if (existing) {
-    if (existing.estatus === "cancelada") return toDocumentDto(existing, []);
+    if (existing.estatus === "cancelada" && !input.reopenIfCancelada) {
+      return toDocumentDto(existing, []);
+    }
     const payments = await AccountDocumentPayment.findAll({
       where: { tenant_id: tenantId, document_id: existing.id },
+      transaction: t,
     });
     const abonado = paidTotal(payments);
     if (input.monto_original < abonado) {
       // keep current monto if new amount would break payments
       return toDocumentDto(existing, payments);
     }
-    const entity = await resolveEntityName(tenantId, input);
+    const entity = await resolveEntityName(tenantId, input, t);
     const plazo =
       input.plazo_credito_dias != null && Number.isFinite(input.plazo_credito_dias)
         ? Math.floor(input.plazo_credito_dias)
@@ -723,12 +739,13 @@ async function upsertBySource(
       plazo_credito_dias: plazo,
       fecha_vencimiento: venc,
       monto_original: String(roundMoney(input.monto_original)),
-    } as never);
-    await refreshDocumentStatus(existing, payments);
-    return getDocument(tenantId, existing.id);
+      estatus: "abierta",
+    } as never, { transaction: t });
+    await refreshDocumentStatus(existing, payments, t);
+    return toDocumentDto(existing, payments);
   }
   if (input.monto_original <= 0) return null;
-  return createDocument(tenantId, { ...input, [sourceField]: sourceId });
+  return createDocument(tenantId, { ...input, [sourceField]: sourceId }, t);
 }
 
 export async function upsertFromTrip(trip: Trip): Promise<AccountDocumentDto | null> {
@@ -841,15 +858,22 @@ export function planMaintenanceCxpSync(
   return { action: "upsert" };
 }
 
-async function loadLinkedMaintenanceCxp(tenantId: string, maintenanceRecordId: string) {
+async function loadLinkedMaintenanceCxp(
+  tenantId: string,
+  maintenanceRecordId: string,
+  t?: Transaction,
+) {
   const existing = await AccountDocument.findOne({
     where: { tenant_id: tenantId, maintenance_record_id: maintenanceRecordId },
+    transaction: t,
+    lock: t ? t.LOCK.UPDATE : undefined,
   });
   if (!existing) {
     return { existing: null, payments: [] as AccountDocumentPayment[], abonado: 0 };
   }
   const payments = await AccountDocumentPayment.findAll({
     where: { tenant_id: tenantId, document_id: existing.id },
+    transaction: t,
   });
   return { existing, payments, abonado: paidTotal(payments) };
 }
@@ -858,10 +882,12 @@ export async function assertMaintenanceCxpSyncAllowed(
   tenantId: string,
   maintenanceRecordId: string,
   monto: number,
+  t?: Transaction,
 ): Promise<void> {
   const { existing, payments, abonado } = await loadLinkedMaintenanceCxp(
     tenantId,
     maintenanceRecordId,
+    t,
   );
   const plan = planMaintenanceCxpSync(monto, existing, abonado, payments.length);
   if (plan.action === "reject") throw httpError(plan.message, 400);
@@ -869,46 +895,56 @@ export async function assertMaintenanceCxpSyncAllowed(
 
 export async function upsertFromMaintenance(
   record: MaintenanceRecord,
+  t?: Transaction,
 ): Promise<AccountDocumentDto | null> {
   const projected = maintenanceCxpProjection(record);
   const monto = projected.monto;
   const { existing, payments, abonado } = await loadLinkedMaintenanceCxp(
     record.tenant_id,
     record.id,
+    t,
   );
   const plan = planMaintenanceCxpSync(monto, existing, abonado, payments.length);
   if (plan.action === "reject") throw httpError(plan.message, 400);
   if (plan.action === "noop") return null;
   if (plan.action === "cancel" && existing) {
-    return cancelDocument(record.tenant_id, existing.id);
+    await existing.update({ estatus: "cancelada" } as never, { transaction: t });
+    return toDocumentDto(existing, payments);
   }
 
   let supplierId = record.supplier_id;
   let nombre = record.taller?.trim() || "Taller";
   let plazo: number | null = null;
   if (supplierId) {
-    const s = await Supplier.findByPk(supplierId);
+    const s = await Supplier.findByPk(supplierId, { transaction: t });
     if (s) {
       nombre = s.razon_social;
       plazo = s.dias_credito ?? null;
     }
   } else {
-    const s = await findOrCreateSupplierByName(record.tenant_id, nombre);
+    const s = await findOrCreateSupplierByName(record.tenant_id, nombre, { transaction: t });
     supplierId = s.id;
     plazo = s.dias_credito ?? null;
   }
-  return upsertBySource(record.tenant_id, "maintenance_record_id", record.id, {
-    tipo: "cxp",
-    supplier_id: supplierId,
-    entidad_nombre: nombre,
-    folio: projected.folio,
-    concepto: projected.concepto,
-    conceptos: projected.conceptos,
-    fecha_emision: String(record.fecha).slice(0, 10),
-    plazo_credito_dias: plazo,
-    monto_original: monto,
-    origen: "mantenimiento",
-  });
+  return upsertBySource(
+    record.tenant_id,
+    "maintenance_record_id",
+    record.id,
+    {
+      tipo: "cxp",
+      supplier_id: supplierId,
+      entidad_nombre: nombre,
+      folio: projected.folio,
+      concepto: projected.concepto,
+      conceptos: projected.conceptos,
+      fecha_emision: String(record.fecha).slice(0, 10),
+      plazo_credito_dias: plazo,
+      monto_original: monto,
+      origen: "mantenimiento",
+      reopenIfCancelada: true,
+    },
+    t,
+  );
 }
 
 export async function upsertFromExpense(
