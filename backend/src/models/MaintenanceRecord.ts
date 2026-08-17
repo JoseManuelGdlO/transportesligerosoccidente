@@ -7,6 +7,7 @@ import {
   type Sequelize,
 } from "sequelize";
 import type { MaintenanceType } from "./MaintenanceSchedule";
+import type { DocumentConcepto } from "../types/documentConcepto";
 
 export class MaintenanceRecord extends Model<
   InferAttributes<MaintenanceRecord>,
@@ -20,6 +21,8 @@ export class MaintenanceRecord extends Model<
   declare fecha: string;
   declare costo: string;
   declare descripcion: string;
+  declare num_factura: CreationOptional<string | null>;
+  declare conceptos: CreationOptional<DocumentConcepto[] | null>;
   declare taller: CreationOptional<string | null>;
   declare supplier_id: CreationOptional<string | null>;
   declare category_id: CreationOptional<string | null>;
@@ -44,6 +47,8 @@ export function initMaintenanceRecord(sequelize: Sequelize) {
       fecha: { type: DataTypes.DATEONLY, allowNull: false },
       costo: { type: DataTypes.DECIMAL(14, 2), allowNull: false, defaultValue: 0 },
       descripcion: { type: DataTypes.STRING(512), allowNull: false },
+      num_factura: { type: DataTypes.STRING(64), allowNull: true },
+      conceptos: { type: DataTypes.JSON, allowNull: true },
       taller: { type: DataTypes.STRING(255), allowNull: true },
       supplier_id: { type: DataTypes.CHAR(36), allowNull: true },
       category_id: { type: DataTypes.CHAR(36), allowNull: true },

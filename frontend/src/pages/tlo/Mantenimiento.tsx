@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
@@ -10,6 +10,7 @@ import {
   fetchMaintenanceRecords,
   fetchSuppliers,
   openAuthenticatedFile,
+  updateMaintenanceRecordApi,
   uploadMaintenanceInvoice,
 } from "@/lib/tloApi";
 import type {
@@ -23,10 +24,10 @@ import { KpiCard } from "@/components/tlo/KpiCard";
 import { CategoryCombobox } from "@/components/tlo/CategoryCombobox";
 import { MaintenanceCategoriesTab } from "@/components/tlo/MaintenanceCategoriesTab";
 import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
+import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
-import { Textarea } from "@/components/ui/textarea";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Checkbox } from "@/components/ui/checkbox";
@@ -63,6 +64,7 @@ import {
   FileText,
   Gauge,
   Loader2,
+  Pencil,
   Plus,
   RefreshCw,
   Trash2,
@@ -71,6 +73,12 @@ import {
   X,
 } from "lucide-react";
 import { fmtDate, fmtMXN, fmtNumber } from "@/lib/format";
+import {
+  emptyConcepto,
+  filledConceptos,
+  validateConceptos,
+  type DocumentConcepto,
+} from "@/lib/documentConceptos";
 import { normalizeSearch, slicePage } from "@/lib/tableFilters";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
@@ -99,7 +107,8 @@ type BitacoraSortColumn =
   | "costo"
   | "categoria"
   | "proveedor"
-  | "descripcion";
+  | "descripcion"
+  | "folio";
 type SortDirection = "asc" | "desc";
 type MainTab = "unidades" | "bitacora" | "categorias";
 
@@ -306,10 +315,9 @@ export default function Mantenimiento() {
   const [pendingDelete, setPendingDelete] = useState<PendingDelete | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [savingRecord, setSavingRecord] = useState(false);
+  const [editingRecordId, setEditingRecordId] = useState<string | null>(null);
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [invoicePreviewUrl, setInvoicePreviewUrl] = useState<string | null>(null);
-  const replaceInputRef = useRef<HTMLInputElement>(null);
-  const [replaceTargetId, setReplaceTargetId] = useState<string | null>(null);
   const [facturaBusyId, setFacturaBusyId] = useState<string | null>(null);
 
   const [bitSearch, setBitSearch] = useState("");
@@ -329,8 +337,6 @@ export default function Mantenimiento() {
     tipo: "preventivo" as MaintenanceType,
     km_odometro: 0,
     fecha: new Date().toISOString().slice(0, 10),
-    costo: 0,
-    descripcion: "",
     supplier_id: "",
     category_id: "",
     intervalo_km: 20000,
@@ -338,6 +344,8 @@ export default function Mantenimiento() {
     ultimo_km: 0,
     ultima_fecha: new Date().toISOString().slice(0, 10),
   });
+  const [numFactura, setNumFactura] = useState("");
+  const [conceptos, setConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
 
   const activeSuppliers = useMemo(
     () => suppliers.filter((s) => (s.estatus ?? "activo") === "activo"),
@@ -348,6 +356,22 @@ export default function Mantenimiento() {
     () => categories.filter((c) => (c.estatus ?? "activo") === "activo"),
     [categories],
   );
+
+  const categoriesForForm = useMemo(() => {
+    if (!form.category_id || activeCategories.some((c) => c.id === form.category_id)) {
+      return activeCategories;
+    }
+    const current = categories.find((c) => c.id === form.category_id);
+    return current ? [current, ...activeCategories] : activeCategories;
+  }, [activeCategories, categories, form.category_id]);
+
+  const suppliersForForm = useMemo(() => {
+    if (!form.supplier_id || activeSuppliers.some((s) => s.id === form.supplier_id)) {
+      return activeSuppliers;
+    }
+    const current = suppliers.find((s) => s.id === form.supplier_id);
+    return current ? [current, ...activeSuppliers] : activeSuppliers;
+  }, [activeSuppliers, suppliers, form.supplier_id]);
 
   const truckLabel = useCallback(
     (truckId: string) => {
@@ -548,6 +572,7 @@ export default function Mantenimiento() {
     const fechaForm = String(form.fecha).slice(0, 10);
     const earlier = records
       .filter((r) => r.truck_id === form.truck_id)
+      .filter((r) => !editingRecordId || r.id !== editingRecordId)
       .filter((r) => {
         const fecha = String(r.fecha).slice(0, 10);
         if (fecha < fechaForm) return true;
@@ -556,10 +581,14 @@ export default function Mantenimiento() {
       })
       .sort((a, b) => compareRecordsChronological(b, a));
     return earlier[0] ?? null;
-  }, [records, form.truck_id, form.fecha, form.km_odometro]);
+  }, [records, form.truck_id, form.fecha, form.km_odometro, editingRecordId]);
 
   const kmDesdeUltimoServicio =
     lastRecordForFormTruck != null ? form.km_odometro - lastRecordForFormTruck.km_odometro : null;
+
+  const editingRecord = editingRecordId
+    ? records.find((r) => r.id === editingRecordId) ?? null
+    : null;
 
   const filteredRecords = useMemo(() => {
     const q = normalizeSearch(bitSearch);
@@ -581,7 +610,7 @@ export default function Mantenimiento() {
       if (bitHasta && fecha > bitHasta) return false;
       if (q) {
         const hay = normalizeSearch(
-          `${r.descripcion} ${supplierLabel(r)} ${categoryLabel(r)} ${truckLabel(r.truck_id)} ${tipoLabel[r.tipo]}`,
+          `${r.descripcion} ${r.num_factura ?? ""} ${supplierLabel(r)} ${categoryLabel(r)} ${truckLabel(r.truck_id)} ${tipoLabel[r.tipo]}`,
         );
         if (!hay.includes(q)) return false;
       }
@@ -642,6 +671,10 @@ export default function Mantenimiento() {
         case "descripcion":
           va = a.descripcion;
           vb = b.descripcion;
+          break;
+        case "folio":
+          va = a.num_factura ?? "";
+          vb = b.num_factura ?? "";
           break;
       }
       return compareSortValues(va, vb, sortDirection);
@@ -709,17 +742,35 @@ export default function Mantenimiento() {
     const defaults = truckId
       ? recordDefaultsForTruck(truckId)
       : { km_odometro: 0, tipo: "preventivo" as MaintenanceType };
+    setEditingRecordId(null);
     setForm((f) => ({
       ...f,
       truck_id: truckId ?? "",
       km_odometro: defaults.km_odometro,
       fecha: new Date().toISOString().slice(0, 10),
-      costo: 0,
-      descripcion: "",
       supplier_id: "",
       category_id: "",
       tipo: defaults.tipo,
     }));
+    setNumFactura("");
+    setConceptos([emptyConcepto()]);
+    clearInvoiceFile();
+    setRecordOpen(true);
+  };
+
+  const openEditRecord = (r: MaintenanceRecordRow) => {
+    setEditingRecordId(r.id);
+    setForm((f) => ({
+      ...f,
+      truck_id: r.truck_id,
+      tipo: r.tipo,
+      km_odometro: r.km_odometro,
+      fecha: String(r.fecha).slice(0, 10),
+      supplier_id: r.supplier_id ?? "",
+      category_id: r.category_id ?? "",
+    }));
+    setNumFactura(r.num_factura ?? "");
+    setConceptos(r.conceptos);
     clearInvoiceFile();
     setRecordOpen(true);
   };
@@ -790,22 +841,27 @@ export default function Mantenimiento() {
       toast.error("Selecciona una unidad");
       return;
     }
-    if (!form.descripcion.trim()) {
-      toast.error("Indica una descripción del servicio");
+    const conceptoError = validateConceptos(conceptos);
+    if (conceptoError) {
+      toast.error(conceptoError);
       return;
     }
+    const lineas = filledConceptos(conceptos);
     setSavingRecord(true);
+    const body = {
+      truck_id: form.truck_id,
+      tipo: form.tipo,
+      km_odometro: form.km_odometro,
+      fecha: form.fecha,
+      num_factura: numFactura.trim() || null,
+      conceptos: lineas,
+      supplier_id: form.supplier_id || null,
+      category_id: form.category_id || null,
+    };
     try {
-      const row = await createMaintenanceRecordApi({
-        truck_id: form.truck_id,
-        tipo: form.tipo,
-        km_odometro: form.km_odometro,
-        fecha: form.fecha,
-        costo: form.costo,
-        descripcion: form.descripcion,
-        supplier_id: form.supplier_id || null,
-        category_id: form.category_id || null,
-      });
+      const row = editingRecordId
+        ? await updateMaintenanceRecordApi(editingRecordId, body)
+        : await createMaintenanceRecordApi(body);
       if (invoiceFile) {
         try {
           await uploadMaintenanceInvoice(row.id, invoiceFile);
@@ -816,13 +872,15 @@ export default function Mantenimiento() {
               : "Servicio guardado, pero falló la factura",
           );
           setRecordOpen(false);
+          setEditingRecordId(null);
           clearInvoiceFile();
           await load();
           return;
         }
       }
-      toast.success("Servicio registrado");
+      toast.success(editingRecordId ? "Servicio actualizado" : "Servicio registrado");
       setRecordOpen(false);
+      setEditingRecordId(null);
       clearInvoiceFile();
       await load();
     } catch (e) {
@@ -849,31 +907,6 @@ export default function Mantenimiento() {
       toast.success("Factura eliminada");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al eliminar factura");
-    } finally {
-      setFacturaBusyId(null);
-    }
-  };
-
-  const startReplaceFactura = (recordId: string) => {
-    setReplaceTargetId(recordId);
-    replaceInputRef.current?.click();
-  };
-
-  const onReplaceFacturaPicked = async (file: File | null) => {
-    const id = replaceTargetId;
-    setReplaceTargetId(null);
-    if (!id || !file) return;
-    if (!isAllowedFactura(file)) {
-      toast.error("Solo se permiten archivos PDF, JPG o PNG");
-      return;
-    }
-    setFacturaBusyId(id);
-    try {
-      const updated = await uploadMaintenanceInvoice(id, file);
-      setRecords((prev) => prev.map((x) => (x.id === id ? updated : x)));
-      toast.success("Factura actualizada");
-    } catch (e) {
-      toast.error(e instanceof Error ? e.message : "Error al subir factura");
     } finally {
       setFacturaBusyId(null);
     }
@@ -911,18 +944,6 @@ export default function Mantenimiento() {
           </Button>
         </div>
       </div>
-
-      <input
-        ref={replaceInputRef}
-        type="file"
-        accept={FACTURA_ACCEPT}
-        className="hidden"
-        onChange={(e) => {
-          const file = e.target.files?.[0] ?? null;
-          e.target.value = "";
-          void onReplaceFacturaPicked(file);
-        }}
-      />
 
       <Tabs
         value={mainTab}
@@ -1430,12 +1451,18 @@ export default function Mantenimiento() {
                       direction={sortDirection}
                       onSort={toggleSort}
                     />
+                    <SortableTableHead
+                      label="Folio"
+                      column="folio"
+                      activeColumn={sortColumn}
+                      direction={sortDirection}
+                      onSort={toggleSort}
+                    />
                     <TableHead>Factura</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {pageData.slice.map((r) => {
-                    const busy = facturaBusyId === r.id;
                     const kmRecorridos = kmRecorridosById.get(r.id);
                     return (
                       <TableRow key={r.id} className="hover:bg-muted/40">
@@ -1460,6 +1487,9 @@ export default function Mantenimiento() {
                         <TableCell className="max-w-[16rem] truncate text-muted-foreground">
                           {r.descripcion}
                         </TableCell>
+                        <TableCell className="whitespace-nowrap tabular-nums">
+                          {r.num_factura ? r.num_factura : <span className="text-muted-foreground">—</span>}
+                        </TableCell>
                         <TableCell>
                           {r.factura_url ? (
                             <div className="flex items-center gap-2">
@@ -1473,46 +1503,33 @@ export default function Mantenimiento() {
                                   size="sm"
                                   variant="ghost"
                                   className="h-7 px-2 justify-start"
-                                  disabled={busy}
                                   onClick={() => void viewFactura(r)}
                                 >
                                   <ExternalLink className="h-3.5 w-3.5 mr-1" />
                                   Ver
                                 </Button>
                                 {canEdit && (
-                                  <div className="flex gap-1">
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 px-2"
-                                      disabled={busy}
-                                      onClick={() => startReplaceFactura(r.id)}
-                                    >
-                                      <Upload className="h-3.5 w-3.5 mr-1" />
-                                      Reemplazar
-                                    </Button>
-                                    <Button
-                                      size="sm"
-                                      variant="ghost"
-                                      className="h-7 px-2 text-destructive hover:text-destructive"
-                                      disabled={busy}
-                                      onClick={() => void removeFactura(r)}
-                                    >
-                                      <Trash2 className="h-3.5 w-3.5" />
-                                    </Button>
-                                  </div>
+                                  <Button
+                                    size="sm"
+                                    variant="ghost"
+                                    className="h-7 px-2 justify-start"
+                                    onClick={() => openEditRecord(r)}
+                                  >
+                                    <Pencil className="h-3.5 w-3.5 mr-1" />
+                                    Editar
+                                  </Button>
                                 )}
                               </div>
                             </div>
                           ) : canEdit ? (
                             <Button
                               size="sm"
-                              variant="outline"
-                              disabled={busy}
-                              onClick={() => startReplaceFactura(r.id)}
+                              variant="ghost"
+                              className="h-7 px-2"
+                              onClick={() => openEditRecord(r)}
                             >
-                              <Upload className="h-3.5 w-3.5 mr-1.5" />
-                              Subir
+                              <Pencil className="h-3.5 w-3.5 mr-1.5" />
+                              Editar
                             </Button>
                           ) : (
                             <span className="text-xs text-muted-foreground">—</span>
@@ -1719,27 +1736,39 @@ export default function Mantenimiento() {
         open={recordOpen}
         onOpenChange={(open) => {
           setRecordOpen(open);
-          if (!open) clearInvoiceFile();
+          if (!open) {
+            clearInvoiceFile();
+            setEditingRecordId(null);
+            setNumFactura("");
+            setConceptos([emptyConcepto()]);
+          }
         }}
       >
         <DialogContent className="max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Registrar servicio</DialogTitle>
+            <DialogTitle>{editingRecordId ? "Editar servicio" : "Registrar servicio"}</DialogTitle>
             <DialogDescription>
-              Captura un mantenimiento ya realizado (costo, proveedor, factura y odómetro). Si hay
-              programación del mismo tipo, se actualiza el último servicio.
+              {editingRecordId
+                ? "Actualiza los datos del mantenimiento. Reemplazar o borrar la factura se aplica desde aquí."
+                : "Captura un mantenimiento ya realizado (conceptos, proveedor, factura y odómetro). Si hay programación del mismo tipo, el último servicio se toma del registro más reciente."}
             </DialogDescription>
           </DialogHeader>
           <div className="grid grid-cols-2 gap-3">
             <div className="col-span-2">
               <Label>Unidad</Label>
-              <Select value={form.truck_id} onValueChange={applyTruckToRecordForm}>
+              <Select
+                value={form.truck_id}
+                onValueChange={(v) => {
+                  if (editingRecordId) setForm({ ...form, truck_id: v });
+                  else applyTruckToRecordForm(v);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona" />
                 </SelectTrigger>
                 <SelectContent>
                   {trucks
-                    .filter((t) => t.estatus !== "baja")
+                    .filter((t) => t.estatus !== "baja" || t.id === form.truck_id)
                     .map((t) => (
                       <SelectItem key={t.id} value={t.id}>
                         {t.numero_economico}
@@ -1800,18 +1829,10 @@ export default function Mantenimiento() {
                 )
               ) : null}
             </div>
-            <div>
-              <Label>Costo</Label>
-              <Input
-                type="number"
-                value={form.costo}
-                onChange={(e) => setForm({ ...form, costo: +e.target.value })}
-              />
-            </div>
             <div className="col-span-2">
               <Label>Categoría</Label>
               <CategoryCombobox
-                categories={activeCategories}
+                categories={categoriesForForm}
                 value={form.category_id}
                 onChange={(categoryId) => setForm({ ...form, category_id: categoryId })}
                 placeholder="Opcional — buscar categoría…"
@@ -1824,7 +1845,7 @@ export default function Mantenimiento() {
             <div className="col-span-2">
               <Label>Proveedor</Label>
               <SupplierCombobox
-                suppliers={activeSuppliers}
+                suppliers={suppliersForForm}
                 value={form.supplier_id}
                 onChange={(supplierId) => setForm({ ...form, supplier_id: supplierId })}
                 placeholder="Opcional — buscar proveedor…"
@@ -1835,24 +1856,20 @@ export default function Mantenimiento() {
               />
             </div>
             <div className="col-span-2">
-              <Label>Descripción</Label>
-              <Textarea
-                value={form.descripcion}
-                onChange={(e) => setForm({ ...form, descripcion: e.target.value })}
-                placeholder="Qué se realizó…"
-                rows={4}
-                className="resize-y min-h-[96px]"
+              <ConceptosEditor value={conceptos} onChange={setConceptos} disabled={savingRecord} />
+            </div>
+            <div className="col-span-2">
+              <Label>Número de factura</Label>
+              <Input
+                value={numFactura}
+                onChange={(e) => setNumFactura(e.target.value)}
+                placeholder="Opcional"
+                maxLength={64}
               />
             </div>
             <div className="col-span-2 space-y-2">
               <Label>Factura</Label>
-              {!invoiceFile ? (
-                <Input
-                  type="file"
-                  accept={FACTURA_ACCEPT}
-                  onChange={(e) => onPickInvoice(e.target.files?.[0] ?? null)}
-                />
-              ) : (
+              {invoiceFile ? (
                 <div className="rounded-lg border p-3 flex items-start gap-3">
                   {invoicePreviewUrl ? (
                     <img
@@ -1892,6 +1909,61 @@ export default function Mantenimiento() {
                     </div>
                   </div>
                 </div>
+              ) : editingRecord?.factura_url ? (
+                <div className="rounded-lg border p-3 flex items-start gap-3">
+                  <FacturaThumb
+                    fileUrl={editingRecord.factura_url}
+                    mime={editingRecord.factura_mime}
+                    nombre={editingRecord.factura_nombre}
+                  />
+                  <div className="min-w-0 flex-1 space-y-1">
+                    <p className="text-sm font-medium truncate">
+                      {editingRecord.factura_nombre || "Factura"}
+                    </p>
+                    <div className="flex flex-wrap gap-2 pt-1">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => void viewFactura(editingRecord)}
+                      >
+                        <ExternalLink className="h-3.5 w-3.5 mr-1.5" />
+                        Ver
+                      </Button>
+                      <label className="inline-flex">
+                        <Button type="button" size="sm" variant="ghost" asChild>
+                          <span>
+                            <Upload className="h-3.5 w-3.5 mr-1.5" />
+                            Reemplazar
+                          </span>
+                        </Button>
+                        <input
+                          type="file"
+                          accept={FACTURA_ACCEPT}
+                          className="hidden"
+                          onChange={(e) => onPickInvoice(e.target.files?.[0] ?? null)}
+                        />
+                      </label>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="ghost"
+                        className="text-destructive hover:text-destructive"
+                        disabled={facturaBusyId === editingRecord.id}
+                        onClick={() => void removeFactura(editingRecord)}
+                      >
+                        <Trash2 className="h-3.5 w-3.5 mr-1.5" />
+                        Borrar
+                      </Button>
+                    </div>
+                  </div>
+                </div>
+              ) : (
+                <Input
+                  type="file"
+                  accept={FACTURA_ACCEPT}
+                  onChange={(e) => onPickInvoice(e.target.files?.[0] ?? null)}
+                />
               )}
               <p className="text-xs text-muted-foreground">PDF, JPG o PNG.</p>
             </div>
@@ -1901,7 +1973,11 @@ export default function Mantenimiento() {
               Cancelar
             </Button>
             <Button onClick={() => void saveRecord()} disabled={savingRecord}>
-              {savingRecord ? "Guardando…" : "Registrar servicio"}
+              {savingRecord
+                ? "Guardando…"
+                : editingRecordId
+                  ? "Guardar cambios"
+                  : "Registrar servicio"}
             </Button>
           </DialogFooter>
         </DialogContent>

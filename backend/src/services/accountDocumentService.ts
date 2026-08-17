@@ -20,6 +20,16 @@ import { roundMoney } from "./calc";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr, localDateStr } from "../utils/localDates";
 import { tripRouteLabelFromModel } from "./tripRouteLabel";
+import {
+  conceptosFromLegacy,
+  maintenanceCxpProjection,
+  maintenancePatchFromAccount,
+  parseConceptosJson,
+  sumConceptos,
+  summarizeConceptos,
+  validateConceptos,
+  type DocumentConcepto,
+} from "../types/documentConcepto";
 
 export type AgingBucket = "corriente" | "1-30" | "31-60" | "90+";
 export type DisplayEstatus = "Al día" | "Vencida" | "Pagada" | "Cancelada";
@@ -40,6 +50,7 @@ export interface AccountDocumentDto {
   entidad_nombre: string;
   folio: string;
   concepto: string;
+  conceptos?: DocumentConcepto[];
   fecha_emision: string;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
@@ -141,6 +152,7 @@ export function toDocumentDto(
     entidad_nombre: doc.entidad_nombre,
     folio: doc.folio,
     concepto: doc.concepto,
+    conceptos: parseConceptosJson(doc.conceptos),
     fecha_emision: String(doc.fecha_emision).slice(0, 10),
     plazo_credito_dias: doc.plazo_credito_dias ?? null,
     fecha_vencimiento: doc.fecha_vencimiento
@@ -278,6 +290,7 @@ export interface CreateDocumentInput {
   entidad_nombre?: string;
   folio: string;
   concepto: string;
+  conceptos?: DocumentConcepto[];
   fecha_emision: string;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
@@ -347,6 +360,9 @@ export async function createDocument(
       entidad_nombre: entity.entidad_nombre,
       folio: input.folio.trim(),
       concepto: input.concepto.trim(),
+      conceptos: input.conceptos ?? [
+        { descripcion: input.concepto.trim(), precio: roundMoney(input.monto_original) },
+      ],
       fecha_emision: input.fecha_emision,
       plazo_credito_dias: plazo,
       fecha_vencimiento: venc,
@@ -370,6 +386,7 @@ export async function updateDocument(
   patch: Partial<{
     folio: string;
     concepto: string;
+    conceptos: DocumentConcepto[];
     fecha_emision: string;
     plazo_credito_dias: number | null;
     fecha_vencimiento: string | null;
@@ -390,16 +407,37 @@ export async function updateDocument(
 
   const data: Record<string, unknown> = {};
   if (patch.folio !== undefined) data.folio = patch.folio.trim();
-  if (patch.concepto !== undefined) data.concepto = patch.concepto.trim();
+  if (patch.conceptos !== undefined) {
+    const conceptos = validateConceptos(patch.conceptos);
+    const total = sumConceptos(conceptos);
+    if (total < abonado) {
+      throw httpError("El monto no puede ser menor a los abonos realizados", 400);
+    }
+    data.conceptos = conceptos;
+    data.concepto = summarizeConceptos(conceptos);
+    data.monto_original = String(roundMoney(total));
+  } else {
+    if (patch.concepto !== undefined) data.concepto = patch.concepto.trim();
+    if (patch.monto_original !== undefined) {
+      if (patch.monto_original < abonado) {
+        throw httpError("El monto no puede ser menor a los abonos realizados", 400);
+      }
+      data.monto_original = String(roundMoney(patch.monto_original));
+    }
+    // Legacy single-field edits must keep conceptos in sync with concepto + monto.
+    if (patch.concepto !== undefined || patch.monto_original !== undefined) {
+      const desc =
+        patch.concepto !== undefined ? patch.concepto.trim() : String(doc.concepto ?? "");
+      const monto =
+        patch.monto_original !== undefined
+          ? roundMoney(patch.monto_original)
+          : roundMoney(num(doc.monto_original));
+      data.conceptos = conceptosFromLegacy(desc, monto);
+    }
+  }
   if (patch.fecha_emision !== undefined) data.fecha_emision = patch.fecha_emision;
   if (patch.plazo_credito_dias !== undefined) {
     data.plazo_credito_dias = patch.plazo_credito_dias;
-  }
-  if (patch.monto_original !== undefined) {
-    if (patch.monto_original < abonado) {
-      throw httpError("El monto no puede ser menor a los abonos realizados", 400);
-    }
-    data.monto_original = String(roundMoney(patch.monto_original));
   }
   if (patch.entidad_nombre !== undefined) data.entidad_nombre = patch.entidad_nombre.trim();
   if (patch.client_id !== undefined && doc.tipo === "cxc") {
@@ -437,7 +475,17 @@ export async function updateDocument(
   await doc.update(data as never);
   await refreshDocumentStatus(doc, payments);
   await doc.reload();
-  await syncDocumentToSource(doc, patch);
+  const syncPatch = { ...patch };
+  if (patch.conceptos !== undefined) {
+    const conceptos = validateConceptos(patch.conceptos);
+    syncPatch.monto_original = sumConceptos(conceptos);
+    syncPatch.concepto = summarizeConceptos(conceptos);
+  } else if (data.conceptos !== undefined) {
+    syncPatch.conceptos = data.conceptos as DocumentConcepto[];
+    if (data.concepto !== undefined) syncPatch.concepto = String(data.concepto);
+    if (data.monto_original !== undefined) syncPatch.monto_original = num(data.monto_original);
+  }
+  await syncDocumentToSource(doc, syncPatch);
   return getDocument(tenantId, id);
 }
 
@@ -447,6 +495,7 @@ async function syncDocumentToSource(
   patch: Partial<{
     folio: string;
     concepto: string;
+    conceptos: DocumentConcepto[];
     fecha_emision: string;
     monto_original: number;
     supplier_id: string | null;
@@ -516,17 +565,10 @@ async function syncDocumentToSource(
       where: { id: doc.maintenance_record_id, tenant_id: doc.tenant_id },
     });
     if (!record) return;
-    const mPatch: Record<string, unknown> = {};
-    if (patch.monto_original !== undefined) mPatch.costo = roundMoney(patch.monto_original);
+    const mPatch = maintenancePatchFromAccount(patch);
     if (patch.fecha_emision !== undefined) mPatch.fecha = patch.fecha_emision;
     if (patch.supplier_id !== undefined) mPatch.supplier_id = patch.supplier_id;
     if (patch.entidad_nombre !== undefined) mPatch.taller = patch.entidad_nombre.trim();
-    if (patch.concepto !== undefined) {
-      // "Mantenimiento tipo: descripcion"
-      const colon = patch.concepto.indexOf(":");
-      mPatch.descripcion =
-        colon >= 0 ? patch.concepto.slice(colon + 1).trim() || patch.concepto : patch.concepto;
-    }
     if (Object.keys(mPatch).length) await record.update(mPatch as never);
     return;
   }
@@ -674,6 +716,9 @@ async function upsertBySource(
       entidad_nombre: entity.entidad_nombre,
       folio: input.folio.trim(),
       concepto: input.concepto.trim(),
+      conceptos: input.conceptos ?? [
+        { descripcion: input.concepto.trim(), precio: roundMoney(input.monto_original) },
+      ],
       fecha_emision: input.fecha_emision,
       plazo_credito_dias: plazo,
       fecha_vencimiento: venc,
@@ -768,11 +813,76 @@ export async function upsertFromFuelLoad(
   });
 }
 
+export type MaintenanceCxpSyncPlan =
+  | { action: "noop" }
+  | { action: "cancel" }
+  | { action: "upsert" }
+  | { action: "reject"; message: string };
+
+export function planMaintenanceCxpSync(
+  monto: number,
+  existing: { estatus: string } | null,
+  abonado: number,
+  paymentCount: number,
+): MaintenanceCxpSyncPlan {
+  const linked = existing && existing.estatus !== "cancelada" ? existing : null;
+  if (!linked) {
+    return monto <= 0 ? { action: "noop" } : { action: "upsert" };
+  }
+  if (monto <= 0) {
+    if (paymentCount > 0 || abonado > 0) {
+      return { action: "reject", message: "No se puede dejar en 0/negativo un CXP con abonos" };
+    }
+    return { action: "cancel" };
+  }
+  if (monto < abonado) {
+    return { action: "reject", message: "El monto no puede ser menor a los abonos realizados" };
+  }
+  return { action: "upsert" };
+}
+
+async function loadLinkedMaintenanceCxp(tenantId: string, maintenanceRecordId: string) {
+  const existing = await AccountDocument.findOne({
+    where: { tenant_id: tenantId, maintenance_record_id: maintenanceRecordId },
+  });
+  if (!existing) {
+    return { existing: null, payments: [] as AccountDocumentPayment[], abonado: 0 };
+  }
+  const payments = await AccountDocumentPayment.findAll({
+    where: { tenant_id: tenantId, document_id: existing.id },
+  });
+  return { existing, payments, abonado: paidTotal(payments) };
+}
+
+export async function assertMaintenanceCxpSyncAllowed(
+  tenantId: string,
+  maintenanceRecordId: string,
+  monto: number,
+): Promise<void> {
+  const { existing, payments, abonado } = await loadLinkedMaintenanceCxp(
+    tenantId,
+    maintenanceRecordId,
+  );
+  const plan = planMaintenanceCxpSync(monto, existing, abonado, payments.length);
+  if (plan.action === "reject") throw httpError(plan.message, 400);
+}
+
 export async function upsertFromMaintenance(
   record: MaintenanceRecord,
 ): Promise<AccountDocumentDto | null> {
-  const monto = num(record.costo);
-  if (monto <= 0) return null;
+  const projected = maintenanceCxpProjection(record);
+  const monto = projected.monto;
+  const { existing, payments, abonado } = await loadLinkedMaintenanceCxp(
+    record.tenant_id,
+    record.id,
+  );
+  const plan = planMaintenanceCxpSync(monto, existing, abonado, payments.length);
+  if (plan.action === "reject") throw httpError(plan.message, 400);
+  if (plan.action === "noop") return null;
+  if (plan.action === "cancel" && existing) {
+    return cancelDocument(record.tenant_id, existing.id);
+  }
+
   let supplierId = record.supplier_id;
   let nombre = record.taller?.trim() || "Taller";
   let plazo: number | null = null;
@@ -787,13 +897,13 @@ export async function upsertFromMaintenance(
     supplierId = s.id;
     plazo = s.dias_credito ?? null;
   }
-  const folio = `MANT-${record.id.slice(0, 8).toUpperCase()}`;
   return upsertBySource(record.tenant_id, "maintenance_record_id", record.id, {
     tipo: "cxp",
     supplier_id: supplierId,
     entidad_nombre: nombre,
-    folio,
-    concepto: `Mantenimiento ${record.tipo}: ${record.descripcion}`.slice(0, 512),
+    folio: projected.folio,
+    concepto: projected.concepto,
+    conceptos: projected.conceptos,
     fecha_emision: String(record.fecha).slice(0, 10),
     plazo_credito_dias: plazo,
     monto_original: monto,

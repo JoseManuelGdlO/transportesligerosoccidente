@@ -386,6 +386,12 @@ export function normalizeAccountDocument(
     entidad_nombre: String(raw.entidad_nombre ?? ""),
     folio: String(raw.folio ?? ""),
     concepto: String(raw.concepto ?? ""),
+    conceptos: Array.isArray(raw.conceptos)
+      ? (raw.conceptos as Record<string, unknown>[]).map((c) => ({
+          descripcion: String(c.descripcion ?? ""),
+          precio: Number(c.precio ?? 0),
+        }))
+      : [],
     fecha_emision: String(raw.fecha_emision ?? "").slice(0, 10),
     plazo_credito_dias:
       raw.plazo_credito_dias != null && raw.plazo_credito_dias !== ""
@@ -1442,6 +1448,15 @@ function normalizeMaintenanceRecord(raw: Record<string, unknown>): import("@/typ
     fecha: String(raw.fecha ?? "").slice(0, 10),
     costo: Number(raw.costo) || 0,
     descripcion: String(raw.descripcion ?? ""),
+    num_factura: raw.num_factura != null && String(raw.num_factura).trim()
+      ? String(raw.num_factura)
+      : undefined,
+    conceptos: Array.isArray(raw.conceptos)
+      ? (raw.conceptos as Record<string, unknown>[]).map((c) => ({
+          descripcion: String(c.descripcion ?? ""),
+          precio: Number(c.precio ?? 0),
+        }))
+      : [],
     taller: raw.taller != null ? String(raw.taller) : undefined,
     supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : undefined,
     category_id: raw.category_id != null ? String(raw.category_id) : undefined,
@@ -1460,19 +1475,34 @@ export async function fetchMaintenanceRecords(
   return data.map((r) => normalizeMaintenanceRecord(r as Record<string, unknown>));
 }
 
-export async function createMaintenanceRecordApi(body: {
+type MaintenanceRecordPayload = {
   truck_id: string;
   tipo: import("@/types/tlo").MaintenanceType;
   km_odometro: number;
   fecha: string;
-  costo: number;
-  descripcion: string;
+  num_factura?: string | null;
+  conceptos: { descripcion: string; precio: number }[];
   taller?: string;
   supplier_id?: string | null;
   category_id?: string | null;
-}): Promise<import("@/types/tlo").MaintenanceRecordRow> {
+};
+
+export async function createMaintenanceRecordApi(
+  body: MaintenanceRecordPayload,
+): Promise<import("@/types/tlo").MaintenanceRecordRow> {
   const res = await apiFetch("/maintenance/records", {
     method: "POST",
+    body: JSON.stringify(body),
+  });
+  return normalizeMaintenanceRecord(await readJson(res));
+}
+
+export async function updateMaintenanceRecordApi(
+  id: string,
+  body: MaintenanceRecordPayload,
+): Promise<import("@/types/tlo").MaintenanceRecordRow> {
+  const res = await apiFetch(`/maintenance/records/${id}`, {
+    method: "PATCH",
     body: JSON.stringify(body),
   });
   return normalizeMaintenanceRecord(await readJson(res));

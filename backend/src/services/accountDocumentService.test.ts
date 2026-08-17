@@ -1,14 +1,19 @@
 import assert from "node:assert/strict";
-import { describe, it } from "node:test";
+import { afterEach, describe, it, mock } from "node:test";
+import { AccountDocument, AccountDocumentPayment } from "../models";
 import {
+  assertMaintenanceCxpSyncAllowed,
   computeAgingBucket,
   computeDisplayEstatus,
   daysBetween,
+  planMaintenanceCxpSync,
   resolveDueDate,
   toDocumentDto,
+  upsertFromMaintenance,
 } from "./accountDocumentService";
-import type { AccountDocument } from "../models/AccountDocument";
-import type { AccountDocumentPayment } from "../models/AccountDocumentPayment";
+import type { AccountDocument as AccountDocumentModel } from "../models/AccountDocument";
+import type { AccountDocumentPayment as AccountDocumentPaymentModel } from "../models/AccountDocumentPayment";
+import type { MaintenanceRecord } from "../models/MaintenanceRecord";
 
 function stubDoc(
   overrides: Partial<{
@@ -17,7 +22,7 @@ function stubDoc(
     monto_original: string;
     fecha_emision: string;
   }> = {},
-): AccountDocument {
+): AccountDocumentModel {
   return {
     id: "doc-1",
     tenant_id: "t1",
@@ -32,17 +37,17 @@ function stubDoc(
     monto_original: overrides.monto_original ?? "1000",
     estatus: overrides.estatus ?? "abierta",
     origen: "manual",
-  } as AccountDocument;
+  } as AccountDocumentModel;
 }
 
-function stubPay(monto: string, fecha = "2026-02-01"): AccountDocumentPayment {
+function stubPay(monto: string, fecha = "2026-02-01"): AccountDocumentPaymentModel {
   return {
     id: "pay-1",
     tenant_id: "t1",
     document_id: "doc-1",
     monto,
     fecha,
-  } as AccountDocumentPayment;
+  } as AccountDocumentPaymentModel;
 }
 
 describe("accountDocumentService aging/saldo", () => {
@@ -110,6 +115,7 @@ describe("accountDocumentService aging/saldo", () => {
     assert.equal(dto.saldo_pendiente, 650);
     assert.equal(dto.estatus_display, "Vencida");
     assert.equal(dto.aging_bucket, "1-30");
+    assert.deepEqual(dto.conceptos, []);
   });
 
   it("toDocumentDto marca Al día con saldo y sin vencimiento", () => {
@@ -128,5 +134,143 @@ describe("accountDocumentService aging/saldo", () => {
     const second = toDocumentDto(stubDoc({ monto_original: "1000" }), [], "2026-02-10");
     assert.equal(first.aging_bucket, second.aging_bucket);
     assert.equal(first.saldo_pendiente, second.saldo_pendiente);
+  });
+});
+
+describe("planMaintenanceCxpSync", () => {
+  const abierta = { estatus: "abierta" };
+
+  it("cancela CXP si monto <= 0 y no hay abonos", () => {
+    assert.deepEqual(planMaintenanceCxpSync(0, abierta, 0, 0), { action: "cancel" });
+  });
+
+  it("rechaza monto <= 0 si hay abonos", () => {
+    const plan = planMaintenanceCxpSync(0, abierta, 100, 1);
+    assert.equal(plan.action, "reject");
+    if (plan.action === "reject") {
+      assert.match(plan.message, /0\/negativo/);
+    }
+  });
+
+  it("rechaza monto menor a abonos y no deja el CXP intacto en silencio", () => {
+    const plan = planMaintenanceCxpSync(50, abierta, 100, 1);
+    assert.equal(plan.action, "reject");
+    if (plan.action === "reject") {
+      assert.match(plan.message, /menor a los abonos/);
+    }
+  });
+
+  it("no toca CXP cancelado o inexistente cuando el monto es 0", () => {
+    assert.deepEqual(planMaintenanceCxpSync(0, null, 0, 0), { action: "noop" });
+    assert.deepEqual(planMaintenanceCxpSync(0, { estatus: "cancelada" }, 0, 0), {
+      action: "noop",
+    });
+  });
+
+  it("permite upsert si el monto cubre los abonos", () => {
+    assert.deepEqual(planMaintenanceCxpSync(150, abierta, 100, 1), { action: "upsert" });
+  });
+});
+
+describe("assertMaintenanceCxpSyncAllowed / upsertFromMaintenance", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("assert lanza 400 si el nuevo monto es menor a los abonos", async () => {
+    mock.method(AccountDocument, "findOne", async () => ({
+      id: "cxp-1",
+      estatus: "abierta",
+    }) as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [{ monto: "400" }] as never);
+
+    await assert.rejects(
+      () => assertMaintenanceCxpSyncAllowed("t1", "mant-1", 100),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /menor a los abonos/);
+        return true;
+      },
+    );
+  });
+
+  it("assert lanza 400 si se baja a 0 con abonos", async () => {
+    mock.method(AccountDocument, "findOne", async () => ({
+      id: "cxp-1",
+      estatus: "abierta",
+    }) as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [{ monto: "50" }] as never);
+
+    await assert.rejects(
+      () => assertMaintenanceCxpSyncAllowed("t1", "mant-1", 0),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /0\/negativo/);
+        return true;
+      },
+    );
+  });
+
+  it("upsertFromMaintenance cancela el CXP si el monto queda en 0 sin abonos", async () => {
+    const doc = {
+      id: "cxp-1",
+      tenant_id: "t1",
+      tipo: "cxp" as const,
+      entidad_nombre: "Taller",
+      folio: "F-1",
+      concepto: "Mantenimiento menor: Ajuste",
+      fecha_emision: "2026-01-01",
+      plazo_credito_dias: null as number | null,
+      fecha_vencimiento: null as string | null,
+      monto_original: "400",
+      estatus: "abierta" as "abierta" | "pagada" | "cancelada",
+      origen: "mantenimiento" as const,
+      maintenance_record_id: "mant-1",
+      update: async (patch: Record<string, unknown>) => {
+        Object.assign(doc, patch);
+      },
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+
+    const dto = await upsertFromMaintenance({
+      id: "mant-1",
+      tenant_id: "t1",
+      tipo: "menor",
+      num_factura: "F-1",
+      conceptos: [{ descripcion: "Ajuste", precio: 0 }],
+      fecha: "2026-01-01",
+      supplier_id: null,
+      taller: "Taller",
+    } as MaintenanceRecord);
+
+    assert.equal(doc.estatus, "cancelada");
+    assert.equal(dto?.estatus, "cancelada");
+  });
+
+  it("upsertFromMaintenance lanza 400 si el monto es menor a los abonos", async () => {
+    mock.method(AccountDocument, "findOne", async () => ({
+      id: "cxp-1",
+      estatus: "abierta",
+    }) as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [{ monto: "400" }] as never);
+
+    await assert.rejects(
+      () =>
+        upsertFromMaintenance({
+          id: "mant-1",
+          tenant_id: "t1",
+          tipo: "menor",
+          conceptos: [{ descripcion: "Ajuste", precio: 100 }],
+          fecha: "2026-01-01",
+          supplier_id: null,
+          taller: "Taller",
+        } as MaintenanceRecord),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /menor a los abonos/);
+        return true;
+      },
+    );
   });
 });

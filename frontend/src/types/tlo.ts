@@ -774,6 +774,11 @@ export interface AccountDocumentPayment {
   created_at?: string;
 }
 
+export interface DocumentConcepto {
+  descripcion: string;
+  precio: number;
+}
+
 export interface AccountDocument {
   id: string;
   tipo: AccountDocumentTipo;
@@ -782,6 +787,7 @@ export interface AccountDocument {
   entidad_nombre: string;
   folio: string;
   concepto: string;
+  conceptos: DocumentConcepto[];
   fecha_emision: string;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
@@ -1053,6 +1059,8 @@ export interface MaintenanceRecordRow {
   fecha: string;
   costo: number;
   descripcion: string;
+  num_factura?: string;
+  conceptos: DocumentConcepto[];
   taller?: string;
   supplier_id?: string;
   category_id?: string;

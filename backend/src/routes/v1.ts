@@ -405,6 +405,7 @@ r.put("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.ed
 r.delete("/maintenance/schedules", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.deleteSchedule);
 r.get("/maintenance/records", authenticateJwt, requirePermission("catalogos.ver"), maintenanceC.listRecords);
 r.post("/maintenance/records", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.createRecord);
+r.patch("/maintenance/records/:id", authenticateJwt, requirePermission("catalogos.editar"), maintenanceC.updateRecord);
 r.post(
   "/maintenance/records/:id/factura",
   authenticateJwt,

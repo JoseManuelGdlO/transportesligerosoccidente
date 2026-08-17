@@ -3,6 +3,7 @@ import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
 import {
   MaintenanceSchedule,
+  MaintenanceRecord,
   Notification,
   Truck,
   TripStatus,
@@ -13,6 +14,7 @@ import {
   checkMaintenanceAlerts,
   aggregateMaintenanceCostByTruck,
   aggregateMaintenanceCostByMonthTruck,
+  refreshScheduleLastService,
 } from "./maintenanceService";
 
 const tenantId = "tenant-1";
@@ -314,5 +316,85 @@ describe("aggregateMaintenanceCostByMonthTruck", () => {
     );
     assert.equal(map.get("2026-01|||t1"), 150);
     assert.equal(map.get("2026-02|||t1"), 30);
+  });
+});
+
+describe("refreshScheduleLastService", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("usa el registro más reciente y no retrocede si hay uno más nuevo", async () => {
+    const patches: Record<string, unknown>[] = [];
+    mock.method(MaintenanceSchedule, "findOne", async () => ({
+      id: "sched-1",
+      ultimo_km: 80000,
+      ultima_fecha: "2026-06-01",
+      update: async (patch: Record<string, unknown>) => {
+        patches.push(patch);
+      },
+    }) as never);
+    mock.method(MaintenanceRecord, "findOne", async () => ({
+      km_odometro: 80000,
+      fecha: "2026-06-01",
+    }) as never);
+
+    await refreshScheduleLastService(tenantId, truckId, "menor");
+
+    assert.equal(patches.length, 1);
+    assert.equal(patches[0].ultimo_km, 80000);
+    assert.equal(patches[0].ultima_fecha, "2026-06-01");
+  });
+
+  it("resetea el schedule si ya no hay registros", async () => {
+    const patches: Record<string, unknown>[] = [];
+    mock.method(MaintenanceSchedule, "findOne", async () => ({
+      update: async (patch: Record<string, unknown>) => {
+        patches.push(patch);
+      },
+    }) as never);
+    mock.method(MaintenanceRecord, "findOne", async () => null);
+
+    await refreshScheduleLastService(tenantId, truckId, "menor");
+
+    assert.deepEqual(patches[0], { ultimo_km: 0, ultima_fecha: null });
+  });
+
+  it("al cambiar de unidad o tipo refresca schedule anterior y nuevo", async () => {
+    const patches: { truck: string; tipo: string; patch: Record<string, unknown> }[] = [];
+    mock.method(
+      MaintenanceSchedule,
+      "findOne",
+      async (opts: { where: { truck_id: string; tipo: string } }) => {
+        const truck = opts.where.truck_id;
+        const tipo = opts.where.tipo;
+        return {
+          update: async (patch: Record<string, unknown>) => {
+            patches.push({ truck, tipo, patch });
+          },
+        } as never;
+      },
+    );
+    mock.method(
+      MaintenanceRecord,
+      "findOne",
+      async (opts: { where: { truck_id: string; tipo: string } }) => {
+        if (opts.where.truck_id === "truck-old") {
+          return { km_odometro: 40000, fecha: "2026-01-10" } as never;
+        }
+        return { km_odometro: 90000, fecha: "2026-07-01" } as never;
+      },
+    );
+
+    await refreshScheduleLastService(tenantId, "truck-new", "mayor");
+    await refreshScheduleLastService(tenantId, "truck-old", "menor");
+
+    assert.equal(patches.length, 2);
+    const neu = patches.find((p) => p.truck === "truck-new" && p.tipo === "mayor");
+    const old = patches.find((p) => p.truck === "truck-old" && p.tipo === "menor");
+    assert.equal(neu?.patch.ultimo_km, 90000);
+    assert.equal(neu?.patch.ultima_fecha, "2026-07-01");
+    assert.equal(old?.patch.ultimo_km, 40000);
+    assert.equal(old?.patch.ultima_fecha, "2026-01-10");
   });
 });

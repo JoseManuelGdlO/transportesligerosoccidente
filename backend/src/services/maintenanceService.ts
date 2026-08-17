@@ -17,6 +17,7 @@ import { num } from "../utils/numbers";
 import { usersWithPermission } from "../utils/notifyUsers";
 import { getClosedStatusIds } from "./tripStatusService";
 import { uploadRootDir } from "../middlewares/uploadDocument";
+import { sumConceptos, summarizeConceptos, validateConceptos } from "../types/documentConcepto";
 
 const tipoLabel: Record<MaintenanceType, string> = {
   preventivo: "Preventivo",
@@ -474,20 +475,19 @@ export function resolveFacturaAbsolutePath(record: MaintenanceRecord): string | 
     : path.join(uploadRootDir(), record.factura_path);
 }
 
-export async function createRecord(
-  tenantId: string,
-  data: {
-    truck_id: string;
-    tipo: MaintenanceType;
-    km_odometro: number;
-    fecha: string;
-    costo: number;
-    descripcion: string;
-    taller?: string;
-    supplier_id?: string | null;
-    category_id?: string | null;
-  },
-) {
+type RecordInput = {
+  truck_id: string;
+  tipo: MaintenanceType;
+  km_odometro: number;
+  fecha: string;
+  num_factura?: string | null;
+  conceptos: { descripcion: string; precio: number }[];
+  taller?: string;
+  supplier_id?: string | null;
+  category_id?: string | null;
+};
+
+async function resolveRecordRefs(tenantId: string, data: RecordInput) {
   const truck = await Truck.findOne({ where: { id: data.truck_id, tenant_id: tenantId } });
   if (!truck) {
     const err = new Error("Camión no encontrado");
@@ -496,7 +496,7 @@ export async function createRecord(
   }
 
   let taller = data.taller?.trim() || undefined;
-  let supplierId = data.supplier_id ?? null;
+  const supplierId = data.supplier_id ?? null;
   if (supplierId) {
     const supplier = await Supplier.findOne({ where: { id: supplierId, tenant_id: tenantId } });
     if (!supplier) {
@@ -507,7 +507,7 @@ export async function createRecord(
     taller = supplier.razon_social;
   }
 
-  let categoryId = data.category_id ?? null;
+  const categoryId = data.category_id ?? null;
   if (categoryId) {
     const category = await MaintenanceCategory.findOne({
       where: { id: categoryId, tenant_id: tenantId },
@@ -519,6 +519,74 @@ export async function createRecord(
     }
   }
 
+  return { taller: taller ?? null, supplierId, categoryId };
+}
+
+/** Recalcula último servicio del schedule con el registro más reciente (fecha, luego km). */
+export async function refreshScheduleLastService(
+  tenantId: string,
+  truckId: string,
+  tipo: MaintenanceType,
+) {
+  const schedule = await MaintenanceSchedule.findOne({
+    where: { tenant_id: tenantId, truck_id: truckId, tipo },
+  });
+  if (!schedule) return;
+  const latest = await MaintenanceRecord.findOne({
+    where: { tenant_id: tenantId, truck_id: truckId, tipo },
+    order: [
+      ["fecha", "DESC"],
+      ["km_odometro", "DESC"],
+    ],
+  });
+  if (latest) {
+    await schedule.update({
+      ultimo_km: latest.km_odometro,
+      ultima_fecha: latest.fecha,
+    } as never);
+    return;
+  }
+  await schedule.update({ ultimo_km: 0, ultima_fecha: null } as never);
+}
+
+function isHttpClientError(err: unknown): boolean {
+  const status = (err as { status?: number })?.status;
+  return typeof status === "number" && status >= 400 && status < 500;
+}
+
+async function syncRecordSideEffects(
+  tenantId: string,
+  record: MaintenanceRecord,
+  action: string,
+  previous?: { truck_id: string; tipo: MaintenanceType },
+) {
+  await refreshScheduleLastService(tenantId, record.truck_id, record.tipo);
+  if (
+    previous &&
+    (previous.truck_id !== record.truck_id || previous.tipo !== record.tipo)
+  ) {
+    await refreshScheduleLastService(tenantId, previous.truck_id, previous.tipo);
+  }
+
+  try {
+    const { upsertFromMaintenance } = await import("./accountDocumentService");
+    await upsertFromMaintenance(record);
+  } catch (syncErr) {
+    if (isHttpClientError(syncErr)) throw syncErr;
+    console.warn(
+      `[maintenance] Registro ${action} pero falló sync de documento CXP:`,
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
+}
+
+export async function createRecord(tenantId: string, data: RecordInput) {
+  const { taller, supplierId, categoryId } = await resolveRecordRefs(tenantId, data);
+  const conceptos = validateConceptos(data.conceptos);
+  const costo = sumConceptos(conceptos);
+  const descripcion = summarizeConceptos(conceptos);
+  const numFactura = data.num_factura?.trim() || null;
+
   const record = await MaintenanceRecord.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -526,30 +594,46 @@ export async function createRecord(
     tipo: data.tipo,
     km_odometro: data.km_odometro,
     fecha: data.fecha,
-    costo: data.costo,
-    descripcion: data.descripcion,
-    taller: taller ?? null,
+    costo,
+    descripcion,
+    num_factura: numFactura,
+    conceptos,
+    taller,
     supplier_id: supplierId,
     category_id: categoryId,
   } as never);
 
-  const schedule = await MaintenanceSchedule.findOne({
-    where: { tenant_id: tenantId, truck_id: data.truck_id, tipo: data.tipo },
-  });
-  if (schedule) {
-    await schedule.update({ ultimo_km: data.km_odometro, ultima_fecha: data.fecha } as never);
-  }
+  await syncRecordSideEffects(tenantId, record, "creado");
+  return record;
+}
 
-  try {
-    const { upsertFromMaintenance } = await import("./accountDocumentService");
-    await upsertFromMaintenance(record);
-  } catch (syncErr) {
-    console.warn(
-      "[maintenance] Registro creado pero falló sync de documento CXP:",
-      syncErr instanceof Error ? syncErr.message : syncErr,
-    );
-  }
+export async function updateRecord(tenantId: string, id: string, data: RecordInput) {
+  const record = await getRecordOrThrow(tenantId, id);
+  const previous = { truck_id: record.truck_id, tipo: record.tipo };
+  const { taller, supplierId, categoryId } = await resolveRecordRefs(tenantId, data);
+  const conceptos = validateConceptos(data.conceptos);
+  const costo = sumConceptos(conceptos);
+  const descripcion = summarizeConceptos(conceptos);
+  const numFactura = data.num_factura?.trim() || null;
 
+  const { assertMaintenanceCxpSyncAllowed } = await import("./accountDocumentService");
+  await assertMaintenanceCxpSyncAllowed(tenantId, id, costo);
+
+  await record.update({
+    truck_id: data.truck_id,
+    tipo: data.tipo,
+    km_odometro: data.km_odometro,
+    fecha: data.fecha,
+    costo,
+    descripcion,
+    num_factura: numFactura,
+    conceptos,
+    taller,
+    supplier_id: supplierId,
+    category_id: categoryId,
+  } as never);
+
+  await syncRecordSideEffects(tenantId, record, "actualizado", previous);
   return record;
 }
 

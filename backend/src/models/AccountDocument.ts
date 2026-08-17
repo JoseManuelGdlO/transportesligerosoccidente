@@ -8,6 +8,7 @@ import {
   type NonAttribute,
 } from "sequelize";
 import type { AccountDocumentPayment } from "./AccountDocumentPayment";
+import type { DocumentConcepto } from "../types/documentConcepto";
 
 export type AccountDocumentTipo = "cxc" | "cxp";
 export type AccountDocumentEstatus = "abierta" | "pagada" | "cancelada";
@@ -30,6 +31,7 @@ export class AccountDocument extends Model<
   declare entidad_nombre: string;
   declare folio: string;
   declare concepto: string;
+  declare conceptos: CreationOptional<DocumentConcepto[] | null>;
   declare fecha_emision: string;
   declare plazo_credito_dias: CreationOptional<number | null>;
   declare fecha_vencimiento: CreationOptional<string | null>;
@@ -58,6 +60,7 @@ export function initAccountDocument(sequelize: Sequelize) {
       entidad_nombre: { type: DataTypes.STRING(255), allowNull: false },
       folio: { type: DataTypes.STRING(64), allowNull: false },
       concepto: { type: DataTypes.STRING(512), allowNull: false },
+      conceptos: { type: DataTypes.JSON, allowNull: true },
       fecha_emision: { type: DataTypes.DATEONLY, allowNull: false },
       plazo_credito_dias: { type: DataTypes.INTEGER, allowNull: true },
       fecha_vencimiento: { type: DataTypes.DATEONLY, allowNull: true },

@@ -2,27 +2,49 @@ import { z } from "zod";
 import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import * as accountDocumentService from "../services/accountDocumentService";
+import { sumConceptos, summarizeConceptos } from "../types/documentConcepto";
 
 const tid = (req: Request) => req.user!.tenantId;
 
 const dateOnly = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
 
-const createSchema = z.object({
-  tipo: z.enum(["cxc", "cxp"]),
-  client_id: z.string().uuid().optional().nullable(),
-  supplier_id: z.string().uuid().optional().nullable(),
-  entidad_nombre: z.string().optional(),
-  folio: z.string().min(1),
-  concepto: z.string().min(1),
-  fecha_emision: dateOnly,
-  plazo_credito_dias: z.number().int().nonnegative().optional().nullable(),
-  fecha_vencimiento: dateOnly.optional().nullable(),
-  monto_original: z.number().positive(),
+const conceptoLineSchema = z.object({
+  descripcion: z.string().min(1).max(512),
+  precio: z.number().min(0),
 });
+
+const createSchema = z
+  .object({
+    tipo: z.enum(["cxc", "cxp"]),
+    client_id: z.string().uuid().optional().nullable(),
+    supplier_id: z.string().uuid().optional().nullable(),
+    entidad_nombre: z.string().optional(),
+    folio: z.string().min(1),
+    concepto: z.string().min(1).optional(),
+    conceptos: z.array(conceptoLineSchema).min(1).optional(),
+    fecha_emision: dateOnly,
+    plazo_credito_dias: z.number().int().nonnegative().optional().nullable(),
+    fecha_vencimiento: dateOnly.optional().nullable(),
+    monto_original: z.number().positive().optional(),
+  })
+  .superRefine((data, ctx) => {
+    if (data.conceptos?.length) return;
+    if (!data.concepto?.trim()) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: "Concepto requerido", path: ["concepto"] });
+    }
+    if (data.monto_original == null || !(data.monto_original > 0)) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "Monto requerido",
+        path: ["monto_original"],
+      });
+    }
+  });
 
 const patchSchema = z.object({
   folio: z.string().min(1).optional(),
   concepto: z.string().min(1).optional(),
+  conceptos: z.array(conceptoLineSchema).min(1).optional(),
   fecha_emision: dateOnly.optional(),
   plazo_credito_dias: z.number().int().nonnegative().optional().nullable(),
   fecha_vencimiento: dateOnly.optional().nullable(),
@@ -83,6 +105,12 @@ export const createAccountDocument = asyncHandler(async (req: Request, res: Resp
   }
   const row = await accountDocumentService.createDocument(tid(req), {
     ...parsed.data,
+    concepto: parsed.data.conceptos?.length
+      ? summarizeConceptos(parsed.data.conceptos)
+      : parsed.data.concepto!.trim(),
+    monto_original: parsed.data.conceptos?.length
+      ? sumConceptos(parsed.data.conceptos)
+      : parsed.data.monto_original!,
     origen: "manual",
   });
   res.status(201).json(row);

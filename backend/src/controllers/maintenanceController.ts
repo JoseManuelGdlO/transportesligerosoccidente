@@ -6,6 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import * as maintenanceService from "../services/maintenanceService";
 import { num } from "../utils/numbers";
 import type { MaintenanceRecord } from "../models/MaintenanceRecord";
+import { parseConceptosJson } from "../types/documentConcepto";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -20,17 +21,26 @@ const scheduleSchema = z.object({
   ultima_fecha: z.string().nullable().optional(),
 });
 
-const recordSchema = z.object({
-  truck_id: z.string().min(1),
-  tipo: maintenanceTipoSchema,
-  km_odometro: z.number().int().min(0),
-  fecha: z.string().min(1),
-  costo: z.number().min(0),
-  descripcion: z.string().min(1),
-  taller: z.string().optional(),
-  supplier_id: z.string().uuid().optional().nullable(),
-  category_id: z.string().uuid().optional().nullable(),
-});
+const recordSchema = z
+  .object({
+    truck_id: z.string().min(1),
+    tipo: maintenanceTipoSchema,
+    km_odometro: z.number().int().min(0),
+    fecha: z.string().min(1),
+    num_factura: z.string().max(64).optional().nullable(),
+    conceptos: z
+      .array(
+        z.object({
+          descripcion: z.string().min(1).max(512),
+          precio: z.number().min(0),
+        }),
+      )
+      .min(1),
+    taller: z.string().optional(),
+    supplier_id: z.string().uuid().optional().nullable(),
+    category_id: z.string().uuid().optional().nullable(),
+  })
+  .strict();
 
 function recordToJson(r: MaintenanceRecord) {
   const hasFactura = Boolean(r.factura_path);
@@ -42,6 +52,8 @@ function recordToJson(r: MaintenanceRecord) {
     fecha: r.fecha,
     costo: num(r.costo),
     descripcion: r.descripcion,
+    num_factura: r.num_factura ?? undefined,
+    conceptos: parseConceptosJson(r.conceptos),
     taller: r.taller ?? undefined,
     supplier_id: r.supplier_id ?? undefined,
     category_id: r.category_id ?? undefined,
@@ -118,6 +130,17 @@ export const createRecord = asyncHandler(async (req: Request, res: Response) => 
   const row = await maintenanceService.createRecord(tid(req), parsed.data);
   await maintenanceService.checkMaintenanceAlerts(tid(req));
   res.status(201).json(recordToJson(row));
+});
+
+export const updateRecord = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = recordSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await maintenanceService.updateRecord(tid(req), req.params.id, parsed.data);
+  await maintenanceService.checkMaintenanceAlerts(tid(req));
+  res.json(recordToJson(row));
 });
 
 export const uploadFactura = asyncHandler(async (req: Request, res: Response) => {

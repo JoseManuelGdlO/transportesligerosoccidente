@@ -18,11 +18,18 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Textarea } from "@/components/ui/textarea";
 import { Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { fmtMXNDecimal } from "@/lib/format";
+import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
+import {
+  emptyConcepto,
+  filledConceptos,
+  sumConceptos,
+  validateConceptos,
+  type DocumentConcepto,
+} from "@/lib/documentConceptos";
 import {
   addAccountPaymentApi,
   backfillAccountDocumentsApi,
@@ -90,11 +97,9 @@ export default function Cuentas() {
   const [editForm, setEditForm] = useState({
     entidad_nombre: "",
     folio: "",
-    concepto: "",
     fecha_emision: "",
     plazo_credito_dias: "" as string,
     fecha_vencimiento: "" as string,
-    monto_original: "",
     client_id: "",
     supplier_id: "",
   });
@@ -114,11 +119,11 @@ export default function Cuentas() {
     entidad_id: "",
     entidad_nombre: "",
     folio: "",
-    concepto: "",
     fecha_emision: new Date().toISOString().slice(0, 10),
     plazo_credito_dias: "" as string,
-    monto_original: "",
   });
+  const [createConceptos, setCreateConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
+  const [editConceptos, setEditConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
   const [payForm, setPayForm] = useState({
     monto: "",
     fecha: new Date().toISOString().slice(0, 10),
@@ -129,14 +134,13 @@ export default function Cuentas() {
     setEditForm({
       entidad_nombre: d.entidad_nombre,
       folio: d.folio,
-      concepto: d.concepto,
       fecha_emision: d.fecha_emision,
       plazo_credito_dias: d.plazo_credito_dias != null ? String(d.plazo_credito_dias) : "",
       fecha_vencimiento: d.fecha_vencimiento ?? "",
-      monto_original: String(d.monto_original),
       client_id: d.client_id ?? "",
       supplier_id: d.supplier_id ?? "",
     });
+    setEditConceptos(d.conceptos);
   };
 
   const openDetail = (d: AccountDocument) => {
@@ -218,18 +222,23 @@ export default function Cuentas() {
       entidad_id: "",
       entidad_nombre: "",
       folio: "",
-      concepto: "",
       fecha_emision: new Date().toISOString().slice(0, 10),
       plazo_credito_dias: "",
-      monto_original: "",
     });
+    setCreateConceptos([emptyConcepto()]);
     setCreateOpen(true);
   };
 
   const saveCreate = async () => {
-    const monto = Number(form.monto_original);
-    if (!form.folio.trim() || !form.concepto.trim() || !(monto > 0)) {
-      toast.error("Folio, concepto y monto son requeridos");
+    const conceptoError = validateConceptos(createConceptos);
+    if (!form.folio.trim() || conceptoError) {
+      toast.error(conceptoError || "Folio y conceptos son requeridos");
+      return;
+    }
+    const lineas = filledConceptos(createConceptos);
+    const monto = sumConceptos(lineas);
+    if (!(monto > 0)) {
+      toast.error("El total de conceptos debe ser mayor a 0");
       return;
     }
     try {
@@ -239,10 +248,9 @@ export default function Cuentas() {
         supplier_id: tipo === "cxp" ? form.entidad_id || null : null,
         entidad_nombre: form.entidad_nombre || undefined,
         folio: form.folio.trim(),
-        concepto: form.concepto.trim(),
+        conceptos: lineas,
         fecha_emision: form.fecha_emision,
         plazo_credito_dias: form.plazo_credito_dias === "" ? null : Number(form.plazo_credito_dias),
-        monto_original: monto,
       });
       toast.success("Documento registrado");
       setCreateOpen(false);
@@ -512,24 +520,8 @@ export default function Cuentas() {
                   onChange={(e) => setForm({ ...form, plazo_credito_dias: e.target.value })}
                 />
               </div>
-              <div>
-                <Label>Monto original</Label>
-                <Input
-                  type="number"
-                  min={0}
-                  step="0.01"
-                  value={form.monto_original}
-                  onChange={(e) => setForm({ ...form, monto_original: e.target.value })}
-                />
-              </div>
             </div>
-            <div>
-              <Label>Concepto</Label>
-              <Textarea
-                value={form.concepto}
-                onChange={(e) => setForm({ ...form, concepto: e.target.value })}
-              />
-            </div>
+            <ConceptosEditor value={createConceptos} onChange={setCreateConceptos} />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCreateOpen(false)}>
@@ -541,7 +533,7 @@ export default function Cuentas() {
       </Dialog>
 
       <Dialog open={detailOpen} onOpenChange={setDetailOpen}>
-        <DialogContent className="max-w-2xl overflow-hidden">
+        <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Detalle {selected?.folio}</DialogTitle>
           </DialogHeader>
@@ -627,26 +619,8 @@ export default function Cuentas() {
                         }
                       />
                     </div>
-                    <div className="min-w-0 sm:col-span-2">
-                      <Label>Monto original</Label>
-                      <Input
-                        type="number"
-                        min={0}
-                        step="0.01"
-                        className="min-w-0"
-                        value={editForm.monto_original}
-                        onChange={(e) => setEditForm({ ...editForm, monto_original: e.target.value })}
-                      />
-                    </div>
                   </div>
-                  <div className="min-w-0">
-                    <Label>Concepto</Label>
-                    <Textarea
-                      className="min-w-0"
-                      value={editForm.concepto}
-                      onChange={(e) => setEditForm({ ...editForm, concepto: e.target.value })}
-                    />
-                  </div>
+                  <ConceptosEditor value={editConceptos} onChange={setEditConceptos} />
                   <div className="flex gap-4 text-xs text-muted-foreground">
                     <p>Saldo: {fmtMXNDecimal(selected.saldo_pendiente)}</p>
                     <p>Abonos: {fmtMXNDecimal(selected.abonos)}</p>
@@ -680,7 +654,14 @@ export default function Cuentas() {
                     <p className="text-muted-foreground">Vencimiento</p>
                     <p>{selected.fecha_vencimiento || "—"}</p>
                   </div>
-                  <p className="col-span-2 text-muted-foreground">{selected.concepto}</p>
+                  <div className="col-span-2 space-y-1">
+                    {selected.conceptos.map((c, i) => (
+                      <p key={`${c.descripcion}-${i}`} className="flex justify-between gap-3">
+                        <span>{c.descripcion}</span>
+                        <span>{fmtMXNDecimal(c.precio)}</span>
+                      </p>
+                    ))}
+                  </div>
                 </div>
               )}
 
@@ -739,23 +720,28 @@ export default function Cuentas() {
                   disabled={savingEdit}
                   onClick={async () => {
                     if (!selected) return;
-                    const monto = Number(editForm.monto_original);
-                    if (!editForm.folio.trim() || !editForm.concepto.trim() || !(monto > 0)) {
-                      toast.error("Folio, concepto y monto son requeridos");
+                    const conceptoError = validateConceptos(editConceptos);
+                    if (!editForm.folio.trim() || conceptoError) {
+                      toast.error(conceptoError || "Folio y conceptos son requeridos");
+                      return;
+                    }
+                    const lineas = filledConceptos(editConceptos);
+                    const monto = sumConceptos(lineas);
+                    if (!(monto > 0)) {
+                      toast.error("El total de conceptos debe ser mayor a 0");
                       return;
                     }
                     setSavingEdit(true);
                     try {
                       const updated = await patchAccountDocumentApi(selected.id, {
                         folio: editForm.folio.trim(),
-                        concepto: editForm.concepto.trim(),
+                        conceptos: lineas,
                         fecha_emision: editForm.fecha_emision,
                         plazo_credito_dias:
                           editForm.plazo_credito_dias === ""
                             ? null
                             : Number(editForm.plazo_credito_dias),
                         fecha_vencimiento: editForm.fecha_vencimiento || null,
-                        monto_original: monto,
                         entidad_nombre: editForm.entidad_nombre.trim() || undefined,
                         client_id: selected.tipo === "cxc" ? editForm.client_id || null : undefined,
                         supplier_id:
