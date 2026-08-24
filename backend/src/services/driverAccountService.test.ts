@@ -260,7 +260,7 @@ describe("createSettlementCarryoverItem", () => {
   });
 
   it("reactiva un pendiente cancelado del mismo cierre", async () => {
-    const update = mock.fn(async () => {});
+    const update = mock.fn(async (_data?: unknown) => {});
     const existing = {
       id: "pending-1",
       estatus: "cancelado",
@@ -301,7 +301,7 @@ describe("createSettlementCarryoverItem", () => {
 
 describe("revertSettlementCarryoverItem", () => {
   it("cancela el pendiente si no tiene abonos", async () => {
-    const update = mock.fn(async () => {});
+    const update = mock.fn(async (_data?: unknown) => {});
     const item = { id: "pending-1", estatus: "activo", movements: [], update };
     const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => item as never);
 

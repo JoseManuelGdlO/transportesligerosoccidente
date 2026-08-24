@@ -958,7 +958,7 @@ describe("settlementSummary pendiente de semana anterior", () => {
 describe("cancelSettlement pendiente generado", () => {
   it("cancela el adeudo pendiente si no tiene abonos", async () => {
     const deps = mockSummaryDeps();
-    const pendingUpdate = mock.fn(async () => {});
+    const pendingUpdate = mock.fn(async (_data?: unknown) => {});
     deps.accountItemFindOne.mock.mockImplementation(
       async () =>
         ({
