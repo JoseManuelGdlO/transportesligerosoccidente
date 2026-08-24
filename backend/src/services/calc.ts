@@ -133,12 +133,18 @@ export function roundMoney(n: number): number {
 
 export interface AccountItemBalance {
   id: string;
-  tipo: "incidencia" | "prestamo" | string;
+  tipo: "incidencia" | "prestamo" | "pendiente" | string;
   concepto: string;
   monto_original: number;
   cuota_liquidacion: number;
   saldo: number;
   fecha: string;
+  descuento_activo?: boolean;
+}
+
+/** Snapshots viejos o MySQL 0/1: ausente o distinto de false cuenta como activo. */
+export function isDescuentoActivo(value: unknown): boolean {
+  return value !== false && value !== 0 && value !== "0";
 }
 
 export interface AccountApplication {
@@ -161,7 +167,7 @@ export function previewAccountInstallments(
   let disponible = roundMoney(Math.max(0, netoDisponible));
   const applications: AccountApplication[] = [];
   const ordered = [...items]
-    .filter((i) => i.saldo > 0 && i.cuota_liquidacion > 0)
+    .filter((i) => i.saldo > 0 && i.cuota_liquidacion > 0 && isDescuentoActivo(i.descuento_activo))
     .sort((a, b) => {
       const byFecha = a.fecha.localeCompare(b.fecha);
       if (byFecha !== 0) return byFecha;

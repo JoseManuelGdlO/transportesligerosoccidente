@@ -915,6 +915,15 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       fmtMXN(a.monto),
       "Sí",
     ]),
+    ...((summary.pendiente_arrastrado ?? 0) > 0
+      ? [[
+          "Pendiente",
+          "",
+          "Se registra en la cuenta del operador para la siguiente liquidación",
+          fmtMXN(summary.pendiente_arrastrado ?? 0),
+          "Sí",
+        ]]
+      : []),
   ];
 
   const foot: UserOptions["foot"] = [];
@@ -943,6 +952,13 @@ const renderViaticosSummary: BlockRenderer = (state) => {
     foot.push([
       { content: "Cuenta operador (cuotas)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
       { content: fmtMXN(summary.total_cuenta_abonos ?? 0), styles: { ...footRight, fontStyle: "bold" } },
+      "",
+    ]);
+  }
+  if ((summary.pendiente_arrastrado ?? 0) > 0) {
+    foot.push([
+      { content: "Pendiente a cuenta del operador", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
+      { content: fmtMXN(summary.pendiente_arrastrado ?? 0), styles: { ...footRight, fontStyle: "bold" } },
       "",
     ]);
   }
@@ -1029,9 +1045,11 @@ const renderMercanciasList: BlockRenderer = (state) => {
 const renderNetBox: BlockRenderer = (state) => {
   if (state.data.kind !== "settlement") return;
   const colors = setHeaderColors(state);
-  ensureSpace(state, 24);
+  const pendiente = state.data.summary.pendiente_arrastrado ?? 0;
+  const boxH = pendiente > 0 ? 24 : 18;
+  ensureSpace(state, boxH + 6);
   state.doc.setFillColor(colors.fill[0], colors.fill[1], colors.fill[2]);
-  state.doc.roundedRect(state.margin, state.y, state.pageW - state.margin * 2, 18, 2, 2, "F");
+  state.doc.roundedRect(state.margin, state.y, state.pageW - state.margin * 2, boxH, 2, 2, "F");
   state.doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
   state.doc.setFontSize(9);
   state.doc.setFont("helvetica", "normal");
@@ -1039,8 +1057,17 @@ const renderNetBox: BlockRenderer = (state) => {
   state.doc.setFontSize(14);
   state.doc.setFont("helvetica", "bold");
   state.doc.text(fmtMXN(state.data.summary.neto_pagar), state.margin + 4, state.y + 14);
+  if (pendiente > 0) {
+    state.doc.setFontSize(8);
+    state.doc.setFont("helvetica", "normal");
+    state.doc.text(
+      `Pendiente ${fmtMXN(pendiente)} registrado en la cuenta del operador`,
+      state.margin + 4,
+      state.y + 21,
+    );
+  }
   state.doc.setTextColor(0, 0, 0);
-  state.y += 20;
+  state.y += boxH + 2;
 };
 
 const renderFooterText: BlockRenderer = (state, props) => {

@@ -141,6 +141,35 @@ describe("previewAccountInstallments", () => {
     assert.equal(applications[0]?.monto, 200);
     assert.equal(applications[0]?.saldo_despues, 0);
   });
+
+  it("omite adeudos con descuento pausado", () => {
+    const paused = [
+      {
+        id: "a",
+        tipo: "incidencia",
+        concepto: "Llanta",
+        monto_original: 3000,
+        cuota_liquidacion: 500,
+        saldo: 3000,
+        fecha: "2026-01-01",
+        descuento_activo: false,
+      },
+      {
+        id: "b",
+        tipo: "prestamo",
+        concepto: "Préstamo",
+        monto_original: 1000,
+        cuota_liquidacion: 400,
+        saldo: 1000,
+        fecha: "2026-02-01",
+        descuento_activo: true,
+      },
+    ];
+    const { applications, total } = previewAccountInstallments(2000, paused);
+    assert.equal(total, 400);
+    assert.equal(applications.length, 1);
+    assert.equal(applications[0]?.item_id, "b");
+  });
 });
 
 describe("computeSettlementTotals viaticos", () => {

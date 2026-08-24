@@ -47,6 +47,8 @@ function mockSummaryDeps() {
   const compensationFindAll = mock.method(DriverCompensation, "findAll", async () => [] as never);
   const accountFindOne = mock.method(DriverAccount, "findOne", async () => null);
   const accountItemFindAll = mock.method(DriverAccountItem, "findAll", async () => [] as never);
+  const accountItemFindOne = mock.method(DriverAccountItem, "findOne", async () => null);
+  const accountItemCreate = mock.method(DriverAccountItem, "create", async (data: unknown) => data as never);
   return {
     driverFindOne,
     tripFindAll,
@@ -55,6 +57,8 @@ function mockSummaryDeps() {
     compensationFindAll,
     accountFindOne,
     accountItemFindAll,
+    accountItemFindOne,
+    accountItemCreate,
   };
 }
 
@@ -66,6 +70,8 @@ function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
   deps.compensationFindAll.mock.restore();
   deps.accountFindOne.mock.restore();
   deps.accountItemFindAll.mock.restore();
+  deps.accountItemFindOne.mock.restore();
+  deps.accountItemCreate.mock.restore();
 }
 
 function mockTransaction() {
@@ -813,5 +819,198 @@ describe("cancelSettlement", () => {
     );
 
     settlementFindOne.mock.restore();
+  });
+});
+
+describe("settlementSummary descuento pausado", () => {
+  it("no aplica cuota de un adeudo con descuento desactivado", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.accountFindOne.mock.mockImplementation(
+      async () => ({ id: "acc-1", tenant_id: tenantId, driver_id: driverId }) as never,
+    );
+    deps.accountItemFindAll.mock.mockImplementation(
+      async () =>
+        [
+          {
+            id: "item-paused",
+            tipo: "incidencia",
+            concepto: "Llanta",
+            monto_original: "3000",
+            cuota_liquidacion: "500",
+            fecha: "2026-05-01",
+            estatus: "activo",
+            descuento_activo: false,
+            movements: [],
+          },
+        ] as never,
+    );
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(summary.total_cuenta_abonos, 0);
+    assert.equal(summary.neto_pagar, 100);
+    const apps = summary.account_applications as unknown[];
+    assert.equal(apps.length, 0);
+
+    restoreSummaryDeps(deps);
+  });
+});
+
+describe("closeSettlement neto negativo", () => {
+  it("crea un adeudo pendiente y deja el neto a pagar en cero", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.discountFindAll.mock.mockImplementation(
+      async () =>
+        [
+          {
+            id: "disc-1",
+            monto: "400",
+            fecha: "2026-06-03",
+            tipo: "multa",
+            descripcion: "Multa",
+            update: mock.fn(async () => {}),
+          },
+        ] as never,
+    );
+    deps.accountFindOne.mock.mockImplementation(
+      async () => ({ id: "acc-1", tenant_id: tenantId, driver_id: driverId }) as never,
+    );
+
+    const transaction = mockTransaction();
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+    let savedSnapshot: Record<string, unknown> | undefined;
+    const settlementUpdate = mock.fn(async (data: { snapshot?: Record<string, unknown> }) => {
+      if (data.snapshot) savedSnapshot = data.snapshot;
+    });
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => {
+      savedSnapshot = (data as { snapshot: Record<string, unknown> }).snapshot;
+      return { ...(data as object), id: "settlement-1", update: settlementUpdate } as never;
+    });
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin);
+
+    // Comisión 100 − descuento 400 = -300 → neto a pagar 0 y pendiente 300
+    assert.equal(savedSnapshot?.neto_pagar, 0);
+    assert.equal(savedSnapshot?.neto_calculado, -300);
+    assert.equal(savedSnapshot?.pendiente_arrastrado, 300);
+    assert.ok(savedSnapshot?.pendiente_item_id);
+    assert.equal(deps.accountItemCreate.mock.callCount(), 1);
+    const created = deps.accountItemCreate.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(created.tipo, "pendiente");
+    assert.equal(created.monto_original, 300);
+    assert.equal(created.cuota_liquidacion, 300);
+    assert.equal(created.origen_settlement_id, "settlement-1");
+    assert.equal(settlementUpdate.mock.callCount(), 1);
+
+    restoreSummaryDeps(deps);
+    transaction.mock.restore();
+    movementFindAll.mock.restore();
+    tripUpdate.mock.restore();
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+  });
+});
+
+describe("settlementSummary pendiente de semana anterior", () => {
+  it("descuenta el pendiente de la cuenta cuando hay neto disponible", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.accountFindOne.mock.mockImplementation(
+      async () => ({ id: "acc-1", tenant_id: tenantId, driver_id: driverId }) as never,
+    );
+    deps.accountItemFindAll.mock.mockImplementation(
+      async () =>
+        [
+          {
+            id: "pending-1",
+            tipo: "pendiente",
+            concepto: "Pendiente liquidación 2026-05-25 – 2026-05-31",
+            monto_original: "300",
+            cuota_liquidacion: "300",
+            fecha: "2026-05-31",
+            estatus: "activo",
+            descuento_activo: true,
+            movements: [],
+          },
+        ] as never,
+    );
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(summary.total_cuenta_abonos, 100);
+    assert.equal(summary.neto_pagar, 0);
+    const apps = summary.account_applications as { item_id: string; monto: number }[];
+    assert.equal(apps.length, 1);
+    assert.equal(apps[0]?.item_id, "pending-1");
+    assert.equal(apps[0]?.monto, 100);
+
+    restoreSummaryDeps(deps);
+  });
+});
+
+describe("cancelSettlement pendiente generado", () => {
+  it("cancela el adeudo pendiente si no tiene abonos", async () => {
+    const deps = mockSummaryDeps();
+    const pendingUpdate = mock.fn(async () => {});
+    deps.accountItemFindOne.mock.mockImplementation(
+      async () =>
+        ({
+          id: "pending-1",
+          estatus: "activo",
+          origen_settlement_id: "settlement-1",
+          movements: [],
+          update: pendingUpdate,
+        }) as never,
+    );
+
+    const update = mock.fn(async () => {});
+    const reload = mock.fn(async () => {});
+    const closed = {
+      id: "settlement-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: true,
+      cerrado_at: new Date(),
+      snapshot: { trips: [{ id: "trip-a", included: true }] },
+      update,
+      reload,
+    };
+
+    let findCalls = 0;
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => {
+      findCalls += 1;
+      if (findCalls === 2 || findCalls === 4) return null;
+      return closed as never;
+    });
+
+    const transaction = mockTransaction();
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const advanceUpdate = mock.method(DriverAdvance, "update", async () => [0] as never);
+    const discountUpdate = mock.method(DriverDiscount, "update", async () => [0] as never);
+    const compensationUpdate = mock.method(DriverCompensation, "update", async () => [0] as never);
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+
+    await cancelSettlement(tenantId, "settlement-1");
+
+    assert.equal(pendingUpdate.mock.callCount(), 1);
+    assert.deepEqual(pendingUpdate.mock.calls[0].arguments[0], { estatus: "cancelado" });
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+    transaction.mock.restore();
+    tripUpdate.mock.restore();
+    advanceUpdate.mock.restore();
+    discountUpdate.mock.restore();
+    compensationUpdate.mock.restore();
+    movementFindAll.mock.restore();
   });
 });

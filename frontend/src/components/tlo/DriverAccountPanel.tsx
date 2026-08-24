@@ -6,6 +6,7 @@ import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { fmtDate, fmtMXN } from "@/lib/format";
@@ -14,6 +15,7 @@ import {
   createDriverAccountItem,
   createDriverAccountPayment,
   fetchDriverAccount,
+  patchDriverAccountItem,
 } from "@/lib/tloApi";
 import type { AccountItemType, DriverAccountItem, DriverAccountSummary } from "@/types/tlo";
 import { CircleDollarSign, HandCoins, Plus, Wallet } from "lucide-react";
@@ -24,11 +26,12 @@ interface DriverAccountPanelProps {
 }
 
 const emptyItemForm = () => ({
-  tipo: "incidencia" as AccountItemType,
+  tipo: "incidencia" as Exclude<AccountItemType, "pendiente">,
   concepto: "",
   monto_original: 0,
   cuota_liquidacion: 0,
   fecha: new Date().toISOString().slice(0, 10),
+  descuento_activo: true,
 });
 
 const emptyPayForm = () => ({
@@ -36,6 +39,12 @@ const emptyPayForm = () => ({
   fecha: new Date().toISOString().slice(0, 10),
   nota: "",
 });
+
+function tipoLabel(tipo: string) {
+  if (tipo === "prestamo") return "Préstamo";
+  if (tipo === "pendiente") return "Pendiente";
+  return "Incidencia";
+}
 
 export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountPanelProps) {
   const [account, setAccount] = useState<DriverAccountSummary | null>(null);
@@ -117,6 +126,16 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
     }
   };
 
+  const onToggleDiscount = async (item: DriverAccountItem, activo: boolean) => {
+    try {
+      await patchDriverAccountItem(driverId, item.id, { descuento_activo: activo });
+      toast.success(activo ? "Descuento automático activado" : "Descuento automático desactivado");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al actualizar descuento");
+    }
+  };
+
   if (loading && !account) {
     return <p className="text-sm text-muted-foreground pt-4">Cargando cuenta…</p>;
   }
@@ -155,7 +174,7 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
                 <Label>Tipo</Label>
                 <Select
                   value={itemForm.tipo}
-                  onValueChange={(v: AccountItemType) => setItemForm({ ...itemForm, tipo: v })}
+                  onValueChange={(v: Exclude<AccountItemType, "pendiente">) => setItemForm({ ...itemForm, tipo: v })}
                 >
                   <SelectTrigger>
                     <SelectValue />
@@ -199,13 +218,21 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
                 />
               </div>
             </div>
+            <div className="flex items-center gap-2">
+              <Switch
+                id="nuevo-descuento-activo"
+                checked={itemForm.descuento_activo}
+                onCheckedChange={(v) => setItemForm({ ...itemForm, descuento_activo: v })}
+              />
+              <Label htmlFor="nuevo-descuento-activo">Descuento automático en liquidación</Label>
+            </div>
             <Button size="sm" onClick={() => void onCreateItem()}>
               <Plus className="h-4 w-4 mr-1" />
               Registrar adeudo
             </Button>
             <p className="text-xs text-muted-foreground">
-              En cada liquidación se descontará automáticamente hasta la cuota (o el neto disponible), del adeudo más
-              antiguo al más reciente.
+              Si el descuento está activo, en cada liquidación se descontará automáticamente hasta la cuota (o el neto
+              disponible), del adeudo más antiguo al más reciente. Puedes desactivarlo después sin perder el saldo.
             </p>
           </CardContent>
         </Card>
@@ -224,8 +251,11 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
                   <div className="flex items-start justify-between gap-2">
                     <div>
                       <CardTitle className="text-base flex items-center gap-2 flex-wrap">
-                        <span className="capitalize">{item.tipo}</span>
+                        <span>{tipoLabel(item.tipo)}</span>
                         {statusBadge(item.estatus)}
+                        {item.estatus === "activo" && item.descuento_activo === false ? (
+                          <Badge variant="outline">Pausado</Badge>
+                        ) : null}
                       </CardTitle>
                       <p className="text-sm text-muted-foreground mt-1">{item.concepto}</p>
                       <p className="text-xs text-muted-foreground mt-0.5">
@@ -255,6 +285,18 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
                       </Button>
                     ) : null}
                   </div>
+                  {canEdit && item.estatus === "activo" ? (
+                    <div className="flex items-center gap-2">
+                      <Switch
+                        id={`descuento-${item.id}`}
+                        checked={item.descuento_activo !== false}
+                        onCheckedChange={(v) => void onToggleDiscount(item, v)}
+                      />
+                      <Label htmlFor={`descuento-${item.id}`} className="text-sm font-normal">
+                        Descuento en liquidación
+                      </Label>
+                    </div>
+                  ) : null}
 
                   {open ? (
                     <Table>

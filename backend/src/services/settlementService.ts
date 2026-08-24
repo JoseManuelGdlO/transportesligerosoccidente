@@ -13,12 +13,15 @@ import {
   computeSettlementTotals,
   filterEligibleSettlementTrips,
   computeNetoPagar,
+  roundMoney,
 } from "./calc";
 import {
   loadActiveAccountItemBalances,
   computeAccountApplicationsForNeto,
   applySettlementAccountInstallments,
   revertSettlementAccountInstallments,
+  createSettlementCarryoverItem,
+  revertSettlementCarryoverItem,
 } from "./driverAccountService";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
@@ -164,6 +167,7 @@ export async function settlementSummary(
     ...baseTotals,
     total_cuenta_abonos: accountPreview.total_cuenta_abonos,
     neto_pagar: accountPreview.neto_pagar,
+    pendiente_arrastrado: roundMoney(Math.max(0, -accountPreview.neto_pagar)),
     account_items: accountItems,
     account_applications: accountPreview.applications,
     advances: advances.map((a) => ({
@@ -431,9 +435,13 @@ export async function closeSettlement(
     });
     const freshPreview = computeAccountApplicationsForNeto(netoBase, freshItems);
     summaryData.total_cuenta_abonos = freshPreview.total_cuenta_abonos;
-    summaryData.neto_pagar = freshPreview.neto_pagar;
     summaryData.account_items = freshItems;
     summaryData.account_applications = freshPreview.applications;
+    const netoCalculado = freshPreview.neto_pagar;
+    const pendienteArrastrado = roundMoney(Math.max(0, -netoCalculado));
+    summaryData.neto_calculado = netoCalculado;
+    summaryData.pendiente_arrastrado = pendienteArrastrado;
+    summaryData.neto_pagar = pendienteArrastrado > 0 ? 0 : netoCalculado;
 
     if (row) {
       await row.update(
@@ -488,6 +496,20 @@ export async function closeSettlement(
     }
 
     await applySettlementAccountInstallments(tenantId, driverId, sid, fechaFin, freshPreview.applications, t);
+
+    if (pendienteArrastrado > 0) {
+      const pending = await createSettlementCarryoverItem(
+        tenantId,
+        driverId,
+        sid,
+        fechaInicio,
+        fechaFin,
+        pendienteArrastrado,
+        t,
+      );
+      summaryData.pendiente_item_id = pending.id;
+      await row!.update({ snapshot: summaryData } as never, { transaction: t });
+    }
 
     return row!;
   });
@@ -589,6 +611,7 @@ export async function cancelSettlement(tenantId: string, settlementId: string) {
     );
 
     await revertSettlementAccountInstallments(tenantId, locked.id, t);
+    await revertSettlementCarryoverItem(tenantId, locked.id, t);
 
     await locked.update(
       {

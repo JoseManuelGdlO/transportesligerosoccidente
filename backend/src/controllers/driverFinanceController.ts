@@ -10,6 +10,7 @@ import {
   createDirectPayment,
   getAccountItemDetail,
   cancelAccountItem,
+  updateAccountItemDiscount,
 } from "../services/driverAccountService";
 
 const tid = (req: Request) => req.user!.tenantId;
@@ -54,6 +55,11 @@ const accountItemSchema = z.object({
   monto_original: z.number().positive(),
   cuota_liquidacion: z.number().positive(),
   fecha: z.string().min(1),
+  descuento_activo: z.boolean().optional(),
+});
+
+const accountItemPatchSchema = z.object({
+  descuento_activo: z.boolean(),
 });
 
 const directPaymentSchema = z.object({
@@ -271,5 +277,20 @@ export const createAccountPayment = asyncHandler(async (req: Request, res: Respo
 
 export const cancelAccountDebt = asyncHandler(async (req: Request, res: Response) => {
   const row = await cancelAccountItem(tid(req), req.params.id, req.params.itemId);
+  res.json(row);
+});
+
+export const patchAccountDebt = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = accountItemPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await updateAccountItemDiscount(
+    tid(req),
+    req.params.id,
+    req.params.itemId,
+    parsed.data.descuento_activo,
+  );
   res.json(row);
 });

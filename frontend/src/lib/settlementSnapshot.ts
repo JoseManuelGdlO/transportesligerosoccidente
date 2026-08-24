@@ -3,6 +3,7 @@ import {
   computeTrip,
   ingresosComprobadosLiquidacion,
   previewAccountInstallments,
+  roundMoney,
   type SettlementSummary,
 } from "@/lib/calc";
 import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
@@ -45,7 +46,10 @@ function withAccountInstallments(
   base: Omit<SettlementSummaryApi, "neto_pagar" | "total_cuenta_abonos" | "account_applications"> & {
     account_items?: SettlementSummaryApi["account_items"];
   },
-): Pick<SettlementSummaryApi, "total_cuenta_abonos" | "account_applications" | "neto_pagar"> {
+): Pick<
+  SettlementSummaryApi,
+  "total_cuenta_abonos" | "account_applications" | "neto_pagar" | "neto_calculado" | "pendiente_arrastrado"
+> {
   const netoBase = computeNetoPagar({
     total_comisiones: base.total_comisiones,
     saldo_viaticos: base.saldo_viaticos,
@@ -55,17 +59,20 @@ function withAccountInstallments(
     total_cuenta_abonos: 0,
   });
   const { applications, total } = previewAccountInstallments(netoBase, base.account_items ?? []);
+  const neto_pagar = computeNetoPagar({
+    total_comisiones: base.total_comisiones,
+    saldo_viaticos: base.saldo_viaticos,
+    total_compensaciones: base.total_compensaciones ?? 0,
+    total_descuentos: base.total_descuentos,
+    total_anticipos: base.total_anticipos,
+    total_cuenta_abonos: total,
+  });
   return {
     total_cuenta_abonos: total,
     account_applications: applications,
-    neto_pagar: computeNetoPagar({
-      total_comisiones: base.total_comisiones,
-      saldo_viaticos: base.saldo_viaticos,
-      total_compensaciones: base.total_compensaciones ?? 0,
-      total_descuentos: base.total_descuentos,
-      total_anticipos: base.total_anticipos,
-      total_cuenta_abonos: total,
-    }),
+    neto_pagar,
+    neto_calculado: neto_pagar,
+    pendiente_arrastrado: roundMoney(Math.max(0, -neto_pagar)),
   };
 }
 
@@ -129,6 +136,9 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
       total_compensaciones: snapshot.total_compensaciones ?? 0,
       total_cuenta_abonos: snapshot.total_cuenta_abonos ?? 0,
       neto_pagar: snapshot.neto_pagar,
+      neto_calculado: snapshot.neto_calculado,
+      pendiente_arrastrado: snapshot.pendiente_arrastrado,
+      pendiente_item_id: snapshot.pendiente_item_id,
       advances: snapshot.advances ?? [],
       discounts: snapshot.discounts ?? [],
       compensations: snapshot.compensations ?? [],
@@ -174,6 +184,9 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     total_compensaciones: snapshot.total_compensaciones ?? 0,
     total_cuenta_abonos: account.total_cuenta_abonos,
     neto_pagar: account.neto_pagar,
+    neto_calculado: account.neto_calculado,
+    pendiente_arrastrado: account.pendiente_arrastrado,
+    pendiente_item_id: (account.pendiente_arrastrado ?? 0) > 0 ? snapshot.pendiente_item_id : undefined,
     advances: snapshot.advances ?? [],
     discounts: snapshot.discounts ?? [],
     compensations: snapshot.compensations ?? [],

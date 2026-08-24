@@ -120,6 +120,10 @@ export function SettlementSummaryPanel({
   const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
   const cuentaAbonos = summary.total_cuenta_abonos ?? 0;
   const accountApps = summary.account_applications ?? [];
+  const pausedCount = (summary.account_items ?? []).filter(
+    (i) => i.saldo > 0 && i.descuento_activo === false,
+  ).length;
+  const pendienteArrastrado = summary.pendiente_arrastrado ?? Math.max(0, -summary.neto_pagar);
 
   // En histórico (readOnly) solo movimientos del periodo liquidado; en vivo se muestran también pendientes fuera de periodo.
   const periodOnly = (enPeriodo?: boolean) => (readOnly ? enPeriodo !== false : true);
@@ -212,6 +216,26 @@ export function SettlementSummaryPanel({
             </ul>
           ) : null}
         </div>
+      ) : null}
+      {pausedCount > 0 ? (
+        <p className="text-sm text-muted-foreground">
+          Hay {pausedCount} {pausedCount === 1 ? "adeudo" : "adeudos"} con descuento desactivado; no se aplicará cuota
+          en esta liquidación.
+        </p>
+      ) : null}
+      {pendienteArrastrado > 0 && !readOnly ? (
+        <div className="rounded-md border border-destructive/40 bg-destructive/5 px-3 py-2">
+          <p className="text-sm text-destructive">
+            Al cerrar se registrará un pendiente de {fmtMXN(pendienteArrastrado)} en la cuenta del operador para
+            descontarlo en la siguiente liquidación. Esta semana el operador no recibe pago.
+          </p>
+        </div>
+      ) : null}
+      {pendienteArrastrado > 0 && readOnly ? (
+        <p className="text-sm text-muted-foreground">
+          Se registró un pendiente de {fmtMXN(pendienteArrastrado)} en la cuenta del operador para descontar en la
+          siguiente liquidación.
+        </p>
       ) : null}
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">

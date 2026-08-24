@@ -949,7 +949,7 @@ export interface DriverCompensation {
   en_periodo?: boolean;
 }
 
-export type AccountItemType = "incidencia" | "prestamo";
+export type AccountItemType = "incidencia" | "prestamo" | "pendiente";
 export type AccountItemStatus = "activo" | "liquidado" | "cancelado";
 export type AccountMovementType = "liquidacion" | "pago_directo";
 
@@ -961,6 +961,7 @@ export interface AccountItemBalance {
   cuota_liquidacion: number;
   saldo: number;
   fecha: string;
+  descuento_activo?: boolean;
 }
 
 export interface AccountApplication {
@@ -991,6 +992,8 @@ export interface DriverAccountItem {
   cuota_liquidacion: number;
   fecha: string;
   estatus: AccountItemStatus;
+  descuento_activo: boolean;
+  origen_settlement_id?: string;
   abonado: number;
   saldo: number;
   movements: DriverAccountMovement[];
@@ -1021,6 +1024,9 @@ export interface SettlementSummaryApi {
   total_compensaciones: number;
   total_cuenta_abonos?: number;
   neto_pagar: number;
+  neto_calculado?: number;
+  pendiente_arrastrado?: number;
+  pendiente_item_id?: string;
   advances: DriverAdvance[];
   discounts: DriverDiscount[];
   compensations: DriverCompensation[];

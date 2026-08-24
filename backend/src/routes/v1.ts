@@ -382,6 +382,12 @@ r.get(
   requirePermission("liquidaciones.ver"),
   driverFinanceC.getAccountDebt,
 );
+r.patch(
+  "/drivers/:id/account/items/:itemId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.patchAccountDebt,
+);
 r.post(
   "/drivers/:id/account/items/:itemId/payments",
   authenticateJwt,

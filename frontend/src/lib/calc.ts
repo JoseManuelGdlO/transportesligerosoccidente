@@ -101,6 +101,9 @@ export interface SettlementSummary {
   total_compensaciones: number;
   total_cuenta_abonos?: number;
   neto_pagar: number;
+  neto_calculado?: number;
+  pendiente_arrastrado?: number;
+  pendiente_item_id?: string;
   advances?: { id: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
   discounts?: { id: string; tipo: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
   compensations?: { id: string; tipo: string; fecha: string; descripcion: string; monto: number; en_periodo?: boolean }[];
@@ -130,6 +133,12 @@ export interface AccountItemBalanceInput {
   cuota_liquidacion: number;
   saldo: number;
   fecha: string;
+  descuento_activo?: boolean;
+}
+
+/** Snapshots viejos: ausente o distinto de false cuenta como activo. */
+export function isDescuentoActivo(value: unknown): boolean {
+  return value !== false && value !== 0 && value !== "0";
 }
 
 export interface AccountApplicationResult {
@@ -149,7 +158,7 @@ export function previewAccountInstallments(
   let disponible = roundMoney(Math.max(0, netoDisponible));
   const applications: AccountApplicationResult[] = [];
   const ordered = [...items]
-    .filter((i) => i.saldo > 0 && i.cuota_liquidacion > 0)
+    .filter((i) => i.saldo > 0 && i.cuota_liquidacion > 0 && isDescuentoActivo(i.descuento_activo))
     .sort((a, b) => {
       const byFecha = a.fecha.localeCompare(b.fecha);
       if (byFecha !== 0) return byFecha;

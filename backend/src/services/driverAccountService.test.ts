@@ -12,6 +12,9 @@ import {
   createDirectPayment,
   applySettlementAccountInstallments,
   revertSettlementAccountInstallments,
+  updateAccountItemDiscount,
+  createSettlementCarryoverItem,
+  revertSettlementCarryoverItem,
 } from "./driverAccountService";
 import type { AccountApplication } from "./calc";
 
@@ -185,6 +188,141 @@ describe("createAccountItem", () => {
     );
 
     driverFindOne.mock.restore();
+  });
+});
+
+describe("updateAccountItemDiscount", () => {
+  it("actualiza el flag en un adeudo activo", async () => {
+    const driverFindOne = mock.method(Driver, "findOne", async () => mockDriver as never);
+    const item = { ...baseItem(), descuento_activo: true, createdAt: new Date(), movements: [] };
+    item.update = mock.fn(async () => {});
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => item as never);
+    const accountFindOne = mock.method(DriverAccount, "findOne", async () => ({ id: "acc-1" }) as never);
+    const itemFindAll = mock.method(DriverAccountItem, "findAll", async () => [item] as never);
+
+    const result = await updateAccountItemDiscount(tenantId, driverId, "item-1", false);
+
+    assert.equal(item.update.mock.callCount(), 1);
+    assert.deepEqual(item.update.mock.calls[0].arguments[0], { descuento_activo: false });
+    assert.equal(result.id, "item-1");
+
+    driverFindOne.mock.restore();
+    itemFindOne.mock.restore();
+    accountFindOne.mock.restore();
+    itemFindAll.mock.restore();
+  });
+
+  it("rechaza con 404 si el adeudo no está activo", async () => {
+    const driverFindOne = mock.method(Driver, "findOne", async () => mockDriver as never);
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => null);
+
+    await assert.rejects(
+      () => updateAccountItemDiscount(tenantId, driverId, "item-1", false),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 404);
+        return true;
+      },
+    );
+
+    driverFindOne.mock.restore();
+    itemFindOne.mock.restore();
+  });
+});
+
+describe("createSettlementCarryoverItem", () => {
+  it("crea un adeudo tipo pendiente con cuota igual al monto", async () => {
+    const accountFindOne = mock.method(DriverAccount, "findOne", async () => ({ id: "acc-1" }) as never);
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => null);
+    const itemCreate = mock.method(DriverAccountItem, "create", async (data: unknown) => data as never);
+
+    const result = await createSettlementCarryoverItem(
+      tenantId,
+      driverId,
+      "settlement-1",
+      "2026-06-01",
+      "2026-06-07",
+      400,
+      mockTx as never,
+    );
+
+    assert.equal(itemCreate.mock.callCount(), 1);
+    const created = itemCreate.mock.calls[0].arguments[0] as Record<string, unknown>;
+    assert.equal(created.tipo, "pendiente");
+    assert.equal(created.monto_original, 400);
+    assert.equal(created.cuota_liquidacion, 400);
+    assert.equal(created.origen_settlement_id, "settlement-1");
+    assert.equal(created.descuento_activo, true);
+    assert.equal(result.monto, 400);
+
+    accountFindOne.mock.restore();
+    itemFindOne.mock.restore();
+    itemCreate.mock.restore();
+  });
+
+  it("reactiva un pendiente cancelado del mismo cierre", async () => {
+    const update = mock.fn(async () => {});
+    const existing = {
+      id: "pending-1",
+      estatus: "cancelado",
+      monto_original: "400",
+      update,
+    };
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => existing as never);
+    const itemCreate = mock.method(DriverAccountItem, "create", async () => {
+      throw new Error("no debería crear");
+    });
+
+    const result = await createSettlementCarryoverItem(
+      tenantId,
+      driverId,
+      "settlement-1",
+      "2026-06-01",
+      "2026-06-07",
+      400,
+      mockTx as never,
+    );
+
+    assert.equal(itemCreate.mock.callCount(), 0);
+    assert.equal(update.mock.callCount(), 1);
+    assert.equal(result.id, "pending-1");
+    assert.deepEqual(update.mock.calls[0].arguments[0], {
+      estatus: "activo",
+      monto_original: 400,
+      cuota_liquidacion: 400,
+      concepto: "Pendiente liquidación 2026-06-01 – 2026-06-07",
+      fecha: "2026-06-07",
+      descuento_activo: true,
+    });
+
+    itemFindOne.mock.restore();
+    itemCreate.mock.restore();
+  });
+});
+
+describe("revertSettlementCarryoverItem", () => {
+  it("cancela el pendiente si no tiene abonos", async () => {
+    const update = mock.fn(async () => {});
+    const item = { id: "pending-1", estatus: "activo", movements: [], update };
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => item as never);
+
+    await revertSettlementCarryoverItem(tenantId, "settlement-1", mockTx as never);
+
+    assert.equal(update.mock.callCount(), 1);
+    assert.deepEqual(update.mock.calls[0].arguments[0], { estatus: "cancelado" });
+
+    itemFindOne.mock.restore();
+  });
+
+  it("no cancela si el pendiente ya tiene abonos", async () => {
+    const update = mock.fn(async () => {});
+    const item = { id: "pending-1", estatus: "activo", movements: [{ monto: "100" }], update };
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => item as never);
+
+    await revertSettlementCarryoverItem(tenantId, "settlement-1", mockTx as never);
+
+    assert.equal(update.mock.callCount(), 0);
+
+    itemFindOne.mock.restore();
   });
 });
 

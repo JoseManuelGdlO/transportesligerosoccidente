@@ -7,7 +7,7 @@ import {
   type Sequelize,
 } from "sequelize";
 
-export type AccountItemType = "incidencia" | "prestamo";
+export type AccountItemType = "incidencia" | "prestamo" | "pendiente";
 export type AccountItemStatus = "activo" | "liquidado" | "cancelado";
 
 export class DriverAccountItem extends Model<
@@ -24,6 +24,8 @@ export class DriverAccountItem extends Model<
   declare cuota_liquidacion: string;
   declare fecha: string;
   declare estatus: AccountItemStatus;
+  declare descuento_activo: CreationOptional<boolean>;
+  declare origen_settlement_id: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -36,7 +38,7 @@ export function initDriverAccountItem(sequelize: Sequelize) {
       account_id: { type: DataTypes.CHAR(36), allowNull: false },
       driver_id: { type: DataTypes.CHAR(36), allowNull: false },
       tipo: {
-        type: DataTypes.ENUM("incidencia", "prestamo"),
+        type: DataTypes.ENUM("incidencia", "prestamo", "pendiente"),
         allowNull: false,
       },
       concepto: { type: DataTypes.STRING(512), allowNull: false },
@@ -48,6 +50,12 @@ export function initDriverAccountItem(sequelize: Sequelize) {
         allowNull: false,
         defaultValue: "activo",
       },
+      descuento_activo: {
+        type: DataTypes.BOOLEAN,
+        allowNull: false,
+        defaultValue: true,
+      },
+      origen_settlement_id: { type: DataTypes.CHAR(36), allowNull: true },
     } as never,
     { sequelize, tableName: "driver_account_items", underscored: true },
   );

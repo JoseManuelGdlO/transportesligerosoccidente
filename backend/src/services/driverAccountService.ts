@@ -10,6 +10,7 @@ import {
 import {
   previewAccountInstallments,
   roundMoney,
+  isDescuentoActivo,
   type AccountApplication,
   type AccountItemBalance,
 } from "./calc";
@@ -28,12 +29,14 @@ export interface AccountMovementDto {
 
 export interface AccountItemDto {
   id: string;
-  tipo: "incidencia" | "prestamo" | string;
+  tipo: "incidencia" | "prestamo" | "pendiente" | string;
   concepto: string;
   monto_original: number;
   cuota_liquidacion: number;
   fecha: string;
   estatus: "activo" | "liquidado" | "cancelado" | string;
+  descuento_activo: boolean;
+  origen_settlement_id?: string;
   abonado: number;
   saldo: number;
   movements: AccountMovementDto[];
@@ -106,6 +109,7 @@ function toBalanceDto(
     cuota_liquidacion: num(item.cuota_liquidacion),
     saldo: itemBalance(item, movements),
     fecha: String(item.fecha).slice(0, 10),
+    descuento_activo: isDescuentoActivo(item.descuento_activo),
   };
 }
 
@@ -197,6 +201,8 @@ export async function getDriverAccountSummary(
       cuota_liquidacion: num(item.cuota_liquidacion),
       fecha: String(item.fecha).slice(0, 10),
       estatus: item.estatus,
+      descuento_activo: isDescuentoActivo(item.descuento_activo),
+      origen_settlement_id: item.origen_settlement_id ?? undefined,
       abonado,
       saldo,
       movements: movementDtos,
@@ -229,12 +235,15 @@ export async function createAccountItem(
     monto_original: number;
     cuota_liquidacion: number;
     fecha: string;
+    descuento_activo?: boolean;
   },
 ): Promise<AccountItemDto> {
   await assertDriver(tenantId, driverId);
   if (data.cuota_liquidacion > data.monto_original) {
     throw httpError("La cuota no puede ser mayor al importe original", 400);
   }
+
+  const descuentoActivo = data.descuento_activo !== false;
 
   return sequelize.transaction(async (t) => {
     const account = await getOrCreateDriverAccount(tenantId, driverId, t);
@@ -250,6 +259,7 @@ export async function createAccountItem(
         cuota_liquidacion: data.cuota_liquidacion,
         fecha: data.fecha,
         estatus: "activo",
+        descuento_activo: descuentoActivo,
       } as never,
       { transaction: t },
     );
@@ -262,6 +272,7 @@ export async function createAccountItem(
       cuota_liquidacion: num(row.cuota_liquidacion),
       fecha: String(row.fecha).slice(0, 10),
       estatus: row.estatus,
+      descuento_activo: isDescuentoActivo(row.descuento_activo),
       abonado: 0,
       saldo: num(row.monto_original),
       movements: [],
@@ -364,6 +375,99 @@ export async function cancelAccountItem(
   }
   await item.update({ estatus: "cancelado" } as never);
   return { id: item.id, estatus: "cancelado" as const };
+}
+
+export async function updateAccountItemDiscount(
+  tenantId: string,
+  driverId: string,
+  itemId: string,
+  descuento_activo: boolean,
+): Promise<AccountItemDto> {
+  await assertDriver(tenantId, driverId);
+  const item = await DriverAccountItem.findOne({
+    where: { id: itemId, tenant_id: tenantId, driver_id: driverId, estatus: "activo" },
+  });
+  if (!item) throw httpError("Adeudo no encontrado o no activo", 404);
+  await item.update({ descuento_activo } as never);
+  return getAccountItemDetail(tenantId, driverId, itemId);
+}
+
+/** Adeudo generado al cerrar una liquidación con neto negativo. */
+export async function createSettlementCarryoverItem(
+  tenantId: string,
+  driverId: string,
+  settlementId: string,
+  fechaInicio: string,
+  fechaFin: string,
+  monto: number,
+  t: Transaction,
+): Promise<{ id: string; monto: number }> {
+  const amount = roundMoney(monto);
+  if (amount <= 0) {
+    throw httpError("El pendiente debe ser mayor a cero", 400);
+  }
+
+  const existing = await DriverAccountItem.findOne({
+    where: { tenant_id: tenantId, origen_settlement_id: settlementId },
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (existing) {
+    if (existing.estatus === "cancelado") {
+      await existing.update(
+        {
+          estatus: "activo",
+          monto_original: amount,
+          cuota_liquidacion: amount,
+          concepto: `Pendiente liquidación ${fechaInicio} – ${fechaFin}`,
+          fecha: fechaFin,
+          descuento_activo: true,
+        } as never,
+        { transaction: t },
+      );
+    }
+    return { id: existing.id, monto: amount };
+  }
+
+  const account = await getOrCreateDriverAccount(tenantId, driverId, t);
+  const row = await DriverAccountItem.create(
+    {
+      id: randomUUID(),
+      tenant_id: tenantId,
+      account_id: account.id,
+      driver_id: driverId,
+      tipo: "pendiente",
+      concepto: `Pendiente liquidación ${fechaInicio} – ${fechaFin}`,
+      monto_original: amount,
+      cuota_liquidacion: amount,
+      fecha: fechaFin,
+      estatus: "activo",
+      descuento_activo: true,
+      origen_settlement_id: settlementId,
+    } as never,
+    { transaction: t },
+  );
+
+  return { id: row.id, monto: amount };
+}
+
+/** Cancela el pendiente generado por este cierre si todavía no tiene abonos. */
+export async function revertSettlementCarryoverItem(
+  tenantId: string,
+  settlementId: string,
+  t: Transaction,
+): Promise<void> {
+  const item = await DriverAccountItem.findOne({
+    where: { tenant_id: tenantId, origen_settlement_id: settlementId },
+    include: [{ association: "movements" }],
+    transaction: t,
+    lock: t.LOCK.UPDATE,
+  });
+  if (!item || item.estatus === "cancelado") return;
+  const movements =
+    (item as DriverAccountItem & { movements?: DriverAccountMovement[] }).movements ?? [];
+  if (movements.length > 0) return;
+  await item.update({ estatus: "cancelado" } as never, { transaction: t });
 }
 
 /** Previsualiza cuotas a aplicar sobre un neto base (sin cuenta). */
