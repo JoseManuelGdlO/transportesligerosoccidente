@@ -289,28 +289,50 @@ function ProrationTripsTable({
   );
 }
 
-function eligibleTripsForTicket(unit: FuelProrationUnitReport, block: ProratedTicketBlock): FuelProrationTripRef[] {
-  const seen = new Set<string>();
-  const rows: FuelProrationTripRef[] = [];
-  for (const v of block.viajes) {
-    if (seen.has(v.trip_id)) continue;
-    seen.add(v.trip_id);
-    rows.push({
-      trip_id: v.trip_id,
-      folio: v.folio,
-      origen: v.origen,
-      destino: v.destino,
-      ruta: formatProrationRoute(v),
-      fecha_salida: v.fecha_salida,
-      km_recorridos: v.km_recorridos,
-    });
+type EligibleAssignTrip = FuelProrationTripRef & {
+  also_on: { ticket_id: string; fecha: string }[];
+};
+
+function tripRefFromProrated(v: ProratedTripRow): FuelProrationTripRef {
+  return {
+    trip_id: v.trip_id,
+    folio: v.folio,
+    origen: v.origen,
+    destino: v.destino,
+    ruta: formatProrationRoute(v),
+    fecha_salida: v.fecha_salida,
+    km_recorridos: v.km_recorridos,
+  };
+}
+
+function eligibleTripsForTicket(unit: FuelProrationUnitReport, block: ProratedTicketBlock): EligibleAssignTrip[] {
+  const byId = new Map<string, EligibleAssignTrip>();
+
+  const addTrip = (ref: FuelProrationTripRef) => {
+    if (byId.has(ref.trip_id)) return;
+    byId.set(ref.trip_id, { ...ref, also_on: [] });
+  };
+
+  for (const v of block.viajes) addTrip(tripRefFromProrated(v));
+  for (const other of unit.tickets) {
+    if (other.ticket_id === block.ticket_id) continue;
+    for (const v of other.viajes) addTrip(tripRefFromProrated(v));
   }
-  for (const v of unit.viajes_sin_asignar ?? []) {
-    if (seen.has(v.trip_id)) continue;
-    seen.add(v.trip_id);
-    rows.push(v);
+  for (const v of unit.viajes_sin_asignar ?? []) addTrip(v);
+
+  for (const other of unit.tickets) {
+    if (other.ticket_id === block.ticket_id) continue;
+    for (const v of other.viajes) {
+      const row = byId.get(v.trip_id);
+      if (!row) continue;
+      if (row.also_on.some((t) => t.ticket_id === other.ticket_id)) continue;
+      row.also_on.push({ ticket_id: other.ticket_id, fecha: other.fecha });
+    }
   }
-  return rows.sort((a, b) => a.fecha_salida.localeCompare(b.fecha_salida) || a.folio.localeCompare(b.folio));
+
+  return [...byId.values()].sort(
+    (a, b) => a.fecha_salida.localeCompare(b.fecha_salida) || a.folio.localeCompare(b.folio),
+  );
 }
 
 function TicketAssignDialog({
@@ -342,7 +364,8 @@ function TicketAssignDialog({
           </DialogTitle>
         </DialogHeader>
         <p className="text-xs text-muted-foreground">
-          Unidad {unit.numero_economico}. Marque los viajes que consumieron combustible de este ticket.
+          Unidad {unit.numero_economico}. Marque uno o varios viajes de esta carga. Un mismo viaje puede
+          quedar también en otros tickets pendientes.
         </p>
         {trips.length === 0 ? (
           <p className="text-sm text-muted-foreground py-4 text-center">
@@ -376,6 +399,11 @@ function TicketAssignDialog({
                     >
                       {trip.folio}
                     </Link>
+                    {trip.also_on.length > 0 && (
+                      <Badge variant="outline" className="ml-2 text-[10px] px-1 py-0 font-sans font-normal">
+                        También en ticket {trip.also_on.map((t) => formatIsoDateEs(t.fecha)).join(", ")}
+                      </Badge>
+                    )}
                   </TableCell>
                   <TableCell>{formatProrationRoute(trip)}</TableCell>
                   <TableCell>{formatIsoDateEs(trip.fecha_salida)}</TableCell>

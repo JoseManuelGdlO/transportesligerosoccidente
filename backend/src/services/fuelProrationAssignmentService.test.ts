@@ -42,12 +42,14 @@ function mockTicket(partial: {
   truck_id?: string;
   fecha: string;
   prorrateo_confirmado_at?: Date | null;
+  source_trip_id?: string | null;
 }): FuelTicketModel {
   return {
     id: partial.id,
     truck_id: partial.truck_id ?? truckId,
     fecha: partial.fecha as unknown as Date,
     prorrateo_confirmado_at: partial.prorrateo_confirmado_at ?? null,
+    source_trip_id: partial.source_trip_id ?? null,
   } as unknown as FuelTicketModel;
 }
 
@@ -373,5 +375,50 @@ describe("saveTicketAssignments", () => {
     destroy.mock.restore();
     bulkCreate.mock.restore();
     transaction.mock.restore();
+  });
+
+  it("acepta varios viajes en un ticket normal", async () => {
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      mockTicket({ id: "tk1", fecha: "2026-09-10" }),
+    );
+    const tripFindAll = mock.method(Trip, "findAll", async () =>
+      [mockTrip({ id: "mexico", folio: "TL008-56" }), mockTrip({ id: "taller", folio: "TL008-57" })] as never,
+    );
+    const destroy = mock.method(FuelProrationAssignment, "destroy", async () => 0 as never);
+    const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => [] as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({});
+    });
+
+    await saveTicketAssignments(tenantId, "tk1", ["mexico", "taller"]);
+
+    assert.equal(bulkCreate.mock.callCount(), 1);
+    const rows = bulkCreate.mock.calls[0]!.arguments[0] as Array<{ trip_id: string; fuel_ticket_id: string }>;
+    assert.equal(rows.length, 2);
+    assert.deepEqual(
+      rows.map((r) => r.trip_id).sort(),
+      ["mexico", "taller"],
+    );
+    assert.ok(rows.every((r) => r.fuel_ticket_id === "tk1"));
+
+    ticketFindOne.mock.restore();
+    tripFindAll.mock.restore();
+    destroy.mock.restore();
+    bulkCreate.mock.restore();
+    transaction.mock.restore();
+  });
+
+  it("rechaza asignar más de un viaje a un ticket nacido desde viaje", async () => {
+    const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
+      mockTicket({ id: "tk1", fecha: "2026-08-22", source_trip_id: "mexico" }),
+    );
+
+    await expectError(
+      () => saveTicketAssignments(tenantId, "tk1", ["mexico", "taller"]),
+      400,
+      "Este ticket nació del viaje; la asignación debe ser solo ese viaje",
+    );
+
+    ticketFindOne.mock.restore();
   });
 });
