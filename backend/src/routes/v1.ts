@@ -281,6 +281,12 @@ r.get(
 
 r.get("/settlements", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.listSettlements);
 r.get("/settlements/summary", authenticateJwt, requirePermission("liquidaciones.ver"), settlementC.getSummary);
+r.get(
+  "/settlements/week-summary",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  settlementC.getWeekSummary,
+);
 r.post("/settlements/draft", authenticateJwt, requirePermission("liquidaciones.cerrar"), settlementC.postDraft);
 r.patch(
   "/settlements/:id/draft",

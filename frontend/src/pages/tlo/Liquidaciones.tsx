@@ -7,15 +7,17 @@ import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
-import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi } from "@/types/tlo";
+import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
 import { DriverAccountPanel } from "@/components/tlo/DriverAccountPanel";
+import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Badge } from "@/components/ui/badge";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   AlertDialog,
@@ -32,11 +34,23 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Lock, Eye, Trash2, CircleDollarSign } from "lucide-react";
+import { FileText, Lock, Eye, Trash2, CircleDollarSign, Wallet, TrendingUp, Truck as TruckIcon, Users } from "lucide-react";
 import { toast } from "sonner";
 
-type SettlementTab = "actual" | "borradores" | "historico";
+type SettlementTab = "resumen" | "actual" | "borradores" | "historico";
 type SummarySource = "live" | "snapshot";
+
+const WEEK_ESTADO_LABEL: Record<WeekSettlementEstado, string> = {
+  abierta: "Abierta",
+  preliquidacion: "Pre-liq.",
+  cerrada: "Cerrada",
+};
+
+const weekEstadoBadgeVariant = (estado: WeekSettlementEstado): "default" | "secondary" | "outline" => {
+  if (estado === "cerrada") return "default";
+  if (estado === "preliquidacion") return "secondary";
+  return "outline";
+};
 
 const clampDate = (day: string, inicio: string, fin: string) => {
   if (day < inicio) return inicio;
@@ -62,6 +76,8 @@ export default function Liquidaciones() {
   const [loading, setLoading] = useState(false);
   const [closing, setClosing] = useState(false);
   const [activeTab, setActiveTab] = useState<SettlementTab>("actual");
+  const [weekSummary, setWeekSummary] = useState<WeekSettlementSummaryApi | null>(null);
+  const [weekLoading, setWeekLoading] = useState(false);
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [summarySource, setSummarySource] = useState<SummarySource>("live");
   const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
@@ -131,6 +147,22 @@ export default function Liquidaciones() {
     }
   }, [driverId, inicio, fin, hasApiSession]);
 
+  const loadWeekSummary = useCallback(async () => {
+    if (!hasApiSession) return;
+    setWeekLoading(true);
+    try {
+      const q = new URLSearchParams({ inicio, fin });
+      const res = await apiFetch(`/settlements/week-summary?${q}`);
+      const data = await readJson<WeekSettlementSummaryApi>(res);
+      setWeekSummary(data);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al cargar resumen de la semana");
+      setWeekSummary(null);
+    } finally {
+      setWeekLoading(false);
+    }
+  }, [inicio, fin, hasApiSession]);
+
   const loadLists = useCallback(async (forDriverId?: string) => {
     if (!hasApiSession) return;
     const filterDriverId = forDriverId ?? driverId;
@@ -150,6 +182,12 @@ export default function Liquidaciones() {
       void loadSummary();
     }
   }, [loadSummary, summarySource]);
+
+  useEffect(() => {
+    if (activeTab === "resumen") {
+      void loadWeekSummary();
+    }
+  }, [activeTab, loadWeekSummary]);
 
   useEffect(() => {
     void loadLists();
@@ -191,11 +229,21 @@ export default function Liquidaciones() {
   };
 
   const handleRecalcular = () => {
+    if (activeTab === "resumen") {
+      void loadWeekSummary();
+      return;
+    }
     if (summarySource === "snapshot") {
       resetToLiveMode();
     } else {
       void loadSummary();
     }
+  };
+
+  const openWeekRow = (driverRowId: string) => {
+    resetToLiveMode();
+    setDriverId(driverRowId);
+    setActiveTab("actual");
   };
 
   const openDraft = async (draft: SettlementRecord) => {
@@ -561,6 +609,7 @@ export default function Liquidaciones() {
       <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as SettlementTab)}>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <TabsList>
+            <TabsTrigger value="resumen">Resumen semana</TabsTrigger>
             <TabsTrigger value="actual">Liquidación actual</TabsTrigger>
             <TabsTrigger value="borradores">Pre-liquidaciones ({drafts.length})</TabsTrigger>
             <TabsTrigger value="historico">Histórico ({history.length})</TabsTrigger>
@@ -575,6 +624,126 @@ export default function Liquidaciones() {
             Cuenta del operador
           </Button>
         </div>
+
+        <TabsContent value="resumen" className="mt-4 space-y-4">
+          {!hasApiSession ? (
+            <p className="text-muted-foreground text-sm">Inicia sesión con API para liquidaciones en servidor.</p>
+          ) : weekLoading && !weekSummary ? (
+            <p className="text-muted-foreground">Cargando resumen…</p>
+          ) : !weekSummary ? (
+            <p className="text-muted-foreground">No se pudo cargar el resumen de la semana.</p>
+          ) : (
+            <>
+              <div className="grid grid-cols-[repeat(auto-fit,minmax(min(100%,160px),1fr))] gap-3">
+                <KpiCard
+                  label="Facturación semana"
+                  labelClassName="text-[10px] leading-tight"
+                  value={fmtMXN(weekSummary.totales.facturacion)}
+                  icon={Wallet}
+                  tone="accent"
+                />
+                <KpiCard
+                  label="Neto a pagar"
+                  labelClassName="text-[10px] leading-tight"
+                  value={fmtMXN(weekSummary.totales.neto_pagar)}
+                  icon={TrendingUp}
+                  tone={weekSummary.totales.neto_pagar >= 0 ? "success" : "destructive"}
+                />
+                <KpiCard
+                  label="Operadores"
+                  labelClassName="text-[10px] leading-tight"
+                  value={String(weekSummary.totales.operadores)}
+                  icon={Users}
+                  tone="default"
+                />
+                <KpiCard
+                  label="Cerradas"
+                  labelClassName="text-[10px] leading-tight"
+                  value={`${weekSummary.totales.cerradas} / ${weekSummary.totales.operadores}`}
+                  icon={Lock}
+                  tone="default"
+                />
+                <KpiCard
+                  label="Viajes"
+                  labelClassName="text-[10px] leading-tight"
+                  value={String(weekSummary.totales.viajes)}
+                  icon={TruckIcon}
+                  tone="default"
+                />
+              </div>
+
+              <Card>
+                <Table>
+                  <TableHeader>
+                    <TableRow>
+                      <TableHead>Operador</TableHead>
+                      <TableHead className="text-right">Viajes</TableHead>
+                      <TableHead className="text-right">Facturación</TableHead>
+                      <TableHead className="text-right">Comisiones</TableHead>
+                      <TableHead className="text-right">Neto a pagar</TableHead>
+                      <TableHead className="text-right">Estado</TableHead>
+                    </TableRow>
+                  </TableHeader>
+                  <TableBody>
+                    {weekSummary.rows.length === 0 && (
+                      <TableRow>
+                        <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                          Sin operadores activos
+                        </TableCell>
+                      </TableRow>
+                    )}
+                    {weekSummary.rows.map((row) => (
+                      <TableRow
+                        key={row.driver_id}
+                        className="cursor-pointer hover:bg-muted/50"
+                        onClick={() => openWeekRow(row.driver_id)}
+                      >
+                        <TableCell className="font-medium">{row.driver_nombre}</TableCell>
+                        <TableCell className="text-right font-mono">{row.viajes}</TableCell>
+                        <TableCell className="text-right font-mono">{fmtMXN(row.facturacion)}</TableCell>
+                        <TableCell className="text-right font-mono">{fmtMXN(row.comisiones)}</TableCell>
+                        <TableCell
+                          className={`text-right font-mono font-semibold ${
+                            row.neto_pagar >= 0 ? "text-success" : "text-destructive"
+                          }`}
+                        >
+                          {fmtMXN(row.neto_pagar)}
+                        </TableCell>
+                        <TableCell className="text-right">
+                          <Badge variant={weekEstadoBadgeVariant(row.estado)}>
+                            {WEEK_ESTADO_LABEL[row.estado]}
+                          </Badge>
+                        </TableCell>
+                      </TableRow>
+                    ))}
+                  </TableBody>
+                  {weekSummary.rows.length > 0 && (
+                    <TableFooter>
+                      <TableRow>
+                        <TableCell>Totales</TableCell>
+                        <TableCell className="text-right font-mono">{weekSummary.totales.viajes}</TableCell>
+                        <TableCell className="text-right font-mono">
+                          {fmtMXN(weekSummary.totales.facturacion)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono">
+                          {fmtMXN(weekSummary.rows.reduce((a, r) => a + r.comisiones, 0))}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-semibold">
+                          {fmtMXN(weekSummary.totales.neto_pagar)}
+                        </TableCell>
+                        <TableCell />
+                      </TableRow>
+                    </TableFooter>
+                  )}
+                </Table>
+              </Card>
+              <p className="text-xs text-muted-foreground">
+                Clic en un operador para abrir su liquidación del periodo. Los montos de liquidaciones
+                cerradas vienen del cierre oficial; el resto se calcula en vivo.
+              </p>
+            </>
+          )}
+        </TabsContent>
 
         <TabsContent value="actual" className="mt-4 space-y-4">
           {!hasApiSession ? (

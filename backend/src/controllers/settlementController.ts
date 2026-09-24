@@ -10,6 +10,11 @@ const summaryQuery = z.object({
   fin: z.string().min(1),
 });
 
+const weekSummaryQuery = z.object({
+  inicio: z.string().min(1),
+  fin: z.string().min(1),
+});
+
 const tripInclusionsSchema = z
   .array(z.object({ id: z.string().min(1), included: z.boolean() }))
   .optional();
@@ -33,6 +38,17 @@ export const getSummary = asyncHandler(async (req: Request, res: Response) => {
   }
   const { driver_id, inicio, fin } = parsed.data;
   const data = await settlementService.settlementSummary(req.user!.tenantId, driver_id, inicio, fin);
+  res.json(data);
+});
+
+export const getWeekSummary = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = weekSummaryQuery.safeParse(req.query);
+  if (!parsed.success) {
+    res.status(400).json({ error: "inicio y fin son requeridos (YYYY-MM-DD)" });
+    return;
+  }
+  const { inicio, fin } = parsed.data;
+  const data = await settlementService.weekSettlementSummary(req.user!.tenantId, inicio, fin);
   res.json(data);
 });
 

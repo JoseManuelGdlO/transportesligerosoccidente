@@ -1035,6 +1035,31 @@ export interface SettlementSummaryApi {
   trips: Trip[];
 }
 
+export type WeekSettlementEstado = "abierta" | "preliquidacion" | "cerrada";
+
+export interface WeekSettlementRow {
+  driver_id: string;
+  driver_nombre: string;
+  viajes: number;
+  facturacion: number;
+  comisiones: number;
+  neto_pagar: number;
+  estado: WeekSettlementEstado;
+  settlement_id: string | null;
+}
+
+export interface WeekSettlementSummaryApi {
+  periodo: { inicio: string; fin: string };
+  totales: {
+    facturacion: number;
+    neto_pagar: number;
+    operadores: number;
+    cerradas: number;
+    viajes: number;
+  };
+  rows: WeekSettlementRow[];
+}
+
 export interface SettlementRecord {
   id: string;
   driver_id: string;

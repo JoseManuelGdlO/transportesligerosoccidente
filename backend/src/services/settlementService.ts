@@ -204,6 +204,110 @@ export async function settlementSummary(
   };
 }
 
+export type WeekSettlementEstado = "abierta" | "preliquidacion" | "cerrada";
+
+export type WeekSettlementRow = {
+  driver_id: string;
+  driver_nombre: string;
+  viajes: number;
+  facturacion: number;
+  comisiones: number;
+  neto_pagar: number;
+  estado: WeekSettlementEstado;
+  settlement_id: string | null;
+};
+
+function countIncludedTrips(trips: unknown): number {
+  if (!Array.isArray(trips)) return 0;
+  return trips.filter((t) => (t as { included?: boolean }).included !== false).length;
+}
+
+/**
+ * Resumen consolidado de la semana: neto a pagar y facturación por operador activo.
+ * Cerrada → snapshot; abierta/preliquidación → cálculo en vivo.
+ */
+export async function weekSettlementSummary(
+  tenantId: string,
+  inicioStr: string,
+  finStr: string,
+): Promise<{
+  periodo: { inicio: string; fin: string };
+  totales: {
+    facturacion: number;
+    neto_pagar: number;
+    operadores: number;
+    cerradas: number;
+    viajes: number;
+  };
+  rows: WeekSettlementRow[];
+}> {
+  const drivers = await Driver.findAll({
+    where: { tenant_id: tenantId, estatus: "activo" },
+    order: [["nombre", "ASC"]],
+  });
+
+  const settlements = await Settlement.findAll({
+    where: {
+      tenant_id: tenantId,
+      fecha_inicio: inicioStr,
+      fecha_fin: finStr,
+    },
+  });
+
+  const byDriver = new Map<string, Settlement[]>();
+  for (const s of settlements) {
+    const list = byDriver.get(s.driver_id) ?? [];
+    list.push(s);
+    byDriver.set(s.driver_id, list);
+  }
+
+  const rows: WeekSettlementRow[] = [];
+  for (const driver of drivers) {
+    const list = byDriver.get(driver.id) ?? [];
+    const closed = list.find((s) => s.cerrado);
+    const draft = list.find((s) => !s.cerrado);
+
+    if (closed?.snapshot) {
+      const snap = closed.snapshot;
+      rows.push({
+        driver_id: driver.id,
+        driver_nombre: driver.nombre,
+        viajes: countIncludedTrips(snap.trips),
+        facturacion: roundMoney(num(snap.total_ingresos)),
+        comisiones: roundMoney(num(snap.total_comisiones)),
+        neto_pagar: roundMoney(num(snap.neto_pagar)),
+        estado: "cerrada",
+        settlement_id: closed.id,
+      });
+      continue;
+    }
+
+    const summary = await settlementSummary(tenantId, driver.id, inicioStr, finStr);
+    rows.push({
+      driver_id: driver.id,
+      driver_nombre: driver.nombre,
+      viajes: countIncludedTrips(summary.trips),
+      facturacion: roundMoney(num(summary.total_ingresos)),
+      comisiones: roundMoney(num(summary.total_comisiones)),
+      neto_pagar: roundMoney(num(summary.neto_pagar)),
+      estado: draft ? "preliquidacion" : "abierta",
+      settlement_id: draft?.id ?? null,
+    });
+  }
+
+  return {
+    periodo: { inicio: inicioStr, fin: finStr },
+    totales: {
+      facturacion: roundMoney(rows.reduce((a, r) => a + r.facturacion, 0)),
+      neto_pagar: roundMoney(rows.reduce((a, r) => a + r.neto_pagar, 0)),
+      operadores: rows.length,
+      cerradas: rows.filter((r) => r.estado === "cerrada").length,
+      viajes: rows.reduce((a, r) => a + r.viajes, 0),
+    },
+    rows,
+  };
+}
+
 export async function listSettlements(tenantId: string, driverId?: string) {
   const where: Record<string, unknown> = { tenant_id: tenantId };
   if (driverId) where.driver_id = driverId;

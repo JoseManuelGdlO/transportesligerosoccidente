@@ -17,6 +17,7 @@ import {
   updateDraftSettlement,
   deleteDraftSettlement,
   settlementSummary,
+  weekSettlementSummary,
   closeSettlement,
   closeSettlementById,
   cancelSettlement,
@@ -1012,5 +1013,73 @@ describe("cancelSettlement pendiente generado", () => {
     discountUpdate.mock.restore();
     compensationUpdate.mock.restore();
     movementFindAll.mock.restore();
+  });
+});
+
+describe("weekSettlementSummary", () => {
+  it("mezcla cerrada (snapshot) y abierta (vivo) y suma totales", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () =>
+      [
+        { id: "driver-1", nombre: "Ana", estatus: "activo" },
+        { id: "driver-2", nombre: "Bob", estatus: "activo" },
+      ] as never,
+    );
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        {
+          id: "set-closed",
+          driver_id: "driver-1",
+          cerrado: true,
+          snapshot: {
+            total_ingresos: 10000,
+            total_comisiones: 1000,
+            neto_pagar: 800,
+            trips: [
+              { id: "t1", included: true },
+              { id: "t2", included: false },
+            ],
+          },
+        },
+        {
+          id: "set-draft",
+          driver_id: "driver-2",
+          cerrado: false,
+          snapshot: null,
+        },
+      ] as never,
+    );
+
+    const deps = mockSummaryDeps();
+    deps.driverFindOne.mock.restore();
+    const driverFindOne = mock.method(Driver, "findOne", async () =>
+      ({
+        ...mockDriver,
+        id: "driver-2",
+        nombre: "Bob",
+      }) as never,
+    );
+
+    const result = await weekSettlementSummary(tenantId, fechaInicio, fechaFin);
+
+    assert.equal(result.rows.length, 2);
+    assert.equal(result.rows[0].driver_nombre, "Ana");
+    assert.equal(result.rows[0].estado, "cerrada");
+    assert.equal(result.rows[0].facturacion, 10000);
+    assert.equal(result.rows[0].neto_pagar, 800);
+    assert.equal(result.rows[0].viajes, 1);
+    assert.equal(result.rows[0].settlement_id, "set-closed");
+
+    assert.equal(result.rows[1].driver_nombre, "Bob");
+    assert.equal(result.rows[1].estado, "preliquidacion");
+    assert.equal(result.rows[1].settlement_id, "set-draft");
+
+    assert.equal(result.totales.cerradas, 1);
+    assert.equal(result.totales.operadores, 2);
+    assert.equal(result.totales.facturacion, 10000 + result.rows[1].facturacion);
+    assert.equal(result.totales.neto_pagar, 800 + result.rows[1].neto_pagar);
+
+    driverFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+    restoreSummaryDeps({ ...deps, driverFindOne });
   });
 });
