@@ -16,7 +16,8 @@ import {
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
 import { num } from "../utils/numbers";
 import { usersWithPermission } from "../utils/notifyUsers";
-import { getClosedStatusIds } from "./tripStatusService";
+import { getClosedStatusIds, STATUSES_INCLUDE } from "./tripStatusService";
+import { loadTruckOdometerResets, resolveLastKmForTruck } from "./odometerResetService";
 import { uploadRootDir } from "../middlewares/uploadDocument";
 import { sumConceptos, summarizeConceptos, validateConceptos } from "../types/documentConcepto";
 
@@ -47,30 +48,75 @@ function daysBetween(fromIso: string, toIso: string): number {
 }
 
 export async function getTruckOdometer(tenantId: string, truckId: string): Promise<number> {
-  const closedIds = await getClosedStatusIds(tenantId);
+  const [closedIds, resets] = await Promise.all([
+    getClosedStatusIds(tenantId),
+    loadTruckOdometerResets(tenantId, truckId),
+  ]);
+  const latestReset =
+    resets.length === 0
+      ? null
+      : [...resets].sort((a, b) => a.effective_at.getTime() - b.effective_at.getTime()).at(-1)!;
+
   let kmTrip = 0;
   if (closedIds.length > 0) {
-    const lastTrip = await Trip.findOne({
-      where: { tenant_id: tenantId, truck_id: truckId, km_final: { [Op.ne]: null } },
-      include: [
-        {
-          association: "statuses",
-          where: { id: closedIds },
-          required: true,
-          through: { attributes: [] },
-        },
-      ],
-      order: [["fecha_llegada", "DESC"]],
-      attributes: ["km_final", "fecha_llegada"],
-    });
-    kmTrip = lastTrip?.km_final ?? 0;
+    if (!latestReset) {
+      const lastTrip = await Trip.findOne({
+        where: { tenant_id: tenantId, truck_id: truckId, km_final: { [Op.ne]: null } },
+        include: [
+          {
+            association: "statuses",
+            where: { id: closedIds },
+            required: true,
+            through: { attributes: [] },
+          },
+        ],
+        order: [["fecha_llegada", "DESC"]],
+        attributes: ["km_final", "fecha_llegada"],
+      });
+      kmTrip = lastTrip?.km_final ?? 0;
+    } else {
+      const closedTrips = (
+        await Trip.findAll({
+          where: { tenant_id: tenantId, truck_id: truckId, km_final: { [Op.ne]: null } },
+          include: [
+            {
+              ...STATUSES_INCLUDE,
+              where: { id: closedIds },
+              required: true,
+            },
+          ],
+          attributes: ["km_inicial", "km_final", "fecha_salida", "fecha_llegada"],
+        })
+      ).map((t) => ({
+        km_inicial: Number(t.km_inicial),
+        km_final: t.km_final as number,
+        fecha_salida: t.fecha_salida,
+        fecha_llegada: t.fecha_llegada,
+      }));
+      kmTrip = resolveLastKmForTruck({ resets, closedTrips }) ?? 0;
+    }
+  }
+
+  const fuelWhere: Record<string, unknown> = {
+    tenant_id: tenantId,
+    truck_id: truckId,
+  };
+  if (latestReset) {
+    fuelWhere.fecha = { [Op.gte]: latestReset.effective_at.toISOString().slice(0, 10) };
   }
   const lastFuel = await FuelTicket.findOne({
-    where: { tenant_id: tenantId, truck_id: truckId },
+    where: fuelWhere,
     order: [["fecha", "DESC"], ["hora", "DESC"]],
     attributes: ["odometro"],
   });
   const kmFuel = lastFuel?.odometro ?? 0;
+
+  if (latestReset && kmTrip === 0 && kmFuel === 0) {
+    return latestReset.new_km;
+  }
+  if (latestReset && kmFuel >= latestReset.old_km && kmTrip <= latestReset.new_km) {
+    return kmTrip || latestReset.new_km;
+  }
   return Math.max(kmTrip, kmFuel);
 }
 

@@ -967,4 +967,88 @@ describe("validateTripScheduleAndOdometer", () => {
     const b = { fecha_salida: "2026-06-01T00:00:00.000Z", folio: "A-2" };
     assert.ok(compareTripOrder(a, b) < 0);
   });
+
+  it("un reinicio corta la continuidad con el viaje anterior", () => {
+    const before = peer({
+      id: "old",
+      folio: "TLO-OLD",
+      salida: "2026-06-01T08:00:00.000Z",
+      llegada: "2026-06-01T12:00:00.000Z",
+      km_inicial: 599000,
+      km_final: 600000,
+    });
+    const reset = {
+      id: "r1",
+      effective_at: new Date("2026-06-10T06:00:00.000Z"),
+      old_km: 600000,
+      new_km: 1221,
+      motivo: "hubodómetro",
+    };
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          fecha_salida: new Date("2026-06-11T08:00:00.000Z"),
+          fecha_llegada: null,
+          km_inicial: 1221,
+          km_final: null,
+        },
+        [before],
+        { resets: [reset] },
+      ),
+    );
+    assert.throws(
+      () =>
+        validateTripScheduleAndOdometer(
+          {
+            fecha_salida: new Date("2026-06-11T08:00:00.000Z"),
+            fecha_llegada: null,
+            km_inicial: 600000,
+            km_final: null,
+          },
+          [before],
+          { resets: [reset] },
+        ),
+      /reinicio de odómetro/,
+    );
+  });
+
+  it("un viaje cerrado de la época nueva puede cambiar km sin empatar", () => {
+    const first = peer({
+      id: "n1",
+      folio: "TLO-N1",
+      salida: "2026-06-11T08:00:00.000Z",
+      llegada: "2026-06-11T18:00:00.000Z",
+      km_inicial: 1221,
+      km_final: 1300,
+    });
+    const second = peer({
+      id: "n2",
+      folio: "TLO-N2",
+      salida: "2026-06-12T08:00:00.000Z",
+      llegada: "2026-06-12T18:00:00.000Z",
+      km_inicial: 1300,
+      km_final: 1400,
+    });
+    const reset = {
+      id: "r1",
+      effective_at: new Date("2026-06-10T06:00:00.000Z"),
+      old_km: 600000,
+      new_km: 1221,
+      motivo: "hubodómetro",
+    };
+    assert.doesNotThrow(() =>
+      validateTripScheduleAndOdometer(
+        {
+          tripId: "n2",
+          folio: "TLO-N2",
+          fecha_salida: second.fecha_salida,
+          fecha_llegada: second.fecha_llegada,
+          km_inicial: 2000,
+          km_final: 2100,
+        },
+        [first, second],
+        { resets: [reset], bypassOdometerContinuity: true },
+      ),
+    );
+  });
 });

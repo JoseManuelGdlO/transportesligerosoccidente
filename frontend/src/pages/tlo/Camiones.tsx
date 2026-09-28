@@ -16,7 +16,7 @@ import {
   SheetHeader,
   SheetTitle,
 } from "@/components/ui/sheet";
-import { ChevronLeft, ChevronRight, Plus, Pencil, Search, Trash2 } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, Pencil, RotateCcw, Search, Trash2 } from "lucide-react";
 import {
   AlertDialog,
   AlertDialogCancel,
@@ -44,6 +44,8 @@ import {
   type TruckEstatusFilter,
 } from "@/lib/tableFilters";
 import { toast } from "sonner";
+import { useAuth } from "@/context/AuthContext";
+import { OdometerResetDialog } from "@/components/tlo/OdometerResetDialog";
 
 const empty: Truck = {
   id: "",
@@ -59,7 +61,8 @@ const empty: Truck = {
 };
 
 export default function Camiones() {
-  const { trucks, upsertTruck, deleteTruck } = useTlo();
+  const { trucks, upsertTruck, deleteTruck, reloadCatalog } = useTlo();
+  const { user } = useAuth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<Truck>(empty);
   const [tab, setTab] = useState("datos");
@@ -71,6 +74,7 @@ export default function Camiones() {
   const [pageSize, setPageSize] = useState(20);
   const [fieldErrors, setFieldErrors] = useState<TruckFormErrors>({});
   const [saving, setSaving] = useState(false);
+  const [resetTruck, setResetTruck] = useState<Truck | null>(null);
 
   useEffect(() => {
     setPage(1);
@@ -405,7 +409,18 @@ export default function Camiones() {
           </Tabs>
 
           {form.id ? (
-            <div className="mt-6 pt-4 border-t">
+            <div className="mt-6 pt-4 border-t space-y-2">
+              {user?.role === "admin" && form.estatus !== "baja" ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  className="w-full"
+                  onClick={() => setResetTruck(form)}
+                >
+                  <RotateCcw className="h-4 w-4 mr-2" />
+                  Reiniciar kilometraje
+                </Button>
+              ) : null}
               <Button
                 type="button"
                 variant="outline"
@@ -422,6 +437,16 @@ export default function Camiones() {
           ) : null}
         </SheetContent>
       </Sheet>
+
+      <OdometerResetDialog
+        open={resetTruck != null}
+        onOpenChange={(next) => {
+          if (!next) setResetTruck(null);
+        }}
+        truckId={resetTruck?.id ?? ""}
+        numeroEconomico={resetTruck?.numero_economico ?? ""}
+        onApplied={() => void reloadCatalog()}
+      />
 
       <AlertDialog open={pendingDeleteId !== null} onOpenChange={(o) => !o && setPendingDeleteId(null)}>
         <AlertDialogContent>

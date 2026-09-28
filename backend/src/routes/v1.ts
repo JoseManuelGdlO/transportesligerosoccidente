@@ -4,6 +4,7 @@ import { requirePermission, requireAdmin } from "../middlewares/requirePermissio
 import { postLogin, postRefresh, getMe } from "../controllers/authController";
 import * as tenantC from "../controllers/tenantController";
 import * as truckC from "../controllers/truckController";
+import * as odometerResetC from "../controllers/odometerResetController";
 import * as driverC from "../controllers/driverController";
 import * as clientC from "../controllers/clientController";
 import * as clientUbicacionC from "../controllers/clientUbicacionController";
@@ -79,6 +80,30 @@ r.post(
 
 r.get("/trucks", authenticateJwt, requirePermission("catalogos.ver"), truckC.listTrucks);
 r.get("/trucks/:id/last-km", authenticateJwt, requirePermission("viajes.ver"), truckC.getTruckLastKm);
+r.get(
+  "/trucks/:id/odometer-resets/preview",
+  authenticateJwt,
+  requireAdmin,
+  odometerResetC.preview,
+);
+r.get(
+  "/trucks/:id/odometer-resets",
+  authenticateJwt,
+  requireAdmin,
+  odometerResetC.list,
+);
+r.post(
+  "/trucks/:id/odometer-resets",
+  authenticateJwt,
+  requireAdmin,
+  odometerResetC.create,
+);
+r.delete(
+  "/trucks/:id/odometer-resets/:resetId",
+  authenticateJwt,
+  requireAdmin,
+  odometerResetC.remove,
+);
 r.get("/trucks/:id", authenticateJwt, requirePermission("catalogos.ver"), truckC.getTruck);
 r.post("/trucks", authenticateJwt, requirePermission("catalogos.editar"), truckC.createTruck);
 r.patch("/trucks/:id", authenticateJwt, requirePermission("catalogos.editar"), truckC.updateTruck);

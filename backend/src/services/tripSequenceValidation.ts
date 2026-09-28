@@ -1,6 +1,8 @@
 import { type Transaction } from "sequelize";
 import { Trip } from "../models";
 import type { Trip as TripModel } from "../models/Trip";
+import { findApplicableReset, peersInSameEpoch, type OdometerResetPeer } from "./odometerEpoch";
+import { loadTruckOdometerResets } from "./odometerResetService";
 
 export type TripPeer = {
   id: string;
@@ -32,7 +34,23 @@ export type ValidateTripOptions = {
    * valida que el anterior quede con distancia no negativa tras propagar.
    */
   propagateKmInicialToPrev?: boolean;
+  /** Reinicios de la unidad. La continuidad de km no cruza de una época a otra. */
+  resets?: OdometerResetPeer[];
+  /**
+   * Viaje cerrado ya capturado en la época nueva: se puede corregir el km
+   * sin exigir que empate con el viaje anterior o siguiente.
+   */
+  bypassOdometerContinuity?: boolean;
 };
+
+function epochScopedPeers(
+  candidate: TripScheduleCandidate,
+  peers: TripPeer[],
+  resets?: OdometerResetPeer[],
+): TripPeer[] {
+  if (!resets?.length) return peers;
+  return peersInSameEpoch(peers, resets, candidate.fecha_salida);
+}
 
 export type KmFinalCascadePlan = {
   nextTripId: string;
@@ -128,8 +146,9 @@ function candidateOrderKey(candidate: TripScheduleCandidate): {
 export function findNextTripPeer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
+  resets?: OdometerResetPeer[],
 ): TripPeer | null {
-  const others = peers.filter((p) => p.id !== candidate.tripId);
+  const others = epochScopedPeers(candidate, peers, resets).filter((p) => p.id !== candidate.tripId);
   const ordered = [...others].sort(compareTripOrder);
   const key = candidateOrderKey(candidate);
   for (const peer of ordered) {
@@ -142,8 +161,9 @@ export function findNextTripPeer(
 export function findPreviousTripPeer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
+  resets?: OdometerResetPeer[],
 ): TripPeer | null {
-  const others = peers.filter((p) => p.id !== candidate.tripId);
+  const others = epochScopedPeers(candidate, peers, resets).filter((p) => p.id !== candidate.tripId);
   const ordered = [...others].sort(compareTripOrder);
   const key = candidateOrderKey(candidate);
   let prev: TripPeer | null = null;
@@ -166,9 +186,11 @@ export function findCascadeSuccessorPeer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
   previousKmFinal?: number | null,
+  resets?: OdometerResetPeer[],
 ): TripPeer | null {
+  const scoped = epochScopedPeers(candidate, peers, resets);
   const self = candidate.tripId
-    ? peers.find((p) => p.id === candidate.tripId)
+    ? scoped.find((p) => p.id === candidate.tripId)
     : undefined;
   const linkKm =
     previousKmFinal != null
@@ -178,7 +200,7 @@ export function findCascadeSuccessorPeer(
         : null;
 
   if (linkKm != null) {
-    const linked = peers.filter(
+    const linked = scoped.filter(
       (p) => p.id !== candidate.tripId && Number(p.km_inicial) === linkKm,
     );
     if (linked.length === 1) return linked[0]!;
@@ -192,7 +214,7 @@ export function findCascadeSuccessorPeer(
     }
   }
 
-  return findNextTripPeer(candidate, peers);
+  return findNextTripPeer(candidate, peers, resets);
 }
 
 /**
@@ -206,9 +228,11 @@ export function findCascadePredecessorPeer(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
   previousKmInicial?: number | null,
+  resets?: OdometerResetPeer[],
 ): TripPeer | null {
+  const scoped = epochScopedPeers(candidate, peers, resets);
   const self = candidate.tripId
-    ? peers.find((p) => p.id === candidate.tripId)
+    ? scoped.find((p) => p.id === candidate.tripId)
     : undefined;
   const linkKm =
     previousKmInicial != null
@@ -218,7 +242,7 @@ export function findCascadePredecessorPeer(
         : null;
 
   if (linkKm != null) {
-    const linked = peers.filter(
+    const linked = scoped.filter(
       (p) =>
         p.id !== candidate.tripId &&
         p.km_final != null &&
@@ -235,7 +259,7 @@ export function findCascadePredecessorPeer(
     }
   }
 
-  return findPreviousTripPeer(candidate, peers);
+  return findPreviousTripPeer(candidate, peers, resets);
 }
 
 /**
@@ -248,9 +272,10 @@ export function planKmFinalCascade(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
   previousKmFinal?: number | null,
+  resets?: OdometerResetPeer[],
 ): KmFinalCascadePlan | null {
   if (candidate.km_final == null) return null;
-  const next = findCascadeSuccessorPeer(candidate, peers, previousKmFinal);
+  const next = findCascadeSuccessorPeer(candidate, peers, previousKmFinal, resets);
   if (!next) return null;
 
   const newKmInicial = candidate.km_final;
@@ -280,8 +305,9 @@ export function planKmInicialCascade(
   candidate: TripScheduleCandidate,
   peers: TripPeer[],
   previousKmInicial?: number | null,
+  resets?: OdometerResetPeer[],
 ): KmInicialCascadePlan | null {
-  const prev = findCascadePredecessorPeer(candidate, peers, previousKmInicial);
+  const prev = findCascadePredecessorPeer(candidate, peers, previousKmInicial, resets);
   if (!prev || prev.km_final == null) return null;
 
   const newKmFinal = candidate.km_inicial;
@@ -374,7 +400,10 @@ export function validateTripScheduleAndOdometer(
     }
   }
 
-  const ordered = [...others].sort(compareTripOrder);
+  const resets = options?.resets ?? [];
+  const bypass = Boolean(options?.bypassOdometerContinuity);
+  const epochOthers = peersInSameEpoch(others, resets, candidate.fecha_salida);
+  const ordered = [...epochOthers].sort(compareTripOrder);
   const candidateForOrder = candidateOrderKey(candidate);
 
   let prevClosed: TripPeer | null = null;
@@ -386,6 +415,8 @@ export function validateTripScheduleAndOdometer(
       if (isClosedPeer(peer) && !nextClosed) nextClosed = peer;
     }
   }
+
+  if (bypass) return;
 
   const propagatePrev = Boolean(options?.propagateKmInicialToPrev);
   const propagateNext = Boolean(options?.propagateKmFinalToNext);
@@ -401,13 +432,22 @@ export function validateTripScheduleAndOdometer(
     );
   }
 
+  if (!propagatePrev && !prevClosed) {
+    const applicableReset = findApplicableReset(resets, candidate.fecha_salida);
+    if (applicableReset && candidate.km_inicial !== applicableReset.new_km) {
+      throw httpError(
+        `El km inicial debe ser ${applicableReset.new_km} (reinicio de odómetro)`,
+      );
+    }
+  }
+
   if (propagatePrev) {
-    planKmInicialCascade(candidate, peers);
+    planKmInicialCascade(candidate, peers, undefined, resets);
   }
 
   if (propagateNext) {
     if (candidate.km_final != null) {
-      planKmFinalCascade(candidate, peers);
+      planKmFinalCascade(candidate, peers, undefined, resets);
     }
     return;
   }
@@ -443,5 +483,6 @@ export async function assertTripScheduleAndOdometer(
   options?: ValidateTripOptions,
 ): Promise<void> {
   const peers = await loadTruckTripPeers(tenantId, candidate.truckId, t);
-  validateTripScheduleAndOdometer(candidate, peers, options);
+  const resets = options?.resets ?? (await loadTruckOdometerResets(tenantId, candidate.truckId, t));
+  validateTripScheduleAndOdometer(candidate, peers, { ...options, resets });
 }

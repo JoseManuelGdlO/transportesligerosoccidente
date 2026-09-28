@@ -30,7 +30,8 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
 import { hasApiConfigured } from "@/lib/api";
-import { fetchRoutes, patchTrip } from "@/lib/tloApi";
+import { fetchRoutes, fetchTruckOdometerResets, patchTrip } from "@/lib/tloApi";
+import { filterTripsInSameEpoch, findApplicableReset } from "@/lib/odometerEpoch";
 import {
   previewKmFinalCascade,
   previewKmInicialCascade,
@@ -38,7 +39,7 @@ import {
   type KmFinalCascadePreview,
   type KmInicialCascadePreview,
 } from "@/lib/tripOdometer";
-import type { RouteCatalog, Trip, TripType } from "@/types/tlo";
+import type { RouteCatalog, Trip, TripType, TruckOdometerReset } from "@/types/tlo";
 import {
   assertNoOpenTripConflictLocal,
   openTripByDriverId,
@@ -130,6 +131,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const [cascadePreview, setCascadePreview] = useState<CascadeConfirmState | null>(null);
   const [cascadeBlockMessage, setCascadeBlockMessage] = useState<string | null>(null);
   const [beforeLastMessage, setBeforeLastMessage] = useState<string | null>(null);
+  const [odometerResets, setOdometerResets] = useState<TruckOdometerReset[]>([]);
 
   const openByTruck = useMemo(() => openTripByTruckId(trips, trip.id), [trips, trip.id]);
   const openByDriver = useMemo(() => openTripByDriverId(trips, trip.id), [trips, trip.id]);
@@ -156,6 +158,24 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     setCascadeBlockMessage(null);
     setBeforeLastMessage(null);
   }, [open, trip]);
+
+  useEffect(() => {
+    if (!open || !apiMode || !canEditKm) {
+      setOdometerResets([]);
+      return;
+    }
+    let cancelled = false;
+    void fetchTruckOdometerResets(trip.truck_id)
+      .then((rows) => {
+        if (!cancelled) setOdometerResets(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setOdometerResets([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [open, apiMode, canEditKm, trip.truck_id]);
 
   useEffect(() => {
     if (open && form.client_id) void loadRoutes(form.client_id);
@@ -325,10 +345,17 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     const truckChangingSubmit = form.truck_id !== trip.truck_id;
     let nextPreview: KmFinalCascadePreview | null = null;
     let prevPreview: KmInicialCascadePreview | null = null;
+    const bypassKmContinuity =
+      isClosed && findApplicableReset(odometerResets, fechaSalidaIso) != null;
+    const epochTrips = filterTripsInSameEpoch(
+      trips.filter((t) => t.truck_id === trip.truck_id),
+      odometerResets,
+      fechaSalidaIso,
+    );
 
-    if (!truckChangingSubmit) {
+    if (!truckChangingSubmit && !bypassKmContinuity) {
       if (kmInicialChanged) {
-        const { preview, error } = previewKmInicialCascade(trip, trips, +form.km_inicial, {
+        const { preview, error } = previewKmInicialCascade(trip, epochTrips, +form.km_inicial, {
           truckId: trip.truck_id,
           fechaSalida: fechaSalidaIso,
         });
@@ -339,7 +366,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
         prevPreview = preview;
       }
       if (kmFinalChanged) {
-        const { preview, error } = previewKmFinalCascade(trip, trips, +form.km_final, {
+        const { preview, error } = previewKmFinalCascade(trip, epochTrips, +form.km_final, {
           truckId: trip.truck_id,
           fechaSalida: fechaSalidaIso,
         });
@@ -508,6 +535,12 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                     value={form.km_inicial}
                     onChange={(e) => setForm({ ...form, km_inicial: +e.target.value })}
                   />
+                  {isClosed && findApplicableReset(odometerResets, new Date(form.fecha_salida).toISOString()) ? (
+                    <p className="text-xs text-muted-foreground">
+                      Este viaje está en la escala nueva: puedes corregir el kilometraje sin que tenga que empatar con
+                      el viaje anterior.
+                    </p>
+                  ) : null}
                 </div>
                 <div className="space-y-1.5">
                   <Label>Tarifa pactada (MXN)</Label>

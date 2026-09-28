@@ -609,6 +609,34 @@ export interface Truck {
   capacidad_carga_kg?: number;
 }
 
+export interface TruckOdometerReset {
+  id: string;
+  truck_id: string;
+  effective_at: string;
+  old_km: number;
+  new_km: number;
+  motivo: string;
+  created_by_user_id?: string | null;
+  created_at: string;
+}
+
+export interface OdometerResetAffectedTrip {
+  id: string;
+  folio: string;
+  origen: string;
+  destino: string;
+  fecha_salida: string;
+  fecha_llegada: string | null;
+  km_inicial: number;
+  km_final: number | null;
+  cerrado: boolean;
+}
+
+export interface OdometerResetPreview {
+  blocked_reason: string | null;
+  affected: OdometerResetAffectedTrip[];
+}
+
 export interface Driver {
   id: string;
   nombre: string;

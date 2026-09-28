@@ -8,6 +8,7 @@ import {
   Truck,
   TripStatus,
   FuelTicket,
+  TruckOdometerReset,
   User,
 } from "../models";
 import {
@@ -79,6 +80,7 @@ function setup(opts: {
     async () => [{ id: truckId, numero_economico: "TLO-01" }] as never,
   );
   const tripStatusFindAll = mock.method(TripStatus, "findAll", async () => [] as never);
+  mock.method(TruckOdometerReset, "findAll", async () => [] as never);
   const fuelFindOne = mock.method(
     FuelTicket,
     "findOne",

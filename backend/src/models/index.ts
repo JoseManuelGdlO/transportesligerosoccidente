@@ -27,6 +27,7 @@ import { DriverAccountItem, initDriverAccountItem } from "./DriverAccountItem";
 import { DriverAccountMovement, initDriverAccountMovement } from "./DriverAccountMovement";
 import { MaintenanceSchedule, initMaintenanceSchedule } from "./MaintenanceSchedule";
 import { MaintenanceRecord, initMaintenanceRecord } from "./MaintenanceRecord";
+import { TruckOdometerReset, initTruckOdometerReset } from "./TruckOdometerReset";
 import { MaintenanceCategory, initMaintenanceCategory } from "./MaintenanceCategory";
 import { ClientUbicacion, initClientUbicacion } from "./ClientUbicacion";
 import { Route, initRoute } from "./Route";
@@ -81,6 +82,7 @@ export function initModels() {
   initMaintenanceSchedule(sequelize);
   initMaintenanceCategory(sequelize);
   initMaintenanceRecord(sequelize);
+  initTruckOdometerReset(sequelize);
   initAccountDocument(sequelize);
   initAccountDocumentPayment(sequelize);
   initSatClaveProducto(sequelize);
@@ -228,6 +230,13 @@ export function initModels() {
   Truck.hasMany(MaintenanceRecord, { foreignKey: "truck_id", as: "maintenanceRecords" });
   MaintenanceRecord.belongsTo(Truck, { foreignKey: "truck_id" });
 
+  Tenant.hasMany(TruckOdometerReset, { foreignKey: "tenant_id" });
+  TruckOdometerReset.belongsTo(Tenant, { foreignKey: "tenant_id" });
+  Truck.hasMany(TruckOdometerReset, { foreignKey: "truck_id", as: "odometerResets" });
+  TruckOdometerReset.belongsTo(Truck, { foreignKey: "truck_id" });
+  User.hasMany(TruckOdometerReset, { foreignKey: "created_by_user_id", as: "odometerResetsCreated" });
+  TruckOdometerReset.belongsTo(User, { foreignKey: "created_by_user_id", as: "createdBy" });
+
   Tenant.hasMany(MaintenanceCategory, { foreignKey: "tenant_id" });
   MaintenanceCategory.belongsTo(Tenant, { foreignKey: "tenant_id" });
   MaintenanceCategory.hasMany(MaintenanceRecord, { foreignKey: "category_id" });
@@ -320,6 +329,7 @@ export {
   DriverAccountMovement,
   MaintenanceSchedule,
   MaintenanceRecord,
+  TruckOdometerReset,
   MaintenanceCategory,
   TripStatus,
   TripStatusAssignment,

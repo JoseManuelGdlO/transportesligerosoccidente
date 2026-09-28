@@ -16,7 +16,6 @@ import {
   tripIsClosed,
   assignEnCursoOnCreate,
   swapSystemStatus,
-  getClosedStatusIds,
   assertNoOpenTripConflict,
 } from "./tripStatusService";
 import {
@@ -28,6 +27,8 @@ import {
   type KmFinalCascadePlan,
   type KmInicialCascadePlan,
 } from "./tripSequenceValidation";
+import { findApplicableReset } from "./odometerEpoch";
+import { getClosedTripsForLastKm, loadTruckOdometerResets, resolveLastKmForTruck } from "./odometerResetService";
 import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
 import {
   DEFAULT_CFDI_CLAVE_PROD_SERV,
@@ -670,20 +671,27 @@ export async function patchTrip(
   // Cascada solo si la unidad no cambia: el eslabón real está en el camión actual.
   // Si truck_id cambia, los peers del camión nuevo aún no incluyen este viaje y
   // el plan apuntaría al viaje equivocado.
-  if ((kmFinalChanged || kmInicialChanged) && !truckChanging) {
+  const resets = await loadTruckOdometerResets(tenantId, effectiveTruckId);
+  const bypassContinuity =
+    isClosed && findApplicableReset(resets, effectiveFechaSalida) != null;
+  if ((kmFinalChanged || kmInicialChanged) && !truckChanging && !bypassContinuity) {
     const peers = await loadTruckTripPeers(tenantId, effectiveTruckId);
     if (kmFinalChanged) {
-      nextCascade = planKmFinalCascade(candidate, peers, previousKmFinal);
+      nextCascade = planKmFinalCascade(candidate, peers, previousKmFinal, resets);
     }
     if (kmInicialChanged) {
-      prevCascade = planKmInicialCascade(candidate, peers, previousKmInicial);
+      prevCascade = planKmInicialCascade(candidate, peers, previousKmInicial, resets);
     }
     validateTripScheduleAndOdometer(candidate, peers, {
       propagateKmFinalToNext: Boolean(nextCascade),
       propagateKmInicialToPrev: Boolean(prevCascade),
+      resets,
     });
   } else {
-    await assertTripScheduleAndOdometer(tenantId, candidate);
+    await assertTripScheduleAndOdometer(tenantId, candidate, undefined, {
+      bypassOdometerContinuity: bypassContinuity,
+      resets,
+    });
   }
 
   await sequelize.transaction(async (t) => {
@@ -868,31 +876,9 @@ export async function getLastClosedKmFinal(
   truckId: string,
   excludeTripId?: string,
 ): Promise<number | null> {
-  const closedIds = await getClosedStatusIds(tenantId);
-  if (closedIds.length === 0) return null;
-
-  const where: Record<string, unknown> = {
-    tenant_id: tenantId,
-    truck_id: truckId,
-    km_final: { [Op.ne]: null },
-  };
-  if (excludeTripId) where.id = { [Op.ne]: excludeTripId };
-
-  const lastTrip = await Trip.findOne({
-    where,
-    include: [
-      {
-        ...STATUSES_INCLUDE,
-        where: { id: closedIds },
-        required: true,
-      },
-    ],
-    order: [
-      ["km_final", "DESC"],
-      ["fecha_llegada", "DESC"],
-      ["createdAt", "DESC"],
-    ],
-    attributes: ["km_final", "fecha_llegada", "createdAt"],
-  });
-  return lastTrip?.km_final ?? null;
+  const [resets, closedTrips] = await Promise.all([
+    loadTruckOdometerResets(tenantId, truckId),
+    getClosedTripsForLastKm(tenantId, truckId, excludeTripId),
+  ]);
+  return resolveLastKmForTruck({ resets, closedTrips });
 }

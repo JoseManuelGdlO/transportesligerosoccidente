@@ -551,6 +551,42 @@ export async function fetchTruckLastKm(
   return j.km_final;
 }
 
+export async function fetchTruckOdometerResets(truckId: string): Promise<import("@/types/tlo").TruckOdometerReset[]> {
+  const r = await apiFetch(`/trucks/${truckId}/odometer-resets`);
+  return readJson(r);
+}
+
+export async function fetchOdometerResetPreview(
+  truckId: string,
+  effectiveAtIso: string,
+): Promise<import("@/types/tlo").OdometerResetPreview> {
+  const qs = `?effective_at=${encodeURIComponent(effectiveAtIso)}`;
+  const r = await apiFetch(`/trucks/${truckId}/odometer-resets/preview${qs}`);
+  return readJson(r);
+}
+
+export async function createTruckOdometerReset(
+  truckId: string,
+  body: {
+    effective_at: string;
+    new_km: number;
+    motivo: string;
+    adjustments: { trip_id: string; km_inicial: number; km_final: number | null }[];
+  },
+): Promise<import("@/types/tlo").TruckOdometerReset> {
+  const r = await apiFetch(`/trucks/${truckId}/odometer-resets`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readJson(r);
+}
+
+export async function deleteTruckOdometerReset(truckId: string, resetId: string): Promise<void> {
+  const r = await apiFetch(`/trucks/${truckId}/odometer-resets/${resetId}`, { method: "DELETE" });
+  if (r.status === 204) return;
+  await readJson(r);
+}
+
 export async function fetchUsersAndRoles(): Promise<{ systemUsers: SystemUser[]; roles: RoleDefinition[] }> {
   const [uRes, rRes] = await Promise.all([apiFetch("/users"), apiFetch("/roles")]);
   const usersJson = await readJson<unknown[]>(uRes);
