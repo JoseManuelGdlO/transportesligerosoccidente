@@ -1082,4 +1082,76 @@ describe("weekSettlementSummary", () => {
     settlementFindAll.mock.restore();
     restoreSummaryDeps({ ...deps, driverFindOne });
   });
+
+  it("usa el snapshot del borrador y no el cálculo en vivo", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () =>
+      [
+        { id: "driver-1", nombre: "Ana", estatus: "activo" },
+        { id: "driver-2", nombre: "Bob", estatus: "activo" },
+        { id: "driver-3", nombre: "Carla", estatus: "activo" },
+      ] as never,
+    );
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        {
+          id: "set-closed",
+          driver_id: "driver-1",
+          cerrado: true,
+          snapshot: {
+            total_ingresos: 10000,
+            total_comisiones: 1000,
+            neto_pagar: 800,
+            trips: [{ id: "t1", included: true }],
+          },
+        },
+        {
+          id: "set-draft",
+          driver_id: "driver-2",
+          cerrado: false,
+          snapshot: {
+            total_ingresos: 5000,
+            total_comisiones: 500,
+            neto_pagar: 400,
+            trips: [
+              { id: "t3", included: true },
+              { id: "t4", included: false },
+            ],
+          },
+        },
+      ] as never,
+    );
+
+    const deps = mockSummaryDeps();
+    deps.driverFindOne.mock.restore();
+    const driverFindOne = mock.method(Driver, "findOne", async () =>
+      ({
+        ...mockDriver,
+        id: "driver-3",
+        nombre: "Carla",
+      }) as never,
+    );
+
+    const result = await weekSettlementSummary(tenantId, fechaInicio, fechaFin);
+
+    assert.equal(result.rows[1].driver_nombre, "Bob");
+    assert.equal(result.rows[1].estado, "preliquidacion");
+    assert.equal(result.rows[1].facturacion, 5000);
+    assert.equal(result.rows[1].comisiones, 500);
+    assert.equal(result.rows[1].neto_pagar, 400);
+    assert.equal(result.rows[1].viajes, 1);
+    assert.equal(result.rows[1].settlement_id, "set-draft");
+
+    assert.equal(result.rows[2].driver_nombre, "Carla");
+    assert.equal(result.rows[2].estado, "abierta");
+    assert.equal(result.rows[2].facturacion, 0);
+    assert.equal(deps.tripFindAll.mock.callCount(), 1);
+
+    assert.equal(result.totales.facturacion, 15000);
+    assert.equal(result.totales.neto_pagar, 1200);
+    assert.equal(result.totales.operadores, 3);
+
+    driverFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+    restoreSummaryDeps({ ...deps, driverFindOne });
+  });
 });

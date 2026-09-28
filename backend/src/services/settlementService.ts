@@ -222,9 +222,29 @@ function countIncludedTrips(trips: unknown): number {
   return trips.filter((t) => (t as { included?: boolean }).included !== false).length;
 }
 
+function weekRowFromSnapshot(
+  driver: { id: string; nombre: string },
+  settlementId: string,
+  snapshot: Record<string, unknown>,
+  estado: Extract<WeekSettlementEstado, "cerrada" | "preliquidacion">,
+): WeekSettlementRow {
+  return {
+    driver_id: driver.id,
+    driver_nombre: driver.nombre,
+    viajes: countIncludedTrips(snapshot.trips),
+    facturacion: roundMoney(num(snapshot.total_ingresos)),
+    comisiones: roundMoney(num(snapshot.total_comisiones)),
+    neto_pagar: roundMoney(num(snapshot.neto_pagar)),
+    estado,
+    settlement_id: settlementId,
+  };
+}
+
 /**
- * Resumen consolidado de la semana: neto a pagar y facturación por operador activo.
- * Cerrada → snapshot; abierta/preliquidación → cálculo en vivo.
+ * Resumen consolidado de la semana por operador activo.
+ * Cerrada → snapshot del cierre. Preliquidación con snapshot → snapshot del borrador.
+ * Abierta, o preliquidación sin snapshot → cálculo en vivo.
+ * Los totales de la API suman todas las filas; la pantalla elige cuáles entran al conteo.
  */
 export async function weekSettlementSummary(
   tenantId: string,
@@ -268,17 +288,12 @@ export async function weekSettlementSummary(
     const draft = list.find((s) => !s.cerrado);
 
     if (closed?.snapshot) {
-      const snap = closed.snapshot;
-      rows.push({
-        driver_id: driver.id,
-        driver_nombre: driver.nombre,
-        viajes: countIncludedTrips(snap.trips),
-        facturacion: roundMoney(num(snap.total_ingresos)),
-        comisiones: roundMoney(num(snap.total_comisiones)),
-        neto_pagar: roundMoney(num(snap.neto_pagar)),
-        estado: "cerrada",
-        settlement_id: closed.id,
-      });
+      rows.push(weekRowFromSnapshot(driver, closed.id, closed.snapshot, "cerrada"));
+      continue;
+    }
+
+    if (draft?.snapshot) {
+      rows.push(weekRowFromSnapshot(driver, draft.id, draft.snapshot, "preliquidacion"));
       continue;
     }
 

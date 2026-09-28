@@ -7,7 +7,7 @@ import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
-import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado } from "@/types/tlo";
+import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
 import { DriverAccountPanel } from "@/components/tlo/DriverAccountPanel";
 import { KpiCard } from "@/components/tlo/KpiCard";
@@ -16,6 +16,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow, TableFooter } from "@/components/ui/table";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -78,6 +79,8 @@ export default function Liquidaciones() {
   const [activeTab, setActiveTab] = useState<SettlementTab>("actual");
   const [weekSummary, setWeekSummary] = useState<WeekSettlementSummaryApi | null>(null);
   const [weekLoading, setWeekLoading] = useState(false);
+  const [weekPickOverrides, setWeekPickOverrides] = useState<Record<string, boolean>>({});
+  const [appliedWeekPeriod, setAppliedWeekPeriod] = useState("");
   const [activeDraftId, setActiveDraftId] = useState<string | null>(null);
   const [summarySource, setSummarySource] = useState<SummarySource>("live");
   const [viewingHistory, setViewingHistory] = useState<SettlementRecord | null>(null);
@@ -192,6 +195,43 @@ export default function Liquidaciones() {
   useEffect(() => {
     void loadLists();
   }, [loadLists]);
+
+  const weekPeriodKey = weekSummary ? `${weekSummary.periodo.inicio}|${weekSummary.periodo.fin}` : "";
+  if (weekPeriodKey !== appliedWeekPeriod) {
+    setAppliedWeekPeriod(weekPeriodKey);
+    setWeekPickOverrides({});
+  }
+
+  const isWeekRowCounted = useCallback(
+    (row: WeekSettlementRow) => weekPickOverrides[row.driver_id] ?? row.estado !== "abierta",
+    [weekPickOverrides],
+  );
+
+  const countedWeekRows = useMemo(
+    () => (weekSummary?.rows ?? []).filter((row) => isWeekRowCounted(row)),
+    [weekSummary, isWeekRowCounted],
+  );
+
+  const countedWeekTotals = useMemo(
+    () => ({
+      facturacion: countedWeekRows.reduce((sum, row) => sum + row.facturacion, 0),
+      neto_pagar: countedWeekRows.reduce((sum, row) => sum + row.neto_pagar, 0),
+      comisiones: countedWeekRows.reduce((sum, row) => sum + row.comisiones, 0),
+      viajes: countedWeekRows.reduce((sum, row) => sum + row.viajes, 0),
+      operadores: countedWeekRows.length,
+      cerradas: countedWeekRows.filter((row) => row.estado === "cerrada").length,
+    }),
+    [countedWeekRows],
+  );
+
+  const toggleWeekRow = (driverRowId: string, counted: boolean) => {
+    setWeekPickOverrides((prev) => ({ ...prev, [driverRowId]: counted }));
+  };
+
+  const toggleAllWeekRows = (counted: boolean) => {
+    if (!weekSummary) return;
+    setWeekPickOverrides(Object.fromEntries(weekSummary.rows.map((row) => [row.driver_id, counted])));
+  };
 
   const driver = useMemo(() => {
     if (summarySource === "snapshot" && summary) {
@@ -638,35 +678,35 @@ export default function Liquidaciones() {
                 <KpiCard
                   label="Facturación semana"
                   labelClassName="text-[10px] leading-tight"
-                  value={fmtMXN(weekSummary.totales.facturacion)}
+                  value={fmtMXN(countedWeekTotals.facturacion)}
                   icon={Wallet}
                   tone="accent"
                 />
                 <KpiCard
                   label="Neto a pagar"
                   labelClassName="text-[10px] leading-tight"
-                  value={fmtMXN(weekSummary.totales.neto_pagar)}
+                  value={fmtMXN(countedWeekTotals.neto_pagar)}
                   icon={TrendingUp}
-                  tone={weekSummary.totales.neto_pagar >= 0 ? "success" : "destructive"}
+                  tone={countedWeekTotals.neto_pagar >= 0 ? "success" : "destructive"}
                 />
                 <KpiCard
                   label="Operadores"
                   labelClassName="text-[10px] leading-tight"
-                  value={String(weekSummary.totales.operadores)}
+                  value={`${countedWeekTotals.operadores} / ${weekSummary.rows.length}`}
                   icon={Users}
                   tone="default"
                 />
                 <KpiCard
                   label="Cerradas"
                   labelClassName="text-[10px] leading-tight"
-                  value={`${weekSummary.totales.cerradas} / ${weekSummary.totales.operadores}`}
+                  value={`${countedWeekTotals.cerradas} / ${countedWeekTotals.operadores}`}
                   icon={Lock}
                   tone="default"
                 />
                 <KpiCard
                   label="Viajes"
                   labelClassName="text-[10px] leading-tight"
-                  value={String(weekSummary.totales.viajes)}
+                  value={String(countedWeekTotals.viajes)}
                   icon={TruckIcon}
                   tone="default"
                 />
@@ -676,6 +716,20 @@ export default function Liquidaciones() {
                 <Table>
                   <TableHeader>
                     <TableRow>
+                      <TableHead className="w-10">
+                        <Checkbox
+                          checked={
+                            weekSummary.rows.length > 0 && countedWeekTotals.operadores === weekSummary.rows.length
+                              ? true
+                              : countedWeekTotals.operadores > 0
+                                ? "indeterminate"
+                                : false
+                          }
+                          onCheckedChange={(value) => toggleAllWeekRows(value === true)}
+                          aria-label="Seleccionar operadores del conteo"
+                          onClick={(event) => event.stopPropagation()}
+                        />
+                      </TableHead>
                       <TableHead>Operador</TableHead>
                       <TableHead className="text-right">Viajes</TableHead>
                       <TableHead className="text-right">Facturación</TableHead>
@@ -687,49 +741,60 @@ export default function Liquidaciones() {
                   <TableBody>
                     {weekSummary.rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                           Sin operadores activos
                         </TableCell>
                       </TableRow>
                     )}
-                    {weekSummary.rows.map((row) => (
-                      <TableRow
-                        key={row.driver_id}
-                        className="cursor-pointer hover:bg-muted/50"
-                        onClick={() => openWeekRow(row.driver_id)}
-                      >
-                        <TableCell className="font-medium">{row.driver_nombre}</TableCell>
-                        <TableCell className="text-right font-mono">{row.viajes}</TableCell>
-                        <TableCell className="text-right font-mono">{fmtMXN(row.facturacion)}</TableCell>
-                        <TableCell className="text-right font-mono">{fmtMXN(row.comisiones)}</TableCell>
-                        <TableCell
-                          className={`text-right font-mono font-semibold ${
-                            row.neto_pagar >= 0 ? "text-success" : "text-destructive"
-                          }`}
+                    {weekSummary.rows.map((row) => {
+                      const counted = isWeekRowCounted(row);
+                      return (
+                        <TableRow
+                          key={row.driver_id}
+                          className={`cursor-pointer hover:bg-muted/50 ${counted ? "" : "opacity-50"}`}
+                          onClick={() => openWeekRow(row.driver_id)}
                         >
-                          {fmtMXN(row.neto_pagar)}
-                        </TableCell>
-                        <TableCell className="text-right">
-                          <Badge variant={weekEstadoBadgeVariant(row.estado)}>
-                            {WEEK_ESTADO_LABEL[row.estado]}
-                          </Badge>
-                        </TableCell>
-                      </TableRow>
-                    ))}
+                          <TableCell className="w-10" onClick={(event) => event.stopPropagation()}>
+                            <Checkbox
+                              checked={counted}
+                              onCheckedChange={(value) => toggleWeekRow(row.driver_id, value === true)}
+                              aria-label={`Incluir a ${row.driver_nombre} en el conteo`}
+                            />
+                          </TableCell>
+                          <TableCell className="font-medium">{row.driver_nombre}</TableCell>
+                          <TableCell className="text-right font-mono">{row.viajes}</TableCell>
+                          <TableCell className="text-right font-mono">{fmtMXN(row.facturacion)}</TableCell>
+                          <TableCell className="text-right font-mono">{fmtMXN(row.comisiones)}</TableCell>
+                          <TableCell
+                            className={`text-right font-mono font-semibold ${
+                              row.neto_pagar >= 0 ? "text-success" : "text-destructive"
+                            }`}
+                          >
+                            {fmtMXN(row.neto_pagar)}
+                          </TableCell>
+                          <TableCell className="text-right">
+                            <Badge variant={weekEstadoBadgeVariant(row.estado)}>
+                              {WEEK_ESTADO_LABEL[row.estado]}
+                            </Badge>
+                          </TableCell>
+                        </TableRow>
+                      );
+                    })}
                   </TableBody>
                   {weekSummary.rows.length > 0 && (
                     <TableFooter>
                       <TableRow>
+                        <TableCell />
                         <TableCell>Totales</TableCell>
-                        <TableCell className="text-right font-mono">{weekSummary.totales.viajes}</TableCell>
+                        <TableCell className="text-right font-mono">{countedWeekTotals.viajes}</TableCell>
                         <TableCell className="text-right font-mono">
-                          {fmtMXN(weekSummary.totales.facturacion)}
+                          {fmtMXN(countedWeekTotals.facturacion)}
                         </TableCell>
                         <TableCell className="text-right font-mono">
-                          {fmtMXN(weekSummary.rows.reduce((a, r) => a + r.comisiones, 0))}
+                          {fmtMXN(countedWeekTotals.comisiones)}
                         </TableCell>
                         <TableCell className="text-right font-mono font-semibold">
-                          {fmtMXN(weekSummary.totales.neto_pagar)}
+                          {fmtMXN(countedWeekTotals.neto_pagar)}
                         </TableCell>
                         <TableCell />
                       </TableRow>
@@ -738,8 +803,9 @@ export default function Liquidaciones() {
                 </Table>
               </Card>
               <p className="text-xs text-muted-foreground">
-                Clic en un operador para abrir su liquidación del periodo. Los montos de liquidaciones
-                cerradas vienen del cierre oficial; el resto se calcula en vivo.
+                Marca los operadores que entran al conteo. Cerradas y preliquidaciones usan el monto guardado
+                y vienen marcadas; las abiertas se calculan en vivo y quedan fuera hasta que las marques.
+                Clic en un operador para abrir su liquidación del periodo.
               </p>
             </>
           )}
