@@ -115,6 +115,7 @@ export interface SettlementSummary {
     saldo_antes: number;
     saldo_despues: number;
   }[];
+  account_items?: AccountItemBalanceInput[];
 }
 
 /** Monto comprobado en exceso de viáticos entregados (suma al neto). */
@@ -148,6 +149,62 @@ export interface AccountApplicationResult {
   monto: number;
   saldo_antes: number;
   saldo_despues: number;
+}
+
+export interface OutstandingDebtRow {
+  id: string;
+  tipo: string;
+  concepto: string;
+  fecha: string;
+  monto_original: number;
+  saldo: number;
+  descuento_activo: boolean;
+  abono_periodo: number;
+}
+
+/** Adeudos con saldo, incluidos los pausados que no se descuentan en el periodo. */
+export function outstandingDebtsForSettlement(opts: {
+  account_items?: AccountItemBalanceInput[];
+  account_applications?: Pick<AccountApplicationResult, "item_id" | "tipo" | "concepto" | "monto" | "saldo_despues">[];
+}): OutstandingDebtRow[] {
+  const apps = opts.account_applications ?? [];
+  const appsByItem = new Map(apps.map((a) => [a.item_id, a]));
+  const items = opts.account_items ?? [];
+  const fromItems = items.map((item) => {
+    const app = appsByItem.get(item.id);
+    const abono_periodo = app ? roundMoney(app.monto) : 0;
+    const saldo = app ? roundMoney(app.saldo_despues) : roundMoney(item.saldo);
+    return {
+      id: item.id,
+      tipo: item.tipo,
+      concepto: item.concepto,
+      fecha: item.fecha,
+      monto_original: item.monto_original,
+      saldo,
+      descuento_activo: isDescuentoActivo(item.descuento_activo),
+      abono_periodo,
+    };
+  });
+  const fromAppsOnly = apps
+    .filter((a) => !items.some((i) => i.id === a.item_id))
+    .map((a) => ({
+      id: a.item_id,
+      tipo: a.tipo,
+      concepto: a.concepto,
+      fecha: "",
+      monto_original: 0,
+      saldo: roundMoney(a.saldo_despues),
+      descuento_activo: true,
+      abono_periodo: roundMoney(a.monto),
+    }));
+
+  return [...fromItems, ...fromAppsOnly]
+    .filter((row) => row.saldo > 0)
+    .sort((a, b) => {
+      const byFecha = a.fecha.localeCompare(b.fecha);
+      if (byFecha !== 0) return byFecha;
+      return a.id.localeCompare(b.id);
+    });
 }
 
 /** Cuotas FIFO: min(cuota, saldo, disponible), sin llevar el neto bajo cero. */

@@ -143,6 +143,7 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
       discounts: snapshot.discounts ?? [],
       compensations: snapshot.compensations ?? [],
       account_applications: snapshot.account_applications ?? [],
+      account_items: snapshot.account_items ?? [],
     };
   }
 
@@ -191,6 +192,7 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     discounts: snapshot.discounts ?? [],
     compensations: snapshot.compensations ?? [],
     account_applications: account.account_applications,
+    account_items: snapshot.account_items ?? [],
   };
 }
 

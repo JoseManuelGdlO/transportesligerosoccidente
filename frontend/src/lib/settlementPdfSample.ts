@@ -113,6 +113,38 @@ export const SAMPLE_SETTLEMENT_SUMMARY: SettlementSummary = {
       en_periodo: true,
     },
   ],
+  account_items: [
+    {
+      id: "sample-paused",
+      tipo: "incidencia",
+      concepto: "Llanta (descuento pausado)",
+      monto_original: 4500,
+      cuota_liquidacion: 500,
+      saldo: 4500,
+      fecha: "2025-04-20",
+      descuento_activo: false,
+    },
+    {
+      id: "sample-loan",
+      tipo: "prestamo",
+      concepto: "Préstamo personal",
+      monto_original: 2000,
+      cuota_liquidacion: 400,
+      saldo: 1600,
+      fecha: "2025-05-01",
+      descuento_activo: true,
+    },
+  ],
+  account_applications: [
+    {
+      item_id: "sample-loan",
+      tipo: "prestamo",
+      concepto: "Préstamo personal",
+      monto: 400,
+      saldo_antes: 1600,
+      saldo_despues: 1200,
+    },
+  ],
 };
 
 /** Ejemplo con viáticos comprobados por encima de lo entregado (saldo a favor suma al neto). */

@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest";
 import {
   computeNetoPagar,
   computeSettlement,
+  outstandingDebtsForSettlement,
   previewAccountInstallments,
   viaticosAFavor,
   viaticosNoComprobado,
@@ -134,6 +135,103 @@ describe("previewAccountInstallments", () => {
     expect(total).toBe(400);
     expect(applications).toHaveLength(1);
     expect(applications[0]?.item_id).toBe("active");
+  });
+});
+
+describe("outstandingDebtsForSettlement", () => {
+  const paused = {
+    id: "paused",
+    tipo: "incidencia",
+    concepto: "Llanta",
+    monto_original: 3000,
+    cuota_liquidacion: 500,
+    saldo: 3000,
+    fecha: "2026-01-01",
+    descuento_activo: false,
+  };
+  const active = {
+    id: "active",
+    tipo: "prestamo",
+    concepto: "Préstamo",
+    monto_original: 1000,
+    cuota_liquidacion: 400,
+    saldo: 1000,
+    fecha: "2026-02-01",
+    descuento_activo: true,
+  };
+
+  it("incluye adeudos pausados aunque no se descuenten", () => {
+    const rows = outstandingDebtsForSettlement({
+      account_items: [paused, active],
+      account_applications: [
+        {
+          item_id: "active",
+          tipo: "prestamo",
+          concepto: "Préstamo",
+          monto: 400,
+          saldo_antes: 1000,
+          saldo_despues: 600,
+        },
+      ],
+    });
+
+    expect(rows).toHaveLength(2);
+    expect(rows[0]).toMatchObject({
+      id: "paused",
+      concepto: "Llanta",
+      saldo: 3000,
+      descuento_activo: false,
+      abono_periodo: 0,
+    });
+    expect(rows[1]).toMatchObject({
+      id: "active",
+      saldo: 600,
+      descuento_activo: true,
+      abono_periodo: 400,
+    });
+  });
+
+  it("omite adeudos liquidados en el periodo", () => {
+    const rows = outstandingDebtsForSettlement({
+      account_items: [{ ...active, saldo: 400 }],
+      account_applications: [
+        {
+          item_id: "active",
+          tipo: "prestamo",
+          concepto: "Préstamo",
+          monto: 400,
+          saldo_antes: 400,
+          saldo_despues: 0,
+        },
+      ],
+    });
+    expect(rows).toHaveLength(0);
+  });
+
+  it("devuelve vacío si no hay cuenta del operador", () => {
+    expect(outstandingDebtsForSettlement({})).toEqual([]);
+  });
+
+  it("reconstruye el saldo vigente desde las cuotas si no hay account_items", () => {
+    const rows = outstandingDebtsForSettlement({
+      account_applications: [
+        {
+          item_id: "p1",
+          tipo: "pendiente",
+          concepto: "Pendiente liquidación",
+          monto: 40,
+          saldo_despues: 200,
+        },
+      ],
+    });
+    expect(rows).toHaveLength(1);
+    expect(rows[0]).toMatchObject({
+      id: "p1",
+      tipo: "pendiente",
+      concepto: "Pendiente liquidación",
+      saldo: 200,
+      abono_periodo: 40,
+    });
   });
 });
 

@@ -2,7 +2,14 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
-import { computeTrip, ingresosComprobadosLiquidacion, viaticosAFavor, viaticosNoComprobado, tripDriverNombre } from "@/lib/calc";
+import {
+  computeTrip,
+  ingresosComprobadosLiquidacion,
+  outstandingDebtsForSettlement,
+  tripDriverNombre,
+  viaticosAFavor,
+  viaticosNoComprobado,
+} from "@/lib/calc";
 import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
@@ -915,6 +922,18 @@ const renderViaticosSummary: BlockRenderer = (state) => {
       fmtMXN(a.monto),
       "Sí",
     ]),
+    ...outstandingDebtsForSettlement({
+      account_items: summary.account_items,
+      account_applications: summary.account_applications,
+    })
+      .filter((r) => r.abono_periodo <= 0)
+      .map((r) => [
+        `Cuenta (${r.tipo})`,
+        r.fecha ? fmtDatePdf(r.fecha) : "",
+        r.concepto,
+        fmtMXN(r.saldo),
+        "No",
+      ]),
     ...((summary.pendiente_arrastrado ?? 0) > 0
       ? [[
           "Pendiente",

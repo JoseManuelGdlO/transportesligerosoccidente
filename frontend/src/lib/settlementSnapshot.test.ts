@@ -125,6 +125,28 @@ describe("snapshotToPdfSummary", () => {
     expect(pdf.pendiente_arrastrado).toBe(50);
     expect(pdf.pendiente_item_id).toBe("pending-1");
   });
+
+  it("conserva account_items para mostrar adeudos vigentes en el PDF", () => {
+    const items = [
+      {
+        id: "paused",
+        tipo: "incidencia",
+        concepto: "Llanta",
+        monto_original: 3000,
+        cuota_liquidacion: 500,
+        saldo: 3000,
+        fecha: "2026-01-01",
+        descuento_activo: false,
+      },
+    ];
+    const snapshot = snapshotWithTrips([trip("a", 1000, true)], {
+      account_items: items,
+    });
+
+    const pdf = snapshotToPdfSummary(snapshot);
+
+    expect(pdf.account_items).toEqual(items);
+  });
 });
 
 describe("applyTripInclusions", () => {
