@@ -2,15 +2,13 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
+import { computeTrip, roundMoney, tripDriverNombre } from "@/lib/calc";
+import { fmtMXN, fmtMXNDecimal, fmtDate, fmtNumber, formatTripRoute, parseDateOnlyLocal } from "@/lib/format";
 import {
-  computeTrip,
-  ingresosComprobadosLiquidacion,
-  outstandingDebtsForSettlement,
-  tripDriverNombre,
-  viaticosAFavor,
-  viaticosNoComprobado,
-} from "@/lib/calc";
-import { fmtMXN, fmtDate, fmtNumber, formatTripRoute } from "@/lib/format";
+  buildSettlementSheet,
+  type SettlementBalanceBox,
+  type SettlementSheetLineKind,
+} from "@/lib/settlementSheet";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
   BLOCK_CATALOG,
@@ -66,6 +64,7 @@ export interface SettlementRenderData {
   fin: string;
   summary: SettlementSummary;
   unitLabel?: string;
+  trucks?: Truck[];
 }
 
 export interface TripRenderData {
@@ -129,8 +128,9 @@ function fmtDateShort(iso?: string): string {
 
 function fmtDatePdf(iso?: string): string {
   if (!iso) return "-";
-  const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return "-";
+  const raw = String(iso).trim();
+  const d = /^\d{4}-\d{2}-\d{2}$/.test(raw) ? parseDateOnlyLocal(raw) : new Date(raw);
+  if (!d || Number.isNaN(d.getTime())) return "-";
   const dd = String(d.getDate()).padStart(2, "0");
   const mm = String(d.getMonth() + 1).padStart(2, "0");
   const yy = String(d.getFullYear()).slice(-2);
@@ -144,10 +144,6 @@ function sortSettlementTrips(trips: Trip[]): Trip[] {
     if (!Number.isNaN(ta) && !Number.isNaN(tb) && ta !== tb) return ta - tb;
     return a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" });
   });
-}
-
-function tripClientLabel(t: Trip): string {
-  return t.client_nombre?.trim() || "-";
 }
 
 function setHeaderColors(state: RenderState): {
@@ -694,59 +690,7 @@ const renderPerformanceKpis: BlockRenderer = (state) => {
   state.y += 8;
 };
 
-const renderTripsTable: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const { summary, driver } = state.data;
-  const colors = setHeaderColors(state);
-  const head = [["Folio", "Factura", "Fecha", "Cliente", "Ruta", "Viáticos", "Comprobaciones", "Comisión"]];
-  const sortedTrips = sortSettlementTrips(summary.trips);
-  const body: string[][] = sortedTrips.map((t: Trip) => {
-    const f = computeTrip(t, driver);
-    const comprobados = f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
-    return [
-      String(t.folio),
-      t.num_factura?.trim() || "-",
-      fmtDatePdf(t.fecha_salida),
-      tripClientLabel(t),
-      formatTripRoute(t),
-      fmtMXN(t.viaticos_entregados || 0),
-      fmtMXN(comprobados),
-      fmtMXN(f.comision),
-    ];
-  });
-  const footRight = { halign: "right" as const };
-  ensureSpace(state, 20);
-  pdfAutoTable(state.doc, {
-    startY: state.y,
-    head,
-    body: body.length > 0 ? body : [["-", "-", "-", "-", "Sin viajes en el periodo", "", "", ""]],
-    foot: [
-      [
-        { content: `Total:`, colSpan: 2, styles: { halign: "left" } },
-        { content: `${summary.trips.length} Viajes`, colSpan: 3 },
-        { content: fmtMXN(summary.viaticos_entregados), styles: { ...footRight, fontStyle: "bold" } },
-        { content: fmtMXN(summary.viaticos_comprobados), styles: { ...footRight, fontStyle: "bold" } },
-        { content: fmtMXN(summary.total_comisiones), styles: footRight },
-      ],
-    ],
-    styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
-    headStyles: { fillColor: colors.fill, textColor: colors.text },
-    footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
-    margin: tableMargins(state),
-    rowPageBreak: "avoid",
-    columnStyles: {
-      0: { cellWidth: 16 },
-      1: { cellWidth: 18 },
-      2: { cellWidth: 14 },
-      3: { cellWidth: 22 },
-      4: { cellWidth: 40 },
-      5: { halign: "right", cellWidth: 20 },
-      6: { halign: "right", cellWidth: 22 },
-      7: { halign: "right", cellWidth: 20 },
-    },
-  });
-  state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
-};
+const renderTripsTable: BlockRenderer = () => undefined;
 
 const renderFuelTable: BlockRenderer = (state) => {
   if (state.data.kind !== "trip") return;
@@ -874,139 +818,7 @@ const renderCommissionBlock: BlockRenderer = (state) => {
   state.y += 8;
 };
 
-const renderViaticosSummary: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const { summary } = state.data;
-  const colors = setHeaderColors(state);
-  const advances = summary.advances ?? [];
-  const discounts = summary.discounts ?? [];
-  const compensations = summary.compensations ?? [];
-  const viaticosFavor = viaticosAFavor(summary.saldo_viaticos);
-  const viaticosDeduccion = viaticosNoComprobado(summary.saldo_viaticos);
-  const footRight = { halign: "right" as const };
-
-  const body: string[][] = [
-    ["Viáticos", "", "Entregados", fmtMXN(summary.viaticos_entregados), ""],
-    ["Viáticos", "", "Comprobados", fmtMXN(summary.viaticos_comprobados), ""],
-    ...(viaticosFavor > 0
-      ? [["Viáticos", "", "A favor (suma al neto)", fmtMXN(viaticosFavor), ""]]
-      : []),
-    ...(viaticosDeduccion > 0
-      ? [["Viáticos", "", "No comprobados (deducción)", fmtMXN(viaticosDeduccion), ""]]
-      : []),
-    ...advances.map((a) => [
-      "Anticipo",
-      fmtDatePdf(a.fecha),
-      a.descripcion,
-      fmtMXN(a.monto),
-      a.en_periodo === false ? "No" : "Sí",
-    ]),
-    ...discounts.map((d) => [
-      d.tipo,
-      fmtDatePdf(d.fecha),
-      d.descripcion,
-      fmtMXN(d.monto),
-      d.en_periodo === false ? "No" : "Sí",
-    ]),
-    ...compensations.map((c) => [
-      `Compensación (${c.tipo})`,
-      fmtDatePdf(c.fecha),
-      c.descripcion,
-      fmtMXN(c.monto),
-      c.en_periodo === false ? "No" : "Sí",
-    ]),
-    ...(summary.account_applications ?? []).map((a) => [
-      `Cuenta (${a.tipo})`,
-      "",
-      a.concepto,
-      fmtMXN(a.monto),
-      "Sí",
-    ]),
-    ...outstandingDebtsForSettlement({
-      account_items: summary.account_items,
-      account_applications: summary.account_applications,
-    })
-      .filter((r) => r.abono_periodo <= 0)
-      .map((r) => [
-        `Cuenta (${r.tipo})`,
-        r.fecha ? fmtDatePdf(r.fecha) : "",
-        r.concepto,
-        fmtMXN(r.saldo),
-        "No",
-      ]),
-    ...((summary.pendiente_arrastrado ?? 0) > 0
-      ? [[
-          "Pendiente",
-          "",
-          "Se registra en la cuenta del operador para la siguiente liquidación",
-          fmtMXN(summary.pendiente_arrastrado ?? 0),
-          "Sí",
-        ]]
-      : []),
-  ];
-
-  const foot: UserOptions["foot"] = [];
-  if (summary.total_descuentos > 0) {
-    foot.push([
-      { content: "Descuentos (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: fmtMXN(summary.total_descuentos), styles: { ...footRight, fontStyle: "bold" } },
-      "",
-    ]);
-  }
-  if (summary.total_anticipos > 0) {
-    foot.push([
-      { content: "Anticipos (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: fmtMXN(summary.total_anticipos), styles: { ...footRight, fontStyle: "bold" } },
-      "",
-    ]);
-  }
-  if ((summary.total_compensaciones ?? 0) > 0) {
-    foot.push([
-      { content: "Compensaciones (periodo)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: fmtMXN(summary.total_compensaciones ?? 0), styles: { ...footRight, fontStyle: "bold" } },
-      "",
-    ]);
-  }
-  if ((summary.total_cuenta_abonos ?? 0) > 0) {
-    foot.push([
-      { content: "Cuenta operador (cuotas)", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: fmtMXN(summary.total_cuenta_abonos ?? 0), styles: { ...footRight, fontStyle: "bold" } },
-      "",
-    ]);
-  }
-  if ((summary.pendiente_arrastrado ?? 0) > 0) {
-    foot.push([
-      { content: "Pendiente a cuenta del operador", colSpan: 3, styles: { halign: "right", fontStyle: "bold" } },
-      { content: fmtMXN(summary.pendiente_arrastrado ?? 0), styles: { ...footRight, fontStyle: "bold" } },
-      "",
-    ]);
-  }
-
-  ensureSpace(state, 24);
-  state.doc.setFont("helvetica", "bold");
-  state.doc.setFontSize(11);
-  state.doc.text("Viáticos, anticipos, descuentos, compensaciones y cuenta", state.margin, state.y);
-  state.y += 4;
-  pdfAutoTable(state.doc, {
-    startY: state.y,
-    head: [["Concepto", "Fecha", "Descripción", "Monto", "En periodo"]],
-    body,
-    foot: foot.length > 0 ? foot : undefined,
-    styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
-    headStyles: { fillColor: colors.fill, textColor: colors.text },
-    footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
-    margin: tableMargins(state),
-    rowPageBreak: "avoid",
-    columnStyles: {
-      0: { cellWidth: 28 },
-      1: { cellWidth: 22 },
-      2: { cellWidth: 68 },
-      3: { halign: "right", cellWidth: 28 },
-      4: { cellWidth: 22 },
-    },
-  });
-  state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
-};
+const renderViaticosSummary: BlockRenderer = () => undefined;
 
 const renderUbicacionesList: BlockRenderer = (state) => {
   if (state.data.kind !== "trip") return;
@@ -1061,33 +873,7 @@ const renderMercanciasList: BlockRenderer = (state) => {
   state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 8;
 };
 
-const renderNetBox: BlockRenderer = (state) => {
-  if (state.data.kind !== "settlement") return;
-  const colors = setHeaderColors(state);
-  const pendiente = state.data.summary.pendiente_arrastrado ?? 0;
-  const boxH = pendiente > 0 ? 24 : 18;
-  ensureSpace(state, boxH + 6);
-  state.doc.setFillColor(colors.fill[0], colors.fill[1], colors.fill[2]);
-  state.doc.roundedRect(state.margin, state.y, state.pageW - state.margin * 2, boxH, 2, 2, "F");
-  state.doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
-  state.doc.setFontSize(9);
-  state.doc.setFont("helvetica", "normal");
-  state.doc.text("NETO A PAGAR", state.margin + 4, state.y + 7);
-  state.doc.setFontSize(14);
-  state.doc.setFont("helvetica", "bold");
-  state.doc.text(fmtMXN(state.data.summary.neto_pagar), state.margin + 4, state.y + 14);
-  if (pendiente > 0) {
-    state.doc.setFontSize(8);
-    state.doc.setFont("helvetica", "normal");
-    state.doc.text(
-      `Pendiente ${fmtMXN(pendiente)} registrado en la cuenta del operador`,
-      state.margin + 4,
-      state.y + 21,
-    );
-  }
-  state.doc.setTextColor(0, 0, 0);
-  state.y += boxH + 2;
-};
+const renderNetBox: BlockRenderer = () => undefined;
 
 const renderFooterText: BlockRenderer = (state, props) => {
   const text = state.branding.pie_pagina.trim();
@@ -1120,6 +906,214 @@ const renderDivider: BlockRenderer = (state) => {
   state.doc.line(state.margin, state.y, state.pageW - state.margin, state.y);
   state.y += 3;
 };
+
+interface SheetRow {
+  label: string;
+  value: string;
+  bold?: boolean;
+  highlight?: boolean;
+  note?: boolean;
+}
+
+function tripUnitLabel(trip: Trip, trucks?: Truck[]): string {
+  if (!trucks?.length) return "-";
+  const truck = trucks.find((item) => item.id === trip.truck_id);
+  if (!truck) return "-";
+  const eco = truck.numero_economico?.trim();
+  const placas = truck.placas?.trim();
+  if (eco && placas) return `${eco} - ${placas}`;
+  return eco || placas || "-";
+}
+
+function sheetMoney(kind: SettlementSheetLineKind, amount: number): string {
+  const rounded = roundMoney(amount);
+  if (kind === "add") {
+    if (rounded === 0) return fmtMXNDecimal(0);
+    return `+${fmtMXNDecimal(rounded)}`;
+  }
+  if (kind === "sub") return fmtMXNDecimal(-rounded);
+  return fmtMXNDecimal(rounded);
+}
+
+function balanceSheetRows(box: SettlementBalanceBox): SheetRow[] {
+  if (box.rows.length === 0) {
+    return [
+      { label: "Saldo anterior", value: fmtMXNDecimal(0) },
+      { label: "Abono", value: fmtMXNDecimal(0) },
+      { label: "Saldo actual", value: fmtMXNDecimal(0), bold: true },
+    ];
+  }
+  const rows: SheetRow[] = [];
+  for (const row of box.rows) {
+    rows.push({ label: row.concepto, value: "", bold: true });
+    rows.push({ label: "Saldo anterior", value: fmtMXNDecimal(row.saldoAnterior) });
+    rows.push({ label: "Abono", value: fmtMXNDecimal(row.abono) });
+    rows.push({ label: "Saldo actual", value: fmtMXNDecimal(row.saldoActual), bold: true });
+  }
+  if (box.rows.length > 1) {
+    rows.push({ label: "Total", value: "", bold: true });
+    rows.push({ label: "Saldo anterior", value: fmtMXNDecimal(box.saldoAnterior), bold: true });
+    rows.push({ label: "Abono", value: fmtMXNDecimal(box.abono), bold: true });
+    rows.push({ label: "Saldo actual", value: fmtMXNDecimal(box.saldoActual), bold: true });
+  }
+  return rows;
+}
+
+function resumenSheetRows(lines: ReturnType<typeof buildSettlementSheet>["lines"]): SheetRow[] {
+  return lines.map((line) => ({
+    label: line.label,
+    value: line.kind === "note" ? fmtMXNDecimal(line.amount) : sheetMoney(line.kind, line.amount),
+    bold: line.kind === "subtotal" || line.kind === "neto",
+    highlight: line.kind === "neto",
+    note: line.kind === "note",
+  }));
+}
+
+function drawSheetBox(
+  state: RenderState,
+  x: number,
+  y: number,
+  w: number,
+  title: string,
+  rows: SheetRow[],
+): number {
+  const { doc } = state;
+  const padX = 2;
+  const titleH = 7;
+  doc.setFont("helvetica", "normal");
+  doc.setFontSize(8);
+  const prepared = rows.map((row) => {
+    const valueReserve = row.value ? 38 : 1;
+    const labelW = Math.max(24, w - padX * 2 - valueReserve);
+    const lines = doc.splitTextToSize(pdfSafeText(row.label), labelW) as string[];
+    const h = Math.max(5.4, lines.length * 3.5 + 1.6);
+    return { ...row, lines, h };
+  });
+  const boxH = titleH + prepared.reduce((sum, row) => sum + row.h, 0) + 1.5;
+  doc.setFillColor(245, 246, 248);
+  doc.rect(x, y, w, titleH, "F");
+  doc.setDrawColor(210, 214, 220);
+  doc.setLineWidth(0.25);
+  doc.rect(x, y, w, boxH);
+  doc.setFont("helvetica", "bold");
+  doc.setFontSize(11);
+  doc.setTextColor(33, 37, 41);
+  doc.text(pdfSafeText(title), x + padX, y + 5);
+
+  const colors = setHeaderColors(state);
+  let ry = y + titleH;
+  for (let i = 0; i < prepared.length; i++) {
+    const row = prepared[i];
+    if (row.highlight) {
+      doc.setFillColor(colors.fill[0], colors.fill[1], colors.fill[2]);
+      doc.rect(x + 0.3, ry, w - 0.6, row.h, "F");
+      doc.setTextColor(colors.text[0], colors.text[1], colors.text[2]);
+    } else if (row.note) {
+      doc.setTextColor(90, 90, 90);
+    } else if (i % 2 === 1) {
+      doc.setFillColor(248, 249, 251);
+      doc.rect(x + 0.3, ry, w - 0.6, row.h, "F");
+      doc.setTextColor(40, 40, 40);
+    } else {
+      doc.setTextColor(40, 40, 40);
+    }
+    doc.setFont("helvetica", row.bold || row.highlight ? "bold" : "normal");
+    doc.setFontSize(row.note ? 7.5 : 8);
+    let ly = ry + 3.6;
+    for (const line of row.lines) {
+      doc.text(line, x + padX, ly);
+      ly += 3.5;
+    }
+    if (row.value) {
+      doc.text(pdfSafeText(row.value), x + w - padX, ry + 3.6, { align: "right" });
+    }
+    ry += row.h;
+  }
+  doc.setTextColor(0, 0, 0);
+  doc.setFont("helvetica", "normal");
+  return y + boxH;
+}
+
+function renderSettlementTrips(state: RenderState): void {
+  if (state.data.kind !== "settlement") return;
+  const { summary, driver, trucks } = state.data;
+  const colors = setHeaderColors(state);
+  const sorted = sortSettlementTrips(summary.trips);
+  let totalFlete = 0;
+  let totalComision = 0;
+  const body = sorted.map((trip) => {
+    const financials = computeTrip(trip, driver);
+    totalFlete = roundMoney(totalFlete + (Number(trip.tarifa) || 0));
+    totalComision = roundMoney(totalComision + financials.comision);
+    return [
+      String(trip.folio),
+      tripUnitLabel(trip, trucks),
+      formatTripRoute(trip),
+      trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local",
+      fmtDatePdf(trip.fecha_salida),
+      fmtMXNDecimal(trip.tarifa),
+      fmtMXNDecimal(financials.comision),
+    ];
+  });
+  ensureSpace(state, 24);
+  state.doc.setFont("helvetica", "bold");
+  state.doc.setFontSize(11);
+  state.doc.setTextColor(33, 37, 41);
+  state.doc.text("Viajes", state.margin, state.y);
+  state.y += 4;
+  const footRight = { halign: "right" as const };
+  pdfAutoTable(state.doc, {
+    startY: state.y,
+    head: [["Folio", "Unidad", "Ruta", "Tipo", "Salida", "Flete", "Comisión"]],
+    body: body.length > 0 ? body : [["", "", "Sin viajes en el periodo", "", "", "", ""]],
+    foot: [[
+      { content: "Total", colSpan: 4, styles: { halign: "left" } },
+      { content: `${sorted.length} viajes`, styles: { halign: "left" } },
+      { content: fmtMXNDecimal(totalFlete), styles: footRight },
+      { content: fmtMXNDecimal(totalComision), styles: footRight },
+    ]],
+    styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
+    headStyles: { fillColor: colors.fill, textColor: colors.text },
+    footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
+    margin: tableMargins(state),
+    rowPageBreak: "avoid",
+    columnStyles: {
+      0: { cellWidth: 18 },
+      1: { cellWidth: 34 },
+      3: { cellWidth: 20 },
+      4: { cellWidth: 22 },
+      5: { halign: "right", cellWidth: 28 },
+      6: { halign: "right", cellWidth: 28 },
+    },
+  });
+  state.doc.setTextColor(0, 0, 0);
+  state.y = ((state.doc as DocWithAutoTable).lastAutoTable?.finalY ?? state.y) + 6;
+}
+
+function renderSettlementLayout(state: RenderState): void {
+  if (state.data.kind !== "settlement") return;
+  state.zone = "body";
+  const model = buildSettlementSheet(state.data.summary);
+  const prestamosRows = balanceSheetRows(model.prestamos);
+  const incidenciaRows = balanceSheetRows(model.incidencias);
+  const rightRows = resumenSheetRows(model.lines);
+  const estimate = 22 + Math.max(prestamosRows.length + incidenciaRows.length + 2, rightRows.length) * 5.8;
+  const room = state.pageH - state.margin - Math.max(14, state.footerReserve) - 8;
+  ensureSpace(state, Math.min(estimate, Math.max(40, room)));
+
+  const gap = 6;
+  const contentW = state.pageW - state.margin * 2;
+  const leftW = (contentW - gap) * 0.58;
+  const rightW = contentW - gap - leftW;
+  const y0 = state.y;
+  const leftX = state.margin;
+  const rightX = leftX + leftW + gap;
+  const prestamosBottom = drawSheetBox(state, leftX, y0, leftW, "Préstamos", prestamosRows);
+  const incidenciasBottom = drawSheetBox(state, leftX, prestamosBottom + 4, leftW, "Incidencias", incidenciaRows);
+  const resumenBottom = drawSheetBox(state, rightX, y0, rightW, "Resumen", rightRows);
+  state.y = Math.max(incidenciasBottom, resumenBottom) + 6;
+  renderSettlementTrips(state);
+}
 
 const BLOCK_RENDERERS: Record<BlockType, BlockRenderer> = {
   logo: renderLogo,
@@ -1192,7 +1186,8 @@ export interface RenderOptions {
 }
 
 export function renderTemplatePdf(opts: RenderOptions): jsPDF {
-  const orientacion = opts.template.orientacion ?? "horizontal";
+  const settlement = opts.data.kind === "settlement";
+  const orientacion = settlement ? "horizontal" : (opts.template.orientacion ?? "horizontal");
   const doc = new jsPDF({
     orientation: orientacion === "horizontal" ? "landscape" : "portrait",
     unit: "mm",
@@ -1225,7 +1220,11 @@ export function renderTemplatePdf(opts: RenderOptions): jsPDF {
   renderBlocks(state, opts.template.sections.header, "header", opts.data.kind);
   // Snap Y past anchored right-column content (logo + company block) before body.
   state.y = Math.max(state.y, state.rightColumnY) + 2;
-  renderBlocks(state, opts.template.sections.body, "body", opts.data.kind);
+  if (opts.data.kind === "settlement") {
+    renderSettlementLayout(state);
+  } else {
+    renderBlocks(state, opts.template.sections.body, "body", opts.data.kind);
+  }
 
   if (footerBlocks.length > 0) {
     const pageCount = doc.getNumberOfPages();

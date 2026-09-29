@@ -62,8 +62,8 @@ function summaryWithDebts(extras: Partial<SettlementSummary> = {}): SettlementSu
   };
 }
 
-describe("buildSettlementPdf cuenta en viáticos", () => {
-  it("muestra cuotas de cuenta en la tabla de viáticos", () => {
+describe("buildSettlementPdf hoja de liquidación", () => {
+  it("muestra préstamos, incidencias y resumen", () => {
     const doc = buildSettlementPdf({
       tenantNombre: "TLO",
       driver: SAMPLE_DRIVER,
@@ -73,13 +73,13 @@ describe("buildSettlementPdf cuenta en viáticos", () => {
     });
     const text = pdfText(doc);
 
-    expect(text).toContain("compensaciones y cuenta");
-    expect(text).toContain("Cuenta (prestamo)");
     expect(text).toContain("Prestamo activo");
-    expect(text).toContain("Cuenta operador (cuotas)");
+    expect(text).toContain("Resumen");
+    expect(text).toContain("Neto a pagar");
+    expect(text).toContain("Viajes");
   });
 
-  it("incluye adeudos vigentes aunque no se descuenten en el periodo", () => {
+  it("incluye incidencias vigentes aunque no se descuenten en el periodo", () => {
     const doc = buildSettlementPdf({
       tenantNombre: "TLO",
       driver: SAMPLE_DRIVER,
@@ -89,7 +89,7 @@ describe("buildSettlementPdf cuenta en viáticos", () => {
     });
     const text = pdfText(doc);
 
-    expect(text).toContain("Cuenta (incidencia)");
+    expect(text).toContain("Incidencias");
     expect(text).toContain("Llanta sin descuento");
   });
 });

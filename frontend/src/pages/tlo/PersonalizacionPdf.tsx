@@ -298,9 +298,9 @@ export default function PersonalizacionPdf() {
                     <div className="space-y-1 max-w-xs">
                       <Label htmlFor={`pdf-orientacion-${kind}`}>Orientación del PDF</Label>
                       <Select
-                        value={(kind === "settlement" ? settlement.template : trip.template).orientacion}
+                        value={kind === "settlement" ? "horizontal" : trip.template.orientacion}
                         onValueChange={(v) => updateTemplateForKind(kind, { orientacion: v as PdfOrientation })}
-                        disabled={loading}
+                        disabled={loading || kind === "settlement"}
                       >
                         <SelectTrigger id={`pdf-orientacion-${kind}`}>
                           <SelectValue />
@@ -310,6 +310,9 @@ export default function PersonalizacionPdf() {
                           <SelectItem value="vertical">Vertical</SelectItem>
                         </SelectContent>
                       </Select>
+                      {kind === "settlement" ? (
+                        <p className="text-xs text-muted-foreground">La liquidación se imprime en horizontal.</p>
+                      ) : null}
                     </div>
                   </CardContent>
                 </Card>

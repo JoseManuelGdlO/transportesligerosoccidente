@@ -185,6 +185,11 @@ export function TemplateEditor({
                 <CardTitle className="text-base">{ZONE_LABELS[zone]}</CardTitle>
               </CardHeader>
               <CardContent className="space-y-2">
+                {kind === "settlement" && zone === "body" ? (
+                  <p className="text-xs text-muted-foreground">
+                    El cuerpo de la liquidación es fijo: préstamos, incidencias, resumen y viajes.
+                  </p>
+                ) : null}
                 <SortableContext items={ids} strategy={verticalListSortingStrategy}>
                   {blocks.length === 0 ? (
                     <div className="text-xs text-muted-foreground py-2 italic">Sin bloques en esta zona.</div>

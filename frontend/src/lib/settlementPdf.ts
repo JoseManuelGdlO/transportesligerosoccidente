@@ -68,6 +68,7 @@ export function buildSettlementPdf(opts: SettlementPdfOpts) {
       fin: opts.fin,
       summary: opts.summary,
       unitLabel: resolveUnitLabel(opts),
+      trucks: opts.trucks,
     },
   });
 }
