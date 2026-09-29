@@ -3,7 +3,8 @@ import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import type { SettlementSummary } from "@/lib/calc";
-import { startOfWeek, endOfWeek, fmtMXN, isoDay } from "@/lib/format";
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, isoDay } from "@/lib/format";
+import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
@@ -203,7 +204,8 @@ export default function Liquidaciones() {
   }
 
   const isWeekRowCounted = useCallback(
-    (row: WeekSettlementRow) => weekPickOverrides[row.driver_id] ?? row.estado !== "abierta",
+    (row: WeekSettlementRow) =>
+      weekRowCountsInPayroll(row.estado, weekPickOverrides[row.driver_id], Boolean(row.liquidada_otra_semana)),
     [weekPickOverrides],
   );
 
@@ -619,17 +621,19 @@ export default function Liquidaciones() {
     <div className="space-y-4">
       <Card className="p-4 tlo-shadow-md">
         <div className="flex flex-wrap items-end gap-3">
-          <div className="flex-1 min-w-[240px]">
-            <Label className="text-xs">Operador</Label>
-            <Select value={driverId} onValueChange={handleDriverChange}>
-              <SelectTrigger><SelectValue /></SelectTrigger>
-              <SelectContent>
-                {selectDrivers.map((d) => (
-                  <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+          {activeTab !== "resumen" && (
+            <div className="flex-1 min-w-[240px]">
+              <Label className="text-xs">Operador</Label>
+              <Select value={driverId} onValueChange={handleDriverChange}>
+                <SelectTrigger><SelectValue /></SelectTrigger>
+                <SelectContent>
+                  {selectDrivers.map((d) => (
+                    <SelectItem key={d.id} value={d.id}>{d.nombre}</SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+          )}
           <div><Label className="text-xs">Desde</Label><Input type="date" value={inicio} onChange={(e) => handleInicioChange(e.target.value)} /></div>
           <div><Label className="text-xs">Hasta</Label><Input type="date" value={fin} onChange={(e) => handleFinChange(e.target.value)} /></div>
           <Button
@@ -642,7 +646,21 @@ export default function Liquidaciones() {
           >
             Semana actual
           </Button>
-          <Button variant="secondary" onClick={handleRecalcular} disabled={loading}>Recalcular</Button>
+          {activeTab === "resumen" && (
+            <Button
+              variant="outline"
+              onClick={() => {
+                resetToLiveMode();
+                setInicio(isoDay(startOfMonth(today)));
+                setFin(isoDay(endOfMonth(today)));
+              }}
+            >
+              Mes actual
+            </Button>
+          )}
+          {activeTab !== "resumen" && (
+            <Button variant="secondary" onClick={handleRecalcular} disabled={loading}>Recalcular</Button>
+          )}
         </div>
       </Card>
 
@@ -654,15 +672,17 @@ export default function Liquidaciones() {
             <TabsTrigger value="borradores">Pre-liquidaciones ({drafts.length})</TabsTrigger>
             <TabsTrigger value="historico">Histórico ({history.length})</TabsTrigger>
           </TabsList>
-          <Button
-            variant="outline"
-            size="sm"
-            disabled={!driverId}
-            onClick={() => setAccountOpen(true)}
-          >
-            <CircleDollarSign className="h-4 w-4 mr-2" />
-            Cuenta del operador
-          </Button>
+          {activeTab !== "resumen" && (
+            <Button
+              variant="outline"
+              size="sm"
+              disabled={!driverId}
+              onClick={() => setAccountOpen(true)}
+            >
+              <CircleDollarSign className="h-4 w-4 mr-2" />
+              Cuenta del operador
+            </Button>
+          )}
         </div>
 
         <TabsContent value="resumen" className="mt-4 space-y-4">
@@ -748,10 +768,13 @@ export default function Liquidaciones() {
                     )}
                     {weekSummary.rows.map((row) => {
                       const counted = isWeekRowCounted(row);
+                      const otraSemana = row.liquidada_otra_semana;
                       return (
                         <TableRow
                           key={row.driver_id}
-                          className={`cursor-pointer hover:bg-muted/50 ${counted ? "" : "opacity-50"}`}
+                          className={`cursor-pointer hover:bg-muted/50 ${
+                            otraSemana ? "text-muted-foreground" : counted ? "" : "opacity-50"
+                          }`}
                           onClick={() => openWeekRow(row.driver_id)}
                         >
                           <TableCell className="w-10" onClick={(event) => event.stopPropagation()}>
@@ -761,13 +784,21 @@ export default function Liquidaciones() {
                               aria-label={`Incluir a ${row.driver_nombre} en el conteo`}
                             />
                           </TableCell>
-                          <TableCell className="font-medium">{row.driver_nombre}</TableCell>
+                          <TableCell className="font-medium">
+                            {row.driver_nombre}
+                            {otraSemana ? (
+                              <p className="mt-0.5 text-xs font-normal text-muted-foreground">
+                                Viajes ya se liquidaron en otra semana ({fmtDate(otraSemana.inicio)} –{" "}
+                                {fmtDate(otraSemana.fin)})
+                              </p>
+                            ) : null}
+                          </TableCell>
                           <TableCell className="text-right font-mono">{row.viajes}</TableCell>
                           <TableCell className="text-right font-mono">{fmtMXN(row.facturacion)}</TableCell>
                           <TableCell className="text-right font-mono">{fmtMXN(row.comisiones)}</TableCell>
                           <TableCell
                             className={`text-right font-mono font-semibold ${
-                              row.neto_pagar >= 0 ? "text-success" : "text-destructive"
+                              otraSemana ? "" : row.neto_pagar >= 0 ? "text-success" : "text-destructive"
                             }`}
                           >
                             {fmtMXN(row.neto_pagar)}
@@ -803,9 +834,10 @@ export default function Liquidaciones() {
                 </Table>
               </Card>
               <p className="text-xs text-muted-foreground">
-                Marca los operadores que entran al conteo. Cerradas y preliquidaciones usan el monto guardado
-                y vienen marcadas; las abiertas se calculan en vivo y quedan fuera hasta que las marques.
-                Clic en un operador para abrir su liquidación del periodo.
+                El total es lo que se pagará al cerrar el día por esta semana. Cerradas y preliquidaciones usan
+                el monto guardado; las abiertas, el cálculo en vivo. Si un operador sale en gris, sus viajes ya
+                se liquidaron en otra semana: se muestra ese monto y no entra al pago de esta. Desmarca a quien
+                no entre en el pago. Clic en un operador para abrir su liquidación del periodo.
               </p>
             </>
           )}

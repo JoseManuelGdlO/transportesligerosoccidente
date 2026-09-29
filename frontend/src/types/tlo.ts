@@ -1074,6 +1074,7 @@ export interface WeekSettlementRow {
   neto_pagar: number;
   estado: WeekSettlementEstado;
   settlement_id: string | null;
+  liquidada_otra_semana?: { inicio: string; fin: string } | null;
 }
 
 export interface WeekSettlementSummaryApi {

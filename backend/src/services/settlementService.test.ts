@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
+import { Op } from "sequelize";
 import {
   sequelize,
   Driver,
@@ -1153,5 +1154,146 @@ describe("weekSettlementSummary", () => {
     driverFindAll.mock.restore();
     settlementFindAll.mock.restore();
     restoreSummaryDeps({ ...deps, driverFindOne });
+  });
+
+  it("usa la liquidación cerrada aunque el fin quedó un día después por UTC", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () =>
+      [{ id: "driver-1", nombre: "Alan", estatus: "activo" }] as never,
+    );
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        {
+          id: "set-legacy",
+          driver_id: "driver-1",
+          cerrado: true,
+          fecha_inicio: "2026-09-21",
+          fecha_fin: "2026-09-28",
+          snapshot: {
+            total_ingresos: 27900,
+            total_comisiones: 4805,
+            neto_pagar: 2311,
+            trips: [{ id: "t1", included: true }],
+          },
+        },
+        {
+          id: "set-exact",
+          driver_id: "driver-1",
+          cerrado: true,
+          fecha_inicio: "2026-09-21",
+          fecha_fin: "2026-09-27",
+          snapshot: {
+            total_ingresos: 1000,
+            total_comisiones: 100,
+            neto_pagar: 80,
+            trips: [{ id: "t-exact", included: true }],
+          },
+        },
+      ] as never,
+    );
+
+    const result = await weekSettlementSummary(tenantId, "2026-09-21", "2026-09-27");
+    const where = settlementFindAll.mock.calls[0].arguments[0] as {
+      where: { fecha_inicio: string; fecha_fin: string | Record<symbol, string[]> };
+    };
+
+    assert.equal(where.where.fecha_inicio, "2026-09-21");
+    const fin = where.where.fecha_fin;
+    assert.notEqual(typeof fin, "string");
+    const values = (fin as Record<symbol, string[]>)[Op.in];
+    assert.deepEqual(values, ["2026-09-27", "2026-09-28"]);
+    assert.equal(result.rows[0].estado, "cerrada");
+    assert.equal(result.rows[0].settlement_id, "set-exact");
+    assert.equal(result.rows[0].neto_pagar, 80);
+
+    driverFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+  });
+
+  it("si solo existe el cierre con el lunes corrido, ese monto entra a la semana", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () =>
+      [{ id: "driver-1", nombre: "Alan", estatus: "activo" }] as never,
+    );
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        {
+          id: "set-legacy",
+          driver_id: "driver-1",
+          cerrado: true,
+          fecha_inicio: "2026-09-21",
+          fecha_fin: "2026-09-28",
+          snapshot: {
+            total_ingresos: 27900,
+            total_comisiones: 4805,
+            neto_pagar: 2311,
+            trips: [{ id: "t1", included: true }],
+          },
+        },
+      ] as never,
+    );
+
+    const result = await weekSettlementSummary(tenantId, "2026-09-21", "2026-09-27");
+
+    assert.equal(result.rows[0].estado, "cerrada");
+    assert.equal(result.rows[0].settlement_id, "set-legacy");
+    assert.equal(result.rows[0].neto_pagar, 2311);
+    assert.equal(result.totales.neto_pagar, 2311);
+
+    driverFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+  });
+
+  it("muestra el monto de otra semana sin sumarlo al pago de esta", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () =>
+      [
+        { id: "driver-1", nombre: "Alan", estatus: "activo" },
+        { id: "driver-2", nombre: "Alvaro", estatus: "activo" },
+      ] as never,
+    );
+    const settlementFindAll = mock.method(Settlement, "findAll", async (opts: { where?: { cerrado?: boolean } }) => {
+      if (opts?.where?.cerrado === true) {
+        return [
+          {
+            id: "set-prev",
+            driver_id: "driver-1",
+            cerrado: true,
+            fecha_inicio: "2026-09-21",
+            fecha_fin: "2026-09-28",
+            snapshot: {
+              total_ingresos: 27900,
+              total_comisiones: 4805,
+              neto_pagar: 2311,
+              trips: [{ id: "t1", included: true }],
+            },
+          },
+        ] as never;
+      }
+      return [] as never;
+    });
+
+    const deps = mockSummaryDeps();
+    const result = await weekSettlementSummary(tenantId, "2026-09-29", "2026-10-05");
+
+    assert.equal(result.rows[0].driver_nombre, "Alan");
+    assert.equal(result.rows[0].estado, "abierta");
+    assert.equal(result.rows[0].viajes, 1);
+    assert.equal(result.rows[0].facturacion, 27900);
+    assert.equal(result.rows[0].comisiones, 4805);
+    assert.equal(result.rows[0].neto_pagar, 2311);
+    assert.deepEqual(result.rows[0].liquidada_otra_semana, {
+      inicio: "2026-09-21",
+      fin: "2026-09-28",
+    });
+
+    assert.equal(result.rows[1].driver_nombre, "Alvaro");
+    assert.equal(result.rows[1].viajes, 0);
+    assert.equal(result.rows[1].liquidada_otra_semana, null);
+
+    assert.equal(result.totales.neto_pagar, 0);
+    assert.equal(result.totales.facturacion, 0);
+    assert.equal(result.totales.viajes, 0);
+
+    driverFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+    restoreSummaryDeps(deps);
   });
 });

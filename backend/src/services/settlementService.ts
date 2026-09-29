@@ -25,6 +25,7 @@ import {
 } from "./driverAccountService";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
+import { addDaysToDateStr } from "../utils/localDates";
 
 export type TripInclusion = { id: string; included: boolean };
 
@@ -215,6 +216,8 @@ export type WeekSettlementRow = {
   neto_pagar: number;
   estado: WeekSettlementEstado;
   settlement_id: string | null;
+  /** Monto de un cierre de otra semana. No entra al pago de la semana que se está viendo. */
+  liquidada_otra_semana: { inicio: string; fin: string } | null;
 };
 
 function countIncludedTrips(trips: unknown): number {
@@ -237,14 +240,48 @@ function weekRowFromSnapshot(
     neto_pagar: roundMoney(num(snapshot.neto_pagar)),
     estado,
     settlement_id: settlementId,
+    liquidada_otra_semana: null,
   };
 }
 
+function dateOnly(value: unknown): string {
+  if (value instanceof Date) return value.toISOString().slice(0, 10);
+  return String(value).slice(0, 10);
+}
+
+function isThisWeekPeriod(inicio: string, fin: string, inicioStr: string, finStr: string): boolean {
+  return inicio === inicioStr && (fin === finStr || fin === addDaysToDateStr(finStr, 1));
+}
+
+/** Cierre más reciente de otra semana, por operador. */
+function priorClosedByDriver(
+  rows: Settlement[],
+  inicioStr: string,
+  finStr: string,
+): Map<string, Settlement> {
+  const map = new Map<string, Settlement>();
+  for (const row of rows) {
+    if (!row.cerrado || !row.snapshot || map.has(row.driver_id)) continue;
+    const inicio = dateOnly(row.fecha_inicio);
+    const fin = dateOnly(row.fecha_fin);
+    if (isThisWeekPeriod(inicio, fin, inicioStr, finStr)) continue;
+    map.set(row.driver_id, row);
+  }
+  return map;
+}
+
+/** Si hay cierre o borrador con el fin exacto, ese manda. Si no, el domingo guardado como lunes. */
+function settlementsForWeekEnd(list: Settlement[], finStr: string): Settlement[] {
+  const exact = list.filter((s) => dateOnly(s.fecha_fin) === finStr);
+  return exact.length > 0 ? exact : list;
+}
+
 /**
- * Resumen consolidado de la semana por operador activo.
+ * Resumen de lo que se pagará al cerrar la semana, por operador activo.
  * Cerrada → snapshot del cierre. Preliquidación con snapshot → snapshot del borrador.
  * Abierta, o preliquidación sin snapshot → cálculo en vivo.
- * Los totales de la API suman todas las filas; la pantalla elige cuáles entran al conteo.
+ * Los totales suman a todos. La pantalla puede dejar a alguien fuera.
+ * Un cierre guardado con el domingo corrido al lunes cuenta para esa semana.
  */
 export async function weekSettlementSummary(
   tenantId: string,
@@ -270,7 +307,7 @@ export async function weekSettlementSummary(
     where: {
       tenant_id: tenantId,
       fecha_inicio: inicioStr,
-      fecha_fin: finStr,
+      fecha_fin: { [Op.in]: [finStr, addDaysToDateStr(finStr, 1)] },
     },
   });
 
@@ -281,9 +318,21 @@ export async function weekSettlementSummary(
     byDriver.set(s.driver_id, list);
   }
 
+  const priorClosed = priorClosedByDriver(
+    await Settlement.findAll({
+      where: { tenant_id: tenantId, cerrado: true },
+      order: [
+        ["fecha_fin", "DESC"],
+        ["fecha_inicio", "DESC"],
+      ],
+    }),
+    inicioStr,
+    finStr,
+  );
+
   const rows: WeekSettlementRow[] = [];
   for (const driver of drivers) {
-    const list = byDriver.get(driver.id) ?? [];
+    const list = settlementsForWeekEnd(byDriver.get(driver.id) ?? [], finStr);
     const closed = list.find((s) => s.cerrado);
     const draft = list.find((s) => !s.cerrado);
 
@@ -298,26 +347,43 @@ export async function weekSettlementSummary(
     }
 
     const summary = await settlementSummary(tenantId, driver.id, inicioStr, finStr);
+    const viajes = countIncludedTrips(summary.trips);
+    const prior = viajes === 0 && !draft ? priorClosed.get(driver.id) : undefined;
+    if (prior?.snapshot) {
+      rows.push({
+        ...weekRowFromSnapshot(driver, prior.id, prior.snapshot, "cerrada"),
+        estado: "abierta",
+        settlement_id: null,
+        liquidada_otra_semana: {
+          inicio: dateOnly(prior.fecha_inicio),
+          fin: dateOnly(prior.fecha_fin),
+        },
+      });
+      continue;
+    }
+
     rows.push({
       driver_id: driver.id,
       driver_nombre: driver.nombre,
-      viajes: countIncludedTrips(summary.trips),
+      viajes,
       facturacion: roundMoney(num(summary.total_ingresos)),
       comisiones: roundMoney(num(summary.total_comisiones)),
       neto_pagar: roundMoney(num(summary.neto_pagar)),
       estado: draft ? "preliquidacion" : "abierta",
       settlement_id: draft?.id ?? null,
+      liquidada_otra_semana: null,
     });
   }
 
+  const payable = rows.filter((r) => !r.liquidada_otra_semana);
   return {
     periodo: { inicio: inicioStr, fin: finStr },
     totales: {
-      facturacion: roundMoney(rows.reduce((a, r) => a + r.facturacion, 0)),
-      neto_pagar: roundMoney(rows.reduce((a, r) => a + r.neto_pagar, 0)),
-      operadores: rows.length,
-      cerradas: rows.filter((r) => r.estado === "cerrada").length,
-      viajes: rows.reduce((a, r) => a + r.viajes, 0),
+      facturacion: roundMoney(payable.reduce((a, r) => a + r.facturacion, 0)),
+      neto_pagar: roundMoney(payable.reduce((a, r) => a + r.neto_pagar, 0)),
+      operadores: payable.length,
+      cerradas: payable.filter((r) => r.estado === "cerrada").length,
+      viajes: payable.reduce((a, r) => a + r.viajes, 0),
     },
     rows,
   };

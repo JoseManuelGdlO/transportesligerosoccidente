@@ -155,4 +155,21 @@ export const endOfWeek = (date: Date) => {
   return e;
 };
 
-export const isoDay = (d: Date) => d.toISOString().slice(0, 10);
+export const startOfMonth = (date: Date) => {
+  const d = new Date(date);
+  d.setDate(1);
+  d.setHours(0, 0, 0, 0);
+  return d;
+};
+
+export const endOfMonth = (date: Date) => {
+  const d = new Date(date.getFullYear(), date.getMonth() + 1, 0);
+  d.setHours(23, 59, 59, 999);
+  return d;
+};
+
+/** Día civil local `YYYY-MM-DD`. No usa UTC: el domingo 23:59 no pasa al lunes. */
+export const isoDay = (d: Date) => {
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
+};
