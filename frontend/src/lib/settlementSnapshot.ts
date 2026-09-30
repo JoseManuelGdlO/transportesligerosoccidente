@@ -9,6 +9,63 @@ import {
 import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
 
 export type TripInclusionPayload = { id: string; included: boolean };
+export type FleteLiquidacionPayload = { id: string; monto: number };
+
+/** Flete que se imprime en la liquidación. Si no hay ajuste, es la tarifa del viaje. */
+export function settlementFlete(trip: { tarifa: number; flete_liquidacion?: number | null }): number {
+  if (typeof trip.flete_liquidacion === "number" && Number.isFinite(trip.flete_liquidacion)) {
+    return trip.flete_liquidacion;
+  }
+  return trip.tarifa || 0;
+}
+
+export function applySettlementFlete(
+  summary: SettlementSummaryApi,
+  overrides: Record<string, number | null>,
+): SettlementSummaryApi {
+  return {
+    ...summary,
+    trips: summary.trips.map((trip) => {
+      if (!Object.prototype.hasOwnProperty.call(overrides, trip.id)) return trip;
+      const monto = overrides[trip.id];
+      if (monto == null) {
+        const { flete_liquidacion: _removed, ...rest } = trip;
+        return rest;
+      }
+      return { ...trip, flete_liquidacion: monto };
+    }),
+  };
+}
+
+export function fleteLiquidacionPayload(
+  trips: { id: string; flete_liquidacion?: number | null }[],
+  overrides: Record<string, number | null>,
+): FleteLiquidacionPayload[] {
+  const rows: FleteLiquidacionPayload[] = [];
+  for (const trip of trips) {
+    if (Object.prototype.hasOwnProperty.call(overrides, trip.id)) {
+      const monto = overrides[trip.id];
+      if (typeof monto === "number" && Number.isFinite(monto)) rows.push({ id: trip.id, monto });
+      continue;
+    }
+    if (typeof trip.flete_liquidacion === "number" && Number.isFinite(trip.flete_liquidacion)) {
+      rows.push({ id: trip.id, monto: trip.flete_liquidacion });
+    }
+  }
+  return rows;
+}
+
+export function buildFleteLiquidacionFromTrips(
+  trips: { id: string; flete_liquidacion?: number | null }[],
+): Record<string, number> {
+  const map: Record<string, number> = {};
+  for (const trip of trips) {
+    if (typeof trip.flete_liquidacion === "number" && Number.isFinite(trip.flete_liquidacion)) {
+      map[trip.id] = trip.flete_liquidacion;
+    }
+  }
+  return map;
+}
 
 /** Completa la ruta de viajes en snapshots viejos usando el catálogo actual (mismo criterio que Viajes). */
 export function enrichSnapshotTripRoutes(

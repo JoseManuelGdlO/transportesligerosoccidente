@@ -1,4 +1,6 @@
-import { computeTrip, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
+import { useState } from "react";
+import { computeTrip, roundMoney, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
+import { settlementFlete } from "@/lib/settlementSnapshot";
 import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
 import type {
   Driver,
@@ -40,6 +42,53 @@ export interface CompensationFormState {
   descripcion: string;
 }
 
+function FleteLiquidacionInput({
+  tripId,
+  folio,
+  tarifa,
+  value,
+  onChange,
+}: {
+  tripId: string;
+  folio: string;
+  tarifa: number;
+  value: number;
+  onChange: (tripId: string, monto: number | null) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+  const parsed = Number(shown);
+  const differs =
+    shown.trim() !== "" && Number.isFinite(parsed) && roundMoney(parsed) !== roundMoney(tarifa);
+
+  return (
+    <div className="ml-auto w-28">
+      <Input
+        type="number"
+        min={0}
+        step="0.01"
+        inputMode="decimal"
+        className="h-8 text-right tabular-nums"
+        aria-label={`Flete de liquidación del viaje ${folio}`}
+        value={shown}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const raw = (draft ?? String(value)).trim();
+          setDraft(null);
+          if (raw === "") {
+            onChange(tripId, null);
+            return;
+          }
+          const monto = Number(raw);
+          if (!Number.isFinite(monto) || monto < 0) return;
+          onChange(tripId, roundMoney(monto) === roundMoney(tarifa) ? null : roundMoney(monto));
+        }}
+      />
+      {differs && <p className="text-[10px] text-muted-foreground">Tarifa {fmtMXN(tarifa)}</p>}
+    </div>
+  );
+}
+
 interface SettlementSummaryPanelProps {
   summary: SettlementSummaryApi;
   driver: Driver;
@@ -62,6 +111,7 @@ interface SettlementSummaryPanelProps {
   tripInclusions?: Record<string, boolean>;
   onTripInclusionChange?: (tripId: string, included: boolean) => void;
   onSelectAllTrips?: (included: boolean) => void;
+  onFleteLiquidacionChange?: (tripId: string, monto: number | null) => void;
 }
 
 export function SettlementSummaryPanel({
@@ -86,6 +136,7 @@ export function SettlementSummaryPanel({
   tripInclusions,
   onTripInclusionChange,
   onSelectAllTrips,
+  onFleteLiquidacionChange,
 }: SettlementSummaryPanelProps) {
   const showFinanceForms = !readOnly && canEditFinance;
   const sortedTrips = [...summary.trips].sort((a, b) =>
@@ -96,7 +147,13 @@ export function SettlementSummaryPanel({
     return t.included !== false;
   }).length;
   const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
-  const tripColSpan = showTripSelection ? 6 : 5;
+  const tripColSpan = showTripSelection ? 7 : 6;
+  const canEditFlete = !readOnly && Boolean(onFleteLiquidacionChange);
+  const showFleteNote =
+    canEditFlete ||
+    sortedTrips.some(
+      (t) => typeof t.flete_liquidacion === "number" && roundMoney(t.flete_liquidacion) !== roundMoney(t.tarifa),
+    );
   // Snapshot de pre-liquidación: casillas visibles pero bloqueadas; el padre sí cableó el cambio.
   const showSnapshotInclusionHint = !canSelectTrips && Boolean(onTripInclusionChange);
 
@@ -492,6 +549,7 @@ export function SettlementSummaryPanel({
                 <TableHead>Tipo</TableHead>
                 <TableHead>Ruta</TableHead>
                 <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Flete</TableHead>
                 <TableHead className="text-right">Comisión</TableHead>
               </TableRow>
             </TableHeader>
@@ -545,6 +603,25 @@ export function SettlementSummaryPanel({
                     <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
                     <TableCell className="text-right">
+                      {canEditFlete && onFleteLiquidacionChange ? (
+                        <FleteLiquidacionInput
+                          tripId={t.id}
+                          folio={t.folio}
+                          tarifa={t.tarifa}
+                          value={settlementFlete(t)}
+                          onChange={onFleteLiquidacionChange}
+                        />
+                      ) : (
+                        <div>
+                          <span className="font-medium tabular-nums">{fmtMXN(settlementFlete(t))}</span>
+                          {typeof t.flete_liquidacion === "number" &&
+                            roundMoney(t.flete_liquidacion) !== roundMoney(t.tarifa) && (
+                              <p className="text-[10px] text-muted-foreground">Tarifa {fmtMXN(t.tarifa)}</p>
+                            )}
+                        </div>
+                      )}
+                    </TableCell>
+                    <TableCell className="text-right">
                       <div className="flex items-center justify-end gap-1">
                         <span className="font-semibold text-accent">{fmtMXN(f.comision)}</span>
                         {onEditTrip && (
@@ -565,6 +642,11 @@ export function SettlementSummaryPanel({
               })}
             </TableBody>
           </Table>
+          {showFleteNote && (
+            <p className="px-4 py-3 text-xs text-muted-foreground">
+              El flete de esta tabla solo se usa en la liquidación y en su PDF. No modifica la tarifa del viaje ni los reportes.
+            </p>
+          )}
         </CardContent>
       </Card>
     </div>

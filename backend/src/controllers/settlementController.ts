@@ -19,15 +19,21 @@ const tripInclusionsSchema = z
   .array(z.object({ id: z.string().min(1), included: z.boolean() }))
   .optional();
 
+const fleteLiquidacionSchema = z
+  .array(z.object({ id: z.string().min(1), monto: z.number().finite().nonnegative() }))
+  .optional();
+
 const periodBody = z.object({
   driver_id: z.string().min(1),
   fecha_inicio: z.string().min(1),
   fecha_fin: z.string().min(1),
   trip_inclusions: tripInclusionsSchema,
+  flete_liquidacion: fleteLiquidacionSchema,
 });
 
 const draftPatchBody = z.object({
   trip_inclusions: tripInclusionsSchema,
+  flete_liquidacion: fleteLiquidacionSchema,
 });
 
 export const getSummary = asyncHandler(async (req: Request, res: Response) => {
@@ -70,6 +76,7 @@ export const postDraft = asyncHandler(async (req: Request, res: Response) => {
     parsed.data.fecha_inicio,
     parsed.data.fecha_fin,
     parsed.data.trip_inclusions,
+    parsed.data.flete_liquidacion,
   );
   res.status(201).json(settlementToJson(row));
 });
@@ -87,6 +94,7 @@ export const postClose = asyncHandler(async (req: Request, res: Response) => {
     parsed.data.fecha_fin,
     undefined,
     parsed.data.trip_inclusions,
+    parsed.data.flete_liquidacion,
   );
   res.status(201).json(settlementToJson(row));
 });
@@ -101,6 +109,7 @@ export const postCloseById = asyncHandler(async (req: Request, res: Response) =>
     req.user!.tenantId,
     req.params.id,
     parsed.data.trip_inclusions,
+    parsed.data.flete_liquidacion,
   );
   res.json(settlementToJson(row));
 });
@@ -115,6 +124,7 @@ export const patchDraft = asyncHandler(async (req: Request, res: Response) => {
     req.user!.tenantId,
     req.params.id,
     parsed.data.trip_inclusions,
+    parsed.data.flete_liquidacion,
   );
   res.json(settlementToJson(row));
 });

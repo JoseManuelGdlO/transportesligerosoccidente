@@ -1,5 +1,11 @@
 import { describe, expect, it } from "vitest";
-import { applyTripInclusions, snapshotToPdfSummary } from "@/lib/settlementSnapshot";
+import {
+  applySettlementFlete,
+  applyTripInclusions,
+  fleteLiquidacionPayload,
+  settlementFlete,
+  snapshotToPdfSummary,
+} from "@/lib/settlementSnapshot";
 import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
 
 const driver: Driver = {
@@ -159,5 +165,57 @@ describe("applyTripInclusions", () => {
     expect(next.neto_pagar).toBe(-300);
     expect(next.neto_calculado).toBe(-300);
     expect(next.pendiente_arrastrado).toBe(300);
+  });
+
+  it("no usa el flete de liquidación para ingresos ni comisión", () => {
+    const withFlete = trip("a", 1000);
+    withFlete.flete_liquidacion = 9000;
+    const summary = snapshotWithTrips([withFlete]);
+
+    const next = applyTripInclusions(summary, driver, { a: true });
+
+    expect(next.trips[0]?.tarifa).toBe(1000);
+    expect(next.trips[0]?.flete_liquidacion).toBe(9000);
+    expect(next.total_ingresos).toBe(1000);
+    expect(next.total_comisiones).toBe(100);
+  });
+});
+
+describe("flete de liquidación", () => {
+  it("usa el monto de la liquidación y, si no hay, la tarifa del viaje", () => {
+    expect(settlementFlete(trip("a", 1000))).toBe(1000);
+    const adjusted = trip("a", 1000);
+    adjusted.flete_liquidacion = 750;
+    expect(settlementFlete(adjusted)).toBe(750);
+    adjusted.flete_liquidacion = null;
+    expect(settlementFlete(adjusted)).toBe(1000);
+  });
+
+  it("estampa el monto en la liquidación sin cambiar tarifa ni totales", () => {
+    const summary = snapshotWithTrips([trip("a", 1000), trip("b", 5000)]);
+
+    const next = applySettlementFlete(summary, { a: 750, b: null });
+
+    expect(next.trips.find((t) => t.id === "a")?.tarifa).toBe(1000);
+    expect(next.trips.find((t) => t.id === "a")?.flete_liquidacion).toBe(750);
+    expect(next.trips.find((t) => t.id === "b")?.flete_liquidacion).toBeUndefined();
+    expect(next.total_ingresos).toBe(summary.total_ingresos);
+    expect(next.total_comisiones).toBe(summary.total_comisiones);
+    expect(settlementFlete(next.trips.find((t) => t.id === "a")!)).toBe(750);
+    expect(settlementFlete(next.trips.find((t) => t.id === "b")!)).toBe(5000);
+  });
+
+  it("arma el payload solo con montos de liquidación, sin la tarifa", () => {
+    const kept = trip("a", 1000);
+    kept.flete_liquidacion = 800;
+    const cleared = trip("b", 5000);
+    cleared.flete_liquidacion = 4000;
+
+    const payload = fleteLiquidacionPayload([kept, cleared, trip("c", 200)], { b: null, c: 50 });
+
+    expect(payload).toEqual([
+      { id: "a", monto: 800 },
+      { id: "c", monto: 50 },
+    ]);
   });
 });

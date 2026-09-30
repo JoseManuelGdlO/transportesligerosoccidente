@@ -29,6 +29,9 @@ import { addDaysToDateStr } from "../utils/localDates";
 
 export type TripInclusion = { id: string; included: boolean };
 
+/** Monto de flete que solo vive en la liquidación. No se escribe en el viaje. */
+export type SettlementFlete = { id: string; monto: number };
+
 function fechaEnPeriodo(fecha: string, inicioStr: string, finStr: string): boolean {
   return fecha >= inicioStr && fecha <= finStr;
 }
@@ -56,6 +59,30 @@ function inclusionMapFromSnapshot(snapshot: Record<string, unknown> | null | und
 
 function tripInclusionsFromMap(map: Map<string, boolean>): TripInclusion[] {
   return [...map.entries()].map(([id, included]) => ({ id, included }));
+}
+
+function fleteMapFromList(rows?: SettlementFlete[]): Map<string, number> {
+  const map = new Map<string, number>();
+  if (!rows) return map;
+  for (const row of rows) {
+    if (!row.id) continue;
+    const monto = roundMoney(num(row.monto));
+    if (!Number.isFinite(monto) || monto < 0) continue;
+    map.set(row.id, monto);
+  }
+  return map;
+}
+
+function fleteListFromSnapshot(snapshot: Record<string, unknown> | null | undefined): SettlementFlete[] {
+  if (!snapshot || !Array.isArray(snapshot.trips)) return [];
+  const rows: SettlementFlete[] = [];
+  for (const trip of snapshot.trips as { id?: string; flete_liquidacion?: unknown }[]) {
+    if (!trip.id || trip.flete_liquidacion == null || trip.flete_liquidacion === "") continue;
+    const monto = roundMoney(num(trip.flete_liquidacion));
+    if (!Number.isFinite(monto) || monto < 0) continue;
+    rows.push({ id: trip.id, monto });
+  }
+  return rows;
 }
 
 async function pendingAdvancesDiscountsAndCompensations(
@@ -105,6 +132,7 @@ export async function settlementSummary(
   inicioStr: string,
   finStr: string,
   tripInclusions?: TripInclusion[],
+  fleteLiquidacion?: SettlementFlete[],
 ): Promise<Record<string, unknown>> {
   const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
@@ -133,6 +161,7 @@ export async function settlementSummary(
     eligible.map((e) => String(e.trip.id)),
     tripInclusions,
   );
+  const fleteMap = fleteMapFromList(fleteLiquidacion);
   const includedTrips = eligible
     .filter((e) => inclusionMap.get(String(e.trip.id)) !== false)
     .map((e) => e.trip);
@@ -196,10 +225,12 @@ export async function settlementSummary(
     })),
     trips: eligible.map(({ trip, en_periodo }) => {
       const id = String(trip.id);
+      const flete = fleteMap.get(id);
       return {
         ...tripToJson(trip),
         en_periodo,
         included: inclusionMap.get(id) !== false,
+        ...(flete !== undefined ? { flete_liquidacion: flete } : {}),
       };
     }),
   };
@@ -471,8 +502,16 @@ export async function createDraftSettlement(
   fechaInicio: string,
   fechaFin: string,
   tripInclusions?: TripInclusion[],
+  fleteLiquidacion?: SettlementFlete[],
 ) {
-  const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, tripInclusions);
+  const summary = await settlementSummary(
+    tenantId,
+    driverId,
+    fechaInicio,
+    fechaFin,
+    tripInclusions,
+    fleteLiquidacion,
+  );
   const existing = await findOpenDraft(tenantId, driverId, fechaInicio, fechaFin);
   if (existing) {
     await existing.update({ snapshot: summary } as never);
@@ -495,6 +534,7 @@ export async function updateDraftSettlement(
   tenantId: string,
   settlementId: string,
   tripInclusions?: TripInclusion[],
+  fleteLiquidacion?: SettlementFlete[],
 ) {
   const row = await Settlement.findOne({
     where: { id: settlementId, tenant_id: tenantId, cerrado: false },
@@ -504,12 +544,17 @@ export async function updateDraftSettlement(
     (err as Error & { status?: number }).status = 404;
     throw err;
   }
+  const fletes =
+    fleteLiquidacion === undefined
+      ? fleteListFromSnapshot(row.snapshot as Record<string, unknown> | null)
+      : fleteLiquidacion;
   const summary = await settlementSummary(
     tenantId,
     row.driver_id,
     row.fecha_inicio,
     row.fecha_fin,
     tripInclusions,
+    fletes,
   );
   await row.update({ snapshot: summary } as never);
   return row;
@@ -539,6 +584,7 @@ export async function closeSettlement(
   fechaFin: string,
   settlementId?: string,
   tripInclusions?: TripInclusion[],
+  fleteLiquidacion?: SettlementFlete[],
 ) {
   const driver = await Driver.findOne({ where: { id: driverId, tenant_id: tenantId } });
   if (!driver) {
@@ -572,7 +618,18 @@ export async function closeSettlement(
     if (fromSnapshot) inclusions = tripInclusionsFromMap(fromSnapshot);
   }
 
-  const summaryData = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin, inclusions);
+  const fletes =
+    fleteLiquidacion === undefined && draft?.snapshot
+      ? fleteListFromSnapshot(draft.snapshot as Record<string, unknown>)
+      : fleteLiquidacion;
+  const summaryData = await settlementSummary(
+    tenantId,
+    driverId,
+    fechaInicio,
+    fechaFin,
+    inclusions,
+    fletes,
+  );
   const tripIds = (summaryData.trips as { id: string; included?: boolean }[])
     .filter((trip) => trip.included !== false)
     .map((trip) => trip.id);
@@ -704,6 +761,7 @@ export async function closeSettlementById(
   tenantId: string,
   settlementId: string,
   tripInclusions?: TripInclusion[],
+  fleteLiquidacion?: SettlementFlete[],
 ) {
   const row = await Settlement.findOne({
     where: { id: settlementId, tenant_id: tenantId, cerrado: false },
@@ -720,6 +778,7 @@ export async function closeSettlementById(
     row.fecha_fin,
     settlementId,
     tripInclusions,
+    fleteLiquidacion,
   );
 }
 
@@ -745,8 +804,10 @@ export async function cancelSettlement(tenantId: string, settlementId: string) {
     throw err;
   }
 
-  const fromSnapshot = inclusionMapFromSnapshot(row.snapshot as Record<string, unknown> | null);
+  const snapshot = row.snapshot as Record<string, unknown> | null;
+  const fromSnapshot = inclusionMapFromSnapshot(snapshot);
   const tripInclusions = fromSnapshot ? tripInclusionsFromMap(fromSnapshot) : undefined;
+  const fleteLiquidacion = fleteListFromSnapshot(snapshot);
 
   await sequelize.transaction(async (t) => {
     const locked = await Settlement.findOne({
@@ -814,6 +875,7 @@ export async function cancelSettlement(tenantId: string, settlementId: string) {
     row.fecha_inicio,
     row.fecha_fin,
     tripInclusions,
+    fleteLiquidacion,
   );
   await row.update({ snapshot: summary } as never);
   return row;

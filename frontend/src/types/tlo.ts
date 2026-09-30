@@ -930,6 +930,8 @@ export interface Trip {
   km_inicial: number;
   km_final?: number;
   tarifa: number;
+  /** Flete ajustado solo en la liquidación. No cambia la tarifa del viaje ni los reportes. */
+  flete_liquidacion?: number | null;
   viaticos_entregados: number;
   num_factura?: string;
   comision_override?: number | null; // si admin lo edita

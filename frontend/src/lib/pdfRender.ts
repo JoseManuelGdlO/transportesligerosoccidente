@@ -9,6 +9,7 @@ import {
   type SettlementBalanceBox,
   type SettlementSheetLineKind,
 } from "@/lib/settlementSheet";
+import { settlementFlete } from "@/lib/settlementSnapshot";
 import { statusLabelForPdf } from "@/lib/tripStatus";
 import {
   BLOCK_CATALOG,
@@ -1043,7 +1044,8 @@ function renderSettlementTrips(state: RenderState): void {
   let totalComision = 0;
   const body = sorted.map((trip) => {
     const financials = computeTrip(trip, driver);
-    totalFlete = roundMoney(totalFlete + (Number(trip.tarifa) || 0));
+    const flete = settlementFlete(trip);
+    totalFlete = roundMoney(totalFlete + flete);
     totalComision = roundMoney(totalComision + financials.comision);
     return [
       String(trip.folio),
@@ -1051,7 +1053,7 @@ function renderSettlementTrips(state: RenderState): void {
       formatTripRoute(trip),
       trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local",
       fmtDatePdf(trip.fecha_salida),
-      fmtMXNDecimal(trip.tarifa),
+      fmtMXNDecimal(flete),
       fmtMXNDecimal(financials.comision),
     ];
   });

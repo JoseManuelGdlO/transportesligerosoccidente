@@ -129,6 +129,44 @@ describe("createDraftSettlement", () => {
 });
 
 describe("updateDraftSettlement", () => {
+  it("conserva el flete de liquidación al refrescar el borrador si no se envía otro", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a", tarifa: 2000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA] as never);
+    let savedSnapshot: Record<string, unknown> | undefined;
+    const row = {
+      id: "draft-1",
+      tenant_id: tenantId,
+      driver_id: driverId,
+      fecha_inicio: fechaInicio,
+      fecha_fin: fechaFin,
+      cerrado: false,
+      snapshot: {
+        trips: [{ id: "trip-a", tarifa: 1000, flete_liquidacion: 1500, included: true }],
+      },
+      update: mock.fn(async (data: { snapshot?: Record<string, unknown> }) => {
+        savedSnapshot = data.snapshot;
+      }),
+    };
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => row as never);
+
+    await updateDraftSettlement(tenantId, "draft-1");
+
+    const trips = (savedSnapshot?.trips ?? []) as {
+      id: string;
+      tarifa?: number;
+      flete_liquidacion?: number;
+    }[];
+    const saved = trips.find((t) => t.id === "trip-a");
+    assert.equal(saved?.tarifa, 2000);
+    assert.equal(saved?.flete_liquidacion, 1500);
+    assert.equal(savedSnapshot?.total_comisiones, 200);
+    assert.equal(tripA.tarifa, 2000);
+
+    restoreSummaryDeps(deps);
+    settlementFindOne.mock.restore();
+  });
+
   it("refresca snapshot de borrador abierto", async () => {
     const deps = mockSummaryDeps();
     const update = mock.fn(async () => {});
@@ -282,6 +320,31 @@ describe("settlementSummary trip inclusions", () => {
 
     assert.equal(trips.find((t) => t.id === "trip-a")?.included, true);
     assert.equal(trips.find((t) => t.id === "trip-b")?.included, false);
+    assert.equal(summary.total_comisiones, 100);
+
+    restoreSummaryDeps(deps);
+  });
+
+  it("guarda flete de liquidación sin cambiar tarifa, ingreso ni comisión", async () => {
+    const deps = mockSummaryDeps();
+    const tripA = mockTrip({ id: "trip-a", tarifa: 1000 });
+    deps.tripFindAll.mock.mockImplementation(async () => [tripA] as never);
+
+    const summary = await settlementSummary(
+      tenantId,
+      driverId,
+      fechaInicio,
+      fechaFin,
+      undefined,
+      [{ id: "trip-a", monto: 1500 }],
+    );
+    const trips = summary.trips as { id: string; tarifa?: number; flete_liquidacion?: number }[];
+    const saved = trips.find((t) => t.id === "trip-a");
+
+    assert.equal(saved?.tarifa, 1000);
+    assert.equal(saved?.flete_liquidacion, 1500);
+    assert.equal(tripA.tarifa, 1000);
+    assert.equal(summary.total_ingresos, 1000);
     assert.equal(summary.total_comisiones, 100);
 
     restoreSummaryDeps(deps);

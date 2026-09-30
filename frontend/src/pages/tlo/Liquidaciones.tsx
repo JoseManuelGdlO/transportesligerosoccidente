@@ -6,7 +6,7 @@ import type { SettlementSummary } from "@/lib/calc";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, isoDay } from "@/lib/format";
 import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
-import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, buildTripInclusionsFromTrips, tripInclusionsPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
+import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
@@ -88,6 +88,7 @@ export default function Liquidaciones() {
   const [pendingDeleteDraftId, setPendingDeleteDraftId] = useState<string | null>(null);
   const [pendingCancelSettlementId, setPendingCancelSettlementId] = useState<string | null>(null);
   const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
+  const [fleteLiquidacion, setFleteLiquidacion] = useState<Record<string, number | null>>({});
   const [accountOpen, setAccountOpen] = useState(false);
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
@@ -257,16 +258,19 @@ export default function Liquidaciones() {
 
   const handleDriverChange = (id: string) => {
     resetToLiveMode();
+    setFleteLiquidacion({});
     setDriverId(id);
   };
 
   const handleInicioChange = (value: string) => {
     resetToLiveMode();
+    setFleteLiquidacion({});
     setInicio(value);
   };
 
   const handleFinChange = (value: string) => {
     resetToLiveMode();
+    setFleteLiquidacion({});
     setFin(value);
   };
 
@@ -284,6 +288,7 @@ export default function Liquidaciones() {
 
   const openWeekRow = (driverRowId: string) => {
     resetToLiveMode();
+    setFleteLiquidacion({});
     setDriverId(driverRowId);
     setActiveTab("actual");
   };
@@ -309,6 +314,7 @@ export default function Liquidaciones() {
       if (row.snapshot) {
         setSummary(row.snapshot);
         setTripInclusions(buildTripInclusionsFromTrips(row.snapshot.trips));
+        setFleteLiquidacion(buildFleteLiquidacionFromTrips(row.snapshot.trips));
       }
       setActiveTab("actual");
       toast.success("Pre-liquidación cargada con datos actualizados");
@@ -439,14 +445,15 @@ export default function Liquidaciones() {
   };
 
   const saveDraft = async () => {
-    if (!driverId) return;
+    if (!driverId || !summary) return;
     const payload = tripInclusionsPayload(tripInclusions);
+    const fletePayload = fleteLiquidacionPayload(summary.trips, fleteLiquidacion);
     try {
       let row: SettlementRecord;
       if (activeDraftId) {
         const res = await apiFetch(`/settlements/${activeDraftId}/draft`, {
           method: "PATCH",
-          body: JSON.stringify({ trip_inclusions: payload }),
+          body: JSON.stringify({ trip_inclusions: payload, flete_liquidacion: fletePayload }),
         });
         row = await readJson<SettlementRecord>(res);
       } else {
@@ -457,6 +464,7 @@ export default function Liquidaciones() {
             fecha_inicio: inicio,
             fecha_fin: fin,
             trip_inclusions: payload,
+            flete_liquidacion: fletePayload,
           }),
         });
         row = await readJson<SettlementRecord>(res);
@@ -465,6 +473,7 @@ export default function Liquidaciones() {
       if (row.snapshot) {
         setSummary(row.snapshot);
         setTripInclusions(buildTripInclusionsFromTrips(row.snapshot.trips));
+        setFleteLiquidacion(buildFleteLiquidacionFromTrips(row.snapshot.trips));
         setSummarySource("snapshot");
       }
       toast.success("Pre-liquidación guardada");
@@ -479,6 +488,7 @@ export default function Liquidaciones() {
       await apiFetch(`/settlements/${settlementId}`, { method: "DELETE" });
       if (activeDraftId === settlementId) {
         resetToLiveMode();
+        setFleteLiquidacion({});
         setSummary(null);
         await loadSummary();
       }
@@ -516,7 +526,14 @@ export default function Liquidaciones() {
     setClosing(true);
     try {
       const idToClose = settlementId ?? activeDraftId ?? undefined;
-      const inclusionsBody = { trip_inclusions: tripInclusionsPayload(tripInclusions) };
+      const closingLoaded = settlementId == null || settlementId === activeDraftId;
+      const inclusionsBody: {
+        trip_inclusions: ReturnType<typeof tripInclusionsPayload>;
+        flete_liquidacion?: ReturnType<typeof fleteLiquidacionPayload>;
+      } = { trip_inclusions: tripInclusionsPayload(tripInclusions) };
+      if (closingLoaded && summary) {
+        inclusionsBody.flete_liquidacion = fleteLiquidacionPayload(summary.trips, fleteLiquidacion);
+      }
       if (idToClose) {
         await apiFetch(`/settlements/${idToClose}/close`, {
           method: "POST",
@@ -535,6 +552,7 @@ export default function Liquidaciones() {
       }
       toast.success("Liquidación cerrada");
       resetToLiveMode();
+      setFleteLiquidacion({});
       await loadSummary();
       await loadLists();
     } catch (e) {
@@ -599,9 +617,9 @@ export default function Liquidaciones() {
 
   const effectiveSummary = useMemo(() => {
     if (!summary || !driver) return null;
-    if (summarySource === "snapshot") return summary;
-    return applyTripInclusions(summary, driver, tripInclusions);
-  }, [summary, driver, tripInclusions, summarySource]);
+    const base = summarySource === "snapshot" ? summary : applyTripInclusions(summary, driver, tripInclusions);
+    return applySettlementFlete(base, fleteLiquidacion);
+  }, [summary, driver, tripInclusions, summarySource, fleteLiquidacion]);
 
   const summaryForPdf = useMemo(() => {
     if (!effectiveSummary) return null;
@@ -872,6 +890,13 @@ export default function Liquidaciones() {
                     Object.fromEntries(summary.trips.map((t) => [t.id, included])),
                   );
                 }}
+                onFleteLiquidacionChange={
+                  canClose && summarySource === "live"
+                    ? (tripId, monto) => {
+                        setFleteLiquidacion((prev) => ({ ...prev, [tripId]: monto }));
+                      }
+                    : undefined
+                }
                 advForm={advForm}
                 discForm={discForm}
                 compForm={compForm}
