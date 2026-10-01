@@ -18,10 +18,11 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
-import { fmtMXNDecimal } from "@/lib/format";
+import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
+import { slicePage } from "@/lib/tableFilters";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
 import {
   emptyConcepto,
@@ -86,6 +87,10 @@ export default function Cuentas() {
   const [q, setQ] = useState("");
   const [bucket, setBucket] = useState<string>("all");
   const [estatus, setEstatus] = useState<string>("all");
+  const [fechaDesde, setFechaDesde] = useState("");
+  const [fechaHasta, setFechaHasta] = useState("");
+  const [page, setPage] = useState(1);
+  const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
@@ -165,6 +170,8 @@ export default function Cuentas() {
           q: q.trim() || undefined,
           bucket: bucket === "all" ? undefined : bucket,
           estatus: estatus === "all" ? undefined : estatus,
+          desde: fechaDesde || undefined,
+          hasta: fechaHasta || undefined,
         }),
         fetchAccountAging(tipo),
       ]);
@@ -175,7 +182,29 @@ export default function Cuentas() {
     } finally {
       setLoading(false);
     }
-  }, [canView, tipo, q, bucket, estatus]);
+  }, [canView, tipo, q, bucket, estatus, fechaDesde, fechaHasta]);
+
+  const applyFiltroHoy = useCallback(() => {
+    const d = isoDay(new Date());
+    setFechaDesde(d);
+    setFechaHasta(d);
+  }, []);
+
+  const applyFiltroSemanaActual = useCallback(() => {
+    const today = new Date();
+    setFechaDesde(isoDay(startOfWeek(today)));
+    setFechaHasta(isoDay(endOfWeek(today)));
+  }, []);
+
+  useEffect(() => {
+    setPage(1);
+  }, [q, bucket, estatus, fechaDesde, fechaHasta, tipo, pageSize]);
+
+  const pageData = useMemo(() => slicePage(docs, page, pageSize), [docs, page, pageSize]);
+
+  useEffect(() => {
+    if (pageData.safePage !== page) setPage(pageData.safePage);
+  }, [pageData.safePage, page]);
 
   useEffect(() => {
     void load();
@@ -344,25 +373,81 @@ export default function Cuentas() {
             ))}
           </div>
 
-          <div className="flex flex-wrap gap-2">
-            <Input
-              className="max-w-xs"
-              placeholder="Buscar folio, concepto, entidad…"
-              value={q}
-              onChange={(e) => setQ(e.target.value)}
-            />
-            <Select value={estatus} onValueChange={setEstatus}>
-              <SelectTrigger className="w-40">
-                <SelectValue placeholder="Estatus" />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="all">Todos</SelectItem>
-                <SelectItem value="abierta">Abierta</SelectItem>
-                <SelectItem value="pagada">Pagada</SelectItem>
-                <SelectItem value="cancelada">Cancelada</SelectItem>
-              </SelectContent>
-            </Select>
-            {loading && <span className="text-sm text-muted-foreground self-center">Cargando…</span>}
+          <div className="space-y-3">
+            <div className="flex flex-wrap gap-2">
+              <Input
+                className="max-w-xs"
+                placeholder="Buscar folio, concepto, entidad…"
+                value={q}
+                onChange={(e) => setQ(e.target.value)}
+              />
+              <Select value={estatus} onValueChange={setEstatus}>
+                <SelectTrigger className="w-40">
+                  <SelectValue placeholder="Estatus" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">Todos</SelectItem>
+                  <SelectItem value="abierta">Abierta</SelectItem>
+                  <SelectItem value="pagada">Pagada</SelectItem>
+                  <SelectItem value="cancelada">Cancelada</SelectItem>
+                </SelectContent>
+              </Select>
+              {loading && <span className="text-sm text-muted-foreground self-center">Cargando…</span>}
+            </div>
+
+            <div className="rounded-md border border-border/70 bg-muted/30 px-3 py-3">
+              <p className="mb-2 text-xs text-muted-foreground">Fecha de emisión</p>
+              <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-end">
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Desde</Label>
+                  <Input
+                    type="date"
+                    value={fechaDesde}
+                    onChange={(e) => setFechaDesde(e.target.value)}
+                    className="w-full sm:w-[160px] bg-background"
+                    aria-label="Fecha de emisión desde"
+                  />
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Hasta</Label>
+                  <Input
+                    type="date"
+                    value={fechaHasta}
+                    onChange={(e) => setFechaHasta(e.target.value)}
+                    className="w-full sm:w-[160px] bg-background"
+                    aria-label="Fecha de emisión hasta"
+                  />
+                </div>
+                <div className="flex flex-wrap gap-2 sm:pb-0.5">
+                  <Button type="button" variant="outline" size="sm" className="h-9" onClick={applyFiltroHoy}>
+                    Hoy
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-9"
+                    onClick={applyFiltroSemanaActual}
+                  >
+                    Semana actual
+                  </Button>
+                  {(fechaDesde || fechaHasta) && (
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="sm"
+                      className="h-9 text-muted-foreground"
+                      onClick={() => {
+                        setFechaDesde("");
+                        setFechaHasta("");
+                      }}
+                    >
+                      Limpiar fechas
+                    </Button>
+                  )}
+                </div>
+              </div>
+            </div>
           </div>
 
           <Card className="overflow-x-auto">
@@ -383,7 +468,7 @@ export default function Cuentas() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {docs.map((d) => (
+                {pageData.slice.map((d) => (
                   <TableRow
                     key={d.id}
                     className="cursor-pointer"
@@ -420,7 +505,7 @@ export default function Cuentas() {
                     </TableCell>
                   </TableRow>
                 ))}
-                {!docs.length && (
+                {!pageData.total && (
                   <TableRow>
                     <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                       Sin documentos
@@ -430,6 +515,68 @@ export default function Cuentas() {
               </TableBody>
             </Table>
           </Card>
+
+          {pageData.total > 0 ? (
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between text-sm text-muted-foreground">
+              <p>
+                Mostrando{" "}
+                <span className="text-foreground font-medium">
+                  {pageData.rangeStart}–{pageData.rangeEnd}
+                </span>{" "}
+                de <span className="text-foreground font-medium">{pageData.total}</span>
+              </p>
+              <div className="flex flex-wrap items-center gap-3">
+                <div className="flex items-center gap-2">
+                  <Label className="text-xs whitespace-nowrap">Por página</Label>
+                  <Select
+                    value={String(pageSize)}
+                    onValueChange={(v) => {
+                      setPageSize(Number(v));
+                      setPage(1);
+                    }}
+                  >
+                    <SelectTrigger className="w-[80px] h-8" aria-label="Filas por página">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="10">10</SelectItem>
+                      <SelectItem value="20">20</SelectItem>
+                      <SelectItem value="50">50</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <span className="text-xs whitespace-nowrap" aria-live="polite">
+                  Página {pageData.safePage} de {pageData.totalPages}
+                </span>
+                <div className="flex items-center gap-1">
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 px-2"
+                    disabled={pageData.safePage <= 1}
+                    onClick={() => setPage((p) => Math.max(1, p - 1))}
+                    aria-label="Página anterior"
+                  >
+                    <ChevronLeft className="h-4 w-4" />
+                    <span className="hidden sm:inline">Anterior</span>
+                  </Button>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    size="sm"
+                    className="h-8 gap-1 px-2"
+                    disabled={pageData.safePage >= pageData.totalPages}
+                    onClick={() => setPage((p) => p + 1)}
+                    aria-label="Página siguiente"
+                  >
+                    <span className="hidden sm:inline">Siguiente</span>
+                    <ChevronRight className="h-4 w-4" />
+                  </Button>
+                </div>
+              </div>
+            </div>
+          ) : null}
         </TabsContent>
       </Tabs>
 
