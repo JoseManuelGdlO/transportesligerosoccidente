@@ -62,19 +62,36 @@ export default function ViajeDetalle() {
   const [cxcDoc, setCxcDoc] = useState<AccountDocument | null>(null);
   useEffect(() => {
     setTripOverride(null);
-  }, [tripCtx]);
+  }, [id]);
+
+  const publishTrip = (updated: Trip) => {
+    replaceTrip(updated);
+    setTripOverride(updated);
+  };
 
   const reloadTrip = async () => {
     if (!id || !hasApiConfigured()) return;
     const r = await apiFetch(`/trips/${id}`);
     if (r.ok) {
       const j = await readJson<Record<string, unknown>>(r);
-      setTripOverride(normalizeTrip(j));
+      publishTrip(normalizeTrip(j));
     }
   };
 
   useEffect(() => {
-    void reloadTrip();
+    let cancelled = false;
+    void (async () => {
+      if (!id || !hasApiConfigured()) return;
+      const r = await apiFetch(`/trips/${id}`);
+      if (!r.ok || cancelled) return;
+      const j = await readJson<Record<string, unknown>>(r);
+      if (cancelled) return;
+      publishTrip(normalizeTrip(j));
+    })();
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [id]);
 
   useEffect(() => {
@@ -152,8 +169,7 @@ export default function ViajeDetalle() {
   const canEditTrip = hasPermission("viajes.crear");
 
   const onTripSaved = (updated: Trip) => {
-    replaceTrip(updated);
-    setTripOverride(updated);
+    publishTrip(updated);
   };
 
   const saveNotas = async () => {
@@ -185,12 +201,12 @@ export default function ViajeDetalle() {
     try {
       if (hasApiConfigured()) {
         const updated = await setTripStatuses(trip.id, selectedCustomIds);
-        setTripOverride(updated);
+        publishTrip(updated);
         toast.success("Estados actualizados");
       } else {
         const custom = allStatuses.filter((s) => selectedCustomIds.includes(s.id));
         const system = trip.statuses.filter((s) => s.is_system);
-        setTripOverride({ ...trip, statuses: [...system, ...custom] });
+        publishTrip({ ...trip, statuses: [...system, ...custom] });
         toast.success("Estados actualizados (demo)");
       }
     } catch (e) {
@@ -325,7 +341,7 @@ export default function ViajeDetalle() {
           <div>
             <div className="flex items-center gap-2">
               <h2 className="text-xl font-bold font-mono">{trip.folio}</h2>
-              <TripStatusesBadges statuses={trip.statuses ?? []} />
+              <TripStatusesBadges statuses={trip.statuses ?? []} trip={trip} />
               <Badge variant="outline">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</Badge>
             </div>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
@@ -818,7 +834,7 @@ export default function ViajeDetalle() {
               clientName={client?.razon_social}
               driver={driver}
               truck={truck}
-              onTripUpdated={(t) => setTripOverride(t)}
+              onTripUpdated={publishTrip}
             />
           </TabsContent>
         ) : null}

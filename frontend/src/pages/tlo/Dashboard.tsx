@@ -336,7 +336,7 @@ export default function Dashboard() {
                     <TableCell className="text-sm">{drNombre}</TableCell>
                     <TableCell className="text-sm font-mono">{tk?.numero_economico}</TableCell>
                     <TableCell className="text-right">{fmtMXN(t.tarifa)}</TableCell>
-                    <TableCell><TripStatusesBadges statuses={t.statuses ?? []} /></TableCell>
+                    <TableCell><TripStatusesBadges statuses={t.statuses ?? []} trip={t} /></TableCell>
                   </TableRow>
                 );
               })}
