@@ -32,9 +32,50 @@ export interface SettlementSheetModel {
   pendienteArrastrado: number;
 }
 
+const DISCOUNT_TYPE_LABELS: Record<string, string> = {
+  prestamo: "Préstamo",
+  dano: "Daño",
+  multa: "Multa",
+  nomina: "Nómina",
+  caja: "Caja",
+  ahorro: "Ahorro",
+  fianza: "Fianza",
+  otro: "Otro",
+};
+
 function num(value: unknown): number {
   const n = Number(value);
   return Number.isFinite(n) ? n : 0;
+}
+
+function discountLineLabel(tipo: string | undefined, descripcion: string | undefined): string {
+  const text = (descripcion ?? "").trim();
+  if (text && text.toLowerCase() !== "descuento") return text;
+  return DISCOUNT_TYPE_LABELS[(tipo ?? "").trim().toLowerCase()] ?? "Descuento";
+}
+
+/** Una fila por descuento del periodo si el detalle cuadra con el total; si no, la fila genérica. */
+function discountSheetLines(summary: SettlementSummary, total: number): SettlementSheetLine[] {
+  const fallback: SettlementSheetLine[] = [{ label: "Descuentos", amount: total, kind: "sub" }];
+  const inPeriod = (summary.discounts ?? []).filter(
+    (discount) => discount.en_periodo !== false && roundMoney(num(discount.monto)) > 0,
+  );
+  if (inPeriod.length === 0) return fallback;
+
+  const sum = roundMoney(inPeriod.reduce((acc, discount) => acc + num(discount.monto), 0));
+  if (sum !== total) return fallback;
+
+  return [...inPeriod]
+    .sort((a, b) => {
+      const byFecha = (a.fecha ?? "").localeCompare(b.fecha ?? "");
+      if (byFecha !== 0) return byFecha;
+      return a.id.localeCompare(b.id);
+    })
+    .map((discount) => ({
+      label: discountLineLabel(discount.tipo, discount.descripcion),
+      amount: roundMoney(num(discount.monto)),
+      kind: "sub" as const,
+    }));
 }
 
 function toBox(rows: SettlementBalanceRow[]): SettlementBalanceBox {
@@ -126,7 +167,7 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
     { label: "Comisión", amount: comisiones, kind: "plain" },
     { label: "Compensaciones", amount: compensaciones, kind: "add" },
     { label: "Viáticos a favor", amount: viaticosAFavor(saldoViaticos), kind: "add" },
-    { label: "Descuentos", amount: descuentos, kind: "sub" },
+    ...discountSheetLines(summary, descuentos),
     { label: "Anticipos", amount: anticipos, kind: "sub" },
     { label: "Viáticos no comprobados", amount: viaticosNoComprobado(saldoViaticos), kind: "sub" },
     { label: "Subtotal", amount: subtotal, kind: "subtotal" },
