@@ -293,7 +293,7 @@ export function TripCartaPorte({
     numero_interior: destino?.numero_interior || "",
     pais: destino?.pais || "MEX",
     client_ubicacion_id: destino?.client_ubicacion_id,
-    distancia_km: tripDistanciaKm ?? destino?.distancia_km ?? "",
+    distancia_km: destino?.distancia_km ?? tripDistanciaKm ?? "",
     // Misma fecha que salida por default: falla validación hasta que el usuario la ajuste
     fecha_hora: destino?.fecha_hora?.slice(0, 16) || defaultFechaSalida,
   });
@@ -507,14 +507,6 @@ export function TripCartaPorte({
   }, [trip.id, trip.ubicaciones]);
 
   useEffect(() => {
-    if (tripDistanciaKm == null) return;
-    setDestinoForm((prev) => {
-      if (Number(prev.distancia_km) === tripDistanciaKm) return prev;
-      return { ...prev, distancia_km: tripDistanciaKm };
-    });
-  }, [tripDistanciaKm]);
-
-  useEffect(() => {
     if (!validationAttempted) return;
     const section = firstErrorSection(issueFlags, fiscalStopCount);
     if (!section) return;
@@ -567,13 +559,9 @@ export function TripCartaPorte({
     numero_interior: body.numero_interior || undefined,
     pais: body.pais || undefined,
     distancia_km:
-      orden === 1
+      orden === 1 || body.distancia_km === "" || body.distancia_km == null
         ? undefined
-        : tripDistanciaKm != null && tripDistanciaKm > 0
-          ? tripDistanciaKm
-          : body.distancia_km === "" || body.distancia_km == null
-            ? undefined
-            : Number(body.distancia_km),
+        : Number(body.distancia_km),
     fecha_hora: body.fecha_hora ? new Date(body.fecha_hora).toISOString() : undefined,
     client_ubicacion_id: body.client_ubicacion_id || undefined,
   });
@@ -593,7 +581,7 @@ export function TripCartaPorte({
     } catch {
       toast.error("No se pudieron guardar las ubicaciones");
     }
-  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id, tripDistanciaKm]);
+  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id]);
 
   const flushPendingSaves = useCallback(async (opts?: { force?: boolean }) => {
     if (persistTimerRef.current) {
@@ -1616,17 +1604,14 @@ export function TripCartaPorte({
               <Label>Distancia (km)</Label>
               <Input
                 type="number"
+                min={0}
+                step="0.01"
                 value={destinoForm.distancia_km}
-                readOnly
-                disabled
-                title="Tomada de los km recorridos del viaje"
+                onChange={(e) => patchDestino({ distancia_km: e.target.value })}
+                onBlur={onUbicFieldBlur}
+                disabled={!canFiscalEdit}
                 className={fh(issueFlags.stops[fiscalStopCount]?.distancia_km ?? false)}
               />
-              {tripDistanciaKm == null || tripDistanciaKm <= 0 ? (
-                <p className="text-xs text-muted-foreground mt-1">
-                  Se toma de los km recorridos del viaje (km final − km inicial).
-                </p>
-              ) : null}
             </div>
             <div>
               <Label>Fecha/hora llegada</Label>
