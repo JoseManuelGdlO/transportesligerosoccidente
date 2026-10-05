@@ -149,6 +149,39 @@ const emptyUbic = () => ({
 
 const AUTOSAVE_MS = 400;
 
+const SAT_ERROR_CODE = /\b(?:CFDI\d{3,}|CP\d{2,})\b/;
+
+/** Separa el origen (SAT o Sicofi) del texto, incluido mensajes ya guardados sin prefijo. */
+function splitPacError(message: string): { origin: "SAT" | "Sicofi" | null; text: string } {
+  const prefixed = message.match(/^(SAT|Sicofi):\s*([\s\S]*)$/);
+  if (prefixed) {
+    return { origin: prefixed[1] as "SAT" | "Sicofi", text: prefixed[2] };
+  }
+  const clean = message.replace(/^Error:\s*/i, "").trim();
+  if (SAT_ERROR_CODE.test(clean)) return { origin: "SAT", text: clean };
+  if (/sicofi/i.test(clean)) {
+    return { origin: "Sicofi", text: clean.replace(/^Sicofi\s*/i, "").trim() || clean };
+  }
+  return { origin: null, text: message };
+}
+
+function CartaPorteErrorNotice({ message }: { message: string }) {
+  const { origin, text } = splitPacError(message);
+  return (
+    <p className="text-destructive flex items-start gap-2">
+      <AlertCircle className="h-4 w-4 shrink-0 mt-0.5" />
+      <span>
+        {origin && (
+          <Badge variant="outline" className="mr-2 align-middle border-destructive/40 text-destructive">
+            {origin}
+          </Badge>
+        )}
+        {text}
+      </span>
+    </p>
+  );
+}
+
 export function TripCartaPorte({
   trip,
   clientId,
@@ -816,6 +849,11 @@ export function TripCartaPorte({
       if (!r.ok) {
         const j = await r.json().catch(() => ({}));
         toast.error(typeof j.error === "string" ? j.error : "Error al timbrar");
+        try {
+          await reloadTrip();
+        } catch {
+          // El toast ya mostró el mensaje de este intento.
+        }
         return;
       }
       const timbrado = await readJson<{ serie?: string; folio_cfdi?: string }>(r);
@@ -960,12 +998,7 @@ export function TripCartaPorte({
               {cp.transporte_internacional || trip.tipo_viaje === "foraneo" ? "Sí" : "No"}
             </p>
           )}
-          {cp?.error_mensaje && (
-            <p className="text-destructive flex items-start gap-2">
-              <AlertCircle className="h-4 w-4 shrink-0" />
-              {cp.error_mensaje}
-            </p>
-          )}
+          {cp?.error_mensaje && <CartaPorteErrorNotice message={cp.error_mensaje} />}
           {canTimbrar && !cpTimbrada && (
             <div className="grid sm:grid-cols-2 gap-3 pt-2 border-t">
               <div>

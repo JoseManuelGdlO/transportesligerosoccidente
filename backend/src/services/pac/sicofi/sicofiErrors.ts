@@ -30,3 +30,36 @@ export function enhanceSicofiErrorMessage(msg: string): string {
   }
   return msg;
 }
+
+/** Códigos de validación del SAT en CFDI 4.0 y Carta Porte (CFDI40158, CP131, …). */
+const SAT_ERROR_CODE = /\b(?:CFDI\d{3,}|CP\d{2,})\b/;
+
+export type PacErrorOrigin = "sat" | "sicofi";
+
+/**
+ * Separa rechazos del SAT (código CFDI/CP) de fallos del PAC (auth, timeout, HTTP).
+ * Quita prefijos previos para poder aplicarse más de una vez al mismo texto.
+ */
+export function classifyPacError(msg: string): { origin: PacErrorOrigin | null; text: string } {
+  const clean = msg
+    .replace(/^(?:SAT|Sicofi):\s*/i, "")
+    .replace(/^Error:\s*/i, "")
+    .trim();
+
+  if (SAT_ERROR_CODE.test(clean)) {
+    return { origin: "sat", text: clean };
+  }
+  if (/sicofi/i.test(clean)) {
+    const text = clean.replace(/^Sicofi\s*/i, "").trim();
+    return { origin: "sicofi", text: text || clean };
+  }
+  return { origin: null, text: clean };
+}
+
+/** Prefija el mensaje con `SAT:` o `Sicofi:` según `classifyPacError`. */
+export function formatPacErrorMessage(msg: string): string {
+  const { origin, text } = classifyPacError(msg);
+  if (origin === "sat") return `SAT: ${text}`;
+  if (origin === "sicofi") return `Sicofi: ${text}`;
+  return text;
+}

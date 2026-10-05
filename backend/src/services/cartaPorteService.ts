@@ -17,6 +17,7 @@ import { getTripOrThrow } from "./tripService";
 import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
+import { formatPacErrorMessage } from "./pac/sicofi/sicofiErrors";
 import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
 import { loadSatMaterialPeligrosoByClaves, validateMercanciasCatalog } from "./satCatalogService";
 import type { TimbradoContext, TimbradoOpts } from "./pac/types";
@@ -475,7 +476,7 @@ export async function timbrarCartaPorte(
     }
     return cp;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error al timbrar";
+    const msg = formatPacErrorMessage(e instanceof Error ? e.message : "Error al timbrar");
     await cp.update({ estatus: "error", error_mensaje: msg } as never);
     throw err(msg, 502);
   }
@@ -596,7 +597,7 @@ export async function cancelarCartaPorte(
   try {
     await pac.cancelar(cp.uuid, motivo, tenant, folio ? { folioSustitucion: folio } : undefined);
   } catch (e) {
-    const msg = e instanceof Error ? e.message : "Error al cancelar ante el PAC";
+    const msg = formatPacErrorMessage(e instanceof Error ? e.message : "Error al cancelar ante el PAC");
     throw err(msg, 502);
   }
   await cp.update({ estatus: "cancelada" } as never);
