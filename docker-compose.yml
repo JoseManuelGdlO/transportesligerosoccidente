@@ -44,6 +44,7 @@ services:
       FUEL_SYNC_FILE_PATH: ${FUEL_SYNC_FILE_PATH:-}
       FISCAL_ENC_KEY: ${FISCAL_ENC_KEY:-}
       PAC_PROVIDER: ${PAC_PROVIDER:-stub}
+      SICOFI_API_BASE_URL: ${SICOFI_API_BASE_URL:-}
       DB_HOST: ${DB_HOST:-127.0.0.1}
       DB_PORT: ${DB_PORT:-3306}
       DB_NAME: ${DB_NAME:-tlgdb}
