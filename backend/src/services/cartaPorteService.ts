@@ -478,7 +478,8 @@ export async function timbrarCartaPorte(
   } catch (e) {
     const msg = formatPacErrorMessage(e instanceof Error ? e.message : "Error al timbrar");
     await cp.update({ estatus: "error", error_mensaje: msg } as never);
-    throw err(msg, 502);
+    // 422, no 502: EasyPanel sustituye un 502 por HTML sin CORS y el navegador no puede leer el JSON.
+    throw err(msg, 422);
   }
 }
 
@@ -598,7 +599,8 @@ export async function cancelarCartaPorte(
     await pac.cancelar(cp.uuid, motivo, tenant, folio ? { folioSustitucion: folio } : undefined);
   } catch (e) {
     const msg = formatPacErrorMessage(e instanceof Error ? e.message : "Error al cancelar ante el PAC");
-    throw err(msg, 502);
+    // 422, no 502: EasyPanel sustituye un 502 por HTML sin CORS y el navegador no puede leer el JSON.
+    throw err(msg, 422);
   }
   await cp.update({ estatus: "cancelada" } as never);
   return cp;

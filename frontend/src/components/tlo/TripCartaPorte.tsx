@@ -903,6 +903,8 @@ export function TripCartaPorte({
       setFolioSustitucion("");
       setMotivoCancelacion("02");
       await reloadTrip();
+    } catch (e) {
+      setCancelError(e instanceof Error && e.message.trim() ? e.message : "Error al cancelar la factura");
     } finally {
       setCancelling(false);
     }
