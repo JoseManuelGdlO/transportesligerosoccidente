@@ -97,7 +97,8 @@ export async function sicofiPostFactura40(
 function messageFromSicofiJsonBody(body: string, fallbackStatus: number): string {
   let msg = `Sicofi respondió ${fallbackStatus}`;
   try {
-    const j = JSON.parse(body) as Record<string, unknown>;
+    const j = JSON.parse(body) as Record<string, unknown> | string;
+    if (typeof j === "string") return formatSicofiPlainCancelacionError(j);
     if (typeof j.message === "string") msg = j.message;
     else if (typeof j.Mensaje === "string") msg = j.Mensaje;
     else if (typeof j.ErrorCancelacion === "string") msg = j.ErrorCancelacion;
@@ -112,7 +113,9 @@ function messageFromSicofiJsonBody(body: string, fallbackStatus: number): string
   } catch {
     if (body.trim()) msg = body.trim().slice(0, 500);
   }
-  return msg;
+  const decoded = decodeSicofiUnicodeEscapes(msg);
+  if (SICOFI_PLAIN_CANCEL_ERROR.test(decoded)) return formatSicofiPlainCancelacionError(decoded);
+  return decoded;
 }
 
 /**
@@ -136,14 +139,48 @@ function pickSicofiCancelField(
   return null;
 }
 
+/** Texto plano de Sicofi: `Error: 999 Descripción: …` (a veces con `\u00F3` sin decodificar). */
+const SICOFI_PLAIN_CANCEL_ERROR = /^Error:\s*(\S*)\s*Descripci[oó]n:\s*([\s\S]*)$/i;
+
+/**
+ * Convierte escapes `\uXXXX` literales a caracteres. Sicofi a veces los deja en el cuerpo
+ * aunque el JSON ya debería haberlos decodificado.
+ */
+export function decodeSicofiUnicodeEscapes(text: string): string {
+  return text.replace(/\\u([0-9a-fA-F]{4})/g, (_, hex: string) =>
+    String.fromCharCode(Number.parseInt(hex, 16)),
+  );
+}
+
+/**
+ * Normaliza el error de texto que Sicofi devuelve en lugar del objeto de cancelación.
+ * `Error: 999 Descripción: …` pasa a `Error 999: …`. Si código y descripción vienen vacíos, no hay detalle.
+ */
+export function formatSicofiPlainCancelacionError(text: string): string {
+  const decoded = decodeSicofiUnicodeEscapes(text).trim().replace(/^"|"$/g, "");
+  const match = decoded.match(SICOFI_PLAIN_CANCEL_ERROR);
+  if (!match) {
+    return decoded || "Cancelación rechazada por Sicofi (sin detalle del PAC)";
+  }
+  const code = match[1]?.trim() ?? "";
+  const description = match[2]?.trim() ?? "";
+  if (code && description) return `Error ${code}: ${description}`;
+  if (description) return description;
+  if (code) return `Error ${code}`;
+  return "Cancelación rechazada por Sicofi (sin detalle del PAC)";
+}
+
 /**
  * Arma mensaje de error a partir de la respuesta de cancelación Sicofi.
- * Incluye ErrorCancelacion, Mensaje, CodigoError, RespuestaSAT; si no hay detalle, usa el body crudo.
+ * Incluye ErrorCancelacion, Mensaje, CodigoError, RespuestaSAT.
+ * Si el PAC manda un string JSON, lo decodifica. Si no hay detalle, usa el body crudo ya decodificado.
  */
 export function formatSicofiCancelacionError(
-  res: SicofiCancelaTimbradoResponse | Record<string, unknown>,
+  res: SicofiCancelaTimbradoResponse | Record<string, unknown> | string,
   rawBody?: string,
 ): string {
+  if (typeof res === "string") return formatSicofiPlainCancelacionError(res);
+
   const r = res as Record<string, unknown>;
   const parts = [
     pickSicofiCancelField(r, "ErrorCancelacion", "errorCancelacion", "error_cancelacion"),
@@ -156,13 +193,20 @@ export function formatSicofiCancelacionError(
       const sat = pickSicofiCancelField(r, "RespuestaSAT", "respuestaSAT", "respuesta_sat");
       return sat ? `RespuestaSAT: ${sat}` : null;
     })(),
-  ].filter((p): p is string => typeof p === "string" && p.length > 0);
+  ]
+    .filter((p): p is string => typeof p === "string" && p.length > 0)
+    .map((p) =>
+      SICOFI_PLAIN_CANCEL_ERROR.test(decodeSicofiUnicodeEscapes(p))
+        ? formatSicofiPlainCancelacionError(p)
+        : decodeSicofiUnicodeEscapes(p),
+    );
 
   if (parts.length) return parts.join(" — ");
 
   const trimmed = rawBody?.trim();
   if (trimmed) {
-    const snippet = trimmed.length > 800 ? `${trimmed.slice(0, 800)}…` : trimmed;
+    const decoded = decodeSicofiUnicodeEscapes(trimmed);
+    const snippet = decoded.length > 800 ? `${decoded.slice(0, 800)}…` : decoded;
     return `Cancelación rechazada por Sicofi: ${snippet}`;
   }
   return "Cancelación rechazada por Sicofi (sin detalle del PAC)";
@@ -204,23 +248,32 @@ export async function sicofiPostCancelaTimbrado(
       logger.warn(`[Sicofi] CancelaTimbrado HTTP ${res.status}: ${body.slice(0, 1000)}`);
       throw new SicofiHttpError(res.status, messageFromSicofiJsonBody(body, res.status));
     }
-    let parsed: SicofiCancelaTimbradoResponse;
+    let parsed: unknown;
     try {
-      parsed = JSON.parse(body) as SicofiCancelaTimbradoResponse;
+      parsed = JSON.parse(body);
     } catch {
       logger.warn(`[Sicofi] CancelaTimbrado respuesta no JSON: ${body.slice(0, 1000)}`);
       throw new Error(
-        `Respuesta de cancelación Sicofi no es JSON válido: ${body.trim().slice(0, 500) || "(vacío)"}`,
+        `Respuesta de cancelación Sicofi no es JSON válido: ${decodeSicofiUnicodeEscapes(body.trim()).slice(0, 500) || "(vacío)"}`,
       );
     }
-    if (!isSicofiCancelacionCorrecta(parsed.CancelacionCorrecta)) {
-      const detail = formatSicofiCancelacionError(parsed, body);
+    if (typeof parsed === "string") {
+      const detail = formatSicofiCancelacionError(parsed);
+      logger.warn(`[Sicofi] CancelaTimbrado rechazada (texto): ${detail}`);
+      throw new Error(enhanceSicofiErrorMessage(detail));
+    }
+    const response =
+      parsed !== null && typeof parsed === "object"
+        ? (parsed as SicofiCancelaTimbradoResponse)
+        : undefined;
+    if (!response || !isSicofiCancelacionCorrecta(response.CancelacionCorrecta)) {
+      const detail = formatSicofiCancelacionError(response ?? {}, body);
       logger.warn(
-        `[Sicofi] CancelaTimbrado rechazada CancelacionCorrecta=${String(parsed.CancelacionCorrecta)}: ${detail}`,
+        `[Sicofi] CancelaTimbrado rechazada CancelacionCorrecta=${String(response?.CancelacionCorrecta)}: ${detail}`,
       );
       throw new Error(enhanceSicofiErrorMessage(detail));
     }
-    return parsed;
+    return response;
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
       throw new Error("Timeout al conectar con Sicofi");

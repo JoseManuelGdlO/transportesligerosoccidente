@@ -217,6 +217,7 @@ export function TripCartaPorte({
   const [motivoCancelacion, setMotivoCancelacion] = useState("02");
   const [folioSustitucion, setFolioSustitucion] = useState("");
   const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   const timbradoBody = () => ({
     tipo: tipoTimbrado,
@@ -882,6 +883,7 @@ export function TripCartaPorte({
       return;
     }
     setCancelling(true);
+    setCancelError(null);
     try {
       const folio = folioSustitucion.trim();
       const r = await apiFetch(`/trips/${trip.id}/carta-porte/cancelar`, {
@@ -892,8 +894,8 @@ export function TripCartaPorte({
         }),
       });
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
-        toast.error(typeof j.error === "string" ? j.error : "Error al cancelar la factura");
+        const j = (await r.json().catch(() => ({}))) as { error?: unknown };
+        setCancelError(typeof j.error === "string" && j.error.trim() ? j.error : "Error al cancelar la factura");
         return;
       }
       toast.success("Factura cancelada");
@@ -1785,6 +1787,7 @@ export function TripCartaPorte({
           if (!open) {
             setFolioSustitucion("");
             setMotivoCancelacion("02");
+            setCancelError(null);
           }
         }}
       >
@@ -1800,7 +1803,13 @@ export function TripCartaPorte({
             )}
             <div className="space-y-2">
               <Label>Motivo de cancelación</Label>
-              <Select value={motivoCancelacion} onValueChange={setMotivoCancelacion}>
+              <Select
+                value={motivoCancelacion}
+                onValueChange={(value) => {
+                  setMotivoCancelacion(value);
+                  setCancelError(null);
+                }}
+              >
                 <SelectTrigger>
                   <SelectValue placeholder="Selecciona un motivo" />
                 </SelectTrigger>
@@ -1817,16 +1826,32 @@ export function TripCartaPorte({
               <Label>Folio de sustitución (opcional)</Label>
               <Input
                 value={folioSustitucion}
-                onChange={(e) => setFolioSustitucion(e.target.value)}
+                onChange={(e) => {
+                  setFolioSustitucion(e.target.value);
+                  setCancelError(null);
+                }}
                 placeholder="UUID del CFDI que sustituye"
               />
             </div>
+            {cancelError && (
+              <div
+                role="alert"
+                className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive break-words"
+              >
+                {cancelError}
+              </div>
+            )}
           </div>
           <DialogFooter>
             <Button
               variant="outline"
               disabled={cancelling}
-              onClick={() => setCancelOpen(false)}
+              onClick={() => {
+                setCancelOpen(false);
+                setFolioSustitucion("");
+                setMotivoCancelacion("02");
+                setCancelError(null);
+              }}
             >
               Cerrar
             </Button>

@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it, mock, afterEach } from "node:test";
 import { encryptSecret } from "../../utils/fiscalCrypto";
 import { SicofiPacProvider } from "./SicofiPacProvider";
+import { formatPacErrorMessage } from "./sicofi/sicofiErrors";
 import { clearSicofiTokenCacheForTests } from "./sicofi/sicofiAuth";
 import type { TimbradoContext } from "./types";
 
@@ -243,6 +244,60 @@ describe("SicofiPacProvider", () => {
     await assert.rejects(
       () => provider.cancelar("AAA-BBB-CCC", "02", tenant),
       /RespuestaSAT: CFDI ya cancelado previamente/,
+    );
+  });
+
+  it("cancelar decodifica el texto de error de Sicofi", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        '"Error: 999 Descripci\\u00F3n: Si tu motivo es 01 es necesario enviar el UUID de sustituci\\u00F3n."',
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB-CCC", "01", tenant),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        const expected = "Error 999: Si tu motivo es 01 es necesario enviar el UUID de sustitución.";
+        assert.equal(err.message, expected);
+        assert.equal(formatPacErrorMessage(err.message), expected);
+        return true;
+      },
+    );
+  });
+
+  it("cancelar usa un mensaje legible si Sicofi manda la descripción vacía", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response('"Error:  Descripci\\u00F3n: "', {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB-CCC", "02", tenant),
+      /sin detalle del PAC/,
     );
   });
 
