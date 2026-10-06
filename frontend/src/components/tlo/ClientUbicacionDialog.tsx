@@ -193,8 +193,10 @@ export function ClientUbicacionDialog({
             onChange={(patch) => setForm({ ...form, ...patch })}
             cpError={fieldErrors.cp}
             paisError={fieldErrors.pais}
+            estadoError={fieldErrors.estado}
             onClearCpError={() => clearFieldError("cp")}
             onClearPaisError={() => clearFieldError("pais")}
+            onClearEstadoError={() => clearFieldError("estado")}
           />
         </div>
         <DialogFooter>

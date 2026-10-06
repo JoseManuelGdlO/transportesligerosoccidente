@@ -1,3 +1,4 @@
+import { estadoClaveSatIssue } from "@/lib/estadoSat";
 import type { Client } from "@/types/tlo";
 
 export type ClientFormErrors = Partial<
@@ -31,9 +32,11 @@ export function validateClientForm(
   if (!form.telefono.trim()) errors.telefono = "El teléfono es obligatorio";
   const email = (form.email ?? "").trim();
   if (email && !EMAIL_RE.test(email)) errors.email = "Correo electrónico inválido";
+  const estadoIssue = estadoClaveSatIssue(form.estado, form.pais);
+  if (estadoIssue) errors.estado = estadoIssue;
   if (options?.requireDomicilio) {
     if (!(form.pais ?? "").trim()) errors.pais = "El país es obligatorio";
-    if (!(form.estado ?? "").trim()) errors.estado = "El estado es obligatorio";
+    if (!errors.estado && !(form.estado ?? "").trim()) errors.estado = "El estado es obligatorio";
     if (!(form.cp ?? "").trim()) errors.cp = "El C.P. es obligatorio";
   }
   return errors;

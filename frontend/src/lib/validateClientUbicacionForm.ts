@@ -1,11 +1,12 @@
+import { estadoClaveSatIssue } from "@/lib/estadoSat";
 import type { ClientUbicacion } from "@/types/tlo";
 
 export type ClientUbicacionFormErrors = Partial<
-  Record<"nombre" | "rfc" | "razon_social" | "cp" | "pais", string>
+  Record<"nombre" | "rfc" | "razon_social" | "cp" | "pais" | "estado", string>
 >;
 
 export function validateClientUbicacionForm(
-  form: Pick<ClientUbicacion, "nombre" | "rfc" | "razon_social" | "cp" | "pais">,
+  form: Pick<ClientUbicacion, "nombre" | "rfc" | "razon_social" | "cp" | "pais" | "estado">,
 ): ClientUbicacionFormErrors {
   const errors: ClientUbicacionFormErrors = {};
   if (!form.nombre.trim()) errors.nombre = "El nombre es obligatorio";
@@ -17,6 +18,8 @@ export function validateClientUbicacionForm(
   if (cp.length > 5) errors.cp = "El C.P. no puede tener más de 5 caracteres";
   const pais = (form.pais ?? "").trim();
   if (pais.length > 3) errors.pais = "El país no puede tener más de 3 caracteres";
+  const estadoIssue = estadoClaveSatIssue(form.estado, form.pais);
+  if (estadoIssue) errors.estado = estadoIssue;
   return errors;
 }
 
