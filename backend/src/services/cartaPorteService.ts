@@ -27,6 +27,7 @@ import {
   resolveIdUbicacionSat,
 } from "./tripFiscalService";
 import { enrichUbicacionesDomicilio } from "./postalia/enrichUbicacionesDomicilio";
+import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml } from "./cfdiPdf";
 
@@ -86,14 +87,13 @@ export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
   await ensureUbicacionesFromClient(tenantId, tripId);
   let cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
   if (!cp) {
-    const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
     cp = await CartaPorte.create({
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
       estatus: "borrador",
       id_ccp: randomUUID(),
-      transporte_internacional: trip?.tipo_viaje === "foraneo",
+      transporte_internacional: false,
     } as never);
   } else if (!cp.id_ccp) {
     await cp.update({ id_ccp: randomUUID() } as never);
@@ -197,6 +197,11 @@ export function validateCartaPorteData(
   if (!tripHasStatusSlug(trip, "en_curso") && !tripHasStatusSlug(trip, "cerrado")) {
     issues.push("Estado de viaje no válido para carta porte");
   }
+  if (esTransporteInternacionalSat(ubicaciones)) {
+    issues.push(
+      "Transporte internacional: hay una ubicación fuera de México. Falta régimen aduanero, entrada o salida de mercancía y país origen/destino; sin esos datos el SAT rechaza el complemento.",
+    );
+  }
   return issues;
 }
 
@@ -219,8 +224,7 @@ export function buildCartaPorteXml(
   const idDestinoFinal = idUbicacion(ultimo, trip.id);
   const totalDist = destinos.reduce((s, d) => s + num(d.distancia_km), 0);
   const now = formatFecha(new Date());
-  const transpInternac =
-    cartaPorte.transporte_internacional || trip.tipo_viaje === "foraneo" ? "Sí" : "No";
+  const transpInternac = "No";
   const idCcp = cartaPorte.id_ccp || randomUUID();
 
   const paradas = (trip as Trip & { paradas?: { orden: number; etiqueta: string }[] }).paradas ?? [];

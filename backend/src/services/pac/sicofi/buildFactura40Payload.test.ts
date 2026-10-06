@@ -278,6 +278,52 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.InformacionGlobal, null);
   });
 
+  it("viaje foráneo en México no manda TranspInternac Sí ni RegimenesAduaneros", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        trip: { ...baseCtx().trip, tipo_viaje: "foraneo" } as TimbradoContext["trip"],
+        cartaPorte: {
+          id_ccp: "abc-123",
+          folio_cfdi: null,
+          transporte_internacional: true,
+        } as TimbradoContext["cartaPorte"],
+        ubicaciones: [
+          {
+            orden: 1,
+            tipo: "Origen",
+            cp: "44100",
+            estado: "JAL",
+            pais: "MEX",
+            colonia_clave: "0001",
+            municipio_clave: "039",
+          },
+          {
+            orden: 2,
+            tipo: "Destino",
+            cp: "64000",
+            estado: "NLE",
+            pais: "MEX",
+            distancia_km: "700",
+            colonia_clave: "0002",
+            municipio_clave: "039",
+          },
+        ] as TimbradoContext["ubicaciones"],
+      }),
+    );
+    const cp = payload.CartaPorte31 as Record<string, unknown>;
+    assert.equal(cp.transpinternac, "No");
+    assert.equal("RegimenesAduaneros" in cp, false);
+    assert.equal("RegimenAduanero" in cp, false);
+  });
+
+  it("viaje local omite RegimenesAduaneros nulo", () => {
+    const payload = buildFactura40Payload(baseCtx());
+    const cp = payload.CartaPorte31 as Record<string, unknown>;
+    assert.equal(cp.transpinternac, "No");
+    assert.equal("RegimenesAduaneros" in cp, false);
+    assert.equal("RegimenAduanero" in cp, false);
+  });
+
   it("ingreso a público en general sin Carta Porte incluye InformacionGlobal", () => {
     const payload = buildFactura40Payload(
       baseCtx({

@@ -30,6 +30,26 @@ function capLimit(limit: number): number {
   return Math.min(Math.max(limit, 1), 50);
 }
 
+/** Minúsculas y sin acentos, para comparar nombres del catálogo SAT. */
+export function foldCatalogText(value: string): string {
+  return value
+    .trim()
+    .toLowerCase()
+    .normalize("NFD")
+    .replace(/\p{Diacritic}/gu, "");
+}
+
+/** true si `haystack` contiene `needle` ignorando mayúsculas y acentos. */
+export function catalogTextIncludes(haystack: string, needle: string): boolean {
+  const foldedNeedle = foldCatalogText(needle);
+  if (!foldedNeedle) return false;
+  return foldCatalogText(haystack).includes(foldedNeedle);
+}
+
+function matchesClavePrefix(clave: string, term: string): boolean {
+  return clave.toLowerCase().startsWith(term.trim().toLowerCase());
+}
+
 function toMunicipioDto(row: SatMunicipio): SatMunicipioDto {
   return { clave: row.clave, estado: row.estado, descripcion: row.descripcion };
 }
@@ -52,28 +72,26 @@ export async function searchMunicipios(
 
   const term = q.trim();
   const capped = capLimit(limit);
-  const where = term
-    ? /^\d+$/.test(term)
-      ? { estado: estadoNorm, clave: { [Op.like]: `${term}%` } }
-      : term.length < 2
-        ? null
-        : {
-            estado: estadoNorm,
-            [Op.or]: [
-              { descripcion: { [Op.like]: `%${term}%` } },
-              { clave: { [Op.like]: `${term}%` } },
-            ],
-          }
-    : { estado: estadoNorm };
+  const textSearch = Boolean(term) && !/^\d+$/.test(term);
+  if (textSearch && term.length < 2) return [];
 
-  if (!where) return [];
+  const where = term && !textSearch
+    ? { estado: estadoNorm, clave: { [Op.like]: `${term}%` } }
+    : { estado: estadoNorm };
 
   const rows = await SatMunicipio.findAll({
     where,
     order: [["descripcion", "ASC"]],
-    limit: capped,
+    ...(textSearch ? {} : { limit: capped }),
   });
-  return rows.map(toMunicipioDto);
+  if (!textSearch) return rows.map(toMunicipioDto);
+
+  return rows
+    .filter(
+      (row) => catalogTextIncludes(row.descripcion, term) || matchesClavePrefix(row.clave, term),
+    )
+    .slice(0, capped)
+    .map(toMunicipioDto);
 }
 
 export async function getMunicipio(estado: string, clave: string): Promise<SatMunicipioDto | null> {
@@ -96,28 +114,26 @@ export async function searchLocalidades(
 
   const term = q.trim();
   const capped = capLimit(limit);
-  const where = term
-    ? /^\d+$/.test(term)
-      ? { estado: estadoNorm, clave: { [Op.like]: `${term}%` } }
-      : term.length < 2
-        ? null
-        : {
-            estado: estadoNorm,
-            [Op.or]: [
-              { descripcion: { [Op.like]: `%${term}%` } },
-              { clave: { [Op.like]: `${term}%` } },
-            ],
-          }
-    : { estado: estadoNorm };
+  const textSearch = Boolean(term) && !/^\d+$/.test(term);
+  if (textSearch && term.length < 2) return [];
 
-  if (!where) return [];
+  const where = term && !textSearch
+    ? { estado: estadoNorm, clave: { [Op.like]: `${term}%` } }
+    : { estado: estadoNorm };
 
   const rows = await SatLocalidad.findAll({
     where,
     order: [["descripcion", "ASC"]],
-    limit: capped,
+    ...(textSearch ? {} : { limit: capped }),
   });
-  return rows.map(toLocalidadDto);
+  if (!textSearch) return rows.map(toLocalidadDto);
+
+  return rows
+    .filter(
+      (row) => catalogTextIncludes(row.descripcion, term) || matchesClavePrefix(row.clave, term),
+    )
+    .slice(0, capped)
+    .map(toLocalidadDto);
 }
 
 export async function getLocalidad(estado: string, clave: string): Promise<SatLocalidadDto | null> {
@@ -140,28 +156,24 @@ export async function searchColonias(
 
   const term = q.trim();
   const capped = capLimit(limit);
-  const where = term
-    ? /^\d+$/.test(term)
-      ? { codigo_postal: cpNorm, clave: { [Op.like]: `${term}%` } }
-      : term.length < 2
-        ? null
-        : {
-            codigo_postal: cpNorm,
-            [Op.or]: [
-              { nombre: { [Op.like]: `%${term}%` } },
-              { clave: { [Op.like]: `${term}%` } },
-            ],
-          }
-    : { codigo_postal: cpNorm };
+  const textSearch = Boolean(term) && !/^\d+$/.test(term);
+  if (textSearch && term.length < 2) return [];
 
-  if (!where) return [];
+  const where = term && !textSearch
+    ? { codigo_postal: cpNorm, clave: { [Op.like]: `${term}%` } }
+    : { codigo_postal: cpNorm };
 
   const rows = await SatColonia.findAll({
     where,
     order: [["nombre", "ASC"]],
-    limit: capped,
+    ...(textSearch ? {} : { limit: capped }),
   });
-  return rows.map(toColoniaDto);
+  if (!textSearch) return rows.map(toColoniaDto);
+
+  return rows
+    .filter((row) => catalogTextIncludes(row.nombre, term) || matchesClavePrefix(row.clave, term))
+    .slice(0, capped)
+    .map(toColoniaDto);
 }
 
 export async function getColonia(cp: string, clave: string): Promise<SatColoniaDto | null> {
@@ -199,63 +211,41 @@ export async function searchEstados(q: string, limit = 20): Promise<SatEstadoDto
   }
 
   const termUpper = term.toUpperCase();
-  const where =
-    term.length >= 2
-      ? {
-          [Op.or]: [
-            { estado: { [Op.like]: `${termUpper}%` } },
-            { descripcion: { [Op.like]: `%${term}%` } },
-          ],
-        }
-      : { estado: { [Op.like]: `${termUpper}%` } };
-
   const rows = await SatMunicipio.findAll({
-    where,
     order: [
       ["estado", "ASC"],
       ["descripcion", "ASC"],
     ],
-    limit: capped,
   });
 
-  return rows.map(toEstadoDto);
+  return rows
+    .filter((row) => {
+      if (row.estado.toUpperCase().startsWith(termUpper)) return true;
+      return term.length >= 2 && catalogTextIncludes(row.descripcion, term);
+    })
+    .slice(0, capped)
+    .map(toEstadoDto);
 }
 
 export async function findMunicipioByDescripcion(
   descripcion: string,
   estado?: string,
-  limit = 20,
 ): Promise<SatMunicipioDto | null> {
   const term = descripcion.trim();
   if (term.length < 2) return null;
 
-  const capped = capLimit(limit);
   const estadoNorm = estado?.trim().toUpperCase();
-  const where = estadoNorm
-    ? {
-        estado: estadoNorm,
-        [Op.or]: [
-          { descripcion: { [Op.like]: `%${term}%` } },
-          { clave: { [Op.like]: `${term}%` } },
-        ],
-      }
-    : {
-        [Op.or]: [
-          { descripcion: { [Op.like]: `%${term}%` } },
-          { clave: { [Op.like]: `${term}%` } },
-        ],
-      };
-
   const rows = await SatMunicipio.findAll({
-    where,
+    where: estadoNorm ? { estado: estadoNorm } : undefined,
     order: [
       ["estado", "ASC"],
       ["descripcion", "ASC"],
     ],
-    limit: capped,
   });
-  if (!rows.length) return null;
-  return toMunicipioDto(rows[0]);
+  const match = rows.find(
+    (row) => catalogTextIncludes(row.descripcion, term) || matchesClavePrefix(row.clave, term),
+  );
+  return match ? toMunicipioDto(match) : null;
 }
 
 export async function listColoniasByCp(cp: string, limit = 50): Promise<SatColoniaDto[]> {

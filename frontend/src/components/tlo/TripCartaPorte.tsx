@@ -984,10 +984,15 @@ export function TripCartaPorte({
               <span className="font-mono">{cp.uuid}</span>
             </p>
           )}
-          {cp?.transporte_internacional != null && (
+          {cp && (
             <p>
               <span className="text-muted-foreground">Transporte internacional:</span>{" "}
-              {cp.transporte_internacional || trip.tipo_viaje === "foraneo" ? "Sí" : "No"}
+              {sortedUbics.some((u) => {
+                const pais = (u.pais || "MEX").trim().toUpperCase();
+                return pais !== "MEX" && pais !== "MX" && pais !== "MEXICO" && pais !== "MÉXICO";
+              })
+                ? "Sí"
+                : "No"}
             </p>
           )}
           {cp?.error_mensaje && <CartaPorteErrorNotice message={cp.error_mensaje} />}

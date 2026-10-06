@@ -38,4 +38,24 @@ describe("validateCartaPorteData distancia", () => {
       issues.join("; "),
     );
   });
+
+  it("exige datos aduaneros si una ubicación está fuera de México", () => {
+    const ubicaciones = [
+      { orden: 1, cp: "44100", rfc: "A", nombre: "Origen", pais: "MEX" },
+      { orden: 2, cp: "78040", rfc: "B", nombre: "Destino", pais: "USA", distancia_km: "5.00" },
+    ] as TripUbicacion[];
+    const issues = validateCartaPorteData(
+      baseTrip,
+      baseTenant,
+      ubicaciones,
+      [{ id: "m1" } as never],
+      { config_vehicular: "C2", perm_sct: "TPAF01", num_permiso_sct: "1", peso_bruto_vehicular: 1, aseguradora_resp_civil: "S", poliza_resp_civil: "P" } as never,
+      { nombre: "Op", rfc: "OPR010101OP1", licencia_federal: "L1" } as never,
+      client,
+    );
+    assert.equal(
+      issues.some((i) => i.includes("Transporte internacional")),
+      true,
+    );
+  });
 });

@@ -4,10 +4,12 @@ import {
   DEFAULT_BIENES_TRANSP_CP,
   bienesTranspCpIssue,
   configVehicularIssue,
+  esTransporteInternacionalSat,
   isValidBienesTranspCpClave,
   isValidConfigVehicular,
   isValidPermSct,
   normalizePermSct,
+  paisEsMexico,
   permSctIssue,
 } from "./cartaPorteSat";
 
@@ -31,6 +33,14 @@ describe("cartaPorteSat", () => {
     assert.equal(normalizePermSct("TPAFO1"), "TPAF01");
     assert.equal(isValidPermSct("TPAFO1"), true);
     assert.equal(permSctIssue("Camión", "TPAFO1"), null);
+  });
+
+  it("trata México y el viaje foráneo nacional como transporte nacional", () => {
+    assert.equal(paisEsMexico("MEX"), true);
+    assert.equal(paisEsMexico("México"), true);
+    assert.equal(paisEsMexico(null), true);
+    assert.equal(esTransporteInternacionalSat([{ pais: "MEX" }, { pais: "MEX" }]), false);
+    assert.equal(esTransporteInternacionalSat([{ pais: "MEX" }, { pais: "USA" }]), true);
   });
 
   it("rechaza config vehicular numérica", () => {

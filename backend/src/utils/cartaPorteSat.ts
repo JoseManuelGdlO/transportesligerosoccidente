@@ -7,6 +7,23 @@ export const DEFAULT_BIENES_TRANSP_CP = "30102404";
 /** c_ClaveProdServCP: 8 dígitos. La validación XSD completa la hace el PAC. */
 export const BIENES_TRANSP_CP_PATTERN = /^\d{8}$/;
 
+const PAISES_MEXICO = new Set(["", "MEX", "MX", "MEXICO", "MÉXICO"]);
+
+/** País SAT de México. Vacío se trata como nacional (el domicilio default es MEX). */
+export function paisEsMexico(pais: string | null | undefined): boolean {
+  return PAISES_MEXICO.has((pais ?? "").trim().toUpperCase());
+}
+
+/**
+ * Transporte internacional ante el SAT: la mercancía entra o sale del país.
+ * Un viaje foráneo dentro de México no lo es.
+ */
+export function esTransporteInternacionalSat(
+  ubicaciones: { pais?: string | null }[],
+): boolean {
+  return ubicaciones.some((u) => !paisEsMexico(u.pais));
+}
+
 /** Valor de columna Material Peligroso en c_ClaveProdServCP. */
 export type SatMaterialPeligroso = "0" | "1" | "0,1";
 

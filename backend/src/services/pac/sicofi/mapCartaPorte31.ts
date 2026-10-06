@@ -59,8 +59,11 @@ export function mapCartaPorte31(
   const sorted = normalizeFiscalUbicaciones(ubicaciones);
   const destinos = sorted.filter((u) => u.orden > 1);
   const totalDist = destinos.reduce((s, d) => s + num(d.distancia_km), 0);
-  const transpInternac =
-    (cartaPorte.transporte_internacional || trip.tipo_viaje === "foraneo") ? "Sí" : "No";
+  // CP116: Sicofi escribe el nodo RegimenesAduaneros si la clave va en el JSON,
+  // aunque el valor sea null. Ese nodo solo es válido con TranspInternac="Sí"
+  // y un régimen aduanero real. Foráneo dentro de México no cruza frontera,
+  // así que el complemento se declara nacional y se omite el nodo.
+  const transpInternac = "No";
   const pesoTotal = mercancias.reduce((s, m) => s + num(m.peso_kg), 0);
 
   const ubicacionesSicofi = sorted.map((u) => {
@@ -117,10 +120,8 @@ export function mapCartaPorte31(
     return item;
   });
 
-  return {
-    RegimenesAduaneros: null,
+  const carta: Record<string, unknown> = {
     IdCCP: sicofiIdCcp(cartaPorte.id_ccp),
-    RegimenAduanero: null,
     transpinternac: transpInternac,
     totaldistrec: totalDist > 0 ? String(totalDist) : "0",
     Ubicaciones20: { ubicaciones: ubicacionesSicofi },
@@ -161,4 +162,5 @@ export function mapCartaPorte31(
       ],
     },
   };
+  return carta;
 }
