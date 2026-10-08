@@ -1,6 +1,10 @@
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { SatUbicacionCombobox } from "@/components/tlo/SatUbicacionCombobox";
+import {
+  CLEARED_SAT_DOMICILIO,
+  useRecalcularDomicilioPorCp,
+} from "@/lib/recalcularDomicilioPorCp";
 import { cn } from "@/lib/utils";
 
 export type DomicilioSatValue = {
@@ -47,6 +51,11 @@ export function DomicilioSatFields({
   const estado = value.estado ?? "";
   const cp = value.cp ?? "";
 
+  useRecalcularDomicilioPorCp(cp, value.colonia_clave ?? "", (patch) => {
+    onChange(patch);
+    onClearEstadoError?.();
+  });
+
   const patchAddress = (p: Partial<DomicilioSatValue>) => {
     if (p.estado != null && p.estado !== estado) {
       onChange({
@@ -55,14 +64,6 @@ export function DomicilioSatFields({
         municipio: undefined,
         municipio_clave: undefined,
         ...p,
-      });
-      return;
-    }
-    if (p.cp != null && p.cp !== cp) {
-      onChange({
-        ...p,
-        colonia: undefined,
-        colonia_clave: undefined,
       });
       return;
     }
@@ -147,7 +148,8 @@ export function DomicilioSatFields({
             id={id("cp")}
             value={cp}
             onChange={(e) => {
-              patchAddress({ cp: e.target.value });
+              const next = e.target.value;
+              onChange(next !== cp ? { cp: next, ...CLEARED_SAT_DOMICILIO } : { cp: next });
               onClearCpError?.();
             }}
             maxLength={5}

@@ -183,6 +183,17 @@ export interface SatEstado {
   municipio?: string;
 }
 
+export interface DomicilioPorCp {
+  estado?: string;
+  municipio?: string;
+  municipio_clave?: string;
+  localidad?: string;
+  localidad_clave?: string;
+  colonia?: string;
+  colonia_clave?: string;
+  pais?: string;
+}
+
 export interface CartaPorteRecord {
   id: string;
   trip_id: string;

@@ -6,6 +6,7 @@ import {
   normalizeDesc,
   pickByDescription,
   pickColoniaByNombre,
+  satDomicilioReplacePatch,
 } from "./domicilioSatResolver";
 import { MEXICAN_STATE_NAME_TO_CODE } from "./mexicanStateNames";
 import type { PostaliaCodigoPostalResponse, UbicacionDomicilioInput } from "./types";
@@ -56,6 +57,26 @@ describe("domicilioSatResolver helpers", () => {
     };
     assert.equal(needsDomicilioEnrichment(incomplete), true);
     assert.equal(needsDomicilioEnrichment({ cp: "123" }), false);
+  });
+
+  it("satDomicilioReplacePatch sustituye el domicilio aunque ya hubiera claves", () => {
+    const patch = satDomicilioReplacePatch({
+      estado: "DUR",
+      municipio: "Durango",
+      municipio_clave: "005",
+      localidad: "Victoria de Durango",
+      localidad_clave: "01",
+      colonia: "Guadalupe",
+      colonia_clave: "0001",
+      pais: "MEX",
+      issues: [],
+    });
+    assert.equal(patch.estado, "DUR");
+    assert.equal(patch.municipio_clave, "005");
+    assert.equal(patch.municipio, "Durango");
+    assert.equal(patch.localidad_clave, "01");
+    assert.equal(patch.colonia_clave, "0001");
+    assert.equal(patch.pais, "MEX");
   });
 
   it("mapa de estados incluye Jalisco y Durango", () => {

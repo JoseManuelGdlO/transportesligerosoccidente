@@ -3,6 +3,7 @@ import { z } from "zod";
 import { asyncHandler } from "../utils/asyncHandler";
 import * as satCatalogService from "../services/satCatalogService";
 import * as satUbicacionCatalogService from "../services/satUbicacionCatalogService";
+import { lookupDomicilioPorCp } from "../services/postalia/lookupDomicilioPorCp";
 
 const claveParamSchema = z.string().regex(/^\d{8}$/);
 
@@ -87,6 +88,29 @@ export const getColonia = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   res.json(row);
+});
+
+export const getDomicilioPorCp = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = cpParamSchema.safeParse(req.params.cp);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Código postal inválido (debe ser 5 dígitos)" });
+    return;
+  }
+  try {
+    const resolved = await lookupDomicilioPorCp(parsed.data);
+    const { issues, ...domicilio } = resolved;
+    if (!domicilio.estado && !domicilio.municipio_clave && !domicilio.colonia_clave) {
+      res.status(404).json({
+        error: issues[0] ?? "No se encontró domicilio SAT para ese código postal",
+      });
+      return;
+    }
+    res.json(domicilio);
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : "No se pudo consultar el código postal";
+    const status = msg.includes("no configurado") ? 503 : 502;
+    res.status(status).json({ error: msg });
+  }
 });
 
 export const searchEstados = asyncHandler(async (req: Request, res: Response) => {

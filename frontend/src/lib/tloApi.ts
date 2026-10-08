@@ -36,6 +36,7 @@ import type {
   SatClaveProducto,
   SatColonia,
   SatEstado,
+  DomicilioPorCp,
   SatLocalidad,
   SatMunicipio,
   AccountItemType,
@@ -1376,6 +1377,14 @@ export async function searchSatColonias(q: string, cp: string, limit = 20): Prom
   const res = await apiFetch(`/sat/colonias?${params}`);
   const j = await readJson<{ items: Record<string, unknown>[] }>(res);
   return (j.items ?? []).map(normalizeSatColonia);
+}
+
+export async function lookupDomicilioPorCp(cp: string): Promise<DomicilioPorCp | null> {
+  const cpNorm = cp.trim();
+  if (!/^\d{5}$/.test(cpNorm)) return null;
+  const res = await apiFetch(`/sat/codigos-postales/${cpNorm}`);
+  if (res.status === 404) return null;
+  return readJson<DomicilioPorCp>(res);
 }
 
 export async function lookupSatColonia(cp: string, clave: string): Promise<SatColonia | null> {

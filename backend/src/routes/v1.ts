@@ -280,6 +280,12 @@ r.get(
   satCatalogC.getLocalidad,
 );
 r.get(
+  "/sat/codigos-postales/:cp",
+  authenticateJwt,
+  requirePermission("catalogos.ver", "cartaporte.ver", "viajes.crear", "cartaporte.timbrar"),
+  satCatalogC.getDomicilioPorCp,
+);
+r.get(
   "/sat/colonias",
   authenticateJwt,
   requirePermission("cartaporte.ver"),

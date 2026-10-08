@@ -28,6 +28,10 @@ import {
   putTripUbicaciones,
 } from "@/lib/tloApi";
 import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
+import {
+  CLEARED_SAT_DOMICILIO,
+  useRecalcularDomicilioPorCp,
+} from "@/lib/recalcularDomicilioPorCp";
 import { materialPeligrosoForCatalog, materialPeligrosoUiMode } from "@/lib/satCatalog";
 import {
   cardHighlightClass,
@@ -603,6 +607,24 @@ export function TripCartaPorte({
   const onUbicFieldBlur = () => {
     void flushPendingSaves();
   };
+
+  const schedulePersistRef = useRef(schedulePersistUbicaciones);
+  schedulePersistRef.current = schedulePersistUbicaciones;
+  const [cpSaveTick, setCpSaveTick] = useState(0);
+
+  useRecalcularDomicilioPorCp(origenForm.cp, origenForm.colonia_clave, (patch) => {
+    setOrigenForm((prev) => (prev.cp.trim() === patch.cp ? { ...prev, ...patch } : prev));
+    setCpSaveTick((tick) => tick + 1);
+  });
+  useRecalcularDomicilioPorCp(destinoForm.cp, destinoForm.colonia_clave, (patch) => {
+    setDestinoForm((prev) => (prev.cp.trim() === patch.cp ? { ...prev, ...patch } : prev));
+    setCpSaveTick((tick) => tick + 1);
+  });
+
+  useEffect(() => {
+    if (cpSaveTick === 0) return;
+    schedulePersistRef.current();
+  }, [cpSaveTick]);
 
   const applyCatalogUbicacion = (
     tipo: "origen" | "destino",
@@ -1496,7 +1518,9 @@ export function TripCartaPorte({
               <Label>CP</Label>
               <Input
                 value={origenForm.cp}
-                onChange={(e) => patchOrigen({ cp: e.target.value })}
+                onChange={(e) =>
+                  patchOrigen({ cp: e.target.value, ...CLEARED_SAT_DOMICILIO })
+                }
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
                 className={fh(issueFlags.origen.cp)}
@@ -1599,7 +1623,9 @@ export function TripCartaPorte({
               <Label>CP</Label>
               <Input
                 value={destinoForm.cp}
-                onChange={(e) => patchDestino({ cp: e.target.value })}
+                onChange={(e) =>
+                  patchDestino({ cp: e.target.value, ...CLEARED_SAT_DOMICILIO })
+                }
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
                 className={fh(issueFlags.stops[fiscalStopCount]?.cp ?? false)}

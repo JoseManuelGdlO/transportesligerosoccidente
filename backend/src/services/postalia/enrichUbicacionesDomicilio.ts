@@ -1,12 +1,14 @@
 import { TripUbicacion } from "../../models";
+import { getColonia } from "../satUbicacionCatalogService";
 import { listUbicaciones, normalizeFiscalUbicaciones } from "../tripFiscalService";
 import {
   isValidEstadoSatCode,
   needsDomicilioEnrichment,
   resolveDomicilioSat,
+  satDomicilioReplacePatch,
 } from "./domicilioSatResolver";
 import { isPostaliaConfigured, PostaliaClient } from "./postaliaClient";
-import type { UbicacionDomicilioInput } from "./types";
+import type { ResolvedDomicilioSat, UbicacionDomicilioInput } from "./types";
 
 function ubicacionLabel(orden: number): string {
   return orden === 1 ? "origen" : "destino final";
@@ -56,32 +58,52 @@ function buildUpdatePatch(
   return patch;
 }
 
+async function coloniaAjenaAlCp(input: UbicacionDomicilioInput): Promise<boolean> {
+  const cp = input.cp.trim();
+  const clave = input.colonia_clave?.trim() ?? "";
+  if (!/^\d{5}$/.test(cp) || !clave) return false;
+  return !(await getColonia(cp, clave));
+}
+
 export async function enrichUbicacionesDomicilio(
   tenantId: string,
   tripId: string,
   ubicaciones: TripUbicacion[],
 ): Promise<{ ubicaciones: TripUbicacion[]; issues: string[] }> {
   const fiscal = normalizeFiscalUbicaciones(ubicaciones);
-  const toEnrich = fiscal.filter((u) => needsDomicilioEnrichment(toDomicilioInput(u)));
+  const pending: { ubicacion: TripUbicacion; replace: boolean }[] = [];
 
-  if (toEnrich.length === 0) {
+  for (const u of fiscal) {
+    const input = toDomicilioInput(u);
+    const replace = await coloniaAjenaAlCp(input);
+    if (replace || needsDomicilioEnrichment(input)) {
+      pending.push({ ubicacion: u, replace });
+    }
+  }
+
+  if (pending.length === 0) {
     return { ubicaciones: fiscal, issues: [] };
   }
 
   if (!isPostaliaConfigured()) {
     return {
       ubicaciones: fiscal,
-      issues: toEnrich.map(
-        (u) =>
-          `Ubicación ${ubicacionLabel(u.orden)}: falta domicilio SAT completo y POSTALIA_API_TOKEN no está configurado`,
+      issues: pending.map(
+        ({ ubicacion: u, replace }) =>
+          `Ubicación ${ubicacionLabel(u.orden)}: ${
+            replace
+              ? "el domicilio SAT no corresponde al código postal"
+              : "falta domicilio SAT completo"
+          } y POSTALIA_API_TOKEN no está configurado`,
       ),
     };
   }
 
   const client = new PostaliaClient();
   const issues: string[] = [];
+  let changed = false;
 
-  for (const u of toEnrich) {
+  for (const { ubicacion: u, replace } of pending) {
     const label = ubicacionLabel(u.orden);
     const input = toDomicilioInput(u);
     const cp = input.cp.trim();
@@ -95,15 +117,23 @@ export async function enrichUbicacionesDomicilio(
       continue;
     }
 
-    const resolved = await resolveDomicilioSat(input, postalia);
+    const resolved: ResolvedDomicilioSat = await resolveDomicilioSat(
+      replace ? { cp } : input,
+      postalia,
+    );
     issues.push(...resolved.issues.map((i) => `Ubicación ${label}: ${i}`));
 
-    const patch = buildUpdatePatch(input, resolved);
+    const patch = replace ? satDomicilioReplacePatch(resolved) : buildUpdatePatch(input, resolved);
     if (Object.keys(patch).length > 0 && u.id) {
       await TripUbicacion.update(patch, {
         where: { id: u.id, tenant_id: tenantId, trip_id: tripId },
       });
+      changed = true;
     }
+  }
+
+  if (!changed) {
+    return { ubicaciones: fiscal, issues };
   }
 
   const reloaded = await listUbicaciones(tenantId, tripId);

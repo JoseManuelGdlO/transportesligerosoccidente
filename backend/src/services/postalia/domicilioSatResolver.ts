@@ -190,9 +190,32 @@ async function resolveColonia(
   return null;
 }
 
+/** Sustituye el domicilio SAT completo con lo resuelto para el CP nuevo. */
+export function satDomicilioReplacePatch(
+  resolved: ResolvedDomicilioSat,
+): Record<string, string> {
+  const patch: Record<string, string> = {};
+  if (resolved.estado) patch.estado = resolved.estado;
+  if (resolved.municipio_clave) {
+    patch.municipio_clave = resolved.municipio_clave;
+    patch.municipio = resolved.municipio ?? "";
+  }
+  if (resolved.localidad_clave) {
+    patch.localidad_clave = resolved.localidad_clave;
+    patch.localidad = resolved.localidad ?? "";
+  }
+  if (resolved.colonia_clave) {
+    patch.colonia_clave = resolved.colonia_clave;
+    patch.colonia = resolved.colonia ?? "";
+  }
+  if (resolved.pais) patch.pais = resolved.pais;
+  return patch;
+}
+
 /**
  * Mapea datos de Postalia + hints del usuario a claves SAT del catálogo local.
  * Solo devuelve campos que faltaban en el input original.
+ * Para recalcular todo a partir del CP, pasa un input que solo traiga `cp`.
  */
 export async function resolveDomicilioSat(
   input: UbicacionDomicilioInput,
