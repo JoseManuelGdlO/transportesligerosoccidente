@@ -12,6 +12,7 @@ import {
   createDirectPayment,
   applySettlementAccountInstallments,
   revertSettlementAccountInstallments,
+  updateAccountItem,
   updateAccountItemDiscount,
   createSettlementCarryoverItem,
   revertSettlementCarryoverItem,
@@ -226,6 +227,114 @@ describe("updateAccountItemDiscount", () => {
 
     driverFindOne.mock.restore();
     itemFindOne.mock.restore();
+  });
+});
+
+describe("updateAccountItem", () => {
+  function mockActiveItem(item: ReturnType<typeof baseItem>) {
+    const driverFindOne = mock.method(Driver, "findOne", async () => mockDriver as never);
+    const itemFindOne = mock.method(DriverAccountItem, "findOne", async () => item as never);
+    const accountFindOne = mock.method(DriverAccount, "findOne", async () => ({ id: "acc-1" }) as never);
+    const itemFindAll = mock.method(DriverAccountItem, "findAll", async () => [item] as never);
+    return () => {
+      driverFindOne.mock.restore();
+      itemFindOne.mock.restore();
+      accountFindOne.mock.restore();
+      itemFindAll.mock.restore();
+    };
+  }
+
+  it("sube la cuota sin cambiar el importe cuando el importe ya la cubre", async () => {
+    const item = { ...baseItem(), cuota_liquidacion: "100", movements: [], createdAt: new Date() };
+    item.update = mock.fn(async () => {});
+    const restore = mockActiveItem(item);
+
+    await updateAccountItem(tenantId, driverId, "item-1", { cuota_liquidacion: 500 });
+
+    assert.deepEqual(item.update.mock.calls[0].arguments[0], { cuota_liquidacion: 500 });
+    restore();
+  });
+
+  it("acepta subir importe y cuota juntos", async () => {
+    const item = { ...baseItem(), monto_original: "100", cuota_liquidacion: "100", movements: [], createdAt: new Date() };
+    item.update = mock.fn(async () => {});
+    const restore = mockActiveItem(item);
+
+    await updateAccountItem(tenantId, driverId, "item-1", {
+      monto_original: 500,
+      cuota_liquidacion: 500,
+    });
+
+    assert.deepEqual(item.update.mock.calls[0].arguments[0], {
+      monto_original: 500,
+      cuota_liquidacion: 500,
+    });
+    restore();
+  });
+
+  it("rechaza una cuota mayor al importe", async () => {
+    const item = { ...baseItem(), monto_original: "100", cuota_liquidacion: "100", movements: [] };
+    item.update = mock.fn(async () => {});
+    const restore = mockActiveItem(item);
+
+    await assert.rejects(
+      () => updateAccountItem(tenantId, driverId, "item-1", { cuota_liquidacion: 500 }),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /cuota no puede ser mayor/);
+        return true;
+      },
+    );
+    assert.equal(item.update.mock.callCount(), 0);
+    restore();
+  });
+
+  it("rechaza un importe menor a los abonos ya registrados", async () => {
+    const item = baseItem();
+    item.update = mock.fn(async () => {});
+    const restore = mockActiveItem(item);
+
+    await assert.rejects(
+      () =>
+        updateAccountItem(tenantId, driverId, "item-1", {
+          monto_original: 100,
+          cuota_liquidacion: 100,
+        }),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /abonos realizados/);
+        return true;
+      },
+    );
+    assert.equal(item.update.mock.callCount(), 0);
+    restore();
+  });
+
+  it("marca el adeudo liquidado cuando el importe queda igual a lo abonado", async () => {
+    const item = {
+      ...baseItem(),
+      createdAt: new Date(),
+      movements: [
+        {
+          id: "mov-1",
+          monto: "500",
+          fecha: "2026-06-02",
+          tipo: "liquidacion",
+          createdAt: new Date(),
+        },
+      ],
+    };
+    item.update = mock.fn(async () => {});
+    const restore = mockActiveItem(item);
+
+    await updateAccountItem(tenantId, driverId, "item-1", { monto_original: 500, cuota_liquidacion: 500 });
+
+    assert.deepEqual(item.update.mock.calls[0].arguments[0], {
+      monto_original: 500,
+      cuota_liquidacion: 500,
+      estatus: "liquidado",
+    });
+    restore();
   });
 });
 

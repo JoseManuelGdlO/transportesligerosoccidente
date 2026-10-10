@@ -1464,7 +1464,11 @@ export async function createDriverAccountItem(
 export async function patchDriverAccountItem(
   driverId: string,
   itemId: string,
-  data: { descuento_activo: boolean },
+  data: {
+    descuento_activo?: boolean;
+    monto_original?: number;
+    cuota_liquidacion?: number;
+  },
 ): Promise<DriverAccountItem> {
   const res = await apiFetch(`/drivers/${driverId}/account/items/${itemId}`, {
     method: "PATCH",

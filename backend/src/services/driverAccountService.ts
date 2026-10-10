@@ -377,19 +377,70 @@ export async function cancelAccountItem(
   return { id: item.id, estatus: "cancelado" as const };
 }
 
+export async function updateAccountItem(
+  tenantId: string,
+  driverId: string,
+  itemId: string,
+  data: {
+    descuento_activo?: boolean;
+    cuota_liquidacion?: number;
+    monto_original?: number;
+  },
+): Promise<AccountItemDto> {
+  await assertDriver(tenantId, driverId);
+  const item = await DriverAccountItem.findOne({
+    where: { id: itemId, tenant_id: tenantId, driver_id: driverId, estatus: "activo" },
+    include: [{ association: "movements" }],
+  });
+  if (!item) throw httpError("Adeudo no encontrado o no activo", 404);
+
+  const patch: {
+    descuento_activo?: boolean;
+    cuota_liquidacion?: number;
+    monto_original?: number;
+    estatus?: "liquidado";
+  } = {};
+  if (data.descuento_activo !== undefined) {
+    patch.descuento_activo = data.descuento_activo;
+  }
+
+  const amountsTouched = data.cuota_liquidacion !== undefined || data.monto_original !== undefined;
+  if (amountsTouched) {
+    const movements =
+      (item as DriverAccountItem & { movements?: DriverAccountMovement[] }).movements ?? [];
+    const abonado = paidTotal(movements);
+    const monto = roundMoney(data.monto_original ?? num(item.monto_original));
+    const cuota = roundMoney(data.cuota_liquidacion ?? num(item.cuota_liquidacion));
+    if (cuota > monto) {
+      throw httpError("La cuota no puede ser mayor al importe original", 400);
+    }
+    if (monto + 0.001 < abonado) {
+      throw httpError("El importe no puede ser menor a los abonos realizados", 400);
+    }
+    if (data.monto_original !== undefined) patch.monto_original = monto;
+    if (data.cuota_liquidacion !== undefined) patch.cuota_liquidacion = cuota;
+    if (roundMoney(monto - abonado) <= 0) patch.estatus = "liquidado";
+  }
+
+  if (
+    patch.descuento_activo === undefined &&
+    patch.cuota_liquidacion === undefined &&
+    patch.monto_original === undefined
+  ) {
+    throw httpError("Nada que actualizar", 400);
+  }
+
+  await item.update(patch as never);
+  return getAccountItemDetail(tenantId, driverId, itemId);
+}
+
 export async function updateAccountItemDiscount(
   tenantId: string,
   driverId: string,
   itemId: string,
   descuento_activo: boolean,
 ): Promise<AccountItemDto> {
-  await assertDriver(tenantId, driverId);
-  const item = await DriverAccountItem.findOne({
-    where: { id: itemId, tenant_id: tenantId, driver_id: driverId, estatus: "activo" },
-  });
-  if (!item) throw httpError("Adeudo no encontrado o no activo", 404);
-  await item.update({ descuento_activo } as never);
-  return getAccountItemDetail(tenantId, driverId, itemId);
+  return updateAccountItem(tenantId, driverId, itemId, { descuento_activo });
 }
 
 /** Adeudo generado al cerrar una liquidación con neto negativo. */

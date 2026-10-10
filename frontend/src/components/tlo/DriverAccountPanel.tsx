@@ -51,6 +51,9 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
   const [loading, setLoading] = useState(false);
   const [itemForm, setItemForm] = useState(emptyItemForm);
   const [payForms, setPayForms] = useState<Record<string, ReturnType<typeof emptyPayForm>>>({});
+  const [amountEdits, setAmountEdits] = useState<
+    Record<string, { monto_original: number; cuota_liquidacion: number }>
+  >({});
   const [expandedId, setExpandedId] = useState<string | null>(null);
 
   const load = useCallback(async () => {
@@ -123,6 +126,49 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
       await load();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cancelar");
+    }
+  };
+
+  const amountDraft = (item: DriverAccountItem) =>
+    amountEdits[item.id] ?? {
+      monto_original: item.monto_original,
+      cuota_liquidacion: item.cuota_liquidacion,
+    };
+
+  const onSaveAmounts = async (item: DriverAccountItem) => {
+    const draft = amountDraft(item);
+    if (draft.monto_original <= 0 || draft.cuota_liquidacion <= 0) {
+      toast.error("Completa importe y cuota");
+      return;
+    }
+    if (draft.cuota_liquidacion > draft.monto_original) {
+      toast.error("La cuota no puede ser mayor al importe");
+      return;
+    }
+    if (draft.monto_original + 0.001 < item.abonado) {
+      toast.error("El importe no puede ser menor a los abonos realizados");
+      return;
+    }
+    if (
+      draft.monto_original === item.monto_original &&
+      draft.cuota_liquidacion === item.cuota_liquidacion
+    ) {
+      return;
+    }
+    try {
+      await patchDriverAccountItem(driverId, item.id, {
+        monto_original: draft.monto_original,
+        cuota_liquidacion: draft.cuota_liquidacion,
+      });
+      setAmountEdits((prev) => {
+        const next = { ...prev };
+        delete next[item.id];
+        return next;
+      });
+      toast.success("Importes actualizados");
+      await load();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al actualizar importes");
     }
   };
 
@@ -286,15 +332,59 @@ export function DriverAccountPanel({ driverId, canEdit = false }: DriverAccountP
                     ) : null}
                   </div>
                   {canEdit && item.estatus === "activo" ? (
-                    <div className="flex items-center gap-2">
-                      <Switch
-                        id={`descuento-${item.id}`}
-                        checked={item.descuento_activo !== false}
-                        onCheckedChange={(v) => void onToggleDiscount(item, v)}
-                      />
-                      <Label htmlFor={`descuento-${item.id}`} className="text-sm font-normal">
-                        Descuento en liquidación
-                      </Label>
+                    <div className="space-y-2">
+                      <div className="grid grid-cols-2 gap-2">
+                        <div>
+                          <Label htmlFor={`importe-${item.id}`}>Importe total</Label>
+                          <Input
+                            id={`importe-${item.id}`}
+                            type="number"
+                            value={amountDraft(item).monto_original || ""}
+                            onChange={(e) =>
+                              setAmountEdits((prev) => ({
+                                ...prev,
+                                [item.id]: {
+                                  ...amountDraft(item),
+                                  monto_original: +e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                        <div>
+                          <Label htmlFor={`cuota-${item.id}`}>Cuota por liquidación</Label>
+                          <Input
+                            id={`cuota-${item.id}`}
+                            type="number"
+                            value={amountDraft(item).cuota_liquidacion || ""}
+                            onChange={(e) =>
+                              setAmountEdits((prev) => ({
+                                ...prev,
+                                [item.id]: {
+                                  ...amountDraft(item),
+                                  cuota_liquidacion: +e.target.value,
+                                },
+                              }))
+                            }
+                          />
+                        </div>
+                      </div>
+                      <Button size="sm" variant="outline" onClick={() => void onSaveAmounts(item)}>
+                        Guardar importes
+                      </Button>
+                      <p className="text-xs text-muted-foreground">
+                        El cambio aplica en la siguiente liquidación. Los abonos ya registrados se conservan.
+                      </p>
+                      <div className="flex items-center gap-2">
+                        <Switch
+                          id={`descuento-${item.id}`}
+                          checked={item.descuento_activo !== false}
+                          onCheckedChange={(v) => void onToggleDiscount(item, v)}
+                        />
+                        <Label htmlFor={`descuento-${item.id}`} className="text-sm font-normal">
+                          Descuento en liquidación
+                        </Label>
+                      </div>
                     </div>
                   ) : null}
 
