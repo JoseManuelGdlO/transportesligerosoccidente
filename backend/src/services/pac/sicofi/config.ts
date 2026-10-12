@@ -5,7 +5,7 @@ export const SICOFI_AUTH_TOKEN_PATH = "/auth/token";
 export const SICOFI_FACTURA40_PATH = "/Comprobante40/Factura40";
 
 /** Path relativo del endpoint de cancelación CFDI. */
-export const SICOFI_CANCELA_PATH = "/CancelaTimbrado/TimbradoR";
+export const SICOFI_CANCELA_PATH = "/Cancela";
 
 const DEFAULT_BASE = "https://demo.sicofi.com.mx/DFWSR/api";
 
@@ -39,10 +39,10 @@ export function resolveSicofiFactura40Url(tenant?: { pac_url?: string | null }):
 }
 
 /**
- * URL completa del endpoint CancelaTimbrado para el tenant dado.
+ * URL completa del endpoint Cancela para el tenant dado.
  *
  * @param tenant - Tenant con `pac_url` opcional.
- * @returns `{baseUrl}/CancelaTimbrado/TimbradoR`.
+ * @returns `{baseUrl}/Cancela`.
  */
 export function resolveSicofiCancelaUrl(tenant?: { pac_url?: string | null }): string {
   return `${resolveSicofiBaseUrl(tenant)}${SICOFI_CANCELA_PATH}`;

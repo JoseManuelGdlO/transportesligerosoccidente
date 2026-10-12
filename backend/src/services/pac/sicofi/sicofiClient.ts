@@ -215,7 +215,7 @@ export function formatSicofiCancelacionError(
 /**
  * Envía la solicitud de cancelación a Sicofi y valida `CancelacionCorrecta`.
  *
- * @param url - URL completa de CancelaTimbrado.
+ * @param url - URL completa de Cancela.
  * @param payload - JSON con credenciales, UUID y motivo.
  * @param accessToken - JWT Bearer obtenido en `sicofiAuth`.
  * @throws `SicofiHttpError` si HTTP no OK; `Error` si cancelación no correcta o timeout.

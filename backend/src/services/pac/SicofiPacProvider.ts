@@ -60,7 +60,7 @@ export class SicofiPacProvider implements PacProvider {
   }
 
   /**
-   * Cancela un CFDI ante Sicofi (`CancelaTimbrado/TimbradoR`).
+   * Cancela un CFDI ante Sicofi (`Cancela`).
    *
    * @param uuid - Folio fiscal del comprobante.
    * @param motivo - Código SAT de motivo (`01`–`04`).

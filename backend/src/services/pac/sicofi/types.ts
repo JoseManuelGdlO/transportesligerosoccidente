@@ -116,7 +116,7 @@ export interface SicofiFactura40Request extends Factura40PayloadBody {
   EmisorCFDI40: null;
 }
 
-/** Request de cancelación CFDI (`CancelaTimbrado/TimbradoR`). */
+/** Request de cancelación CFDI (`Cancela`). */
 export interface SicofiCancelaTimbradoRequest {
   Usuario: string;
   Contrasena: string;

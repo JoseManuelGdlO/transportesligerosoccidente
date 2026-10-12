@@ -147,7 +147,7 @@ describe("SicofiPacProvider", () => {
     mock.method(globalThis, "fetch", async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = typeof input === "string" ? input : input.toString();
       if (url.includes("/auth/token")) return authResponse();
-      if (url.includes("/CancelaTimbrado/")) {
+      if (url.includes("/Cancela")) {
         bodies.push(JSON.parse(String(init?.body ?? "{}")));
         return new Response(JSON.stringify({ CancelacionCorrecta: "true", Mensaje: "OK" }), {
           status: 200,
