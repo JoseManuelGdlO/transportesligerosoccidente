@@ -99,11 +99,16 @@ interface RenderState {
 
 type BlockRenderer = (state: RenderState, props: BlockProps) => void;
 
-function tableMargins(state: RenderState): { left: number; right: number; bottom: number } {
+function tableMargins(state: RenderState): { top: number; left: number; right: number; bottom: number } {
+  // The footer baseline is pageH - footerReserve + 4. Reserving the full
+  // footer block plus an extra 6mm left a blank band, so the last table row
+  // jumped to a new page even when it fit above the footer.
+  const footerBaseline = Math.max(14, state.footerReserve) - 4;
   return {
+    top: state.margin,
     left: state.margin,
     right: state.margin,
-    bottom: Math.max(14, state.footerReserve) + 6,
+    bottom: footerBaseline + 3,
   };
 }
 
@@ -1077,6 +1082,7 @@ function renderSettlementTrips(state: RenderState): void {
     styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
     footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
+    showFoot: "lastPage",
     margin: tableMargins(state),
     rowPageBreak: "avoid",
     columnStyles: {
@@ -1113,7 +1119,7 @@ function renderSettlementLayout(state: RenderState): void {
   const prestamosBottom = drawSheetBox(state, leftX, y0, leftW, "Préstamos", prestamosRows);
   const incidenciasBottom = drawSheetBox(state, leftX, prestamosBottom + 4, leftW, "Incidencias", incidenciaRows);
   const resumenBottom = drawSheetBox(state, rightX, y0, rightW, "Resumen", rightRows);
-  state.y = Math.max(incidenciasBottom, resumenBottom) + 6;
+  state.y = Math.max(incidenciasBottom, resumenBottom) + 4;
   renderSettlementTrips(state);
 }
 

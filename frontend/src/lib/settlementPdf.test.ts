@@ -1,7 +1,12 @@
 import { describe, expect, it } from "vitest";
 import type { jsPDF } from "jspdf";
-import { buildSettlementPdf } from "@/lib/settlementPdf";
-import { SAMPLE_DRIVER, SAMPLE_PERIOD, SAMPLE_SETTLEMENT_SUMMARY } from "@/lib/settlementPdfSample";
+import { buildSettlementPdf, DEFAULT_PDF_TEMPLATE_SETTLEMENT } from "@/lib/settlementPdf";
+import {
+  SAMPLE_DRIVER,
+  SAMPLE_PERIOD,
+  SAMPLE_SETTLEMENT_SUMMARY,
+  SAMPLE_TRUCKS,
+} from "@/lib/settlementPdfSample";
 import type { SettlementSummary } from "@/lib/calc";
 
 function pdfText(doc: jsPDF): string {
@@ -91,5 +96,51 @@ describe("buildSettlementPdf hoja de liquidación", () => {
 
     expect(text).toContain("Incidencias");
     expect(text).toContain("Llanta sin descuento");
+  });
+
+  it("mantiene cinco viajes en una sola hoja", () => {
+    const base = SAMPLE_SETTLEMENT_SUMMARY.trips[0];
+    const trips = [1, 2, 3, 4, 5].map((n) => ({
+      ...base,
+      id: `t${n}`,
+      folio: `TLO08-${66 + n}`,
+      origen: "GDL",
+      destino: n === 1 ? "BOLAÑOS" : "LOCAL",
+      fecha_salida: `2026-10-0${n + 1}T12:00:00`,
+    }));
+    const template = {
+      ...DEFAULT_PDF_TEMPLATE_SETTLEMENT,
+      sections: {
+        ...DEFAULT_PDF_TEMPLATE_SETTLEMENT.sections,
+        header: DEFAULT_PDF_TEMPLATE_SETTLEMENT.sections.header.map((block) =>
+          block.id === "company_fiscal_block"
+            ? {
+                ...block,
+                props: {
+                  ...block.props,
+                  text: "TRANSPORTES LIGEROS DE OCCIDENTE S.A. DE C.V.\nCalle Industria 120\nColonia Industrial, CP: 44940\nGuadalajara, Jalisco\nRFC: TLO010101AAA\nTels. 33-00000000\nRégimen fiscal: 601\nSucursal Zapopan\nHorario: lun a sáb\nCorreo: facturas@tlo.mx",
+                },
+              }
+            : block,
+        ),
+      },
+    };
+    const doc = buildSettlementPdf({
+      tenantNombre: "TLO",
+      driver: { ...SAMPLE_DRIVER, nombre: "JESUS VALDEZ ARGUELLES" },
+      inicio: "2026-10-05",
+      fin: "2026-10-11",
+      summary: summaryWithDebts({ trips, total_cuenta_abonos: 400 }),
+      trucks: SAMPLE_TRUCKS,
+      unitLabel: "TLO08 - 84BK8P",
+      template,
+      logoDataUrl:
+        "data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+    });
+
+    const text = pdfText(doc);
+    expect(doc.getNumberOfPages()).toBe(1);
+    expect(text).toContain("TLO08-71");
+    expect(text).toContain("Total");
   });
 });
