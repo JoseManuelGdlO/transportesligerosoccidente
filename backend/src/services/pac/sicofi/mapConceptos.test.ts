@@ -43,6 +43,7 @@ describe("mapConceptos", () => {
     assert.equal(c.Importe, 1500);
     assert.equal(r.subtotal, 1500);
     assert.equal(r.total, 1680); // 1500 + 240 - 60
+    assert.equal(c.NoIdentificacion, null);
     assert.match(c.Descripcion, /Flete de/);
     assert.match(c.Descripcion, /T-100/);
     assert.match(c.Descripcion, /ECO-1/);
@@ -80,5 +81,12 @@ describe("mapConceptos", () => {
     assert.equal(r.total, 1680);
     assert.equal(r.conceptos[0].Traslados?.[0]?.Importe, 160);
     assert.equal(r.conceptos[1].Traslados?.[0]?.Importe, 80);
+  });
+
+  it("comentarios van a NoIdentificacion y un vacío no usa el folio", () => {
+    const con = mapConceptos(fakeTrip(), fakeTruck(), "ingreso", {}, "REM 10 | 11");
+    assert.equal(con.conceptos[0].NoIdentificacion, "REM 10 11");
+    const sin = mapConceptos(fakeTrip(), fakeTruck(), "ingreso", {}, "   ");
+    assert.equal(sin.conceptos[0].NoIdentificacion, null);
   });
 });

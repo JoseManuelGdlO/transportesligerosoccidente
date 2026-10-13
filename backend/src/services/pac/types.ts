@@ -39,6 +39,7 @@ export interface TimbradoOpts {
   ivaTasa?: number;
   retencionTasa?: number;
   exento?: boolean;
+  comentarios?: string;
 }
 
 /**

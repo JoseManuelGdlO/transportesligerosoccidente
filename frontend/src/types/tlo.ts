@@ -209,6 +209,7 @@ export interface CartaPorteRecord {
   id_ccp?: string;
   transporte_internacional?: boolean;
   tipo_comprobante?: "ingreso" | "traslado";
+  comentarios?: string;
 }
 
 export interface TenantFiscal {

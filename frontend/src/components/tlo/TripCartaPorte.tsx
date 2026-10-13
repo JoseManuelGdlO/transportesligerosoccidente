@@ -26,6 +26,7 @@ import {
   normalizeTrip,
   putTripCfdiConceptos,
   putTripUbicaciones,
+  patchCartaPorteComentarios,
 } from "@/lib/tloApi";
 import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
 import {
@@ -217,6 +218,8 @@ export function TripCartaPorte({
   const [metodoPago, setMetodoPago] = useState("PPD");
   const [formaPago, setFormaPago] = useState("99");
   const [condicionesPago, setCondicionesPago] = useState("");
+  const [comentarios, setComentarios] = useState(cp?.comentarios ?? "");
+  const [savingComentarios, setSavingComentarios] = useState(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancelacion, setMotivoCancelacion] = useState("02");
   const [folioSustitucion, setFolioSustitucion] = useState("");
@@ -234,7 +237,28 @@ export function TripCartaPorte({
     metodo_pago: tipoTimbrado === "ingreso" ? metodoPago : undefined,
     forma_pago: tipoTimbrado === "ingreso" ? formaPago : undefined,
     condiciones_pago: tipoTimbrado === "ingreso" && condicionesPago ? condicionesPago : undefined,
+    comentarios,
   });
+
+  useEffect(() => {
+    setComentarios(cp?.comentarios ?? "");
+  }, [trip.id, cp?.comentarios]);
+
+  const saveComentarios = async () => {
+    if (!canTimbrar || cpTimbrada) return;
+    const next = comentarios.replace(/\|/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
+    if (next === (cp?.comentarios ?? "")) return;
+    setSavingComentarios(true);
+    try {
+      const record = await patchCartaPorteComentarios(trip.id, next);
+      setComentarios(record.comentarios ?? "");
+      onTripUpdated({ ...trip, carta_porte: record });
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudieron guardar los comentarios");
+    } finally {
+      setSavingComentarios(false);
+    }
+  };
 
   const driverLive = driverProp?.id
     ? (driverById(drivers, driverProp.id) ?? driverProp)
@@ -1018,8 +1042,24 @@ export function TripCartaPorte({
             </p>
           )}
           {cp?.error_mensaje && <CartaPorteErrorNotice message={cp.error_mensaje} />}
+          <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
+            <Label htmlFor="cp-comentarios">Comentarios</Label>
+            <Textarea
+              id="cp-comentarios"
+              value={comentarios}
+              maxLength={100}
+              rows={2}
+              placeholder="Referencia de remisiones del cliente"
+              disabled={!canTimbrar || cpTimbrada || loading || savingComentarios}
+              onChange={(e) => setComentarios(e.target.value.slice(0, 100))}
+              onBlur={() => void saveComentarios()}
+            />
+            <p className="text-xs text-muted-foreground">
+              Se imprime debajo del total en letra. {comentarios.length}/100
+            </p>
+          </div>
           {canTimbrar && !cpTimbrada && (
-            <div className="grid sm:grid-cols-2 gap-3 pt-2 border-t">
+            <div className="grid sm:grid-cols-2 gap-3 rounded-md border bg-muted/50 p-3">
               <div>
                 <Label>Tipo de comprobante</Label>
                 <Select
@@ -1289,7 +1329,7 @@ export function TripCartaPorte({
           ref={(el) => {
             sectionRefs.current.driver = el;
           }}
-          className={cn("tlo-shadow-md", ch(issueFlags.driver.highlight))}
+          className={cn("tlo-shadow-md bg-muted/50", ch(issueFlags.driver.highlight))}
         >
           <CardHeader className="pb-2">
             <CardTitle className="text-sm flex items-center gap-2">
@@ -1444,7 +1484,7 @@ export function TripCartaPorte({
           ref={(el) => {
             sectionRefs.current.origen = el;
           }}
-          className={cn("tlo-shadow-md", ch(issueFlags.origen.highlight))}
+          className={cn("tlo-shadow-md bg-muted/50", ch(issueFlags.origen.highlight))}
         >
           <CardHeader>
             <CardTitle className="text-sm">Ubicación origen</CardTitle>
@@ -1673,7 +1713,7 @@ export function TripCartaPorte({
           sectionRefs.current.mercancias = el;
         }}
         className={cn(
-          "tlo-shadow-md",
+          "tlo-shadow-md bg-muted/50",
           ch(issueFlags.hasMercanciasIssue || issueFlags.ubicacionesMin),
         )}
       >

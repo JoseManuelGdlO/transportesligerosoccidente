@@ -210,6 +210,12 @@ r.get("/trips/:id/carta-porte/xml", authenticateJwt, requirePermission("cartapor
 r.get("/trips/:id/carta-porte/pdf", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPortePdf);
 r.post("/trips/:id/carta-porte/preview", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postPreview);
 r.post("/trips/:id/carta-porte/timbrar", authenticateJwt, requirePermission("cartaporte.timbrar"), cartaPorteC.postTimbrar);
+r.patch(
+  "/trips/:id/carta-porte/comentarios",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.patchComentarios,
+);
 r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);
 r.put(
   "/trips/:id/carta-porte/ubicacion-origen",

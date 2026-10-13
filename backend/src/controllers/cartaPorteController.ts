@@ -38,6 +38,7 @@ const timbradoOptsSchema = z.object({
   metodo_pago: z.string().optional(),
   forma_pago: z.string().optional(),
   condiciones_pago: z.string().optional(),
+  comentarios: z.string().max(100).optional(),
   iva_tasa: z.number().min(0).max(1).optional(),
   retencion_tasa: z.number().min(0).max(1).optional(),
   exento: z.boolean().optional(),
@@ -51,6 +52,7 @@ function timbradoOptsFromBody(body: z.infer<typeof timbradoOptsSchema>) {
     metodoPago: body.metodo_pago,
     formaPago: body.forma_pago,
     condicionesPago: body.condiciones_pago,
+    comentarios: body.comentarios,
     ivaTasa: body.iva_tasa,
     retencionTasa: body.retencion_tasa,
     exento: body.exento,
@@ -88,6 +90,24 @@ export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
     req.params.id,
     tipo,
     timbradoOptsFromBody(parsed.data),
+  );
+  res.json(cartaPorteToJson(cp));
+});
+
+const comentariosSchema = z.object({
+  comentarios: z.string().max(100),
+});
+
+export const patchComentarios = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = comentariosSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const cp = await cartaPorteService.updateCartaPorteComentarios(
+    tid(req),
+    req.params.id,
+    parsed.data.comentarios,
   );
   res.json(cartaPorteToJson(cp));
 });

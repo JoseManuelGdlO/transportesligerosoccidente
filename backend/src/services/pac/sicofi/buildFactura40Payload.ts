@@ -8,7 +8,7 @@ import { num } from "../../../utils/numbers";
 import type { TimbradoContext } from "../types";
 import type { Factura40PayloadBody } from "./types";
 import { mapCartaPorte31 } from "./mapCartaPorte31";
-import { mapConceptos } from "./mapConceptos";
+import { mapConceptos, noIdentificacionFromComentarios } from "./mapConceptos";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
 import {
   PUBLICO_GENERAL_NOMBRE,
@@ -58,7 +58,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const { tipo, trip, tenant, cartaPorte, ubicaciones, mercancias, truck, driver, client } = ctx;
   const opts = ctx.opts ?? {};
   const taxOpts = taxOptsFromContext(ctx);
-  const conceptBlock = mapConceptos(trip, truck, tipo, taxOpts);
+  const conceptBlock = mapConceptos(trip, truck, tipo, taxOpts, cartaPorte.comentarios);
   const isTraslado = tipo === "traslado";
   const publicoGeneral = isPublicoGeneralReceptor(client);
   const lugarExpedicion = tenant.cp_fiscal || "00000";
@@ -80,7 +80,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     LugarDeExpedicion: lugarExpedicion,
     Exportacion: "01",
     DatosAdicionales: null,
-    MensajePDF: "",
+    MensajePDF: noIdentificacionFromComentarios(cartaPorte.comentarios) ?? "",
     EmailMensaje: null,
     Transaccion: trip.folio || trip.id,
     complementos: null,

@@ -193,6 +193,7 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
     id_ccp: p.id_ccp ?? undefined,
     transporte_internacional: p.transporte_internacional != null ? !!p.transporte_internacional : undefined,
     tipo_comprobante: p.tipo_comprobante ?? undefined,
+    comentarios: p.comentarios != null ? String(p.comentarios) : undefined,
   };
 }
 

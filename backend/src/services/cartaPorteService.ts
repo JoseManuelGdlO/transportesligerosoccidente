@@ -30,6 +30,7 @@ import { enrichUbicacionesDomicilio } from "./postalia/enrichUbicacionesDomicili
 import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
+import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -104,6 +105,18 @@ export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
 export async function getCartaPorteForTrip(tenantId: string, tripId: string) {
   await getTripOrThrow(tenantId, tripId, false);
   return getOrCreateCartaPorte(tenantId, tripId);
+}
+
+/** Guarda el comentario que se imprime bajo el total en letra. */
+export async function updateCartaPorteComentarios(tenantId: string, tripId: string, raw: string | null) {
+  await getTripOrThrow(tenantId, tripId, false);
+  const cp = await getOrCreateCartaPorte(tenantId, tripId);
+  if (cp.estatus === "timbrada" || cp.estatus === "cancelada") {
+    throw err("No se pueden editar los comentarios de una carta ya timbrada", 409);
+  }
+  const comentarios = noIdentificacionFromComentarios(raw);
+  await cp.update({ comentarios } as never);
+  return cp;
 }
 
 async function loadTripContext(tenantId: string, tripId: string) {
@@ -333,6 +346,9 @@ export async function previewCartaPorte(
   tipo: "ingreso" | "traslado" = "traslado",
   opts?: TimbradoOpts,
 ) {
+  if (opts?.comentarios !== undefined) {
+    await updateCartaPorteComentarios(tenantId, tripId, opts.comentarios);
+  }
   const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;

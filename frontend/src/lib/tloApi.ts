@@ -164,6 +164,11 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
     id_ccp: raw.id_ccp != null ? String(raw.id_ccp) : undefined,
     transporte_internacional:
       raw.transporte_internacional != null ? Boolean(raw.transporte_internacional) : undefined,
+    tipo_comprobante:
+      raw.tipo_comprobante === "ingreso" || raw.tipo_comprobante === "traslado"
+        ? raw.tipo_comprobante
+        : undefined,
+    comentarios: raw.comentarios != null ? String(raw.comentarios) : undefined,
   };
 }
 
@@ -788,6 +793,15 @@ export async function putTripCfdiConceptos(
   });
   const raw = await readJson<Record<string, unknown>>(res);
   return normalizeTrip(raw);
+}
+
+export async function patchCartaPorteComentarios(tripId: string, comentarios: string): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/comentarios`, {
+    method: "PATCH",
+    body: JSON.stringify({ comentarios }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
 }
 
 export async function fetchClient(id: string): Promise<Client> {
