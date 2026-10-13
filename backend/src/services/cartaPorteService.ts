@@ -29,7 +29,7 @@ import {
 import { enrichUbicacionesDomicilio } from "./postalia/enrichUbicacionesDomicilio";
 import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
-import { renderCfdiPdfFromXml } from "./cfdiPdf";
+import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -438,7 +438,7 @@ export async function timbrarCartaPorte(
     const pdfPath = uploadAbsFromRel(pdfRelPath);
     let pdfStored: string | null = null;
     try {
-      const pdfBuffer = await renderCfdiPdfFromXml(result.xmlTimbrado, tenant);
+      const pdfBuffer = await renderCfdiPdfFromXml(result.xmlTimbrado, tenant, pdfSourceFromTrip(trip));
       await writeFile(pdfPath, pdfBuffer);
       pdfStored = pdfRelPath;
     } catch (pdfErr) {
@@ -491,6 +491,23 @@ function safeFilenamePart(s: string): string {
   return s.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
 }
 
+/** IDs de origen/destino y cantidades que el XML de Sicofi suele omitir. */
+function pdfSourceFromTrip(trip: Trip): CartaPortePdfSource {
+  const loaded = trip as Trip & { ubicaciones?: TripUbicacion[]; mercancias?: TripMercancia[] };
+  return {
+    tripId: trip.id,
+    ubicaciones: (loaded.ubicaciones ?? []).map((u) => ({
+      orden: u.orden,
+      tipo: u.tipo,
+      id_ubicacion_sat: u.id_ubicacion_sat,
+    })),
+    mercancias: (loaded.mercancias ?? []).map((m) => ({
+      cantidad: m.cantidad,
+      cantidad_transportada: m.cantidad_transportada,
+    })),
+  };
+}
+
 /** Ruta relativa al upload root, siempre con `/` (portable entre OS). */
 function cartaPortePdfRelPath(tenantId: string, tripId: string): string {
   return `${tenantId}/cartas-porte/${tripId}.pdf`;
@@ -541,7 +558,10 @@ export async function getCartaPortePdf(
   if (cp.estatus !== "timbrada" && cp.estatus !== "cancelada") {
     throw err("El PDF solo está disponible para cartas timbradas o canceladas", 404);
   }
-  const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
+  const trip = await Trip.findOne({
+    where: { id: tripId, tenant_id: tenantId },
+    include: [{ association: "ubicaciones" }, { association: "mercancias" }],
+  });
   if (!trip) throw err("Viaje no encontrado", 404);
 
   const defaultRel = cartaPortePdfRelPath(tenantId, tripId);
@@ -550,7 +570,7 @@ export async function getCartaPortePdf(
 
   const { xml } = await getCartaPorteXml(tenantId, tripId);
   const tenant = await Tenant.findByPk(tenantId);
-  const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant);
+  const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant, pdfSourceFromTrip(trip));
   const dir = path.dirname(absPath);
   await mkdir(dir, { recursive: true });
   await writeFile(absPath, pdfBuffer);

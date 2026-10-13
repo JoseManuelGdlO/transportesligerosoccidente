@@ -16,7 +16,7 @@ export type RGB = [number, number, number];
 
 export const BLACK: RGB = [0, 0, 0];
 export const WHITE: RGB = [255, 255, 255];
-export const PURPLE: RGB = [0x43, 0x2e, 0x7d];
+export const PURPLE: RGB = [0, 0, 0]; //[0x43, 0x2e, 0x7d];
 export const RED: RGB = [0xe8, 0x0c, 0x0c];
 export const GRAY: RGB = [0xcc, 0xcc, 0xcc];
 /** Color de rejilla de las tablas Carta Porte. */
@@ -174,7 +174,7 @@ export function drawPanelFrame(
   h: number,
   headerH: number,
 ): number {
-  fillRoundedTop(doc, x, y, w, headerH, PANEL_R, PURPLE);
+  fillRoundedTop(doc, x, y, w, headerH, PANEL_R, BLACK);
   doc.save().lineWidth(1).roundedRect(x, y, w, h, PANEL_R).stroke(rgb(BLACK)).restore();
   line(doc, x, y + headerH, x + w, y + headerH, BLACK, 1);
   return y + headerH;
@@ -202,16 +202,16 @@ export function drawPanel(
 
 /** Banda morada suelta de esquinas redondeadas (encabezado de la tabla de conceptos). */
 export function drawPurpleBand(doc: PdfDoc, x: number, y: number, w: number, h: number): void {
-  doc.save().lineWidth(1).roundedRect(x, y, w, h, PANEL_R).fillAndStroke(rgb(PURPLE), rgb(BLACK)).restore();
+  doc.save().lineWidth(1).roundedRect(x, y, w, h, PANEL_R).fillAndStroke(rgb(BLACK), rgb(BLACK)).restore();
 }
 
 /** Celda morada de esquinas redondeadas (etiquetas del bloque de totales). */
 export function drawPurpleCell(doc: PdfDoc, x: number, y: number, w: number, h: number, stroke: RGB = BLACK): void {
-  doc.save().lineWidth(0.5).roundedRect(x, y, w, h, 2).fillAndStroke(rgb(PURPLE), rgb(stroke)).restore();
+  doc.save().lineWidth(0.5).roundedRect(x, y, w, h, 2).fillAndStroke(rgb(BLACK), rgb(stroke)).restore();
 }
 
 /** Celda blanca de esquinas redondeadas (valores del bloque de totales). */
-export function drawValueCell(doc: PdfDoc, x: number, y: number, w: number, h: number, stroke: RGB = PURPLE): void {
+export function drawValueCell(doc: PdfDoc, x: number, y: number, w: number, h: number, stroke: RGB = BLACK): void {
   doc.save().lineWidth(0.5).roundedRect(x, y, w, h, 2).fillAndStroke(rgb(WHITE), rgb(stroke)).restore();
 }
 
@@ -343,7 +343,7 @@ export function drawPurpleSeal(
 ): number {
   const headerH = 12;
   doc.save().lineWidth(1).roundedRect(x, y, w, h, PANEL_R).stroke(rgb(BLACK)).restore();
-  fillRoundedTop(doc, x, y, w, headerH, PANEL_R, PURPLE);
+  fillRoundedTop(doc, x, y, w, headerH, PANEL_R, BLACK);
   line(doc, x, y + headerH, x + w, y + headerH, BLACK, 1);
   textCenter(doc, title, x, x + w - 5, centerTop(y, headerH, 8), { size: 8, color: WHITE });
 
@@ -356,7 +356,7 @@ export function drawPurpleSeal(
   textCenter(doc, body, x + 3, x + w - 3, bodyY + Math.max(0, (bodyH - blockH) / 2), {
     size,
     bold: true,
-    color: PURPLE,
+    color: BLACK,
     leading,
   });
   return y + h;

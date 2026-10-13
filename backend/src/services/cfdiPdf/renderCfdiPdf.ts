@@ -15,6 +15,7 @@ import {
   type CfdiMercancia,
   type CfdiUbicacion,
 } from "./parseCfdiXml";
+import { formatCantidadVisible, prepareCfdiForPdf, type CartaPortePdfSource } from "./prepareCfdiForPdf";
 import {
   BLACK,
   BLUE,
@@ -652,7 +653,7 @@ function mercanciaRow(m: CfdiMercancia): string[] {
     val(m.bienesTransp),
     val(m.claveSTCC),
     val(m.descripcion),
-    m.cantidad ? fmtCantidad(m.cantidad) : "",
+    m.cantidad ? formatCantidadVisible(m.cantidad) : "",
     val(m.claveUnidad),
     val(m.unidad),
   ];
@@ -709,7 +710,9 @@ function drawCantidadTransporta(doc: PdfDoc, y: number, cp: CfdiCartaPorte): num
   });
   const items = cp.mercancias.flatMap((m) => m.cantidadTransporta ?? []);
   const rows =
-    items.length > 0 ? items.map((ct) => [val(ct.cantidad), val(ct.idOrigen), val(ct.idDestino), ""]) : [["", "", "", ""]];
+    items.length > 0
+      ? items.map((ct) => [ct.cantidad ? formatCantidadVisible(ct.cantidad) : "", val(ct.idOrigen), val(ct.idDestino), ""])
+      : [["", "", "", ""]];
   for (const row of rows) {
     y = drawCellRow(doc, g.xs, y, g.rowH, row, { bold: true, align: ["left", "center", "center", "center"] });
   }
@@ -904,8 +907,12 @@ async function renderPage2(
 }
 
 /** Genera el PDF fiscal (CFDI + Carta Porte) a partir del XML timbrado. */
-export async function renderCfdiPdfFromXml(xml: string, tenant?: Tenant | null): Promise<Buffer> {
-  const cfdi = parseCfdiXml(xml);
+export async function renderCfdiPdfFromXml(
+  xml: string,
+  tenant?: Tenant | null,
+  source?: CartaPortePdfSource | null,
+): Promise<Buffer> {
+  const cfdi = prepareCfdiForPdf(parseCfdiXml(xml), source);
   const lookup = await buildCatalogLookup(cfdi);
   const logo = tenant ? await loadTenantLogo(tenant) : null;
 
