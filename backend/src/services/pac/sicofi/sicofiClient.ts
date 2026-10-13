@@ -127,6 +127,43 @@ export function isSicofiCancelacionCorrecta(value: unknown): boolean {
   return value.trim().toLowerCase() === "true";
 }
 
+const YA_CANCELADA_EN_SAT = /ya se encuentra cancelada/i;
+/** `<a:Estado>Cancelado</a:Estado>` o `<Estado>Cancelado</Estado>`. No coincide con EsCancelable. */
+const ESTADO_SAT_CANCELADO = /<(?:[\w.]+:)?Estado>\s*Cancelado\s*<\/(?:[\w.]+:)?Estado>/i;
+
+/**
+ * El SAT ya canceló el CFDI. Sicofi no manda `CancelacionCorrecta`, pero el acuse
+ * o el `Estado` del SOAP lo confirman. Se trata como éxito para alinear el estatus local.
+ */
+export function isSicofiCfdiYaCancelado(
+  res: SicofiCancelaTimbradoResponse | Record<string, unknown> | null | undefined,
+): boolean {
+  if (!res) return false;
+  const record = res as Record<string, unknown>;
+  const acuse = pickSicofiCancelField(record, "acuse", "Acuse");
+  if (acuse && YA_CANCELADA_EN_SAT.test(acuse)) return true;
+  const mensajeSat = pickSicofiCancelField(record, "mensajeSAT", "MensajeSAT", "mensajeSat");
+  return Boolean(mensajeSat && ESTADO_SAT_CANCELADO.test(mensajeSat));
+}
+
+/** Quita el SOAP de consulta SAT antes de mostrar un body crudo. */
+function rawBodySinMensajeSat(raw: string): string {
+  try {
+    const parsed = JSON.parse(raw) as unknown;
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      const copy = { ...(parsed as Record<string, unknown>) };
+      delete copy.mensajeSAT;
+      delete copy.MensajeSAT;
+      delete copy.mensajeSat;
+      if (Object.keys(copy).length === 0) return "";
+      return JSON.stringify(copy);
+    }
+  } catch {
+    // El body no es JSON; se usa tal cual.
+  }
+  return raw;
+}
+
 function pickSicofiCancelField(
   res: Record<string, unknown>,
   ...keys: string[]
@@ -172,7 +209,8 @@ export function formatSicofiPlainCancelacionError(text: string): string {
 
 /**
  * Arma mensaje de error a partir de la respuesta de cancelación Sicofi.
- * Incluye ErrorCancelacion, Mensaje, CodigoError, RespuestaSAT.
+ * Incluye acuse, ErrorCancelacion, Mensaje, CodigoError y RespuestaSAT.
+ * `mensajeSAT` es el SOAP de consulta y no se muestra: desborda el modal.
  * Si el PAC manda un string JSON, lo decodifica. Si no hay detalle, usa el body crudo ya decodificado.
  */
 export function formatSicofiCancelacionError(
@@ -183,6 +221,7 @@ export function formatSicofiCancelacionError(
 
   const r = res as Record<string, unknown>;
   const parts = [
+    pickSicofiCancelField(r, "acuse", "Acuse"),
     pickSicofiCancelField(r, "ErrorCancelacion", "errorCancelacion", "error_cancelacion"),
     pickSicofiCancelField(r, "Mensaje", "mensaje", "message", "Message"),
     (() => {
@@ -203,7 +242,7 @@ export function formatSicofiCancelacionError(
 
   if (parts.length) return parts.join(" — ");
 
-  const trimmed = rawBody?.trim();
+  const trimmed = rawBodySinMensajeSat(rawBody?.trim() ?? "").trim();
   if (trimmed) {
     const decoded = decodeSicofiUnicodeEscapes(trimmed);
     const snippet = decoded.length > 800 ? `${decoded.slice(0, 800)}…` : decoded;
@@ -266,14 +305,23 @@ export async function sicofiPostCancelaTimbrado(
       parsed !== null && typeof parsed === "object"
         ? (parsed as SicofiCancelaTimbradoResponse)
         : undefined;
-    if (!response || !isSicofiCancelacionCorrecta(response.CancelacionCorrecta)) {
-      const detail = formatSicofiCancelacionError(response ?? {}, body);
-      logger.warn(
-        `[Sicofi] CancelaTimbrado rechazada CancelacionCorrecta=${String(response?.CancelacionCorrecta)}: ${detail}`,
-      );
-      throw new Error(enhanceSicofiErrorMessage(detail));
+    if (
+      response &&
+      (isSicofiCancelacionCorrecta(response.CancelacionCorrecta) ||
+        isSicofiCfdiYaCancelado(response))
+    ) {
+      if (!isSicofiCancelacionCorrecta(response.CancelacionCorrecta)) {
+        logger.info(
+          "[Sicofi] CancelaTimbrado: el CFDI ya estaba cancelado en el SAT; se toma como éxito",
+        );
+      }
+      return response;
     }
-    return response;
+    const detail = formatSicofiCancelacionError(response ?? {}, body);
+    logger.warn(
+      `[Sicofi] CancelaTimbrado rechazada CancelacionCorrecta=${String(response?.CancelacionCorrecta)}: ${detail}`,
+    );
+    throw new Error(enhanceSicofiErrorMessage(detail));
   } catch (e) {
     if (e instanceof Error && e.name === "AbortError") {
       throw new Error("Timeout al conectar con Sicofi");

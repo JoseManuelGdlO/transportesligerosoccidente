@@ -1894,7 +1894,7 @@ export function TripCartaPorte({
             {cancelError && (
               <div
                 role="alert"
-                className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive break-words"
+                className="max-h-32 overflow-y-auto break-all rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive"
               >
                 {cancelError}
               </div>

@@ -130,9 +130,14 @@ export interface SicofiCancelaTimbradoRequest {
 /** Respuesta de cancelación CFDI (`CFDIv33CancelacionResponse`). */
 export interface SicofiCancelaTimbradoResponse {
   AcuseCancelacion?: string;
+  /** Texto corto de Sicofi, p. ej. «ya se encuentra cancelada en el SAT». */
+  acuse?: string;
+  Acuse?: string;
   CodigoError?: string;
   ErrorCancelacion?: string;
   Mensaje?: string;
   CancelacionCorrecta?: string;
   RespuestaSAT?: string;
+  /** SOAP de consulta SAT. No se muestra al usuario. */
+  mensajeSAT?: string;
 }

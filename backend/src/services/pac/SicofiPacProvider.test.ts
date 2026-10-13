@@ -195,6 +195,90 @@ describe("SicofiPacProvider", () => {
     assert.equal(bodies[0]!.MotivoCancelacion, "01");
   });
 
+  it("cancelar trata como éxito si el acuse dice que ya está cancelada", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const soap =
+      '<s:Envelope><a:Estado>Vigente</a:Estado><a:EstatusCancelacion></a:EstatusCancelacion></s:Envelope>';
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        JSON.stringify({
+          acuse: "Esta factura ya se encuentra cancelada en el SAT.",
+          mensajeSAT: soap,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("AAA-BBB-CCC", "02", tenant);
+  });
+
+  it("cancelar trata como éxito si mensajeSAT trae Estado Cancelado", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        JSON.stringify({
+          mensajeSAT:
+            '<s:Envelope><a:CodigoEstatus>S - Comprobante obtenido satisfactoriamente.</a:CodigoEstatus><a:Estado>Cancelado</a:Estado><a:EstatusCancelacion>Cancelado sin aceptación</a:EstatusCancelacion></s:Envelope>',
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("AAA-BBB-CCC", "02", tenant);
+  });
+
+  it("cancelar muestra el acuse y omite el XML de mensajeSAT", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const soap =
+      '<s:Envelope xmlns:s="http://schemas.xmlsoap.org/soap/envelope/"><a:Estado>Vigente</a:Estado></s:Envelope>';
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(
+        JSON.stringify({
+          acuse: "No se pudo cancelar el comprobante.",
+          mensajeSAT: soap,
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } },
+      );
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB-CCC", "02", tenant),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /No se pudo cancelar el comprobante/);
+        assert.doesNotMatch(err.message, /Envelope|mensajeSAT|schemas\.xmlsoap/);
+        return true;
+      },
+    );
+  });
+
   it("cancelar falla si CancelacionCorrecta no es true", async () => {
     process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
     const tenant = {
