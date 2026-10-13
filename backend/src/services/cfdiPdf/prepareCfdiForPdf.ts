@@ -14,6 +14,8 @@ export interface CartaPortePdfSource {
     cantidad?: string | number | null;
     cantidad_transportada?: string | number | null;
   }>;
+  /** Nota solo de impresión. null = no mostrar el NoIdentificacion del XML. */
+  comentarios?: string | null;
 }
 
 function tipoUbicacion(tipo: string | undefined): UbicacionTipo {
@@ -39,8 +41,9 @@ export function formatCantidadVisible(n: string): string {
  * Unidad se deja vacía si solo repite la clave de catálogo (H87 / H87).
  */
 export function prepareCfdiForPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource | null): ParsedCfdi {
-  const cp = cfdi.cartaPorte;
-  if (!cp) return cfdi;
+  const withNota = applyComentarioPdf(cfdi, source);
+  const cp = withNota.cartaPorte;
+  if (!cp) return withNota;
 
   const ubicaciones = cp.ubicaciones.map((u) => ({ ...u }));
   if (source) fillIdUbicacion(ubicaciones, source);
@@ -53,7 +56,20 @@ export function prepareCfdiForPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource
     prepareMercancia(m, source?.mercancias[i], idOrigen, idDestino),
   );
 
-  return { ...cfdi, cartaPorte: { ...cp, ubicaciones, mercancias } };
+  return { ...withNota, cartaPorte: { ...cp, ubicaciones, mercancias } };
+}
+
+/** El comentario no viaja en el CFDI. Si el origen lo trae, sustituye al NoIdentificacion del XML. */
+function applyComentarioPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource | null): ParsedCfdi {
+  if (!source || source.comentarios === undefined) return cfdi;
+  const nota = source.comentarios?.trim() || undefined;
+  return {
+    ...cfdi,
+    conceptos: cfdi.conceptos.map((c, i) => ({
+      ...c,
+      noIdentificacion: i === 0 ? nota : undefined,
+    })),
+  };
 }
 
 function fillIdUbicacion(ubicaciones: CfdiUbicacion[], source: CartaPortePdfSource): void {

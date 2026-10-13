@@ -245,7 +245,7 @@ export function TripCartaPorte({
   }, [trip.id, cp?.comentarios]);
 
   const saveComentarios = async () => {
-    if (!canTimbrar || cpTimbrada) return;
+    if (!canTimbrar) return;
     const next = comentarios.replace(/\|/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
     if (next === (cp?.comentarios ?? "")) return;
     setSavingComentarios(true);
@@ -1050,12 +1050,12 @@ export function TripCartaPorte({
               maxLength={100}
               rows={2}
               placeholder="Referencia de remisiones del cliente"
-              disabled={!canTimbrar || cpTimbrada || loading || savingComentarios}
+              disabled={!canTimbrar || loading || savingComentarios}
               onChange={(e) => setComentarios(e.target.value.slice(0, 100))}
               onBlur={() => void saveComentarios()}
             />
             <p className="text-xs text-muted-foreground">
-              Se imprime debajo del total en letra. {comentarios.length}/100
+              Solo aparece en el PDF, debajo del total en letra. Se puede cambiar después de timbrar. {comentarios.length}/100
             </p>
           </div>
           {canTimbrar && !cpTimbrada && (

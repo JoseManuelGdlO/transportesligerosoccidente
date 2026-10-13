@@ -33,7 +33,7 @@ function cfdi(partial?: {
       ],
       figuras: [],
     },
-  } as ParsedCfdi;
+  } as unknown as ParsedCfdi;
 }
 
 const source: CartaPortePdfSource = {
@@ -91,5 +91,16 @@ describe("prepareCfdiForPdf", () => {
     });
     assert.match(out.cartaPorte!.ubicaciones[0].idUbicacion!, /^OR[0-9]{6}$/);
     assert.match(out.cartaPorte!.ubicaciones[1].idUbicacion!, /^DE[0-9]{6}$/);
+  });
+
+  it("pinta el comentario del viaje y no el NoIdentificacion del XML", () => {
+    const base = {
+      ...cfdi(),
+      conceptos: [{ cantidad: "1", claveUnidad: "E54", descripcion: "Flete", valorUnitario: "1", importe: "1", noIdentificacion: "TLO0457" }],
+    } as ParsedCfdi;
+    const out = prepareCfdiForPdf(base, { ...source, comentarios: "REM-10" });
+    assert.equal(out.conceptos[0].noIdentificacion, "REM-10");
+    const vacio = prepareCfdiForPdf(base, { ...source, comentarios: null });
+    assert.equal(vacio.conceptos[0].noIdentificacion, undefined);
   });
 });

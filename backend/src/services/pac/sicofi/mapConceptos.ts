@@ -33,14 +33,12 @@ function mapStoredConcepto(
   line: TripCfdiConcepto,
   _trip: Trip,
   taxOpts: InvoiceTaxOpts,
-  comentarios?: string | null,
 ): ConceptoCFDI40 {
   const importe = lineImporte(line);
   const taxes = computeTripInvoiceTaxes(importe, taxOpts);
   const objetoImp = line.objeto_imp === "01" ? "01" : "02";
   return {
     ClaveProdServ: line.clave_prod_serv || DEFAULT_CFDI_CLAVE_PROD_SERV,
-    NoIdentificacion: noIdentificacionFromComentarios(comentarios),
     Cantidad: Number(line.cantidad) || 1,
     ClaveUnidad: line.clave_unidad || DEFAULT_CFDI_CLAVE_UNIDAD,
     Unidad: line.unidad || DEFAULT_CFDI_UNIDAD,
@@ -59,7 +57,6 @@ function fallbackIngresoConcepto(
   trip: Trip,
   truck: Truck,
   taxOpts: InvoiceTaxOpts,
-  comentarios?: string | null,
 ): ConceptoCFDI40 {
   const tarifa = Number(trip.tarifa) || 0;
   const taxes = computeTripInvoiceTaxes(tarifa, taxOpts);
@@ -68,7 +65,6 @@ function fallbackIngresoConcepto(
   const descripcion = `Flete de ${ruta} Ref: ${trip.folio} Equipo: ${equipo}`;
   return {
     ClaveProdServ: DEFAULT_CFDI_CLAVE_PROD_SERV,
-    NoIdentificacion: noIdentificacionFromComentarios(comentarios),
     Cantidad: 1,
     ClaveUnidad: DEFAULT_CFDI_CLAVE_UNIDAD,
     Unidad: DEFAULT_CFDI_UNIDAD,
@@ -97,7 +93,6 @@ export function mapConceptos(
   truck: Truck,
   tipo: TipoComprobanteTimbrado,
   taxOpts: InvoiceTaxOpts,
-  comentarios?: string | null,
 ): { conceptos: ConceptoCFDI40[]; subtotal: number; total: number; moneda: string; tipoCambio?: number } {
   if (tipo === "traslado") {
     return {
@@ -112,7 +107,6 @@ export function mapConceptos(
           Importe: 0,
           Descuento: 0,
           ObjetoImp: "01",
-          NoIdentificacion: noIdentificacionFromComentarios(comentarios),
           DatosAdicionales: null,
         },
       ],
@@ -125,8 +119,8 @@ export function mapConceptos(
   const stored = Array.isArray(trip.cfdi_conceptos) ? trip.cfdi_conceptos : [];
   const conceptos: ConceptoCFDI40[] =
     stored.length > 0
-      ? stored.map((line) => mapStoredConcepto(line, trip, taxOpts, comentarios))
-      : [fallbackIngresoConcepto(trip, truck, taxOpts, comentarios)];
+      ? stored.map((line) => mapStoredConcepto(line, trip, taxOpts))
+      : [fallbackIngresoConcepto(trip, truck, taxOpts)];
 
   let subtotal = 0;
   let total = 0;

@@ -111,9 +111,6 @@ export async function getCartaPorteForTrip(tenantId: string, tripId: string) {
 export async function updateCartaPorteComentarios(tenantId: string, tripId: string, raw: string | null) {
   await getTripOrThrow(tenantId, tripId, false);
   const cp = await getOrCreateCartaPorte(tenantId, tripId);
-  if (cp.estatus === "timbrada" || cp.estatus === "cancelada") {
-    throw err("No se pueden editar los comentarios de una carta ya timbrada", 409);
-  }
   const comentarios = noIdentificacionFromComentarios(raw);
   await cp.update({ comentarios } as never);
   return cp;
@@ -454,7 +451,7 @@ export async function timbrarCartaPorte(
     const pdfPath = uploadAbsFromRel(pdfRelPath);
     let pdfStored: string | null = null;
     try {
-      const pdfBuffer = await renderCfdiPdfFromXml(result.xmlTimbrado, tenant, pdfSourceFromTrip(trip));
+      const pdfBuffer = await renderCfdiPdfFromXml(result.xmlTimbrado, tenant, pdfSourceFromTrip(trip, cp.comentarios));
       await writeFile(pdfPath, pdfBuffer);
       pdfStored = pdfRelPath;
     } catch (pdfErr) {
@@ -508,7 +505,7 @@ function safeFilenamePart(s: string): string {
 }
 
 /** IDs de origen/destino y cantidades que el XML de Sicofi suele omitir. */
-function pdfSourceFromTrip(trip: Trip): CartaPortePdfSource {
+function pdfSourceFromTrip(trip: Trip, comentarios?: string | null): CartaPortePdfSource {
   const loaded = trip as Trip & { ubicaciones?: TripUbicacion[]; mercancias?: TripMercancia[] };
   return {
     tripId: trip.id,
@@ -521,6 +518,7 @@ function pdfSourceFromTrip(trip: Trip): CartaPortePdfSource {
       cantidad: m.cantidad,
       cantidad_transportada: m.cantidad_transportada,
     })),
+    comentarios: comentarios ?? null,
   };
 }
 
@@ -586,7 +584,7 @@ export async function getCartaPortePdf(
 
   const { xml } = await getCartaPorteXml(tenantId, tripId);
   const tenant = await Tenant.findByPk(tenantId);
-  const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant, pdfSourceFromTrip(trip));
+  const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant, pdfSourceFromTrip(trip, cp.comentarios));
   const dir = path.dirname(absPath);
   await mkdir(dir, { recursive: true });
   await writeFile(absPath, pdfBuffer);
