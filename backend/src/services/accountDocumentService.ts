@@ -3,6 +3,7 @@ import { Op, type Transaction, type WhereOptions } from "sequelize";
 import {
   AccountDocument,
   AccountDocumentPayment,
+  CartaPorte,
   Client,
   Expense,
   FuelLoad,
@@ -19,6 +20,7 @@ import type {
 import { roundMoney } from "./calc";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr, localDateStr } from "../utils/localDates";
+import { computeTripInvoiceTaxes } from "./pac/sicofi/invoiceTaxes";
 import { tripRouteLabelFromModel } from "./tripRouteLabel";
 import {
   conceptosFromLegacy,
@@ -52,6 +54,7 @@ export interface AccountDocumentDto {
   concepto: string;
   conceptos?: DocumentConcepto[];
   fecha_emision: string;
+  fecha_ingreso_cobranza?: string | null;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
   monto_original: number;
@@ -118,11 +121,34 @@ export function computeDisplayEstatus(
 }
 
 export function resolveDueDate(
-  fechaEmision: string,
+  fechaBase: string | null | undefined,
   plazo: number | null | undefined,
 ): string | null {
+  if (!fechaBase) return null;
   if (plazo == null || !Number.isFinite(plazo) || plazo < 0) return null;
-  return addDaysToDateStr(fechaEmision, Math.floor(plazo));
+  return addDaysToDateStr(fechaBase, Math.floor(plazo));
+}
+
+export function nextDueDate(input: {
+  fechaEmision: string;
+  fechaCobranza: string | null;
+  plazo: number | null;
+  fechaVencimientoExplicita?: string | null;
+}): string | null {
+  if (input.fechaVencimientoExplicita?.trim()) return input.fechaVencimientoExplicita.trim();
+  return resolveDueDate(input.fechaCobranza || input.fechaEmision, input.plazo);
+}
+
+export function cobranzaAConservar(
+  actual: string | null | undefined,
+  incoming: string | null | undefined,
+  preserveIfSet: boolean,
+): string | null {
+  const prev = actual ? String(actual).slice(0, 10) : null;
+  const next = incoming ? String(incoming).slice(0, 10) : null;
+  if (preserveIfSet && prev) return prev;
+  if (!next && prev) return prev;
+  return next;
 }
 
 function toPaymentDto(p: AccountDocumentPayment): AccountPaymentDto {
@@ -154,6 +180,9 @@ export function toDocumentDto(
     concepto: doc.concepto,
     conceptos: parseConceptosJson(doc.conceptos),
     fecha_emision: String(doc.fecha_emision).slice(0, 10),
+    fecha_ingreso_cobranza: doc.fecha_ingreso_cobranza
+      ? String(doc.fecha_ingreso_cobranza).slice(0, 10)
+      : null,
     plazo_credito_dias: doc.plazo_credito_dias ?? null,
     fecha_vencimiento: doc.fecha_vencimiento
       ? String(doc.fecha_vencimiento).slice(0, 10)
@@ -292,6 +321,7 @@ export interface CreateDocumentInput {
   concepto: string;
   conceptos?: DocumentConcepto[];
   fecha_emision: string;
+  fecha_ingreso_cobranza?: string | null;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
   monto_original: number;
@@ -353,9 +383,10 @@ export async function createDocument(
     input.plazo_credito_dias != null && Number.isFinite(input.plazo_credito_dias)
       ? Math.floor(input.plazo_credito_dias)
       : null;
+  const cobranza = input.fecha_ingreso_cobranza?.trim() || null;
   const venc =
     input.fecha_vencimiento?.trim() ||
-    resolveDueDate(input.fecha_emision, plazo);
+    resolveDueDate(cobranza || input.fecha_emision, plazo);
 
   const row = await AccountDocument.create(
     {
@@ -371,6 +402,7 @@ export async function createDocument(
         { descripcion: input.concepto.trim(), precio: roundMoney(input.monto_original) },
       ],
       fecha_emision: input.fecha_emision,
+      fecha_ingreso_cobranza: cobranza,
       plazo_credito_dias: plazo,
       fecha_vencimiento: venc,
       monto_original: String(roundMoney(input.monto_original)),
@@ -395,6 +427,7 @@ export async function updateDocument(
     concepto: string;
     conceptos: DocumentConcepto[];
     fecha_emision: string;
+    fecha_ingreso_cobranza: string | null;
     plazo_credito_dias: number | null;
     fecha_vencimiento: string | null;
     monto_original: number;
@@ -473,10 +506,27 @@ export async function updateDocument(
     patch.plazo_credito_dias !== undefined
       ? patch.plazo_credito_dias
       : doc.plazo_credito_dias;
+  if (patch.fecha_ingreso_cobranza !== undefined) {
+    data.fecha_ingreso_cobranza = patch.fecha_ingreso_cobranza?.trim() || null;
+  }
+  const cobranza =
+    patch.fecha_ingreso_cobranza !== undefined
+      ? patch.fecha_ingreso_cobranza?.trim() || null
+      : doc.fecha_ingreso_cobranza
+        ? String(doc.fecha_ingreso_cobranza).slice(0, 10)
+        : null;
   if (patch.fecha_vencimiento !== undefined) {
     data.fecha_vencimiento = patch.fecha_vencimiento;
-  } else if (patch.fecha_emision !== undefined || patch.plazo_credito_dias !== undefined) {
-    data.fecha_vencimiento = resolveDueDate(emision, plazo);
+  } else if (
+    patch.fecha_emision !== undefined ||
+    patch.plazo_credito_dias !== undefined ||
+    patch.fecha_ingreso_cobranza !== undefined
+  ) {
+    data.fecha_vencimiento = nextDueDate({
+      fechaEmision: emision,
+      fechaCobranza: cobranza,
+      plazo,
+    });
   }
 
   await doc.update(data as never);
@@ -585,9 +635,17 @@ async function syncDocumentToSource(
       where: { id: doc.trip_id, tenant_id: doc.tenant_id },
     });
     if (!trip) return;
+    const carta = await CartaPorte.findOne({
+      where: { tenant_id: doc.tenant_id, trip_id: trip.id },
+    });
+    const omitirMontoYFolio = viajeSyncOmiteMontoYFolio(carta);
     const tripPatch: Record<string, unknown> = {};
-    if (patch.monto_original !== undefined) tripPatch.tarifa = roundMoney(patch.monto_original);
-    if (patch.folio !== undefined) tripPatch.num_factura = patch.folio.trim() || null;
+    if (!omitirMontoYFolio && patch.monto_original !== undefined) {
+      tripPatch.tarifa = roundMoney(patch.monto_original);
+    }
+    if (!omitirMontoYFolio && patch.folio !== undefined) {
+      tripPatch.num_factura = patch.folio.trim() || null;
+    }
     if (patch.client_id !== undefined) tripPatch.client_id = patch.client_id;
     if (Object.keys(tripPatch).length) await trip.update(tripPatch as never);
   }
@@ -697,7 +755,10 @@ async function upsertBySource(
     | "maintenance_record_id"
     | "expense_id",
   sourceId: string,
-  input: CreateDocumentInput & { reopenIfCancelada?: boolean },
+  input: CreateDocumentInput & {
+    reopenIfCancelada?: boolean;
+    preserveCobranzaIfSet?: boolean;
+  },
   t?: Transaction,
 ): Promise<AccountDocumentDto | null> {
   const existing = await AccountDocument.findOne({
@@ -723,9 +784,17 @@ async function upsertBySource(
       input.plazo_credito_dias != null && Number.isFinite(input.plazo_credito_dias)
         ? Math.floor(input.plazo_credito_dias)
         : null;
-    const venc =
-      input.fecha_vencimiento?.trim() ||
-      resolveDueDate(input.fecha_emision, plazo);
+    const cobranza = cobranzaAConservar(
+      existing.fecha_ingreso_cobranza,
+      input.fecha_ingreso_cobranza,
+      input.preserveCobranzaIfSet === true,
+    );
+    const venc = nextDueDate({
+      fechaEmision: input.fecha_emision,
+      fechaCobranza: cobranza,
+      plazo,
+      fechaVencimientoExplicita: input.fecha_vencimiento,
+    });
     await existing.update({
       client_id: entity.client_id,
       supplier_id: entity.supplier_id,
@@ -736,6 +805,7 @@ async function upsertBySource(
         { descripcion: input.concepto.trim(), precio: roundMoney(input.monto_original) },
       ],
       fecha_emision: input.fecha_emision,
+      fecha_ingreso_cobranza: cobranza,
       plazo_credito_dias: plazo,
       fecha_vencimiento: venc,
       monto_original: String(roundMoney(input.monto_original)),
@@ -748,9 +818,64 @@ async function upsertBySource(
   return createDocument(tenantId, { ...input, [sourceField]: sourceId }, t);
 }
 
-export async function upsertFromTrip(trip: Trip): Promise<AccountDocumentDto | null> {
-  const tarifa = num(trip.tarifa);
-  if (tarifa <= 0) return null;
+export function cxcMontoDesdeTarifa(tarifa: number): number {
+  return computeTripInvoiceTaxes(tarifa).total;
+}
+
+export function folioCxcTimbrado(
+  carta: { serie: string | null; folio_cfdi: string | null },
+  numFactura: string | null | undefined,
+): string {
+  const serie = carta.serie?.trim() || "";
+  const folio = carta.folio_cfdi?.trim() || "";
+  if (serie && folio) return `${serie}-${folio}`;
+  if (folio) return folio;
+  return (numFactura ?? "").trim();
+}
+
+export function debeSincronizarCxc(input: {
+  estatus: string;
+  tipo_comprobante: string | null;
+  tarifa: number;
+}): boolean {
+  return (
+    input.estatus === "timbrada" &&
+    input.tipo_comprobante === "ingreso" &&
+    input.tarifa > 0
+  );
+}
+
+/** El backfill de viajes solo crea la CXC que falta; una ya existente, incluso cancelada, no se reescribe. */
+export function backfillOmiteCxcExistente(yaExiste: boolean): boolean {
+  return yaExiste;
+}
+
+/** Ingreso ya timbrado: el total fiscal y el folio CFDI no se escriben de vuelta en tarifa ni num_factura. */
+export function viajeSyncOmiteMontoYFolio(
+  carta: { estatus: string; tipo_comprobante: string | null } | null,
+): boolean {
+  return carta?.estatus === "timbrada" && carta.tipo_comprobante === "ingreso";
+}
+
+export async function upsertFromStampedIngreso(
+  trip: Trip,
+  carta: {
+    estatus: string;
+    tipo_comprobante: string | null;
+    timbrado_at: Date | null;
+    serie: string | null;
+    folio_cfdi: string | null;
+  },
+): Promise<AccountDocumentDto | null> {
+  if (
+    !debeSincronizarCxc({
+      estatus: carta.estatus,
+      tipo_comprobante: carta.tipo_comprobante,
+      tarifa: num(trip.tarifa),
+    })
+  ) {
+    return null;
+  }
   const client = await Client.findOne({
     where: { id: trip.client_id, tenant_id: trip.tenant_id },
   });
@@ -760,17 +885,20 @@ export async function upsertFromTrip(trip: Trip): Promise<AccountDocumentDto | n
     : trip.fecha_salida
       ? localDateStr(new Date(trip.fecha_salida))
       : localDateStr();
-  const folio = trip.num_factura?.trim() || `VIAJE-${trip.folio}`;
   return upsertBySource(trip.tenant_id, "trip_id", trip.id, {
     tipo: "cxc",
     client_id: trip.client_id,
     entidad_nombre: client?.razon_social,
-    folio,
+    folio: folioCxcTimbrado(carta, trip.num_factura),
     concepto: `Servicio de transporte ${tripRouteLabelFromModel(trip)}`,
     fecha_emision: emision,
+    fecha_ingreso_cobranza: carta.timbrado_at
+      ? localDateStr(new Date(carta.timbrado_at))
+      : localDateStr(),
     plazo_credito_dias: plazo,
-    monto_original: tarifa,
+    monto_original: cxcMontoDesdeTarifa(num(trip.tarifa)),
     origen: "viaje",
+    preserveCobranzaIfSet: true,
   });
 }
 
@@ -995,12 +1123,30 @@ export async function backfillTenant(tenantId: string): Promise<{
 
   const trips = await Trip.findAll({ where: { tenant_id: tenantId } });
   for (const trip of trips) {
-    const closed = (trip as Trip & { statuses?: { slug?: string }[] }).statuses;
-    // Without statuses loaded, upsert if has tarifa and num_factura or fecha_llegada
-    if (num(trip.tarifa) > 0 && (trip.num_factura || trip.fecha_llegada)) {
-      const r = await upsertFromTrip(trip);
-      if (r) cxc += 1;
+    const carta = await CartaPorte.findOne({
+      where: { tenant_id: tenantId, trip_id: trip.id },
+    });
+    if (
+      !carta ||
+      !debeSincronizarCxc({
+        estatus: carta.estatus,
+        tipo_comprobante: carta.tipo_comprobante,
+        tarifa: num(trip.tarifa),
+      })
+    ) {
+      continue;
     }
+    const existente = await AccountDocument.findOne({
+      where: {
+        tenant_id: tenantId,
+        trip_id: trip.id,
+        origen: "viaje",
+        tipo: "cxc",
+      },
+    });
+    if (backfillOmiteCxcExistente(existente != null)) continue;
+    const r = await upsertFromStampedIngreso(trip, carta);
+    if (r) cxc += 1;
   }
 
   const tickets = await FuelTicket.findAll({ where: { tenant_id: tenantId } });

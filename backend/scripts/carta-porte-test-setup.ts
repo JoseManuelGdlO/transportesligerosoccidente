@@ -594,7 +594,7 @@ async function runCaso(
 
   if (TIMBRAR && preview.valid) {
     try {
-      const cp = await cartaPorteService.timbrarCartaPorte(
+      const { carta: cp } = await cartaPorteService.timbrarCartaPorte(
         tenantId,
         entry.tripId,
         entry.tipo,

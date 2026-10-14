@@ -829,6 +829,7 @@ export interface AccountDocument {
   concepto: string;
   conceptos: DocumentConcepto[];
   fecha_emision: string;
+  fecha_ingreso_cobranza?: string | null;
   plazo_credito_dias?: number | null;
   fecha_vencimiento?: string | null;
   monto_original: number;

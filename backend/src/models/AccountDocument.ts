@@ -33,6 +33,7 @@ export class AccountDocument extends Model<
   declare concepto: string;
   declare conceptos: CreationOptional<DocumentConcepto[] | null>;
   declare fecha_emision: string;
+  declare fecha_ingreso_cobranza: CreationOptional<string | null>;
   declare plazo_credito_dias: CreationOptional<number | null>;
   declare fecha_vencimiento: CreationOptional<string | null>;
   declare monto_original: string;
@@ -62,6 +63,7 @@ export function initAccountDocument(sequelize: Sequelize) {
       concepto: { type: DataTypes.STRING(512), allowNull: false },
       conceptos: { type: DataTypes.JSON, allowNull: true },
       fecha_emision: { type: DataTypes.DATEONLY, allowNull: false },
+      fecha_ingreso_cobranza: { type: DataTypes.DATEONLY, allowNull: true },
       plazo_credito_dias: { type: DataTypes.INTEGER, allowNull: true },
       fecha_vencimiento: { type: DataTypes.DATEONLY, allowNull: true },
       monto_original: { type: DataTypes.DECIMAL(14, 2), allowNull: false },

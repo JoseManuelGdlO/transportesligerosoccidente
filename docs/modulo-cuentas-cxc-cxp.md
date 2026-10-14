@@ -116,7 +116,7 @@ erDiagram
 ```mermaid
 flowchart LR
     subgraph Origen
-        V[Viaje cerrado]
+        V[Ingreso timbrado]
         C[Combustible]
         M[Mantenimiento]
         G[Gasto]
@@ -156,7 +156,7 @@ Solo aplica a documentos **abiertos con saldo**:
 | Corriente | Sin vencer (o sin fecha de vencimiento tratada como corriente) |
 | Vencido 1–30 | 1 a 30 días después del vencimiento |
 | Vencido 31–60 | 31 a 60 días |
-| Vencido 90+ | Más de 60 días (incluye 61–89 y 90+) |
+| **Vencido 61+** (clave interna `90+`) | Más de 60 días después del vencimiento (incluye 61–89 y 90+) |
 
 En pantalla se muestran totales por cubeta (monto y cantidad de documentos).
 
@@ -164,13 +164,17 @@ En pantalla se muestran totales por cubeta (monto y cantidad de documentos).
 
 | Origen | Tipo | Cuándo se crea/actualiza |
 |--------|------|---------------------------|
-| **Viaje** | CXC | Al cerrar el viaje (con factura y tarifa > 0), o al editar tarifa/factura/cliente de un viaje cerrado |
+| **Viaje** | CXC | Al **timbrar una factura de ingreso** del viaje (no al cerrar el viaje). Monto = total fiscal con IVA y retención. La emisión es la fecha operativa del viaje (`fecha_llegada`, si no `fecha_salida`, si no hoy). El crédito inicia en **`fecha_ingreso_cobranza`** (fecha local del timbrado). |
 | **Ticket de combustible** | CXP | Al crear/actualizar el ticket |
 | **Carga de combustible** (sin ticket vinculado) | CXP | Al registrar la carga en el viaje |
 | **Mantenimiento** | CXP | Al crear/actualizar el registro |
 | **Gasto** (tipo gasto) | CXP | Al registrar el gasto |
 
-**Plazo de crédito:** se toma de los días de crédito del cliente (CXC) o del proveedor (CXP). La fecha de vencimiento = fecha de emisión + días de crédito.
+**Plazo de crédito:** se toma de los días de crédito del cliente (CXC) o del proveedor (CXP). La fecha de vencimiento = `fecha_ingreso_cobranza` si existe, si no `fecha_emision`, más los días de crédito.
+
+Los **abonos** registrados en Cuentas actualizan el saldo interno del documento; **este módulo no timbra complemento de pago** (CFDI Pagos 2.0).
+
+El botón **PDF** en la pantalla Cuentas exporta el **listado filtrado de la pestaña activa** (Por cobrar o Por pagar), no un estado de cuenta del operador.
 
 Si no existe el proveedor al registrar combustible/mantenimiento/gasto, el sistema puede **crearlo automáticamente** a partir del nombre (gasolinera, taller, etc.).
 
@@ -180,7 +184,7 @@ El botón **“Sincronizar existentes”** recorre viajes, combustible, mantenim
 
 ### 3.6 Edición bidireccional
 
-Si edita un documento que nació de un viaje, combustible, etc., algunos cambios (monto, folio, proveedor/cliente, fecha) pueden **reflejarse también en el registro de origen**.
+Si edita un documento que nació de un viaje, combustible, etc., algunos cambios (monto, folio, proveedor/cliente, fecha) pueden **reflejarse también en el registro de origen**. En un viaje con factura de ingreso timbrada, el monto y el folio no cambian la tarifa ni el `num_factura` del viaje; el cambio de cliente sí puede.
 
 ---
 
@@ -190,7 +194,7 @@ Si edita un documento que nació de un viaje, combustible, etc., algunos cambios
 
 1. Configure **días de crédito** en el cliente o proveedor.
 2. Realice la operación normal:
-   - Cierre un viaje con factura → aparece en **Cuentas → Por cobrar**.
+   - Timbrar la **factura de ingreso** del viaje → aparece en **Cuentas → Por cobrar** (cerrar el viaje por sí solo no crea el documento).
    - Registre combustible / mantenimiento / gasto → aparece en **Cuentas → Por pagar**.
 3. Verifique en **Cuentas** el folio, monto, vencimiento y estatus.
 
@@ -267,14 +271,15 @@ Usar este plan en ambiente de pruebas o producción controlada.
 
 ### B. Documento CXC automático (viaje)
 
-7. Crear o usar un viaje con tarifa > 0 y cliente con días de crédito.
-8. **Cerrar el viaje** con número de factura y fecha de llegada.
+7. Crear o usar un viaje con cliente con días de crédito y datos listos para facturar.
+8. **Timbrar la factura de ingreso**. La fecha de ingreso a cobranza queda como la fecha local del timbrado; si hay que corregirla, se hace después en Cuentas.
 9. Ir a **Cuentas → Por cobrar**.
 10. Verificar que existe un documento:
     - Origen: **Viaje**
-    - Folio ≈ número de factura
-    - Monto = tarifa del viaje
-    - Vencimiento ≈ emisión + días de crédito del cliente
+    - Folio ≈ número de factura fiscal
+    - Monto = total con IVA y retención (no la tarifa neta)
+    - Emisión ≈ fecha del viaje (`fecha_llegada`, si no `fecha_salida`)
+    - Vencimiento = fecha de cobranza (o emisión si cobranza está vacía) + días de crédito del cliente
 11. Abrir el detalle y confirmar enlace/concepto al servicio de transporte.
 
 ### C. Documento CXP automático
@@ -305,7 +310,7 @@ Usar este plan en ambiente de pruebas o producción controlada.
 ### G. Antigüedad / vencidos
 
 25. Crear o editar un documento con fecha de vencimiento **en el pasado** y saldo > 0.
-26. Verificar badge **Vencida** y que el saldo aparece en la cubeta correspondiente (1–30, 31–60 o 90+).
+26. Verificar badge **Vencida** y que el saldo aparece en la cubeta correspondiente (1–30, 31–60 o **Vencido 61+**).
 27. Clic en la tarjeta de cubeta y confirmar que filtra la lista.
 
 ### H. Filtros y búsqueda

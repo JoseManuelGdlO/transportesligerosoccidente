@@ -21,6 +21,8 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
+import { buildAccountStatementPdf } from "@/lib/accountStatementPdf";
+import { accountStatementTotals } from "@/lib/accountStatementTotals";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
 import { slicePage } from "@/lib/tableFilters";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
@@ -55,8 +57,29 @@ const BUCKET_LABELS: Record<AgingBucket, string> = {
   corriente: "Corriente",
   "1-30": "Vencido 1–30",
   "31-60": "Vencido 31–60",
-  "90+": "Vencido 90+",
+  "90+": "Vencido 61+",
 };
+
+function AccountStatusBadge({ display }: { display: string }) {
+  return (
+    <Badge
+      variant={
+        display === "Vencida"
+          ? "destructive"
+          : display === "Pagada"
+            ? "secondary"
+            : display === "Cancelada"
+              ? "outline"
+              : "default"
+      }
+      className={
+        display === "Al día" ? "border-transparent bg-emerald-600 text-white hover:bg-emerald-600" : undefined
+      }
+    >
+      {display}
+    </Badge>
+  );
+}
 
 const ORIGEN_LABELS: Record<string, string> = {
   manual: "Manual",
@@ -65,13 +88,6 @@ const ORIGEN_LABELS: Record<string, string> = {
   mantenimiento: "Mantenimiento",
   gasto: "Gasto",
 };
-
-function statusBadgeVariant(display: string): "default" | "secondary" | "destructive" | "outline" {
-  if (display === "Vencida") return "destructive";
-  if (display === "Pagada") return "secondary";
-  if (display === "Cancelada") return "outline";
-  return "default";
-}
 
 export default function Cuentas() {
   const { hasPermission } = useAuth();
@@ -103,6 +119,7 @@ export default function Cuentas() {
     entidad_nombre: "",
     folio: "",
     fecha_emision: "",
+    fecha_ingreso_cobranza: "",
     plazo_credito_dias: "" as string,
     fecha_vencimiento: "" as string,
     client_id: "",
@@ -125,6 +142,7 @@ export default function Cuentas() {
     entidad_nombre: "",
     folio: "",
     fecha_emision: new Date().toISOString().slice(0, 10),
+    fecha_ingreso_cobranza: new Date().toISOString().slice(0, 10),
     plazo_credito_dias: "" as string,
   });
   const [createConceptos, setCreateConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
@@ -140,6 +158,7 @@ export default function Cuentas() {
       entidad_nombre: d.entidad_nombre,
       folio: d.folio,
       fecha_emision: d.fecha_emision,
+      fecha_ingreso_cobranza: d.fecha_ingreso_cobranza ?? "",
       plazo_credito_dias: d.plazo_credito_dias != null ? String(d.plazo_credito_dias) : "",
       fecha_vencimiento: d.fecha_vencimiento ?? "",
       client_id: d.client_id ?? "",
@@ -169,7 +188,8 @@ export default function Cuentas() {
           tipo,
           q: q.trim() || undefined,
           bucket: bucket === "all" ? undefined : bucket,
-          estatus: estatus === "all" ? undefined : estatus,
+          estatus:
+            estatus === "all" || estatus === "al_dia" || estatus === "vencida" ? undefined : estatus,
           desde: fechaDesde || undefined,
           hasta: fechaHasta || undefined,
         }),
@@ -200,7 +220,18 @@ export default function Cuentas() {
     setPage(1);
   }, [q, bucket, estatus, fechaDesde, fechaHasta, tipo, pageSize]);
 
-  const pageData = useMemo(() => slicePage(docs, page, pageSize), [docs, page, pageSize]);
+  const listedDocs = useMemo(() => {
+    if (estatus === "al_dia") return docs.filter((d) => d.estatus_display === "Al día");
+    if (estatus === "vencida") return docs.filter((d) => d.estatus_display === "Vencida");
+    return docs;
+  }, [docs, estatus]);
+
+  const pageData = useMemo(
+    () => slicePage(listedDocs, page, pageSize),
+    [listedDocs, page, pageSize],
+  );
+
+  const statementTotals = useMemo(() => accountStatementTotals(listedDocs), [listedDocs]);
 
   useEffect(() => {
     if (pageData.safePage !== page) setPage(pageData.safePage);
@@ -247,11 +278,13 @@ export default function Cuentas() {
   }
 
   const openCreate = () => {
+    const hoy = new Date().toISOString().slice(0, 10);
     setForm({
       entidad_id: "",
       entidad_nombre: "",
       folio: "",
-      fecha_emision: new Date().toISOString().slice(0, 10),
+      fecha_emision: hoy,
+      fecha_ingreso_cobranza: hoy,
       plazo_credito_dias: "",
     });
     setCreateConceptos([emptyConcepto()]);
@@ -279,6 +312,7 @@ export default function Cuentas() {
         folio: form.folio.trim(),
         conceptos: lineas,
         fecha_emision: form.fecha_emision,
+        fecha_ingreso_cobranza: form.fecha_ingreso_cobranza || null,
         plazo_credito_dias: form.plazo_credito_dias === "" ? null : Number(form.plazo_credito_dias),
       });
       toast.success("Documento registrado");
@@ -331,6 +365,31 @@ export default function Cuentas() {
             <TabsTrigger value="cxp">Por pagar (CXP)</TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => {
+                const pdf = buildAccountStatementPdf({
+                  titulo: tipo === "cxc" ? "Cuentas por cobrar" : "Cuentas por pagar",
+                  generadoEn: new Date().toISOString().slice(0, 10),
+                  rows: listedDocs.map((d) => ({
+                    entidad_nombre: d.entidad_nombre,
+                    folio: d.folio,
+                    concepto: d.concepto,
+                    fecha_emision: d.fecha_emision,
+                    fecha_ingreso_cobranza: d.fecha_ingreso_cobranza ?? null,
+                    fecha_vencimiento: d.fecha_vencimiento ?? null,
+                    monto_original: d.monto_original,
+                    abonos: d.abonos,
+                    saldo_pendiente: d.saldo_pendiente,
+                    estatus_display: d.estatus_display,
+                  })),
+                });
+                pdf.save(tipo === "cxc" ? "estado-cuenta-cxc.pdf" : "estado-cuenta-cxp.pdf");
+              }}
+            >
+              PDF
+            </Button>
             {canManage && (
               <>
                 <Button
@@ -357,6 +416,23 @@ export default function Cuentas() {
         </div>
 
         <TabsContent value={tipo} className="space-y-4 mt-4">
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">Pendiente</p>
+              <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pendiente)}</p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">Vencido</p>
+              <p className="text-lg font-semibold mt-1 text-destructive">
+                {fmtMXNDecimal(statementTotals.vencido)}
+              </p>
+            </Card>
+            <Card className="p-4">
+              <p className="text-xs text-muted-foreground">Pagadas</p>
+              <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pagadas)}</p>
+            </Card>
+          </div>
+
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             {(Object.keys(BUCKET_LABELS) as AgingBucket[]).map((key) => (
               <Card
@@ -388,6 +464,8 @@ export default function Cuentas() {
                 <SelectContent>
                   <SelectItem value="all">Todos</SelectItem>
                   <SelectItem value="abierta">Abierta</SelectItem>
+                  <SelectItem value="al_dia">Al día</SelectItem>
+                  <SelectItem value="vencida">Vencida</SelectItem>
                   <SelectItem value="pagada">Pagada</SelectItem>
                   <SelectItem value="cancelada">Cancelada</SelectItem>
                 </SelectContent>
@@ -458,6 +536,7 @@ export default function Cuentas() {
                   <TableHead>Folio</TableHead>
                   <TableHead>Concepto</TableHead>
                   <TableHead>Emisión</TableHead>
+                  <TableHead>Cobranza</TableHead>
                   <TableHead>Plazo</TableHead>
                   <TableHead>Vencimiento</TableHead>
                   <TableHead className="text-right">Monto</TableHead>
@@ -478,6 +557,7 @@ export default function Cuentas() {
                     <TableCell>{d.folio}</TableCell>
                     <TableCell className="max-w-[200px] truncate">{d.concepto}</TableCell>
                     <TableCell>{d.fecha_emision}</TableCell>
+                    <TableCell>{d.fecha_ingreso_cobranza || "—"}</TableCell>
                     <TableCell>
                       {d.plazo_credito_dias != null ? `${d.plazo_credito_dias} días` : "No especificado"}
                     </TableCell>
@@ -488,7 +568,7 @@ export default function Cuentas() {
                       {fmtMXNDecimal(d.saldo_pendiente)}
                     </TableCell>
                     <TableCell>
-                      <Badge variant={statusBadgeVariant(d.estatus_display)}>{d.estatus_display}</Badge>
+                      <AccountStatusBadge display={d.estatus_display} />
                     </TableCell>
                     <TableCell>
                       {d.trip_id && d.origen === "viaje" ? (
@@ -507,7 +587,7 @@ export default function Cuentas() {
                 ))}
                 {!pageData.total && (
                   <TableRow>
-                    <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
                       Sin documentos
                     </TableCell>
                   </TableRow>
@@ -658,6 +738,14 @@ export default function Cuentas() {
                 />
               </div>
               <div>
+                <Label>Ingreso a cobranza</Label>
+                <Input
+                  type="date"
+                  value={form.fecha_ingreso_cobranza}
+                  onChange={(e) => setForm({ ...form, fecha_ingreso_cobranza: e.target.value })}
+                />
+              </div>
+              <div>
                 <Label>Plazo (días)</Label>
                 <Input
                   type="number"
@@ -687,12 +775,14 @@ export default function Cuentas() {
           {selected && (
             <div className="min-w-0 space-y-3 text-sm">
               <div className="flex flex-wrap items-center justify-between gap-2">
-                <Badge variant={statusBadgeVariant(selected.estatus_display)}>
-                  {selected.estatus_display}
-                </Badge>
+                <AccountStatusBadge display={selected.estatus_display} />
                 <span className="text-xs text-muted-foreground">
                   Origen: {ORIGEN_LABELS[selected.origen] ?? selected.origen}
-                  {selected.origen !== "manual" ? " · al guardar se actualiza el origen" : ""}
+                  {selected.origen === "viaje"
+                    ? ". El cambio de cliente se guarda en el viaje; si la factura de ingreso está timbrada, el monto y el folio no cambian la tarifa, y si el viaje no tiene esa factura, el monto y el folio sí se guardan en el viaje."
+                    : selected.origen !== "manual"
+                      ? `. Los cambios de monto, folio o fecha también se guardan en el registro de ${ORIGEN_LABELS[selected.origen] ?? selected.origen}.`
+                      : ""}
                 </span>
               </div>
 
@@ -727,7 +817,26 @@ export default function Cuentas() {
                             ...editForm,
                             fecha_emision,
                             fecha_vencimiento: resolveVencimiento(
-                              fecha_emision,
+                              editForm.fecha_ingreso_cobranza || fecha_emision,
+                              editForm.plazo_credito_dias,
+                            ),
+                          });
+                        }}
+                      />
+                    </div>
+                    <div className="min-w-0">
+                      <Label>Ingreso a cobranza</Label>
+                      <Input
+                        type="date"
+                        className="min-w-0"
+                        value={editForm.fecha_ingreso_cobranza}
+                        onChange={(e) => {
+                          const fecha_ingreso_cobranza = e.target.value;
+                          setEditForm({
+                            ...editForm,
+                            fecha_ingreso_cobranza,
+                            fecha_vencimiento: resolveVencimiento(
+                              fecha_ingreso_cobranza || editForm.fecha_emision,
                               editForm.plazo_credito_dias,
                             ),
                           });
@@ -748,7 +857,7 @@ export default function Cuentas() {
                             ...editForm,
                             plazo_credito_dias,
                             fecha_vencimiento: resolveVencimiento(
-                              editForm.fecha_emision,
+                              editForm.fecha_ingreso_cobranza || editForm.fecha_emision,
                               plazo_credito_dias,
                             ),
                           });
@@ -781,9 +890,7 @@ export default function Cuentas() {
                   </div>
                   <div>
                     <p className="text-muted-foreground">Estatus</p>
-                    <Badge variant={statusBadgeVariant(selected.estatus_display)}>
-                      {selected.estatus_display}
-                    </Badge>
+                    <AccountStatusBadge display={selected.estatus_display} />
                   </div>
                   <div>
                     <p className="text-muted-foreground">Monto</p>
@@ -796,6 +903,10 @@ export default function Cuentas() {
                   <div>
                     <p className="text-muted-foreground">Emisión</p>
                     <p>{selected.fecha_emision}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Ingreso a cobranza</p>
+                    <p>{selected.fecha_ingreso_cobranza || "—"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Vencimiento</p>
@@ -884,6 +995,7 @@ export default function Cuentas() {
                         folio: editForm.folio.trim(),
                         conceptos: lineas,
                         fecha_emision: editForm.fecha_emision,
+                        fecha_ingreso_cobranza: editForm.fecha_ingreso_cobranza || null,
                         plazo_credito_dias:
                           editForm.plazo_credito_dias === ""
                             ? null

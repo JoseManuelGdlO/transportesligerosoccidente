@@ -40,6 +40,7 @@ import {
   fieldHighlightClass,
   firstErrorSection,
 } from "@/lib/cartaPorteIssues";
+import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
 import type { ClientUbicacion, Driver, SatClaveProducto, Trip, TripCfdiConcepto, TripMercancia, Truck } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
@@ -891,8 +892,14 @@ export function TripCartaPorte({
         }
         return;
       }
-      const timbrado = await readJson<{ serie?: string; folio_cfdi?: string }>(r);
+      const timbrado = await readJson<{
+        serie?: string;
+        folio_cfdi?: string;
+        cxc_sync_error?: string | null;
+      }>(r);
       toast.success("Carta porte timbrada");
+      const notice = cxcSyncNotice(timbrado.cxc_sync_error);
+      if (notice) toast.error(`Factura timbrada, pero no se registró en Cuentas: ${notice}`);
       try {
         await downloadCartaPortePdf(
           trip.id,

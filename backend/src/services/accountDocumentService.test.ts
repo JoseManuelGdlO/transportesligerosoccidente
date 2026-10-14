@@ -3,9 +3,16 @@ import { afterEach, describe, it, mock } from "node:test";
 import { AccountDocument, AccountDocumentPayment, Supplier } from "../models";
 import {
   assertMaintenanceCxpSyncAllowed,
+  cobranzaAConservar,
   computeAgingBucket,
   computeDisplayEstatus,
+  backfillOmiteCxcExistente,
+  cxcMontoDesdeTarifa,
   daysBetween,
+  debeSincronizarCxc,
+  folioCxcTimbrado,
+  viajeSyncOmiteMontoYFolio,
+  nextDueDate,
   planMaintenanceCxpSync,
   resolveDueDate,
   toDocumentDto,
@@ -21,6 +28,7 @@ function stubDoc(
     fecha_vencimiento: string | null;
     monto_original: string;
     fecha_emision: string;
+    fecha_ingreso_cobranza: string | null;
   }> = {},
 ): AccountDocumentModel {
   return {
@@ -34,6 +42,8 @@ function stubDoc(
     plazo_credito_dias: 30,
     fecha_vencimiento:
       overrides.fecha_vencimiento !== undefined ? overrides.fecha_vencimiento : "2026-01-31",
+    fecha_ingreso_cobranza:
+      overrides.fecha_ingreso_cobranza !== undefined ? overrides.fecha_ingreso_cobranza : null,
     monto_original: overrides.monto_original ?? "1000",
     estatus: overrides.estatus ?? "abierta",
     origen: "manual",
@@ -60,6 +70,47 @@ describe("accountDocumentService aging/saldo", () => {
     assert.equal(resolveDueDate("2026-01-01", 15), "2026-01-16");
     assert.equal(resolveDueDate("2026-01-01", null), null);
     assert.equal(resolveDueDate("2026-01-01", undefined), null);
+    assert.equal(resolveDueDate(null, 15), null);
+    assert.equal(resolveDueDate(undefined, 15), null);
+  });
+
+  it("fecha base del vencimiento es cobranza si existe", () => {
+    assert.equal(resolveDueDate("2026-03-10", 30), "2026-04-09");
+  });
+
+  it("nextDueDate prioriza vencimiento explícito y si no usa cobranza", () => {
+    assert.equal(
+      nextDueDate({
+        fechaEmision: "2026-01-01",
+        fechaCobranza: "2026-02-01",
+        plazo: 10,
+        fechaVencimientoExplicita: "2026-05-01",
+      }),
+      "2026-05-01",
+    );
+    assert.equal(
+      nextDueDate({
+        fechaEmision: "2026-01-01",
+        fechaCobranza: "2026-02-01",
+        plazo: 10,
+      }),
+      "2026-02-11",
+    );
+    assert.equal(
+      nextDueDate({
+        fechaEmision: "2026-01-01",
+        fechaCobranza: null,
+        plazo: 10,
+      }),
+      "2026-01-11",
+    );
+  });
+
+  it("cobranzaAConservar no pisa una fecha ya guardada", () => {
+    assert.equal(cobranzaAConservar("2026-02-01", "2026-03-01", true), "2026-02-01");
+    assert.equal(cobranzaAConservar(null, "2026-03-01", true), "2026-03-01");
+    assert.equal(cobranzaAConservar("2026-02-01", "2026-03-01", false), "2026-03-01");
+    assert.equal(cobranzaAConservar("2026-02-01", null, false), "2026-02-01");
   });
 
   it("bucket corriente si no hay vencimiento o aún no vence", () => {
@@ -134,6 +185,15 @@ describe("accountDocumentService aging/saldo", () => {
     const second = toDocumentDto(stubDoc({ monto_original: "1000" }), [], "2026-02-10");
     assert.equal(first.aging_bucket, second.aging_bucket);
     assert.equal(first.saldo_pendiente, second.saldo_pendiente);
+  });
+
+  it("toDocumentDto expone fecha_ingreso_cobranza", () => {
+    const dto = toDocumentDto(
+      stubDoc({ fecha_ingreso_cobranza: "2026-02-01" } as never),
+      [],
+      "2026-02-01",
+    );
+    assert.equal(dto.fecha_ingreso_cobranza, "2026-02-01");
   });
 });
 
@@ -323,5 +383,63 @@ describe("assertMaintenanceCxpSyncAllowed / upsertFromMaintenance", () => {
         return true;
       },
     );
+  });
+});
+
+describe("CXC desde ingreso timbrado", () => {
+  it("cxcMontoDesdeTarifa aplica IVA 16% y retención 4%", () => {
+    assert.equal(cxcMontoDesdeTarifa(1000), 1120);
+  });
+
+  it("folioCxcTimbrado junta serie y folio", () => {
+    assert.equal(
+      folioCxcTimbrado({ serie: "CP", folio_cfdi: "15" }, "VIAJE-1"),
+      "CP-15",
+    );
+    assert.equal(folioCxcTimbrado({ serie: null, folio_cfdi: "15" }, null), "15");
+    assert.equal(folioCxcTimbrado({ serie: null, folio_cfdi: null }, "  F-9 "), "F-9");
+  });
+
+  it("debeSincronizarCxc exige timbrada de ingreso y tarifa positiva", () => {
+    assert.equal(
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", tarifa: 10 }),
+      true,
+    );
+    assert.equal(
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "traslado", tarifa: 10 }),
+      false,
+    );
+    assert.equal(
+      debeSincronizarCxc({ estatus: "borrador", tipo_comprobante: "ingreso", tarifa: 10 }),
+      false,
+    );
+    assert.equal(
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", tarifa: 0 }),
+      false,
+    );
+  });
+
+  it("viajeSyncOmiteMontoYFolio solo en ingreso timbrado", () => {
+    assert.equal(
+      viajeSyncOmiteMontoYFolio({ estatus: "timbrada", tipo_comprobante: "ingreso" }),
+      true,
+    );
+    assert.equal(
+      viajeSyncOmiteMontoYFolio({ estatus: "timbrada", tipo_comprobante: "traslado" }),
+      false,
+    );
+    assert.equal(
+      viajeSyncOmiteMontoYFolio({ estatus: "borrador", tipo_comprobante: "ingreso" }),
+      false,
+    );
+    assert.equal(viajeSyncOmiteMontoYFolio(null), false);
+  });
+
+  it("backfillOmiteCxcExistente omite si el documento ya existe", () => {
+    assert.equal(backfillOmiteCxcExistente(true), true);
+  });
+
+  it("backfillOmiteCxcExistente no omite si no hay documento", () => {
+    assert.equal(backfillOmiteCxcExistente(false), false);
   });
 });

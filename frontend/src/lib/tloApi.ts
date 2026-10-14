@@ -399,6 +399,9 @@ export function normalizeAccountDocument(
         }))
       : [],
     fecha_emision: String(raw.fecha_emision ?? "").slice(0, 10),
+    fecha_ingreso_cobranza: raw.fecha_ingreso_cobranza
+      ? String(raw.fecha_ingreso_cobranza).slice(0, 10)
+      : null,
     plazo_credito_dias:
       raw.plazo_credito_dias != null && raw.plazo_credito_dias !== ""
         ? Number(raw.plazo_credito_dias)

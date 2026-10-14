@@ -478,20 +478,22 @@ export async function timbrarCartaPorte(
     if (tipo === "ingreso" && folioCfdi && needsFacturaFromSicofi(trip.num_factura)) {
       await trip.update({ num_factura: String(folioCfdi) } as never);
     }
+    let cxcSyncError: string | null = null;
     if (tipo === "ingreso") {
       try {
-        const { upsertFromTrip } = await import("./accountDocumentService");
+        const { upsertFromStampedIngreso } = await import("./accountDocumentService");
         await trip.reload();
-        await upsertFromTrip(trip);
+        await upsertFromStampedIngreso(trip, cp);
       } catch (syncErr) {
+        cxcSyncError = syncErr instanceof Error ? syncErr.message : String(syncErr);
         // Timbrado ya persistió; no marcar CartaPorte como error por fallo de CXC
         console.warn(
           "[cartaPorte] Timbrado OK pero falló sync de documento CXC:",
-          syncErr instanceof Error ? syncErr.message : syncErr,
+          cxcSyncError,
         );
       }
     }
-    return cp;
+    return { carta: cp, cxc_sync_error: tipo === "ingreso" ? cxcSyncError : null };
   } catch (e) {
     const msg = formatPacErrorMessage(e instanceof Error ? e.message : "Error al timbrar");
     await cp.update({ estatus: "error", error_mensaje: msg } as never);

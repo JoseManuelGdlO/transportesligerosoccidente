@@ -105,19 +105,7 @@ export async function putCfdiConceptos(
   }
   const tarifa = sumCfdiConceptosTarifa(conceptos);
   await trip.update({ cfdi_conceptos: conceptos, tarifa: String(tarifa) });
-  const updated = await getTripOrThrow(tenantId, tripId, true, undefined, true);
-  try {
-    const { upsertFromTrip } = await import("./accountDocumentService");
-    if (tripIsClosed(updated) || updated.num_factura) {
-      await upsertFromTrip(updated);
-    }
-  } catch (syncErr) {
-    console.warn(
-      "[trip] Conceptos CFDI guardados pero falló sync de documento CXC:",
-      syncErr instanceof Error ? syncErr.message : syncErr,
-    );
-  }
-  return updated;
+  return getTripOrThrow(tenantId, tripId, true, undefined, true);
 }
 
 function escapeRegex(s: string): string {
@@ -253,17 +241,7 @@ export async function closeTrip(
   }
   await trip.update(closePatch);
   await swapSystemStatus(tenantId, id, "en_curso", "cerrado");
-  const closed = await getTripOrThrow(tenantId, id, true, undefined, true);
-  try {
-    const { upsertFromTrip } = await import("./accountDocumentService");
-    await upsertFromTrip(closed);
-  } catch (syncErr) {
-    console.warn(
-      "[trip] Viaje cerrado pero falló sync de documento CXC:",
-      syncErr instanceof Error ? syncErr.message : syncErr,
-    );
-  }
-  return closed;
+  return getTripOrThrow(tenantId, id, true, undefined, true);
 }
 
 export async function deleteTrip(tenantId: string, id: string) {
@@ -730,26 +708,7 @@ export async function patchTrip(
     await syncUbicacionesFromTripStops(tenantId, id);
   }
 
-  const updated = await getTripOrThrow(tenantId, id, true, undefined, true);
-  if (
-    isClosed ||
-    patch.num_factura !== undefined ||
-    patch.tarifa !== undefined ||
-    patch.client_id !== undefined
-  ) {
-    try {
-      const { upsertFromTrip } = await import("./accountDocumentService");
-      if (tripIsClosed(updated) || updated.num_factura) {
-        await upsertFromTrip(updated);
-      }
-    } catch (syncErr) {
-      console.warn(
-        "[trip] Viaje actualizado pero falló sync de documento CXC:",
-        syncErr instanceof Error ? syncErr.message : syncErr,
-      );
-    }
-  }
-  return updated;
+  return getTripOrThrow(tenantId, id, true, undefined, true);
 }
 
 export async function assertCatalogRefs(

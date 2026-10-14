@@ -85,13 +85,13 @@ export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   const tipo = parsed.data.tipo ?? "traslado";
-  const cp = await cartaPorteService.timbrarCartaPorte(
+  const { carta, cxc_sync_error } = await cartaPorteService.timbrarCartaPorte(
     tid(req),
     req.params.id,
     tipo,
     timbradoOptsFromBody(parsed.data),
   );
-  res.json(cartaPorteToJson(cp));
+  res.json({ ...cartaPorteToJson(carta), cxc_sync_error });
 });
 
 const comentariosSchema = z.object({
