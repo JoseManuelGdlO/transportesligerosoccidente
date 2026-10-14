@@ -21,10 +21,10 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
-import { buildAccountStatementPdf } from "@/lib/accountStatementPdf";
 import { accountStatementTotals } from "@/lib/accountStatementTotals";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
 import { slicePage } from "@/lib/tableFilters";
+import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
 import {
   emptyConcepto,
@@ -108,6 +108,8 @@ export default function Cuentas() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [loading, setLoading] = useState(false);
+  const [syncing, setSyncing] = useState(false);
+  const [pdfOpen, setPdfOpen] = useState(false);
 
   const [createOpen, setCreateOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
@@ -365,29 +367,7 @@ export default function Cuentas() {
             <TabsTrigger value="cxp">Por pagar (CXP)</TabsTrigger>
           </TabsList>
           <div className="flex gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              onClick={() => {
-                const pdf = buildAccountStatementPdf({
-                  titulo: tipo === "cxc" ? "Cuentas por cobrar" : "Cuentas por pagar",
-                  generadoEn: new Date().toISOString().slice(0, 10),
-                  rows: listedDocs.map((d) => ({
-                    entidad_nombre: d.entidad_nombre,
-                    folio: d.folio,
-                    concepto: d.concepto,
-                    fecha_emision: d.fecha_emision,
-                    fecha_ingreso_cobranza: d.fecha_ingreso_cobranza ?? null,
-                    fecha_vencimiento: d.fecha_vencimiento ?? null,
-                    monto_original: d.monto_original,
-                    abonos: d.abonos,
-                    saldo_pendiente: d.saldo_pendiente,
-                    estatus_display: d.estatus_display,
-                  })),
-                });
-                pdf.save(tipo === "cxc" ? "estado-cuenta-cxc.pdf" : "estado-cuenta-cxp.pdf");
-              }}
-            >
+            <Button variant="outline" size="sm" onClick={() => setPdfOpen(true)}>
               PDF
             </Button>
             {canManage && (
@@ -395,17 +375,22 @@ export default function Cuentas() {
                 <Button
                   variant="outline"
                   size="sm"
+                  disabled={syncing}
                   onClick={async () => {
+                    setSyncing(true);
                     try {
                       const r = await backfillAccountDocumentsApi();
                       toast.success(`Sincronizados CXC ${r.cxc}, CXP ${r.cxp}`);
                       await load();
                     } catch (e) {
                       toast.error(e instanceof Error ? e.message : "Error al sincronizar");
+                    } finally {
+                      setSyncing(false);
                     }
                   }}
                 >
-                  <RefreshCw className="h-4 w-4 mr-1" /> Sincronizar existentes
+                  <RefreshCw className={`h-4 w-4 mr-1 ${syncing ? "animate-spin" : ""}`} />
+                  {syncing ? "Sincronizando…" : "Sincronizar existentes"}
                 </Button>
                 <Button size="sm" onClick={openCreate}>
                   <Plus className="h-4 w-4 mr-1" /> Alta manual
@@ -1110,6 +1095,13 @@ export default function Cuentas() {
           </DialogFooter>
         </DialogContent>
       </Dialog>
+
+      <AccountStatementPdfDialog
+        open={pdfOpen}
+        onOpenChange={setPdfOpen}
+        tipo={tipo}
+        listedDocs={listedDocs}
+      />
     </div>
   );
 }
