@@ -43,6 +43,8 @@ import { SatColonia, initSatColonia } from "./SatColonia";
 import { Supplier, initSupplier } from "./Supplier";
 import { AccountDocument, initAccountDocument } from "./AccountDocument";
 import { AccountDocumentPayment, initAccountDocumentPayment } from "./AccountDocumentPayment";
+import { CfdiPago, initCfdiPago } from "./CfdiPago";
+import { CfdiPagoDocumento, initCfdiPagoDocumento } from "./CfdiPagoDocumento";
 
 export function initModels() {
   initTenant(sequelize);
@@ -85,6 +87,8 @@ export function initModels() {
   initTruckOdometerReset(sequelize);
   initAccountDocument(sequelize);
   initAccountDocumentPayment(sequelize);
+  initCfdiPago(sequelize);
+  initCfdiPagoDocumento(sequelize);
   initSatClaveProducto(sequelize);
   initSatMunicipio(sequelize);
   initSatLocalidad(sequelize);
@@ -293,6 +297,11 @@ export function initModels() {
   AccountDocumentPayment.belongsTo(AccountDocument, { foreignKey: "document_id" });
   Tenant.hasMany(AccountDocumentPayment, { foreignKey: "tenant_id" });
   AccountDocumentPayment.belongsTo(Tenant, { foreignKey: "tenant_id" });
+
+  CfdiPago.hasMany(CfdiPagoDocumento, { foreignKey: "cfdi_pago_id", as: "lineas" });
+  CfdiPagoDocumento.belongsTo(CfdiPago, { foreignKey: "cfdi_pago_id" });
+  CfdiPagoDocumento.belongsTo(AccountDocument, { foreignKey: "account_document_id" });
+  AccountDocumentPayment.belongsTo(CfdiPago, { foreignKey: "cfdi_pago_id" });
 }
 
 export {
@@ -341,6 +350,8 @@ export {
   Supplier,
   AccountDocument,
   AccountDocumentPayment,
+  CfdiPago,
+  CfdiPagoDocumento,
 };
 
 initModels();
