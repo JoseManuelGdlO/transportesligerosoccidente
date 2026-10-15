@@ -108,4 +108,20 @@ describe("aggregatePagoImpuestos", () => {
     assert.equal(result.totales.TotalTrasladosImpuestoIVA16, 1120);
     assert.equal(result.totales.TotalRetencionesIVA, 0);
   });
+
+  it("multiplica el tipo de cambio por la retención ya redondeada", () => {
+    const line = (importe: number): TaxComponent => ({
+      tipo: "retencion",
+      impuesto: "002",
+      tipoFactor: "Tasa",
+      tasaOCuota: 0.04,
+      base: 1,
+      importe,
+    });
+
+    const result = aggregatePagoImpuestos([[line(0.01)], [line(0.06)]], 1.5);
+
+    assert.equal(result.retencionesP?.[0].ImporteP, 0.07);
+    assert.equal(result.totales.TotalRetencionesIVA, 0.11);
+  });
 });

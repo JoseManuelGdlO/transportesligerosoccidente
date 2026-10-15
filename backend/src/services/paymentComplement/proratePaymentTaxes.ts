@@ -139,10 +139,10 @@ export function aggregatePagoImpuestos(
   let retIva = 0;
   let retIsr = 0;
   let retIeps = 0;
-  for (const [impuesto, importe] of retencionByImpuesto) {
-    if (impuesto === "002") retIva += importe;
-    else if (impuesto === "001") retIsr += importe;
-    else if (impuesto === "003") retIeps += importe;
+  for (const { ImpuestoP, ImporteP } of retencionesEntries) {
+    if (ImpuestoP === "002") retIva += ImporteP;
+    else if (ImpuestoP === "001") retIsr += ImporteP;
+    else if (ImpuestoP === "003") retIeps += ImporteP;
   }
 
   return {
