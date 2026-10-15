@@ -8,8 +8,11 @@ import {
   computeDisplayEstatus,
   backfillOmiteCxcExistente,
   cxcMontoDesdeTarifa,
+  cxcMontoFiscal,
   daysBetween,
   debeSincronizarCxc,
+  statementTotalsFromDocuments,
+  totalCfdiDesdeXml,
   folioCxcTimbrado,
   viajeSyncOmiteMontoYFolio,
   nextDueDate,
@@ -391,6 +394,49 @@ describe("CXC desde ingreso timbrado", () => {
     assert.equal(cxcMontoDesdeTarifa(1000), 1120);
   });
 
+  it("totalCfdiDesdeXml lee el Total del comprobante, no el de impuestos", () => {
+    const xml = `<cfdi:Comprobante Version="4.0" SubTotal="1000.00" Total="950.13" Moneda="MXN"><cfdi:Impuestos TotalImpuestosTrasladados="160.00" TotalImpuestosRetenidos="40.00"/></cfdi:Comprobante>`;
+    assert.equal(totalCfdiDesdeXml(xml), 950.13);
+    assert.equal(totalCfdiDesdeXml(""), null);
+    assert.equal(totalCfdiDesdeXml("<cfdi:Comprobante SubTotal=\"10\"></cfdi:Comprobante>"), null);
+  });
+
+  it("cxcMontoFiscal prefiere el XML sobre tarifa y conceptos", () => {
+    const xml = `<cfdi:Comprobante Total="950.13"></cfdi:Comprobante>`;
+    assert.equal(
+      cxcMontoFiscal({
+        tarifa: 1000,
+        xml,
+        conceptos: [{ clave_prod_serv: "78101802", cantidad: 1, clave_unidad: "E54", unidad: "Viaje", descripcion: "Flete", valor_unitario: 1000 }],
+      }),
+      950.13,
+    );
+  });
+
+  it("cxcMontoFiscal suma conceptos y respeta exento y objeto 01", () => {
+    assert.equal(
+      cxcMontoFiscal({
+        tarifa: 1100,
+        conceptos: [
+          { clave_prod_serv: "78101802", cantidad: 1, clave_unidad: "E54", unidad: "Viaje", descripcion: "Flete", valor_unitario: 1000, objeto_imp: "02" },
+          { clave_prod_serv: "78101802", cantidad: 1, clave_unidad: "E54", unidad: "Viaje", descripcion: "Maniobra", valor_unitario: 100, objeto_imp: "01" },
+        ],
+      }),
+      1220,
+    );
+    assert.equal(
+      cxcMontoFiscal({
+        tarifa: 500,
+        conceptos: [
+          { clave_prod_serv: "78101802", cantidad: 1, clave_unidad: "E54", unidad: "Viaje", descripcion: "Flete", valor_unitario: 500, objeto_imp: "02" },
+        ],
+        taxOpts: { exento: true },
+      }),
+      500,
+    );
+    assert.equal(cxcMontoFiscal({ tarifa: 1000 }), 1120);
+  });
+
   it("folioCxcTimbrado junta serie y folio", () => {
     assert.equal(
       folioCxcTimbrado({ serie: "CP", folio_cfdi: "15" }, "VIAJE-1"),
@@ -400,22 +446,34 @@ describe("CXC desde ingreso timbrado", () => {
     assert.equal(folioCxcTimbrado({ serie: null, folio_cfdi: null }, "  F-9 "), "F-9");
   });
 
-  it("debeSincronizarCxc exige timbrada de ingreso y tarifa positiva", () => {
+  it("debeSincronizarCxc exige timbrada de ingreso y monto positivo", () => {
     assert.equal(
-      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", tarifa: 10 }),
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", monto: 10 }),
       true,
     );
     assert.equal(
-      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "traslado", tarifa: 10 }),
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "traslado", monto: 10 }),
       false,
     );
     assert.equal(
-      debeSincronizarCxc({ estatus: "borrador", tipo_comprobante: "ingreso", tarifa: 10 }),
+      debeSincronizarCxc({ estatus: "borrador", tipo_comprobante: "ingreso", monto: 10 }),
       false,
     );
     assert.equal(
-      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", tarifa: 0 }),
+      debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", monto: 0 }),
       false,
+    );
+  });
+
+  it("statementTotalsFromDocuments ignora canceladas y suma pagadas por monto original", () => {
+    assert.deepEqual(
+      statementTotalsFromDocuments([
+        { estatus: "abierta", estatus_display: "Al día", saldo_pendiente: 100, monto_original: 100 },
+        { estatus: "abierta", estatus_display: "Vencida", saldo_pendiente: 40, monto_original: 40 },
+        { estatus: "pagada", estatus_display: "Pagada", saldo_pendiente: 0, monto_original: 80 },
+        { estatus: "cancelada", estatus_display: "Cancelada", saldo_pendiente: 0, monto_original: 5 },
+      ]),
+      { pendiente: 140, vencido: 40, pagadas: 80 },
     );
   });
 

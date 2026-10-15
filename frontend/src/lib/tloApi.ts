@@ -1715,8 +1715,18 @@ export async function fetchAccountAging(
   const res = await apiFetch(`/account-documents/aging?tipo=${tipo}`);
   const raw = await readJson<Record<string, unknown>>(res);
   const totalsRaw = (raw.totals ?? {}) as Record<string, { count?: number; saldo?: number }>;
+  const statementRaw = (raw.statement ?? {}) as {
+    pendiente?: number;
+    vencido?: number;
+    pagadas?: number;
+  };
   return {
     tipo: raw.tipo === "cxp" ? "cxp" : "cxc",
+    statement: {
+      pendiente: Number(statementRaw.pendiente ?? 0),
+      vencido: Number(statementRaw.vencido ?? 0),
+      pagadas: Number(statementRaw.pagadas ?? 0),
+    },
     totals: {
       corriente: {
         count: Number(totalsRaw.corriente?.count ?? 0),

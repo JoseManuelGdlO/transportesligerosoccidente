@@ -21,7 +21,6 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
-import { accountStatementTotals } from "@/lib/accountStatementTotals";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
@@ -233,7 +232,7 @@ export default function Cuentas() {
     [listedDocs, page, pageSize],
   );
 
-  const statementTotals = useMemo(() => accountStatementTotals(listedDocs), [listedDocs]);
+  const statementTotals = aging?.statement ?? { pendiente: 0, vencido: 0, pagadas: 0 };
 
   useEffect(() => {
     if (pageData.safePage !== page) setPage(pageData.safePage);
@@ -401,21 +400,24 @@ export default function Cuentas() {
         </div>
 
         <TabsContent value={tipo} className="space-y-4 mt-4">
-          <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">Pendiente</p>
-              <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pendiente)}</p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">Vencido</p>
-              <p className="text-lg font-semibold mt-1 text-destructive">
-                {fmtMXNDecimal(statementTotals.vencido)}
-              </p>
-            </Card>
-            <Card className="p-4">
-              <p className="text-xs text-muted-foreground">Pagadas</p>
-              <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pagadas)}</p>
-            </Card>
+          <div className="space-y-2">
+            <p className="text-xs text-muted-foreground">Toda la cartera</p>
+            <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+              <Card className="p-4">
+                <p className="text-xs text-muted-foreground">Pendiente</p>
+                <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pendiente)}</p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-muted-foreground">Vencido</p>
+                <p className="text-lg font-semibold mt-1 text-destructive">
+                  {fmtMXNDecimal(statementTotals.vencido)}
+                </p>
+              </Card>
+              <Card className="p-4">
+                <p className="text-xs text-muted-foreground">Pagadas</p>
+                <p className="text-lg font-semibold mt-1">{fmtMXNDecimal(statementTotals.pagadas)}</p>
+              </Card>
+            </div>
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">

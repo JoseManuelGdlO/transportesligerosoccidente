@@ -10,6 +10,7 @@ import {
   FuelTicket,
   MaintenanceRecord,
   Supplier,
+  Tenant,
   Trip,
 } from "../models";
 import type {
@@ -20,8 +21,9 @@ import type {
 import { roundMoney } from "./calc";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr, localDateStr } from "../utils/localDates";
-import { computeTripInvoiceTaxes } from "./pac/sicofi/invoiceTaxes";
+import { computeTripInvoiceTaxes, type InvoiceTaxOpts } from "./pac/sicofi/invoiceTaxes";
 import { tripRouteLabelFromModel } from "./tripRouteLabel";
+import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
 import {
   conceptosFromLegacy,
   maintenanceCxpProjection,
@@ -72,9 +74,17 @@ export interface AccountDocumentDto {
   payments?: AccountPaymentDto[];
 }
 
+export interface StatementTotalsDto {
+  pendiente: number;
+  vencido: number;
+  pagadas: number;
+}
+
 export interface AgingSummaryDto {
   tipo: AccountDocumentTipo;
   totals: Record<AgingBucket, { count: number; saldo: number }>;
+  /** Cartera completa del tipo, sin búsqueda, fechas, cubeta ni estatus. */
+  statement: StatementTotalsDto;
   documents: AccountDocumentDto[];
 }
 
@@ -290,12 +300,36 @@ export async function getDocument(
   return toDocumentDto(doc, payments);
 }
 
+/** Totales de cartera. Canceladas no entran. Vencido es el saldo de las abiertas ya vencidas. */
+export function statementTotalsFromDocuments(
+  docs: Array<{
+    estatus: string;
+    estatus_display: string;
+    saldo_pendiente: number;
+    monto_original: number;
+  }>,
+): StatementTotalsDto {
+  let pendiente = 0;
+  let vencido = 0;
+  let pagadas = 0;
+  for (const d of docs) {
+    if (d.estatus === "abierta") pendiente += d.saldo_pendiente;
+    if (d.estatus_display === "Vencida") vencido += d.saldo_pendiente;
+    if (d.estatus === "pagada") pagadas += d.monto_original;
+  }
+  return {
+    pendiente: roundMoney(pendiente),
+    vencido: roundMoney(vencido),
+    pagadas: roundMoney(pagadas),
+  };
+}
+
 export async function getAgingSummary(
   tenantId: string,
   tipo: AccountDocumentTipo,
 ): Promise<AgingSummaryDto> {
-  const documents = await listDocuments(tenantId, { tipo, estatus: "abierta" });
-  const openWithSaldo = documents.filter((d) => d.saldo_pendiente > 0);
+  const documents = await listDocuments(tenantId, { tipo });
+  const openWithSaldo = documents.filter((d) => d.estatus === "abierta" && d.saldo_pendiente > 0);
   const empty = () => ({ count: 0, saldo: 0 });
   const totals: AgingSummaryDto["totals"] = {
     corriente: empty(),
@@ -309,7 +343,12 @@ export async function getAgingSummary(
     totals[b].count += 1;
     totals[b].saldo = roundMoney(totals[b].saldo + d.saldo_pendiente);
   }
-  return { tipo, totals, documents: openWithSaldo };
+  return {
+    tipo,
+    totals,
+    statement: statementTotalsFromDocuments(documents),
+    documents: openWithSaldo,
+  };
 }
 
 export interface CreateDocumentInput {
@@ -818,8 +857,80 @@ async function upsertBySource(
   return createDocument(tenantId, { ...input, [sourceField]: sourceId }, t);
 }
 
+function round2(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
 export function cxcMontoDesdeTarifa(tarifa: number): number {
   return computeTripInvoiceTaxes(tarifa).total;
+}
+
+/** `Total` del comprobante timbrado. No usa `TotalImpuestosTrasladados` ni otros nodos. */
+export function totalCfdiDesdeXml(xml: string | null | undefined): number | null {
+  if (!xml?.trim()) return null;
+  const tag = xml.match(/<(?:[\w.-]+:)?Comprobante\b([^>]*)>/);
+  if (!tag?.[1]) return null;
+  const raw = tag[1].match(/\bTotal="([^"]+)"/) ?? tag[1].match(/\bTotal='([^']+)'/);
+  if (!raw?.[1]) return null;
+  const n = Number(raw[1]);
+  if (!Number.isFinite(n)) return null;
+  return round2(n);
+}
+
+/** Misma suma que `mapConceptos` arma para el payload de ingreso. */
+function totalDesdeConceptosCfdi(conceptos: TripCfdiConcepto[], taxOpts: InvoiceTaxOpts): number {
+  let total = 0;
+  for (const line of conceptos) {
+    const importe = round2(Number(line.valor_unitario) * Number(line.cantidad || 1));
+    const taxes = computeTripInvoiceTaxes(importe, taxOpts);
+    const gravado = line.objeto_imp !== "01";
+    const iva = gravado ? taxes.iva : 0;
+    const retencion = gravado ? taxes.retencion : 0;
+    total = round2(total + taxes.subtotal + iva - retencion);
+  }
+  return total;
+}
+
+/**
+ * Monto CXC de un ingreso timbrado.
+ * Prioridad: `Total` del XML, luego conceptos CFDI con las mismas tasas, luego la tarifa.
+ */
+export function cxcMontoFiscal(input: {
+  tarifa: number;
+  xml?: string | null;
+  conceptos?: TripCfdiConcepto[] | null;
+  taxOpts?: InvoiceTaxOpts;
+}): number {
+  const desdeXml = totalCfdiDesdeXml(input.xml);
+  if (desdeXml != null) return desdeXml;
+  const taxOpts = input.taxOpts ?? {};
+  const conceptos = Array.isArray(input.conceptos) ? input.conceptos : [];
+  if (conceptos.length > 0) return totalDesdeConceptosCfdi(conceptos, taxOpts);
+  return computeTripInvoiceTaxes(input.tarifa, taxOpts).total;
+}
+
+async function taxOptsDesdeTenant(tenantId: string): Promise<InvoiceTaxOpts> {
+  const tenant = await Tenant.findByPk(tenantId);
+  const iva = tenant?.iva_tasa_default != null ? num(tenant.iva_tasa_default) : undefined;
+  const retencion = tenant?.retencion_tasa_default != null ? num(tenant.retencion_tasa_default) : undefined;
+  return {
+    ivaTasa: iva != null && Number.isFinite(iva) ? iva : undefined,
+    retencionTasa: retencion != null && Number.isFinite(retencion) ? retencion : undefined,
+  };
+}
+
+async function montoCxcDeIngresoTimbrado(
+  trip: Pick<Trip, "tenant_id" | "tarifa" | "cfdi_conceptos">,
+  xml: string | null | undefined,
+): Promise<number> {
+  const desdeXml = totalCfdiDesdeXml(xml);
+  if (desdeXml != null) return desdeXml;
+  const taxOpts = await taxOptsDesdeTenant(trip.tenant_id);
+  return cxcMontoFiscal({
+    tarifa: num(trip.tarifa),
+    conceptos: trip.cfdi_conceptos,
+    taxOpts,
+  });
 }
 
 export function folioCxcTimbrado(
@@ -836,12 +947,12 @@ export function folioCxcTimbrado(
 export function debeSincronizarCxc(input: {
   estatus: string;
   tipo_comprobante: string | null;
-  tarifa: number;
+  monto: number;
 }): boolean {
   return (
     input.estatus === "timbrada" &&
     input.tipo_comprobante === "ingreso" &&
-    input.tarifa > 0
+    input.monto > 0
   );
 }
 
@@ -865,13 +976,15 @@ export async function upsertFromStampedIngreso(
     timbrado_at: Date | null;
     serie: string | null;
     folio_cfdi: string | null;
+    xml_timbrado?: string | null;
   },
 ): Promise<AccountDocumentDto | null> {
+  const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
   if (
     !debeSincronizarCxc({
       estatus: carta.estatus,
       tipo_comprobante: carta.tipo_comprobante,
-      tarifa: num(trip.tarifa),
+      monto,
     })
   ) {
     return null;
@@ -896,7 +1009,7 @@ export async function upsertFromStampedIngreso(
       ? localDateStr(new Date(carta.timbrado_at))
       : localDateStr(),
     plazo_credito_dias: plazo,
-    monto_original: cxcMontoDesdeTarifa(num(trip.tarifa)),
+    monto_original: monto,
     origen: "viaje",
     preserveCobranzaIfSet: true,
   });
@@ -1114,6 +1227,33 @@ export async function upsertFromExpense(
   });
 }
 
+/** Corrige el monto de una CXC ya creada para que coincida con el total fiscal. No reabre canceladas. */
+async function alinearMontoCxc(doc: AccountDocument, monto: number): Promise<boolean> {
+  if (doc.estatus === "cancelada") return false;
+  const next = roundMoney(monto);
+  if (!(next > 0)) return false;
+  if (roundMoney(num(doc.monto_original)) === next) return false;
+  const payments = await AccountDocumentPayment.findAll({
+    where: { tenant_id: doc.tenant_id, document_id: doc.id },
+  });
+  const abonado = paidTotal(payments);
+  if (next < abonado) {
+    console.warn(
+      `[cxc] No se ajusta ${doc.folio}: el total del CFDI (${next}) es menor que los abonos (${abonado})`,
+    );
+    return false;
+  }
+  const parsed = parseConceptosJson(doc.conceptos);
+  const patch: Record<string, unknown> = { monto_original: String(next) };
+  if (parsed.length <= 1) {
+    const descripcion = (parsed[0]?.descripcion || doc.concepto || "Servicio de transporte").trim();
+    patch.conceptos = [{ descripcion, precio: next }];
+  }
+  await doc.update(patch as never);
+  await refreshDocumentStatus(doc, payments);
+  return true;
+}
+
 export async function backfillTenant(tenantId: string): Promise<{
   cxc: number;
   cxp: number;
@@ -1126,12 +1266,13 @@ export async function backfillTenant(tenantId: string): Promise<{
     const carta = await CartaPorte.findOne({
       where: { tenant_id: tenantId, trip_id: trip.id },
     });
+    if (!carta) continue;
+    const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
     if (
-      !carta ||
       !debeSincronizarCxc({
         estatus: carta.estatus,
         tipo_comprobante: carta.tipo_comprobante,
-        tarifa: num(trip.tarifa),
+        monto,
       })
     ) {
       continue;
@@ -1144,7 +1285,10 @@ export async function backfillTenant(tenantId: string): Promise<{
         tipo: "cxc",
       },
     });
-    if (backfillOmiteCxcExistente(existente != null)) continue;
+    if (existente && backfillOmiteCxcExistente(true)) {
+      if (await alinearMontoCxc(existente, monto)) cxc += 1;
+      continue;
+    }
     const r = await upsertFromStampedIngreso(trip, carta);
     if (r) cxc += 1;
   }

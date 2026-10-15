@@ -847,9 +847,16 @@ export interface AccountDocument {
   payments?: AccountDocumentPayment[];
 }
 
+export interface AccountStatementTotals {
+  pendiente: number;
+  vencido: number;
+  pagadas: number;
+}
+
 export interface AgingSummary {
   tipo: AccountDocumentTipo;
   totals: Record<AgingBucket, { count: number; saldo: number }>;
+  statement: AccountStatementTotals;
   documents: AccountDocument[];
 }
 
