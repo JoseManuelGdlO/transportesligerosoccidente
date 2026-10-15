@@ -6,15 +6,9 @@ import {
   type CreationOptional,
   type Sequelize,
 } from "sequelize";
+import type { TaxComponent } from "../services/paymentComplement/taxComponent";
 
-export interface TaxComponent {
-  tipo: "traslado" | "retencion";
-  impuesto: string;
-  tipoFactor: string;
-  tasaOCuota: number;
-  base: number;
-  importe: number;
-}
+export type { TaxComponent };
 
 export class CfdiPagoDocumento extends Model<
   InferAttributes<CfdiPagoDocumento>,
