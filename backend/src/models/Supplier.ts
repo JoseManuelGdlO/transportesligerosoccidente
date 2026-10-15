@@ -7,6 +7,8 @@ import {
   type Sequelize,
 } from "sequelize";
 
+export type SupplierOrigen = "manual" | "auto";
+
 export class Supplier extends Model<InferAttributes<Supplier>, InferCreationAttributes<Supplier>> {
   declare id: CreationOptional<string>;
   declare tenant_id: string;
@@ -17,6 +19,7 @@ export class Supplier extends Model<InferAttributes<Supplier>, InferCreationAttr
   declare email: CreationOptional<string | null>;
   declare dias_credito: CreationOptional<number | null>;
   declare estatus: CreationOptional<"activo" | "inactivo">;
+  declare origen: CreationOptional<SupplierOrigen>;
   declare observaciones: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
@@ -37,6 +40,11 @@ export function initSupplier(sequelize: Sequelize) {
         type: DataTypes.ENUM("activo", "inactivo"),
         allowNull: false,
         defaultValue: "activo",
+      },
+      origen: {
+        type: DataTypes.ENUM("manual", "auto"),
+        allowNull: false,
+        defaultValue: "manual",
       },
       observaciones: { type: DataTypes.TEXT, allowNull: true },
     } as never,

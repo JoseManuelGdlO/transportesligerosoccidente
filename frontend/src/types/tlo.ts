@@ -773,6 +773,7 @@ export interface Client {
 }
 
 export type SupplierStatus = "activo" | "inactivo";
+export type SupplierOrigen = "manual" | "auto";
 
 export interface Supplier {
   id: string;
@@ -783,7 +784,18 @@ export interface Supplier {
   email?: string;
   dias_credito?: number | null;
   estatus?: SupplierStatus;
+  origen?: SupplierOrigen;
   observaciones?: string;
+}
+
+export interface AutoSupplierReview {
+  id: string;
+  razon_social: string;
+  estatus: SupplierStatus;
+  origen: SupplierOrigen;
+  tickets: number;
+  cxp_combustible: number;
+  otros: number;
 }
 
 export type MaintenanceCategoryStatus = "activo" | "inactivo";
@@ -909,6 +921,7 @@ export interface Expense {
   monto_comprobado: number;
   visible_en_liquidacion: boolean;
   fecha: string;
+  supplier_id?: string | null;
 }
 
 export interface TripStatusRef {

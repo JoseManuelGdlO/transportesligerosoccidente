@@ -362,6 +362,7 @@ export function supplierToJson(s: Supplier): Record<string, unknown> {
     email: p.email ?? undefined,
     dias_credito: p.dias_credito != null ? Number(p.dias_credito) : undefined,
     estatus: p.estatus ?? undefined,
+    origen: p.origen === "auto" ? "auto" : "manual",
     observaciones: p.observaciones ?? undefined,
   };
 }

@@ -176,7 +176,9 @@ Los **abonos** registrados en Cuentas actualizan el saldo interno del documento;
 
 El botón **PDF** en la pantalla Cuentas exporta el **listado filtrado de la pestaña activa** (Por cobrar o Por pagar), no un estado de cuenta del operador.
 
-Si no existe el proveedor al registrar combustible/mantenimiento/gasto, el sistema puede **crearlo automáticamente** a partir del nombre (gasolinera, taller, etc.).
+El combustible **no crea proveedores**. La cuenta por pagar queda en **Cuentas → Por pagar** con el nombre de la estación y, si no hay un proveedor del catálogo elegido, sin `supplier_id`. **Proveedores** es solo altas con RFC. Las filas que el sistema había generado solas se eliminan al migrar: el gasto sigue en Cuentas con el nombre de la estación.
+
+El alta de proveedor pide **RFC** (formato SAT, único por empresa). En mantenimiento, gastos del viaje y combustible el proveedor del catálogo es opcional: si no se elige, la cuenta por pagar queda con el nombre del registro y sin fila nueva en Proveedores.
 
 ### 3.5 Sincronizar existentes
 
@@ -286,7 +288,7 @@ Usar este plan en ambiente de pruebas o producción controlada.
 
 12. Registrar un **ticket de combustible** (o carga / mantenimiento / gasto) con monto > 0.
 13. Ir a **Cuentas → Por pagar**.
-14. Verificar documento con origen **Combustible** / **Mantenimiento** / **Gasto**, monto correcto y proveedor asociado.
+14. Verificar documento con origen **Combustible** / **Mantenimiento** / **Gasto**, monto correcto y el nombre de la estación, taller o gasto (proveedor del catálogo solo si se eligió).
 
 ### D. Alta manual
 

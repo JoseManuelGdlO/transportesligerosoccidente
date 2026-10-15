@@ -348,7 +348,10 @@ export default function Mantenimiento() {
   const [conceptos, setConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
 
   const activeSuppliers = useMemo(
-    () => suppliers.filter((s) => (s.estatus ?? "activo") === "activo"),
+    () =>
+      suppliers.filter(
+        (s) => (s.estatus ?? "activo") === "activo" && (s.origen ?? "manual") === "manual",
+      ),
     [suppliers],
   );
 

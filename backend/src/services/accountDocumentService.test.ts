@@ -1,6 +1,9 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { AccountDocument, AccountDocumentPayment, Supplier } from "../models";
+import type { FuelLoad } from "../models/FuelLoad";
+import type { FuelTicket } from "../models/FuelTicket";
+import type { Expense } from "../models/Expense";
 import {
   assertMaintenanceCxpSyncAllowed,
   cobranzaAConservar,
@@ -19,6 +22,9 @@ import {
   planMaintenanceCxpSync,
   resolveDueDate,
   toDocumentDto,
+  upsertFromExpense,
+  upsertFromFuelLoad,
+  upsertFromFuelTicket,
   upsertFromMaintenance,
 } from "./accountDocumentService";
 import type { AccountDocument as AccountDocumentModel } from "../models/AccountDocument";
@@ -499,5 +505,216 @@ describe("CXC desde ingreso timbrado", () => {
 
   it("backfillOmiteCxcExistente no omite si no hay documento", () => {
     assert.equal(backfillOmiteCxcExistente(false), false);
+  });
+});
+
+describe("CXP sin proveedor de catálogo", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  function mockCreate() {
+    const created: Record<string, unknown>[] = [];
+    mock.method(AccountDocument, "findOne", async () => null);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(AccountDocument, "create", async (values: Record<string, unknown>) => {
+      created.push(values);
+      return values;
+    });
+    return created;
+  }
+
+  it("ticket foráneo sin proveedor no inserta en suppliers", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    const dto = await upsertFromFuelTicket({
+      id: "ticket-1",
+      tenant_id: "t1",
+      importe_total: "500",
+      litros: "20",
+      ubicacion: "Pemex Lagos",
+      fecha: "2026-04-01",
+      folio: "T-9",
+      es_foraneo: true,
+      supplier_id: null,
+      update: async () => undefined,
+    } as unknown as FuelTicket);
+
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Pemex Lagos");
+    assert.equal(created[0]?.plazo_credito_dias, null);
+    assert.equal(dto?.entidad_nombre, "Pemex Lagos");
+    assert.equal(dto?.supplier_id, undefined);
+  });
+
+  it("ticket foráneo ligado a proveedor auto lo desvincula", async () => {
+    const created = mockCreate();
+    const ticket = {
+      id: "ticket-2",
+      tenant_id: "t1",
+      importe_total: "800",
+      litros: "40",
+      ubicacion: "Gasolinera Norte",
+      fecha: "2026-04-02",
+      folio: null,
+      es_foraneo: true,
+      supplier_id: "sup-auto" as string | null,
+      update: async (patch: { supplier_id?: string | null }) => {
+        if (patch.supplier_id !== undefined) ticket.supplier_id = patch.supplier_id;
+      },
+    };
+    mock.method(Supplier, "findByPk", async () => ({
+      id: "sup-auto",
+      origen: "auto",
+      razon_social: "Gasolinera Norte",
+      dias_credito: 15,
+    }));
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+
+    await upsertFromFuelTicket(ticket as unknown as FuelTicket);
+
+    assert.equal(ticket.supplier_id, null);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Gasolinera Norte");
+  });
+
+  it("ticket de empresa sin proveedor no inserta en suppliers", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    const dto = await upsertFromFuelTicket({
+      id: "ticket-3",
+      tenant_id: "t1",
+      importe_total: "300",
+      litros: "10",
+      ubicacion: "Pemex Base",
+      fecha: "2026-04-03",
+      folio: "T-3",
+      es_foraneo: false,
+      supplier_id: null,
+      update: async () => undefined,
+    } as unknown as FuelTicket);
+
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Pemex Base");
+    assert.equal(dto?.supplier_id, undefined);
+  });
+
+  it("ticket de empresa ligado a proveedor auto lo desvincula", async () => {
+    const created = mockCreate();
+    const ticket = {
+      id: "ticket-4",
+      tenant_id: "t1",
+      importe_total: "200",
+      litros: "8",
+      ubicacion: "Pemex Base",
+      fecha: "2026-04-03",
+      folio: "T-4",
+      es_foraneo: false,
+      supplier_id: "sup-auto" as string | null,
+      update: async (patch: { supplier_id?: string | null }) => {
+        if (patch.supplier_id !== undefined) ticket.supplier_id = patch.supplier_id;
+      },
+    };
+    mock.method(Supplier, "findByPk", async () => ({
+      id: "sup-auto",
+      origen: "auto",
+      razon_social: "Pemex Base",
+      dias_credito: 0,
+    }));
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+
+    await upsertFromFuelTicket(ticket as unknown as FuelTicket);
+
+    assert.equal(ticket.supplier_id, null);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Pemex Base");
+  });
+
+  it("carga foránea no crea proveedor", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    await upsertFromFuelLoad({
+      id: "load-1",
+      tenant_id: "t1",
+      litros: "15",
+      precio_litro: "20",
+      ubicacion: "Ruta",
+      estacion_nombre: "Oxxo Gas",
+      es_foraneo: true,
+      fuel_ticket_id: null,
+      fecha: new Date("2026-04-04T12:00:00Z"),
+    } as FuelLoad);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Oxxo Gas");
+  });
+
+  it("carga de empresa sin proveedor no crea fila de catálogo", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    await upsertFromFuelLoad({
+      id: "load-2",
+      tenant_id: "t1",
+      litros: "12",
+      precio_litro: "25",
+      ubicacion: "Base",
+      estacion_nombre: "Pemex Base",
+      es_foraneo: false,
+      fuel_ticket_id: null,
+      fecha: new Date("2026-04-04T12:00:00Z"),
+    } as FuelLoad);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(created[0]?.entidad_nombre, "Pemex Base");
+  });
+
+  it("mantenimiento sin proveedor no crea fila de catálogo", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    const dto = await upsertFromMaintenance({
+      id: "mant-9",
+      tenant_id: "t1",
+      tipo: "menor",
+      num_factura: null,
+      conceptos: [{ descripcion: "Balata", precio: 100 }],
+      fecha: "2026-04-05",
+      supplier_id: null,
+      taller: "Taller de paso",
+    } as MaintenanceRecord);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(dto?.entidad_nombre, "Taller de paso");
+    assert.equal(dto?.supplier_id, undefined);
+  });
+
+  it("gasto sin proveedor no crea fila Gasto categoría", async () => {
+    const created = mockCreate();
+    mock.method(Supplier, "create", async () => {
+      throw new Error("no debía crear proveedor");
+    });
+    const dto = await upsertFromExpense({
+      id: "exp-1",
+      tenant_id: "t1",
+      tipo: "gasto",
+      categoria: "casetas",
+      descripcion: "Caseta Lagos",
+      monto: "120",
+      fecha: new Date("2026-04-06T12:00:00Z"),
+      supplier_id: null,
+    } as Expense);
+    assert.equal(created[0]?.supplier_id, null);
+    assert.equal(dto?.entidad_nombre, "Caseta Lagos");
   });
 });

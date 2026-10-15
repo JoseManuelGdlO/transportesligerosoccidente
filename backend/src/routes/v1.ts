@@ -121,7 +121,30 @@ r.post("/clients", authenticateJwt, requirePermission("catalogos.editar"), clien
 r.patch("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.updateClient);
 r.delete("/clients/:id", authenticateJwt, requirePermission("catalogos.editar"), clientC.deleteClient);
 
-r.get("/suppliers", authenticateJwt, requirePermission("proveedores.ver", "cuentas.ver"), supplierC.listSuppliers);
+r.get(
+  "/suppliers",
+  authenticateJwt,
+  requirePermission("proveedores.ver", "cuentas.ver", "viajes.crear", "catalogos.ver", "catalogos.editar"),
+  supplierC.listSuppliers,
+);
+r.get(
+  "/suppliers/auto-review",
+  authenticateJwt,
+  requirePermission("proveedores.gestionar"),
+  supplierC.listAutoSupplierReview,
+);
+r.post(
+  "/suppliers/:id/detach-fuel",
+  authenticateJwt,
+  requirePermission("proveedores.gestionar"),
+  supplierC.postDetachFuel,
+);
+r.post(
+  "/suppliers/:id/merge",
+  authenticateJwt,
+  requirePermission("proveedores.gestionar"),
+  supplierC.postMergeSupplier,
+);
 r.get("/suppliers/:id", authenticateJwt, requirePermission("proveedores.ver", "cuentas.ver"), supplierC.getSupplier);
 r.post("/suppliers", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.createSupplier);
 r.patch("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.updateSupplier);

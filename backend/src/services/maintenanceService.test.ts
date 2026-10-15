@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
 import {
+  AccountDocument,
+  AccountDocumentPayment,
   MaintenanceSchedule,
   MaintenanceRecord,
   Notification,
@@ -15,6 +17,7 @@ import {
   checkMaintenanceAlerts,
   aggregateMaintenanceCostByTruck,
   aggregateMaintenanceCostByMonthTruck,
+  createRecord,
   refreshScheduleLastService,
 } from "./maintenanceService";
 
@@ -398,5 +401,51 @@ describe("refreshScheduleLastService", () => {
     assert.equal(neu?.patch.ultima_fecha, "2026-07-01");
     assert.equal(old?.patch.ultimo_km, 40000);
     assert.equal(old?.patch.ultima_fecha, "2026-01-10");
+  });
+});
+
+describe("createRecord", () => {
+  it("guarda mantenimiento sin proveedor y deja la CXP fuera del catálogo", async () => {
+    const truckFind = mock.method(Truck, "findOne", async () => ({ id: truckId }) as never);
+    const recordCreate = mock.method(
+      MaintenanceRecord,
+      "create",
+      async (values: Record<string, unknown>) => values as never,
+    );
+    const scheduleFind = mock.method(MaintenanceSchedule, "findOne", async () => null);
+    const createdDocs: Record<string, unknown>[] = [];
+    const docFind = mock.method(AccountDocument, "findOne", async () => null);
+    const payFind = mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    const docCreate = mock.method(
+      AccountDocument,
+      "create",
+      async (values: Record<string, unknown>) => {
+        createdDocs.push(values);
+        return values as never;
+      },
+    );
+
+    try {
+      await createRecord(tenantId, {
+        truck_id: truckId,
+        tipo: "menor",
+        km_odometro: 1000,
+        fecha: "2026-10-15",
+        conceptos: [{ descripcion: "Balata", precio: 100 }],
+        supplier_id: null,
+      });
+      const row = recordCreate.mock.calls[0]?.arguments[0] as { supplier_id?: string | null };
+      assert.equal(recordCreate.mock.callCount(), 1);
+      assert.equal(row.supplier_id, null);
+      assert.equal(createdDocs[0]?.supplier_id, null);
+      assert.equal(createdDocs[0]?.origen, "mantenimiento");
+    } finally {
+      truckFind.mock.restore();
+      recordCreate.mock.restore();
+      scheduleFind.mock.restore();
+      docFind.mock.restore();
+      payFind.mock.restore();
+      docCreate.mock.restore();
+    }
   });
 });

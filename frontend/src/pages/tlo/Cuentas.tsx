@@ -694,7 +694,13 @@ export default function Cuentas() {
                           {c.razon_social}
                         </SelectItem>
                       ))
-                    : suppliers.map((s) => (
+                    : suppliers
+                        .filter(
+                          (s) =>
+                            (s.origen ?? "manual") === "manual" &&
+                            (s.estatus ?? "activo") === "activo",
+                        )
+                        .map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.razon_social}
                         </SelectItem>

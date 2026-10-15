@@ -758,31 +758,46 @@ export async function cancelDocument(
   return getDocument(tenantId, id);
 }
 
-/** Busca o crea proveedor por razón social (match case-insensitive). */
-export async function findOrCreateSupplierByName(
+/** Si el documento ya existe, conserva su nombre hasta que haya un proveedor de catálogo. */
+async function entidadSinProveedor(
   tenantId: string,
-  nombre: string,
-  opts?: { dias_credito?: number | null; transaction?: Transaction },
-): Promise<Supplier> {
-  const trimmed = nombre.trim() || "Proveedor";
-  const existing = await Supplier.findOne({
-    where: {
-      tenant_id: tenantId,
-      razon_social: { [Op.like]: trimmed },
-    },
-    transaction: opts?.transaction,
+  sourceField: "maintenance_record_id" | "expense_id",
+  sourceId: string,
+  fallback: string,
+  t?: Transaction,
+): Promise<string> {
+  const existing = await AccountDocument.findOne({
+    where: { tenant_id: tenantId, [sourceField]: sourceId },
+    attributes: ["entidad_nombre"],
+    transaction: t,
   });
-  if (existing) return existing;
-  return Supplier.create(
-    {
-      id: randomUUID(),
-      tenant_id: tenantId,
-      razon_social: trimmed,
-      dias_credito: opts?.dias_credito ?? null,
-      estatus: "activo",
-    } as never,
-    { transaction: opts?.transaction },
-  );
+  const prev = existing?.entidad_nombre?.trim();
+  return prev || fallback;
+}
+
+/**
+ * Combustible no entra al catálogo por el nombre de la estación.
+ * Un proveedor `manual` ya elegido se respeta; uno `auto` se suelta.
+ */
+async function resolveFuelTicketParty(ticket: FuelTicket): Promise<{
+  supplierId: string | null;
+  nombre: string;
+  plazo: number | null;
+}> {
+  const estacion = ticket.ubicacion?.trim() || "Gasolinera";
+  const linked = ticket.supplier_id ? await Supplier.findByPk(ticket.supplier_id) : null;
+
+  if (linked && linked.origen === "manual") {
+    return {
+      supplierId: linked.id,
+      nombre: linked.razon_social,
+      plazo: linked.dias_credito ?? null,
+    };
+  }
+  if (ticket.supplier_id) {
+    await ticket.update({ supplier_id: null } as never);
+  }
+  return { supplierId: null, nombre: estacion, plazo: null };
 }
 
 async function upsertBySource(
@@ -1020,29 +1035,16 @@ export async function upsertFromFuelTicket(
 ): Promise<AccountDocumentDto | null> {
   const monto = num(ticket.importe_total);
   if (monto <= 0) return null;
-  let supplierId = ticket.supplier_id;
-  let nombre = ticket.ubicacion || "Gasolinera";
-  let plazo: number | null = null;
-  if (supplierId) {
-    const s = await Supplier.findByPk(supplierId);
-    if (s) {
-      nombre = s.razon_social;
-      plazo = s.dias_credito ?? null;
-    }
-  } else {
-    const s = await findOrCreateSupplierByName(ticket.tenant_id, nombre);
-    supplierId = s.id;
-    plazo = s.dias_credito ?? null;
-  }
+  const party = await resolveFuelTicketParty(ticket);
   const folio = ticket.folio?.trim() || `COMB-${ticket.id.slice(0, 8).toUpperCase()}`;
   return upsertBySource(ticket.tenant_id, "fuel_ticket_id", ticket.id, {
     tipo: "cxp",
-    supplier_id: supplierId,
-    entidad_nombre: nombre,
+    supplier_id: party.supplierId,
+    entidad_nombre: party.nombre,
     folio,
     concepto: `Combustible ${num(ticket.litros)} L @ ${ticket.ubicacion}`,
     fecha_emision: String(ticket.fecha).slice(0, 10),
-    plazo_credito_dias: plazo,
+    plazo_credito_dias: party.plazo,
     monto_original: monto,
     origen: "combustible",
   });
@@ -1055,17 +1057,16 @@ export async function upsertFromFuelLoad(
   const monto = roundMoney(num(load.litros) * num(load.precio_litro));
   if (monto <= 0) return null;
   const nombre = load.estacion_nombre?.trim() || load.ubicacion || "Gasolinera";
-  const s = await findOrCreateSupplierByName(load.tenant_id, nombre);
   const emision = localDateStr(new Date(load.fecha));
   const folio = `COMB-L-${load.id.slice(0, 8).toUpperCase()}`;
   return upsertBySource(load.tenant_id, "fuel_load_id", load.id, {
     tipo: "cxp",
-    supplier_id: s.id,
-    entidad_nombre: s.razon_social,
+    supplier_id: null,
+    entidad_nombre: nombre,
     folio,
     concepto: `Combustible viaje ${num(load.litros)} L`,
     fecha_emision: emision,
-    plazo_credito_dias: s.dias_credito ?? null,
+    plazo_credito_dias: null,
     monto_original: monto,
     origen: "combustible",
   });
@@ -1163,9 +1164,14 @@ export async function upsertFromMaintenance(
       plazo = s.dias_credito ?? null;
     }
   } else {
-    const s = await findOrCreateSupplierByName(record.tenant_id, nombre, { transaction: t });
-    supplierId = s.id;
-    plazo = s.dias_credito ?? null;
+    supplierId = null;
+    nombre = await entidadSinProveedor(
+      record.tenant_id,
+      "maintenance_record_id",
+      record.id,
+      nombre,
+      t,
+    );
   }
   return upsertBySource(
     record.tenant_id,
@@ -1195,7 +1201,7 @@ export async function upsertFromExpense(
   const monto = num(expense.monto);
   if (monto <= 0) return null;
   let supplierId = expense.supplier_id;
-  let nombre = "Proveedor";
+  let nombre = expense.descripcion?.trim() || `Gasto ${expense.categoria}`;
   let plazo: number | null = null;
   if (supplierId) {
     const s = await Supplier.findByPk(supplierId);
@@ -1204,13 +1210,8 @@ export async function upsertFromExpense(
       plazo = s.dias_credito ?? null;
     }
   } else {
-    const s = await findOrCreateSupplierByName(
-      expense.tenant_id,
-      `Gasto ${expense.categoria}`,
-    );
-    supplierId = s.id;
-    nombre = s.razon_social;
-    plazo = s.dias_credito ?? null;
+    supplierId = null;
+    nombre = await entidadSinProveedor(expense.tenant_id, "expense_id", expense.id, nombre);
   }
   const emision = localDateStr(new Date(expense.fecha));
   const folio = `GASTO-${expense.id.slice(0, 8).toUpperCase()}`;

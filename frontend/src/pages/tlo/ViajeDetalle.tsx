@@ -18,9 +18,9 @@ import { TripStatusesBadges } from "@/components/tlo/StatusBadge";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
 import { fmtMXN, fmtMXNDecimal, fmtDate, fmtDateTime, fmtNumber, formatTripRoute } from "@/lib/format";
 import { ArrowLeft, Fuel, Receipt, DollarSign, Plus, Trash2, Lock, TrendingUp, TrendingDown, MapPin, Calendar, FileText, Pencil, RotateCcw, HandCoins, StickyNote } from "lucide-react";
-import type { AccountDocument, Expense, ExpenseCategory, ExpenseTipo, Trip, TripStatusRef } from "@/types/tlo";
+import type { AccountDocument, Expense, ExpenseCategory, ExpenseTipo, Supplier, Trip, TripStatusRef } from "@/types/tlo";
 import { apiFetch, hasApiConfigured, readJson } from "@/lib/api";
-import { fetchAccountDocuments, fetchTripStatuses, normalizeTrip, patchTrip, setTripStatuses } from "@/lib/tloApi";
+import { fetchAccountDocuments, fetchSuppliers, fetchTripStatuses, normalizeTrip, patchTrip, setTripStatuses } from "@/lib/tloApi";
 import { customStatusesFromTrip, tripIsClosed, tripIsOpen, SYSTEM_STATUS_CERRADO, SYSTEM_STATUS_EN_CURSO } from "@/lib/tripStatus";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
@@ -28,6 +28,7 @@ import { downloadTripPdf } from "@/lib/tripPdf";
 import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
+import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
 
@@ -38,6 +39,7 @@ type ExpForm = {
   monto: number;
   monto_comprobado: number;
   visible_en_liquidacion: boolean;
+  supplier_id: string;
 };
 
 const defaultExpForm = (): ExpForm => ({
@@ -47,6 +49,7 @@ const defaultExpForm = (): ExpForm => ({
   monto: 0,
   monto_comprobado: 0,
   visible_en_liquidacion: false,
+  supplier_id: "",
 });
 
 export default function ViajeDetalle() {
@@ -117,6 +120,7 @@ export default function ViajeDetalle() {
   });
   const [fuelReceipt, setFuelReceipt] = useState<File | null>(null);
   const [exp, setExp] = useState<ExpForm>(defaultExpForm);
+  const [expenseSuppliers, setExpenseSuppliers] = useState<Supplier[]>([]);
   const [closeData, setCloseData] = useState({
     km_final: 0,
     fecha_llegada: new Date().toISOString().slice(0, 16),
@@ -128,6 +132,19 @@ export default function ViajeDetalle() {
   const [allStatuses, setAllStatuses] = useState<TripStatusRef[]>([SYSTEM_STATUS_EN_CURSO, SYSTEM_STATUS_CERRADO]);
   const [selectedCustomIds, setSelectedCustomIds] = useState<string[]>([]);
   const [savingStatuses, setSavingStatuses] = useState(false);
+
+  useEffect(() => {
+    if (!expOpen) return;
+    void fetchSuppliers()
+      .then((rows) =>
+        setExpenseSuppliers(
+          rows.filter(
+            (s) => (s.origen ?? "manual") === "manual" && (s.estatus ?? "activo") === "activo",
+          ),
+        ),
+      )
+      .catch(() => toast.error("No se pudieron cargar los proveedores"));
+  }, [expOpen]);
 
   useEffect(() => {
     void (async () => {
@@ -237,25 +254,30 @@ export default function ViajeDetalle() {
       const j = await readJson<{ comprobante_url: string }>(r);
       comprobante_url = j.comprobante_url;
     }
-    addFuel(trip.id, {
-      litros: fuel.litros,
-      precio_litro: fuel.precio_litro,
-      ubicacion: fuel.ubicacion,
-      fecha: new Date().toISOString(),
-      es_foraneo: fuel.es_foraneo,
-      estacion_nombre: fuel.estacion_nombre || fuel.ubicacion,
-      es_estacion_empresa: !fuel.es_foraneo,
-      comprobante_url,
-    });
-    setFuel({ litros: 0, precio_litro: 26, ubicacion: "", es_foraneo: false, estacion_nombre: "" });
-    setFuelReceipt(null);
-    setFuelOpen(false);
-    toast.success(
-      fuel.es_foraneo
-        ? "Ticket foráneo registrado (pendiente en Combustibles)"
-        : "Carga de diesel registrada (ticket pendiente en Combustibles)",
-    );
-    await reloadTrip();
+    const esForaneo = fuel.es_foraneo;
+    try {
+      await addFuel(trip.id, {
+        litros: fuel.litros,
+        precio_litro: fuel.precio_litro,
+        ubicacion: fuel.ubicacion,
+        fecha: new Date().toISOString(),
+        es_foraneo: esForaneo,
+        estacion_nombre: fuel.estacion_nombre || fuel.ubicacion,
+        es_estacion_empresa: !esForaneo,
+        comprobante_url,
+      });
+      setFuel({ litros: 0, precio_litro: 26, ubicacion: "", es_foraneo: false, estacion_nombre: "" });
+      setFuelReceipt(null);
+      setFuelOpen(false);
+      toast.success(
+        esForaneo
+          ? "Ticket foráneo registrado (pendiente en Combustibles)"
+          : "Carga de diesel registrada (ticket pendiente en Combustibles)",
+      );
+      await reloadTrip();
+    } catch (err) {
+      toast.error(err instanceof Error ? err.message : "Error al registrar diesel");
+    }
   };
   const openExpModal = () => {
     setExp(defaultExpForm());
@@ -270,6 +292,7 @@ export default function ViajeDetalle() {
     }
     const payload: Omit<Expense, "id"> = {
       ...exp,
+      supplier_id: exp.tipo === "gasto" ? exp.supplier_id || null : null,
       visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
       fecha: new Date().toISOString(),
     };
@@ -603,7 +626,14 @@ export default function ViajeDetalle() {
                       <TableCell className="text-right font-semibold">{fmtMXN(f.litros * f.precio_litro)}</TableCell>
                       <TableCell className="text-right">
                         {(!f.fuel_ticket_id || f.ticket_prorrateo_confirmado_at == null) && (
-                          <Button variant="ghost" size="sm" onClick={async () => { removeFuel(trip.id, f.id); await reloadTrip(); }}>
+                          <Button variant="ghost" size="sm" onClick={async () => {
+                            try {
+                              await removeFuel(trip.id, f.id);
+                              await reloadTrip();
+                            } catch (err) {
+                              toast.error(err instanceof Error ? err.message : "Error al eliminar carga");
+                            }
+                          }}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
                         )}
@@ -905,6 +935,17 @@ export default function ViajeDetalle() {
               </Select>
             </div>
             <div><Label>Descripción</Label><Input value={exp.descripcion} onChange={e => setExp({ ...exp, descripcion: e.target.value })} /></div>
+            {exp.tipo === "gasto" && (
+              <div>
+                <Label>Proveedor</Label>
+                <SupplierCombobox
+                  suppliers={expenseSuppliers}
+                  value={exp.supplier_id}
+                  onChange={(supplierId) => setExp({ ...exp, supplier_id: supplierId })}
+                  placeholder="Opcional — buscar proveedor…"
+                />
+              </div>
+            )}
             <div><Label>Monto (MXN)</Label><Input type="number" min={0} step="1.00" value={exp.monto} onChange={e => setExp({ ...exp, monto: +e.target.value })} /></div>
             <div>
               <Label>Monto comprobado (MXN)</Label>

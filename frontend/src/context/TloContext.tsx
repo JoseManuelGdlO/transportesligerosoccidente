@@ -36,8 +36,8 @@ interface TloState {
   createTrip: (t: Omit<Trip, "id" | "folio" | "fuel" | "expenses" | "statuses">) => Promise<Trip>;
   updateTrip: (id: string, patch: Partial<Trip>) => void;
   replaceTrip: (trip: Trip) => void;
-  addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => void;
-  removeFuel: (tripId: string, fuelId: string) => void;
+  addFuel: (tripId: string, fuel: Omit<FuelLoad, "id">) => Promise<void>;
+  removeFuel: (tripId: string, fuelId: string) => Promise<void>;
   addExpense: (tripId: string, e: Omit<Expense, "id">) => Promise<void>;
   removeExpense: (tripId: string, eid: string) => void;
   closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string; notas?: string }) => Promise<void>;
@@ -566,32 +566,31 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   }, []);
 
   const addFuel = useCallback(
-    (tripId: string, fuel: Omit<FuelLoad, "id">) => {
+    async (tripId: string, fuel: Omit<FuelLoad, "id">) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const r = await apiFetch(`/trips/${tripId}/fuel`, {
-              method: "POST",
-              body: JSON.stringify({
-                litros: fuel.litros,
-                precio_litro: fuel.precio_litro,
-                ubicacion: fuel.ubicacion,
-                fecha: fuel.fecha,
-                es_foraneo: fuel.es_foraneo ?? false,
-                estacion_nombre: fuel.estacion_nombre,
-                es_estacion_empresa: fuel.es_estacion_empresa,
-                comprobante_url: fuel.comprobante_url,
-              }),
-            });
-            const j = await readJson<Record<string, unknown>>(r);
-            const row = normalizeFuel(j);
-            setTrips((prev) =>
-              prev.map((t) => (t.id === tripId ? { ...t, fuel: [...t.fuel, row] } : t)),
-            );
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al registrar diesel");
-          }
-        })();
+        try {
+          const r = await apiFetch(`/trips/${tripId}/fuel`, {
+            method: "POST",
+            body: JSON.stringify({
+              litros: fuel.litros,
+              precio_litro: fuel.precio_litro,
+              ubicacion: fuel.ubicacion,
+              fecha: fuel.fecha,
+              es_foraneo: fuel.es_foraneo ?? false,
+              estacion_nombre: fuel.estacion_nombre,
+              es_estacion_empresa: fuel.es_estacion_empresa,
+              comprobante_url: fuel.comprobante_url,
+            }),
+          });
+          const j = await readJson<Record<string, unknown>>(r);
+          const row = normalizeFuel(j);
+          setTrips((prev) =>
+            prev.map((t) => (t.id === tripId ? { ...t, fuel: [...t.fuel, row] } : t)),
+          );
+        } catch (e) {
+          setCatalogError(e instanceof Error ? e.message : "Error al registrar diesel");
+          throw e;
+        }
         return;
       }
       setTrips((prev) =>
@@ -604,19 +603,18 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const removeFuel = useCallback(
-    (tripId: string, fuelId: string) => {
+    async (tripId: string, fuelId: string) => {
       if (apiLive) {
-        void (async () => {
-          try {
-            const r = await apiFetch(`/trips/${tripId}/fuel/${fuelId}`, { method: "DELETE" });
-            if (!r.ok) await readJson(r);
-            setTrips((prev) =>
-              prev.map((t) => (t.id === tripId ? { ...t, fuel: t.fuel.filter((f) => f.id !== fuelId) } : t)),
-            );
-          } catch (e) {
-            setCatalogError(e instanceof Error ? e.message : "Error al eliminar carga");
-          }
-        })();
+        try {
+          const r = await apiFetch(`/trips/${tripId}/fuel/${fuelId}`, { method: "DELETE" });
+          if (!r.ok) await readJson(r);
+          setTrips((prev) =>
+            prev.map((t) => (t.id === tripId ? { ...t, fuel: t.fuel.filter((f) => f.id !== fuelId) } : t)),
+          );
+        } catch (e) {
+          setCatalogError(e instanceof Error ? e.message : "Error al eliminar carga");
+          throw e;
+        }
         return;
       }
       setTrips((prev) =>
@@ -640,6 +638,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               monto_comprobado: e.monto_comprobado,
               visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
               fecha: e.fecha,
+              supplier_id: e.tipo === "gasto" ? e.supplier_id || null : null,
             }),
           });
           const j = await readJson<Record<string, unknown>>(r);

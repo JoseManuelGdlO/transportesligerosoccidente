@@ -1,8 +1,9 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
@@ -10,8 +11,19 @@ import { Textarea } from "@/components/ui/textarea";
 import { Plus, Pencil } from "lucide-react";
 import type { Supplier } from "@/types/tlo";
 import { deleteSupplierApi, fetchSuppliers, upsertSupplierApi } from "@/lib/tloApi";
+import { SupplierCleanupPanel } from "@/components/tlo/SupplierCleanupPanel";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+
+const SAT_RFC =
+  /^[A-Z&Ñ]{3,4}[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[A-Z0-9]{2}[0-9A]$/;
+
+function rfcIssue(rfc: string, required: boolean): string | null {
+  const value = rfc.trim().toUpperCase();
+  if (!value) return required ? "El RFC es obligatorio" : null;
+  if (!SAT_RFC.test(value)) return "El RFC no cumple el formato SAT";
+  return null;
+}
 
 const empty: Supplier = {
   id: "",
@@ -24,6 +36,7 @@ export default function Proveedores() {
   const canManage = hasPermission("proveedores.gestionar");
   const canList = hasPermission("proveedores.ver") || hasPermission("cuentas.ver");
   const [rows, setRows] = useState<Supplier[]>([]);
+  const [showAuto, setShowAuto] = useState(false);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Supplier>(empty);
   const [saving, setSaving] = useState(false);
@@ -40,6 +53,21 @@ export default function Proveedores() {
     if (canList) void load();
   }, [canList, load]);
 
+  const visible = useMemo(
+    () =>
+      rows.filter((r) => {
+        const auto = (r.origen ?? "manual") === "auto";
+        const activo = (r.estatus ?? "activo") === "activo";
+        if (auto) return showAuto;
+        return activo;
+      }),
+    [rows, showAuto],
+  );
+  const catalog = useMemo(
+    () => rows.filter((r) => (r.origen ?? "manual") === "manual" && (r.estatus ?? "activo") === "activo"),
+    [rows],
+  );
+
   if (!canList) {
     return <p className="text-sm text-muted-foreground">No tienes permiso para ver proveedores.</p>;
   }
@@ -54,9 +82,15 @@ export default function Proveedores() {
       toast.error("La razón social es requerida");
       return;
     }
+    const rfc = (form.rfc ?? "").trim().toUpperCase();
+    const issue = rfcIssue(rfc, !form.id);
+    if (issue) {
+      toast.error(issue);
+      return;
+    }
     setSaving(true);
     try {
-      await upsertSupplierApi(form);
+      await upsertSupplierApi({ ...form, rfc: rfc || undefined });
       toast.success(form.id ? "Proveedor actualizado" : "Proveedor registrado");
       setOpen(false);
       await load();
@@ -69,13 +103,19 @@ export default function Proveedores() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between gap-3">
-        <p className="text-sm text-muted-foreground">{rows.length} proveedores registrados</p>
-        {canManage && (
-          <Button size="sm" onClick={() => openDialog()}>
-            <Plus className="h-4 w-4 mr-1" /> Nuevo proveedor
-          </Button>
-        )}
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <p className="text-sm text-muted-foreground">{visible.length} proveedores en catálogo</p>
+        <div className="flex flex-wrap items-center gap-3">
+          <label className="flex items-center gap-2 text-sm text-muted-foreground">
+            <Switch checked={showAuto} onCheckedChange={setShowAuto} />
+            Incluir generados automáticamente
+          </label>
+          {canManage && (
+            <Button size="sm" onClick={() => openDialog()}>
+              <Plus className="h-4 w-4 mr-1" /> Nuevo proveedor
+            </Button>
+          )}
+        </div>
       </div>
 
       <Card className="overflow-hidden">
@@ -92,9 +132,14 @@ export default function Proveedores() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
+            {visible.map((r) => (
               <TableRow key={r.id}>
-                <TableCell className="font-medium">{r.razon_social}</TableCell>
+                <TableCell className="font-medium">
+                  {r.razon_social}
+                  {r.origen === "auto" ? (
+                    <span className="ml-2 text-xs text-muted-foreground">automático</span>
+                  ) : null}
+                </TableCell>
                 <TableCell>{r.rfc || "—"}</TableCell>
                 <TableCell>{r.contacto || "—"}</TableCell>
                 <TableCell>{r.telefono || "—"}</TableCell>
@@ -109,7 +154,7 @@ export default function Proveedores() {
                 </TableCell>
               </TableRow>
             ))}
-            {!rows.length && (
+            {!visible.length && (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   Sin proveedores
@@ -119,6 +164,8 @@ export default function Proveedores() {
           </TableBody>
         </Table>
       </Card>
+
+      {canManage && <SupplierCleanupPanel catalog={catalog} onChanged={load} />}
 
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent>
@@ -135,8 +182,17 @@ export default function Proveedores() {
             </div>
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <Label>RFC</Label>
-                <Input value={form.rfc ?? ""} onChange={(e) => setForm({ ...form, rfc: e.target.value })} />
+                <Label>RFC{form.id ? "" : " *"}</Label>
+                <Input
+                  value={form.rfc ?? ""}
+                  onChange={(e) => setForm({ ...form, rfc: e.target.value.toUpperCase() })}
+                  placeholder={form.id ? "Opcional hasta completarlo" : "XAXX010101000"}
+                />
+                {form.origen === "auto" ? (
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Al guardar un RFC válido pasa al catálogo.
+                  </p>
+                ) : null}
               </div>
               <div>
                 <Label>Días de crédito</Label>

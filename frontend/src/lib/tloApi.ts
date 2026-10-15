@@ -79,6 +79,7 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
     monto_comprobado: raw.monto_comprobado != null ? Number(raw.monto_comprobado) : raw.comprobado ? Number(raw.monto ?? 0) : 0,
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(raw.visible_en_liquidacion) : false,
     fecha: String(raw.fecha ?? new Date().toISOString()),
+    supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : null,
   };
 }
 
@@ -353,6 +354,7 @@ export function normalizeSupplier(raw: Record<string, unknown>): import("@/types
         ? Number(raw.dias_credito)
         : undefined,
     estatus: raw.estatus === "inactivo" ? "inactivo" : "activo",
+    origen: raw.origen === "auto" ? "auto" : "manual",
     observaciones: raw.observaciones != null ? String(raw.observaciones) : undefined,
   };
 }
@@ -1687,6 +1689,29 @@ export async function upsertSupplierApi(
 
 export async function deleteSupplierApi(id: string): Promise<void> {
   await apiFetch(`/suppliers/${id}`, { method: "DELETE" });
+}
+
+export async function fetchAutoSupplierReview(): Promise<import("@/types/tlo").AutoSupplierReview[]> {
+  const res = await apiFetch("/suppliers/auto-review");
+  return readJson(res);
+}
+
+export async function detachAutoSupplierFuelApi(
+  id: string,
+): Promise<{ inactivated: boolean; tickets: number; documentos: number }> {
+  const res = await apiFetch(`/suppliers/${id}/detach-fuel`, { method: "POST" });
+  return readJson(res);
+}
+
+export async function mergeAutoSupplierApi(
+  id: string,
+  targetId: string,
+): Promise<{ razon_social: string }> {
+  const res = await apiFetch(`/suppliers/${id}/merge`, {
+    method: "POST",
+    body: JSON.stringify({ target_id: targetId }),
+  });
+  return readJson(res);
 }
 
 export async function fetchAccountDocuments(params: {
