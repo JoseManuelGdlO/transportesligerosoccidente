@@ -363,7 +363,28 @@ async function finishStamp(input: {
     await refreshStatuses(input.docs, input.tenantId, transaction);
   });
 
-  const pdf = await renderPagoPdf();
+  const receptor = await Client.findByPk(input.pago.client_id);
+  const pdf = await renderPagoPdf({
+    serie: input.pago.serie,
+    folio: input.pago.folio,
+    uuid: input.pago.uuid ?? "",
+    fechaPago: input.fechaPago,
+    formaPagoP: input.pago.forma_pago_p,
+    monedaP: input.pago.moneda_p,
+    monto: num(input.pago.monto),
+    receptorNombre: receptor?.razon_social ?? "",
+    receptorRfc: receptor?.rfc ?? "",
+    lineas: input.draft.map((linea) => ({
+      serie: linea.serie,
+      folio: linea.folio,
+      uuid: linea.uuid,
+      numParcialidad: linea.numParcialidad,
+      impSaldoAnt: linea.impSaldoAnt,
+      impPagado: linea.impPagado,
+      impSaldoInsoluto: linea.impSaldoInsoluto,
+      taxes: linea.taxes,
+    })),
+  });
   const pdfPath = await writePagoPdf(input.pago.id, input.tenantId, pdf);
   await input.pago.update({ pdf_path: pdfPath });
   return toComplementDto(input.pago, input.draft);
