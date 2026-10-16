@@ -172,7 +172,11 @@ En pantalla se muestran totales por cubeta (monto y cantidad de documentos).
 
 **Plazo de crédito:** se toma de los días de crédito del cliente (CXC) o del proveedor (CXP). La fecha de vencimiento = `fecha_ingreso_cobranza` si existe, si no `fecha_emision`, más los días de crédito.
 
-Los **abonos** registrados en Cuentas actualizan el saldo interno del documento; **este módulo no timbra complemento de pago** (CFDI Pagos 2.0).
+**Abonos y complemento de pago (CFDI Pagos 2.0).** El cobro de una **CXC** ligada a una factura de ingreso **PPD** se timbra como **complemento de pago** en Sicofi; con timbrado exitoso se crea el abono y se actualiza el saldo. En una **CXC PUE**, en cualquier **CXP** o en un documento de **alta manual**, el abono sigue siendo solo **saldo interno** (sin complemento).
+
+En el detalle de una CXC PPD elegible, el botón **Registrar abono** se sustituye por **Registrar cobro**: captura fecha, forma de pago, moneda (y tipo de cambio si no es MXN), permite repartir montos entre varias facturas del mismo cliente y envía el timbrado al PAC. Si ya existen abonos internos sin complemento (por ejemplo, capturados antes de esta función), aparece **Timbrar abonos sin complemento** para timbrarlos en bloque y ligarlos al CFDI de pago sin volver a restar saldo.
+
+Si **Sicofi rechaza** el timbrado, el complemento queda en error pero **no se registra abono ni cambia el saldo** del documento hasta que el timbrado sea exitoso. Antes de reintentar hay que **descartar** el complemento fallido si sigue pendiente. Detalle del endpoint y validaciones locales: [sicofi-pagos40.md](./sicofi-pagos40.md).
 
 El botón **PDF** en la pantalla Cuentas exporta el **listado filtrado de la pestaña activa** (Por cobrar o Por pagar), no un estado de cuenta del operador.
 
