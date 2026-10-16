@@ -1262,8 +1262,9 @@ export default function Cuentas() {
                         supplier_id:
                           selected.tipo === "cxp" ? editForm.supplier_id || null : undefined,
                       });
-                      setSelected(updated);
-                      fillEditForm(updated);
+                      const full = await fetchAccountDocument(selected.id).catch(() => updated);
+                      setSelected(full);
+                      fillEditForm(full);
                       toast.success(
                         updated.origen !== "manual"
                           ? "Documento y origen actualizados"
