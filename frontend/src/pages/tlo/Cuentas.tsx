@@ -23,7 +23,7 @@ import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
-import { montoCobroDefault } from "@/lib/paymentComplement";
+import { montoCobroDefault, pendingComplementIdFromError } from "@/lib/paymentComplement";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
@@ -489,7 +489,16 @@ export default function Cuentas() {
       });
       showComplementToast(selected.id, result);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudo registrar el cobro");
+      const message = e instanceof Error ? e.message : "No se pudo registrar el cobro";
+      const pendingId = pendingComplementIdFromError(message);
+      if (pendingId) {
+        showComplementToast(selected.id, {
+          status: 422,
+          dto: { id: pendingId, estatus: "error", error_mensaje: message },
+        });
+      } else {
+        toast.error(message);
+      }
     } finally {
       setCobroSaving(false);
     }
@@ -538,7 +547,16 @@ export default function Cuentas() {
       });
       showComplementToast(selected.id, result);
     } catch (e) {
-      toast.error(e instanceof Error ? e.message : "No se pudieron timbrar los abonos");
+      const message = e instanceof Error ? e.message : "No se pudieron timbrar los abonos";
+      const pendingId = pendingComplementIdFromError(message);
+      if (pendingId) {
+        showComplementToast(selected.id, {
+          status: 422,
+          dto: { id: pendingId, estatus: "error", error_mensaje: message },
+        });
+      } else {
+        toast.error(message);
+      }
     } finally {
       setStampSaving(false);
     }
