@@ -19,6 +19,8 @@ import type {
   AccountDocumentTipo,
 } from "../models/AccountDocument";
 import { roundMoney } from "./calc";
+import { parseInvoiceTaxSnapshot } from "./paymentComplement/invoiceTaxSnapshot";
+import { documentoRequiereComplemento } from "./paymentComplement/paymentComplementService";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr, localDateStr } from "../utils/localDates";
 import { computeTripInvoiceTaxes, type InvoiceTaxOpts } from "./pac/sicofi/invoiceTaxes";
@@ -44,6 +46,8 @@ export interface AccountPaymentDto {
   fecha: string;
   nota?: string;
   created_at?: string;
+  cfdi_pago_id?: string;
+  uuid?: string;
 }
 
 export interface AccountDocumentDto {
@@ -168,6 +172,7 @@ function toPaymentDto(p: AccountDocumentPayment): AccountPaymentDto {
     fecha: String(p.fecha).slice(0, 10),
     nota: p.nota ?? undefined,
     created_at: p.createdAt ? p.createdAt.toISOString() : undefined,
+    cfdi_pago_id: p.cfdi_pago_id ?? undefined,
   };
 }
 
@@ -715,6 +720,30 @@ export async function addPayment(
   });
   if (!doc) throw httpError("Documento no encontrado", 404);
   if (doc.estatus === "cancelada") throw httpError("Documento cancelado", 400);
+
+  if (doc.origen === "viaje" && doc.tipo === "cxc" && doc.trip_id) {
+    const carta = await CartaPorte.findOne({
+      where: {
+        tenant_id: tenantId,
+        trip_id: doc.trip_id,
+        estatus: "timbrada",
+        tipo_comprobante: "ingreso",
+      },
+    });
+    if (carta?.xml_timbrado) {
+      const snap = parseInvoiceTaxSnapshot(carta.xml_timbrado);
+      if (
+        documentoRequiereComplemento(snap, {
+          tipo: doc.tipo,
+          origen: doc.origen,
+          estatus: doc.estatus,
+          client_id: doc.client_id,
+        })
+      ) {
+        throw httpError("Esta factura PPD se cobra con complemento de pago", 400);
+      }
+    }
+  }
 
   const payments = await AccountDocumentPayment.findAll({
     where: { tenant_id: tenantId, document_id: documentId },

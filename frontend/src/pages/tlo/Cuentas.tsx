@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Link, useSearchParams } from "react-router-dom";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -7,6 +7,7 @@ import { Label } from "@/components/ui/label";
 import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -22,6 +23,7 @@ import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
+import { montoCobroDefault, pendingComplementIdFromError } from "@/lib/paymentComplement";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
@@ -37,14 +39,21 @@ import {
   backfillAccountDocumentsApi,
   cancelAccountDocumentApi,
   createAccountDocumentApi,
+  createComplementFromPaymentsApi,
+  createPaymentComplementApi,
+  discardPaymentComplementApi,
+  downloadPaymentComplementFile,
   fetchAccountAging,
   fetchAccountDocument,
   fetchAccountDocuments,
   fetchSuppliers,
   patchAccountDocumentApi,
+  retryPaymentComplementApi,
+  type PaymentComplementResult,
 } from "@/lib/tloApi";
 import type {
   AccountDocument,
+  AccountDocumentPayment,
   AccountDocumentTipo,
   AgingBucket,
   AgingSummary,
@@ -153,6 +162,23 @@ export default function Cuentas() {
     fecha: new Date().toISOString().slice(0, 10),
     nota: "",
   });
+  const [cobroOpen, setCobroOpen] = useState(false);
+  const [cobroLoading, setCobroLoading] = useState(false);
+  const [cobroSaving, setCobroSaving] = useState(false);
+  const [cobroFecha, setCobroFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [cobroForma, setCobroForma] = useState("03");
+  const [cobroTipoCambio, setCobroTipoCambio] = useState("");
+  const [cobroRows, setCobroRows] = useState<
+    { doc: AccountDocument; checked: boolean; monto: string }[]
+  >([]);
+  const [stampOpen, setStampOpen] = useState(false);
+  const [stampSaving, setStampSaving] = useState(false);
+  const [stampFecha, setStampFecha] = useState(new Date().toISOString().slice(0, 10));
+  const [stampForma, setStampForma] = useState("03");
+  const [stampTipoCambio, setStampTipoCambio] = useState("");
+  const [stampPayments, setStampPayments] = useState<AccountDocumentPayment[]>([]);
+  const [stampIds, setStampIds] = useState<string[]>([]);
+  const cobroLoadSeq = useRef(0);
 
   const fillEditForm = (d: AccountDocument) => {
     setEditForm({
@@ -345,6 +371,203 @@ export default function Cuentas() {
       toast.error(e instanceof Error ? e.message : "Error al abonar");
     }
   };
+
+  const refreshAfterComplement = async (documentId: string) => {
+    const full = await fetchAccountDocument(documentId).catch(() => null);
+    if (full) setSelected(full);
+    await load();
+  };
+
+  const showComplementToast = (documentId: string, result: PaymentComplementResult) => {
+    if (result.status === 201) {
+      toast.success(result.dto.uuid ? `Complemento timbrado ${result.dto.uuid}` : "Complemento timbrado");
+      setCobroOpen(false);
+      setStampOpen(false);
+      void refreshAfterComplement(documentId);
+      return;
+    }
+    const complementId = result.dto.id;
+    toast.error(result.dto.error_mensaje || "No se pudo timbrar el complemento", {
+      duration: Number.POSITIVE_INFINITY,
+      action: {
+        label: "Reintentar",
+        onClick: () => {
+          void (async () => {
+            try {
+              const again = await retryPaymentComplementApi(complementId);
+              showComplementToast(documentId, again);
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "No se pudo reintentar");
+            }
+          })();
+        },
+      },
+      cancel: {
+        label: "Descartar",
+        onClick: () => {
+          void (async () => {
+            try {
+              await discardPaymentComplementApi(complementId);
+              toast.success("Complemento descartado");
+            } catch (e) {
+              toast.error(e instanceof Error ? e.message : "No se pudo descartar");
+            }
+          })();
+        },
+      },
+    });
+  };
+
+  const openCobroDialog = () => {
+    if (!selected) return;
+    const clientId = selected.client_id;
+    const currentId = selected.id;
+    setCobroFecha(new Date().toISOString().slice(0, 10));
+    setCobroForma("03");
+    setCobroTipoCambio("");
+    setCobroRows([]);
+    setCobroOpen(true);
+    setCobroLoading(true);
+    const seq = ++cobroLoadSeq.current;
+    const candidates = docs.filter(
+      (d) =>
+        d.client_id === clientId &&
+        d.origen === "viaje" &&
+        d.tipo === "cxc" &&
+        d.estatus === "abierta",
+    );
+    const ids = [...new Set(candidates.map((d) => d.id))];
+    if (clientId && !ids.includes(currentId)) ids.unshift(currentId);
+    void Promise.all(ids.map((id) => fetchAccountDocument(id).catch(() => null))).then((rows) => {
+      if (seq !== cobroLoadSeq.current) return;
+      const eligible = rows.filter(
+        (d): d is AccountDocument => d != null && d.complemento_disponible === true,
+      );
+      setCobroRows(
+        eligible.map((doc) => ({
+          doc,
+          checked: doc.id === currentId,
+          monto: String(montoCobroDefault(doc.saldo_pendiente, doc.saldo_sat ?? doc.saldo_pendiente)),
+        })),
+      );
+      setCobroLoading(false);
+    });
+  };
+
+  const saveCobro = async () => {
+    if (!selected?.client_id) {
+      toast.error("La factura no tiene cliente");
+      return;
+    }
+    const moneda = selected.moneda || "MXN";
+    const esMxn = moneda.toUpperCase() === "MXN";
+    const tipoCambio = esMxn ? 1 : Number(cobroTipoCambio);
+    if (!/^\d{2}$/.test(cobroForma)) {
+      toast.error("La forma de pago debe ser de 2 dígitos");
+      return;
+    }
+    if (!(tipoCambio > 0)) {
+      toast.error("Tipo de cambio inválido");
+      return;
+    }
+    const documentos = cobroRows
+      .filter((row) => row.checked)
+      .map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
+    if (!documentos.length || documentos.some((doc) => !(doc.monto > 0))) {
+      toast.error("Selecciona facturas con monto mayor a 0");
+      return;
+    }
+    setCobroSaving(true);
+    try {
+      const result = await createPaymentComplementApi({
+        client_id: selected.client_id,
+        fecha_pago: cobroFecha,
+        forma_pago_p: cobroForma,
+        moneda_p: moneda,
+        tipo_cambio_p: tipoCambio,
+        documentos,
+      });
+      showComplementToast(selected.id, result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "No se pudo registrar el cobro";
+      const pendingId = pendingComplementIdFromError(message);
+      if (pendingId) {
+        showComplementToast(selected.id, {
+          status: 422,
+          dto: { id: pendingId, estatus: "error", error_mensaje: message },
+        });
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setCobroSaving(false);
+    }
+  };
+
+  const openStampDialog = () => {
+    if (!selected) return;
+    const pending = (selected.payments ?? []).filter((payment) => !payment.cfdi_pago_id);
+    setStampPayments(pending);
+    setStampIds(pending.map((payment) => payment.id));
+    setStampFecha(new Date().toISOString().slice(0, 10));
+    setStampForma("03");
+    setStampTipoCambio("");
+    setStampOpen(true);
+  };
+
+  const saveStamp = async () => {
+    if (!selected?.client_id) {
+      toast.error("La factura no tiene cliente");
+      return;
+    }
+    const moneda = selected.moneda || "MXN";
+    const esMxn = moneda.toUpperCase() === "MXN";
+    const tipoCambio = esMxn ? 1 : Number(stampTipoCambio);
+    if (!/^\d{2}$/.test(stampForma)) {
+      toast.error("La forma de pago debe ser de 2 dígitos");
+      return;
+    }
+    if (!(tipoCambio > 0)) {
+      toast.error("Tipo de cambio inválido");
+      return;
+    }
+    if (!stampIds.length) {
+      toast.error("Selecciona al menos un abono");
+      return;
+    }
+    setStampSaving(true);
+    try {
+      const result = await createComplementFromPaymentsApi({
+        client_id: selected.client_id,
+        fecha_pago: stampFecha,
+        forma_pago_p: stampForma,
+        moneda_p: moneda,
+        tipo_cambio_p: tipoCambio,
+        payment_ids: stampIds,
+      });
+      showComplementToast(selected.id, result);
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "No se pudieron timbrar los abonos";
+      const pendingId = pendingComplementIdFromError(message);
+      if (pendingId) {
+        showComplementToast(selected.id, {
+          status: 422,
+          dto: { id: pendingId, estatus: "error", error_mensaje: message },
+        });
+      } else {
+        toast.error(message);
+      }
+    } finally {
+      setStampSaving(false);
+    }
+  };
+
+  const cobroMoneda = selected?.moneda || "MXN";
+  const cobroEsMxn = cobroMoneda.toUpperCase() === "MXN";
+  const abonosSinComplemento = (selected?.payments ?? []).filter((payment) => !payment.cfdi_pago_id);
+  const puedeTimbrarAbonos =
+    Boolean(selected?.complemento_disponible) && abonosSinComplemento.length > 0;
+  const saldoSatReferencia = selected?.saldo_sat ?? selected?.saldo_pendiente ?? 0;
 
   return (
     <div className="space-y-4">
@@ -924,17 +1147,64 @@ export default function Cuentas() {
               {!!selected.payments?.length && (
                 <div>
                   <p className="font-medium mb-1">Abonos</p>
-                  <ul className="space-y-1">
+                  <ul className="space-y-2">
                     {selected.payments.map((p) => (
-                      <li key={p.id} className="flex justify-between">
+                      <li key={p.id} className="flex flex-wrap items-center justify-between gap-2">
                         <span>
                           {p.fecha}
                           {p.nota ? ` · ${p.nota}` : ""}
                         </span>
-                        <span>{fmtMXNDecimal(p.monto)}</span>
+                        <span className="flex flex-wrap items-center gap-2">
+                          {p.cfdi_pago_id ? (
+                            <>
+                              <span>Timbrado</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void downloadPaymentComplementFile(p.cfdi_pago_id!, "xml").catch((e) =>
+                                    toast.error(
+                                      e instanceof Error ? e.message : "No se pudo descargar el XML",
+                                    ),
+                                  );
+                                }}
+                              >
+                                XML
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void downloadPaymentComplementFile(p.cfdi_pago_id!, "pdf").catch((e) =>
+                                    toast.error(
+                                      e instanceof Error ? e.message : "No se pudo descargar el PDF",
+                                    ),
+                                  );
+                                }}
+                              >
+                                PDF
+                              </Button>
+                            </>
+                          ) : (
+                            <span>Sin timbrar</span>
+                          )}
+                          <span>{fmtMXNDecimal(p.monto)}</span>
+                        </span>
                       </li>
                     ))}
                   </ul>
+                  {puedeTimbrarAbonos && selected.saldo_pendiente < saldoSatReferencia && (
+                    <p className="mt-2 text-sm text-muted-foreground">
+                      Hay abonos capturados que el SAT todavía no tiene.
+                    </p>
+                  )}
+                  {canManage && puedeTimbrarAbonos && (
+                    <Button variant="secondary" className="mt-2" onClick={openStampDialog}>
+                      Timbrar abonos sin complemento
+                    </Button>
+                  )}
                 </div>
               )}
             </div>
@@ -951,21 +1221,32 @@ export default function Cuentas() {
               <Button variant="outline" onClick={() => setDetailOpen(false)}>
                 Cerrar
               </Button>
-              {canManage && selected?.estatus === "abierta" && selected.saldo_pendiente > 0 && (
-                <Button
-                  variant="secondary"
-                  onClick={() => {
-                    setPayForm({
-                      monto: String(selected.saldo_pendiente),
-                      fecha: new Date().toISOString().slice(0, 10),
-                      nota: "",
-                    });
-                    setPaymentOpen(true);
-                  }}
-                >
-                  Registrar abono
-                </Button>
-              )}
+              {canManage &&
+                selected?.complemento_disponible &&
+                selected.estatus === "abierta" &&
+                selected.saldo_pendiente > 0 && (
+                  <Button variant="secondary" onClick={openCobroDialog}>
+                    Registrar cobro
+                  </Button>
+                )}
+              {canManage &&
+                selected?.estatus === "abierta" &&
+                selected.saldo_pendiente > 0 &&
+                !selected.complemento_disponible && (
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      setPayForm({
+                        monto: String(selected.saldo_pendiente),
+                        fecha: new Date().toISOString().slice(0, 10),
+                        nota: "",
+                      });
+                      setPaymentOpen(true);
+                    }}
+                  >
+                    Registrar abono
+                  </Button>
+                )}
               {canManage && selected?.estatus !== "cancelada" && (
                 <Button
                   disabled={savingEdit}
@@ -999,8 +1280,9 @@ export default function Cuentas() {
                         supplier_id:
                           selected.tipo === "cxp" ? editForm.supplier_id || null : undefined,
                       });
-                      setSelected(updated);
-                      fillEditForm(updated);
+                      const full = await fetchAccountDocument(selected.id).catch(() => updated);
+                      setSelected(full);
+                      fillEditForm(full);
                       toast.success(
                         updated.origen !== "manual"
                           ? "Documento y origen actualizados"
@@ -1100,6 +1382,160 @@ export default function Cuentas() {
               Cancelar
             </Button>
             <Button onClick={() => void savePayment()}>Guardar abono</Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={cobroOpen} onOpenChange={setCobroOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Registrar cobro</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Fecha</Label>
+              <Input type="date" value={cobroFecha} onChange={(e) => setCobroFecha(e.target.value)} />
+            </div>
+            <div>
+              <Label>Forma de pago</Label>
+              <Input
+                maxLength={2}
+                value={cobroForma}
+                onChange={(e) => setCobroForma(e.target.value)}
+              />
+            </div>
+            <div>
+              <Label>Moneda</Label>
+              <Input value={cobroMoneda} disabled />
+            </div>
+            {!cobroEsMxn && (
+              <div>
+                <Label>Tipo de cambio</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.0001"
+                  value={cobroTipoCambio}
+                  onChange={(e) => setCobroTipoCambio(e.target.value)}
+                />
+              </div>
+            )}
+            <div className="space-y-2">
+              <Label>Facturas</Label>
+              {cobroLoading ? (
+                <p className="text-sm text-muted-foreground">Cargando…</p>
+              ) : cobroRows.length === 0 ? (
+                <p className="text-sm text-muted-foreground">No hay facturas con complemento disponible.</p>
+              ) : (
+                <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
+                  {cobroRows.map((row) => (
+                    <label key={row.doc.id} className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        checked={row.checked}
+                        onCheckedChange={(v) =>
+                          setCobroRows((prev) =>
+                            prev.map((item) =>
+                              item.doc.id === row.doc.id ? { ...item, checked: v === true } : item,
+                            ),
+                          )
+                        }
+                      />
+                      <span className="min-w-0 flex-1">
+                        {row.doc.folio}
+                        <span className="text-muted-foreground">
+                          {" "}
+                          · saldo {fmtMXNDecimal(row.doc.saldo_pendiente)}
+                        </span>
+                      </span>
+                      <Input
+                        type="number"
+                        min={0}
+                        step="0.01"
+                        className="w-28"
+                        value={row.monto}
+                        onChange={(e) =>
+                          setCobroRows((prev) =>
+                            prev.map((item) =>
+                              item.doc.id === row.doc.id ? { ...item, monto: e.target.value } : item,
+                            ),
+                          )
+                        }
+                      />
+                    </label>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setCobroOpen(false)}>
+              Cancelar
+            </Button>
+            <Button disabled={cobroSaving || cobroLoading} onClick={() => void saveCobro()}>
+              {cobroSaving ? "Timbrando…" : "Timbrar cobro"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={stampOpen} onOpenChange={setStampOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Timbrar abonos sin complemento</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <div>
+              <Label>Fecha</Label>
+              <Input type="date" value={stampFecha} onChange={(e) => setStampFecha(e.target.value)} />
+            </div>
+            <div>
+              <Label>Forma de pago</Label>
+              <Input
+                maxLength={2}
+                value={stampForma}
+                onChange={(e) => setStampForma(e.target.value)}
+              />
+            </div>
+            {!cobroEsMxn && (
+              <div>
+                <Label>Tipo de cambio</Label>
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.0001"
+                  value={stampTipoCambio}
+                  onChange={(e) => setStampTipoCambio(e.target.value)}
+                />
+              </div>
+            )}
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
+              {stampPayments.map((payment) => (
+                <label key={payment.id} className="flex items-center gap-2 text-sm">
+                  <Checkbox
+                    checked={stampIds.includes(payment.id)}
+                    onCheckedChange={(v) =>
+                      setStampIds((prev) =>
+                        v === true
+                          ? [...prev, payment.id]
+                          : prev.filter((id) => id !== payment.id),
+                      )
+                    }
+                  />
+                  <span>
+                    {payment.fecha}
+                    {payment.nota ? ` · ${payment.nota}` : ""} · {fmtMXNDecimal(payment.monto)}
+                  </span>
+                </label>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setStampOpen(false)}>
+              Cancelar
+            </Button>
+            <Button disabled={stampSaving} onClick={() => void saveStamp()}>
+              {stampSaving ? "Timbrando…" : "Timbrar abonos"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

@@ -32,6 +32,7 @@ export class Tenant extends Model<InferAttributes<Tenant>, InferCreationAttribut
   declare csd_key_path: CreationOptional<string | null>;
   declare csd_password_enc: CreationOptional<string | null>;
   declare cfdi_serie: CreationOptional<string | null>;
+  declare cfdi_serie_pago: CreationOptional<string | null>;
   declare metodo_pago_default: CreationOptional<string | null>;
   declare forma_pago_default: CreationOptional<string | null>;
   declare uso_cfdi_default: CreationOptional<string | null>;
@@ -76,6 +77,7 @@ export function initTenant(sequelize: Sequelize) {
       csd_key_path: { type: DataTypes.STRING(512), allowNull: true },
       csd_password_enc: { type: DataTypes.TEXT, allowNull: true },
       cfdi_serie: { type: DataTypes.STRING(16), allowNull: true, defaultValue: "CP" },
+      cfdi_serie_pago: { type: DataTypes.STRING(16), allowNull: true, defaultValue: "P" },
       metodo_pago_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "PPD" },
       forma_pago_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "99" },
       uso_cfdi_default: { type: DataTypes.STRING(8), allowNull: true, defaultValue: "G03" },

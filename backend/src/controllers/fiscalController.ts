@@ -23,6 +23,7 @@ const fiscalSchema = z.object({
   pac_usuario: z.string().optional(),
   pac_token: z.string().optional(),
   cfdi_serie: z.string().optional(),
+  cfdi_serie_pago: z.string().max(16).optional(),
   metodo_pago_default: z.string().optional(),
   forma_pago_default: z.string().optional(),
   uso_cfdi_default: z.string().optional(),
@@ -67,6 +68,7 @@ export const patchFiscalConfig = asyncHandler(async (req: Request, res: Response
   if (b.pac_usuario !== undefined) data.pac_usuario = b.pac_usuario;
   if (b.pac_token !== undefined) data.pac_token_enc = b.pac_token ? encryptSecret(b.pac_token) : null;
   if (b.cfdi_serie !== undefined) data.cfdi_serie = b.cfdi_serie;
+  if (b.cfdi_serie_pago !== undefined) data.cfdi_serie_pago = b.cfdi_serie_pago;
   if (b.metodo_pago_default !== undefined) data.metodo_pago_default = b.metodo_pago_default;
   if (b.forma_pago_default !== undefined) data.forma_pago_default = b.forma_pago_default;
   if (b.uso_cfdi_default !== undefined) data.uso_cfdi_default = b.uso_cfdi_default;

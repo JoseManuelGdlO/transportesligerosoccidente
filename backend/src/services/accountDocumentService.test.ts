@@ -1,10 +1,11 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { AccountDocument, AccountDocumentPayment, Supplier } from "../models";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, Supplier } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
 import {
+  addPayment,
   assertMaintenanceCxpSyncAllowed,
   cobranzaAConservar,
   computeAgingBucket,
@@ -716,5 +717,89 @@ describe("CXP sin proveedor de catálogo", () => {
     } as Expense);
     assert.equal(created[0]?.supplier_id, null);
     assert.equal(dto?.entidad_nombre, "Caseta Lagos");
+  });
+});
+
+const PPD_XML = `<?xml version="1.0"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" Serie="I" Folio="15" Fecha="2026-05-01T10:00:00" SubTotal="10000" Total="11200" Moneda="MXN" TipoDeComprobante="I" MetodoPago="PPD" FormaPago="99" LugarExpedicion="44100">
+  <cfdi:Conceptos>
+    <cfdi:Concepto Importe="10000" ObjetoImp="02">
+      <cfdi:Impuestos>
+        <cfdi:Traslados>
+          <cfdi:Traslado Base="10000" Impuesto="002" TipoFactor="Tasa" TasaOCuota="0.160000" Importe="1600"/>
+        </cfdi:Traslados>
+      </cfdi:Impuestos>
+    </cfdi:Concepto>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="D9BE138A-9449-11EE-9430-00155D012007"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+
+describe("addPayment y complemento PPD", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("CXC de viaje con XML PPD rechaza el abono directo", async () => {
+    const doc = {
+      id: "doc-ppd",
+      tenant_id: "t1",
+      tipo: "cxc" as const,
+      origen: "viaje" as const,
+      estatus: "abierta" as const,
+      client_id: "client-1",
+      trip_id: "trip-1",
+      monto_original: "11200",
+      entidad_nombre: "ESCUELA",
+      folio: "15",
+      concepto: "Flete",
+      fecha_emision: "2026-05-01",
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(CartaPorte, "findOne", async () => ({ xml_timbrado: PPD_XML }) as never);
+    const created = mock.method(AccountDocumentPayment, "create", async () => {
+      throw new Error("no debía crear el abono");
+    });
+
+    await assert.rejects(
+      () => addPayment("t1", "doc-ppd", { monto: 100, fecha: "2026-10-15" }),
+      (err: Error & { status?: number }) => {
+        assert.equal(err.status, 400);
+        assert.match(err.message, /Esta factura PPD se cobra con complemento de pago/);
+        return true;
+      },
+    );
+    assert.equal(created.mock.calls.length, 0);
+  });
+
+  it("origen manual sigue creando el abono", async () => {
+    const doc = {
+      id: "doc-manual",
+      tenant_id: "t1",
+      tipo: "cxc" as const,
+      origen: "manual" as const,
+      estatus: "abierta" as "abierta" | "pagada" | "cancelada",
+      client_id: "client-1",
+      monto_original: "1000",
+      entidad_nombre: "Cliente",
+      folio: "F-1",
+      concepto: "Servicio",
+      fecha_emision: "2026-01-01",
+      fecha_vencimiento: "2026-02-01",
+      update: async (patch: Record<string, unknown>) => {
+        Object.assign(doc, patch);
+      },
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    const created = mock.method(AccountDocumentPayment, "create", async () => ({ id: "pay-new" }) as never);
+
+    const dto = await addPayment("t1", "doc-manual", { monto: 100, fecha: "2026-10-15" });
+
+    assert.equal(created.mock.calls.length, 1);
+    assert.equal(dto.id, "doc-manual");
+    assert.equal(dto.origen, "manual");
   });
 });

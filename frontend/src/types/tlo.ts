@@ -227,6 +227,7 @@ export interface TenantFiscal {
   has_pac_token?: boolean;
   has_csd?: boolean;
   cfdi_serie?: string;
+  cfdi_serie_pago?: string;
   metodo_pago_default?: string;
   forma_pago_default?: string;
   uso_cfdi_default?: string;
@@ -824,6 +825,8 @@ export interface AccountDocumentPayment {
   fecha: string;
   nota?: string;
   created_at?: string;
+  cfdi_pago_id?: string;
+  uuid?: string;
 }
 
 export interface DocumentConcepto {
@@ -857,6 +860,11 @@ export interface AccountDocument {
   maintenance_record_id?: string;
   expense_id?: string;
   payments?: AccountDocumentPayment[];
+  complemento_disponible?: boolean;
+  metodo_pago?: string;
+  moneda?: string;
+  saldo_sat?: number;
+  siguiente_parcialidad?: number;
 }
 
 export interface AccountStatementTotals {

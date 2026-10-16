@@ -432,8 +432,20 @@ export function normalizeAccountDocument(
         fecha: String(row.fecha ?? "").slice(0, 10),
         nota: row.nota != null ? String(row.nota) : undefined,
         created_at: row.created_at != null ? String(row.created_at) : undefined,
+        cfdi_pago_id: row.cfdi_pago_id != null ? String(row.cfdi_pago_id) : undefined,
+        uuid: row.uuid != null ? String(row.uuid) : undefined,
       };
     }),
+    complemento_disponible:
+      typeof raw.complemento_disponible === "boolean" ? raw.complemento_disponible : undefined,
+    metodo_pago: raw.metodo_pago != null ? String(raw.metodo_pago) : undefined,
+    moneda: raw.moneda != null ? String(raw.moneda) : undefined,
+    saldo_sat:
+      raw.saldo_sat != null && raw.saldo_sat !== "" ? Number(raw.saldo_sat) : undefined,
+    siguiente_parcialidad:
+      raw.siguiente_parcialidad != null && raw.siguiente_parcialidad !== ""
+        ? Number(raw.siguiente_parcialidad)
+        : undefined,
   };
 }
 
@@ -1825,5 +1837,112 @@ export async function cancelAccountDocumentApi(
 export async function backfillAccountDocumentsApi(): Promise<{ cxc: number; cxp: number }> {
   const res = await apiFetch("/account-documents/backfill", { method: "POST" });
   return readJson(res);
+}
+
+export interface PaymentComplementDto {
+  id: string;
+  estatus: "timbrado" | "error";
+  uuid?: string;
+  serie?: string;
+  folio?: string;
+  monto?: number;
+  error_mensaje?: string;
+}
+
+export interface PaymentComplementResult {
+  status: number;
+  dto: PaymentComplementDto;
+}
+
+export interface PaymentComplementCreateBody {
+  client_id: string;
+  fecha_pago: string;
+  forma_pago_p: string;
+  moneda_p: string;
+  tipo_cambio_p: number;
+  num_operacion?: string;
+  documentos: { document_id: string; monto: number }[];
+}
+
+export interface PaymentComplementFromPaymentsBody {
+  client_id: string;
+  fecha_pago: string;
+  forma_pago_p: string;
+  moneda_p: string;
+  tipo_cambio_p: number;
+  num_operacion?: string;
+  payment_ids: string[];
+}
+
+function paymentComplementErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object") {
+    const flat = error as { formErrors?: string[]; fieldErrors?: Record<string, string[] | undefined> };
+    const form = flat.formErrors?.filter(Boolean) ?? [];
+    if (form.length) return form.join("; ");
+    for (const msgs of Object.values(flat.fieldErrors ?? {})) {
+      if (msgs?.length) return msgs.join("; ");
+    }
+  }
+  return fallback;
+}
+
+async function readPaymentComplementResult(res: Response): Promise<PaymentComplementResult> {
+  if (res.status === 201 || res.status === 422) {
+    const dto = (await res.json()) as PaymentComplementDto;
+    return { status: res.status, dto };
+  }
+  const j = (await res.json().catch(() => ({}))) as { error?: unknown };
+  throw new Error(paymentComplementErrorMessage(j.error, "No se pudo timbrar el complemento"));
+}
+
+export async function createPaymentComplementApi(
+  body: PaymentComplementCreateBody,
+): Promise<PaymentComplementResult> {
+  const res = await apiFetch("/account-documents/payment-complements", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readPaymentComplementResult(res);
+}
+
+export async function createComplementFromPaymentsApi(
+  body: PaymentComplementFromPaymentsBody,
+): Promise<PaymentComplementResult> {
+  const res = await apiFetch("/account-documents/payment-complements/from-payments", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readPaymentComplementResult(res);
+}
+
+export async function retryPaymentComplementApi(id: string): Promise<PaymentComplementResult> {
+  const res = await apiFetch(`/payment-complements/${id}/retry`, { method: "POST" });
+  return readPaymentComplementResult(res);
+}
+
+export async function discardPaymentComplementApi(id: string): Promise<void> {
+  const res = await apiFetch(`/payment-complements/${id}/discard`, { method: "POST" });
+  if (res.status === 204 || res.ok) return;
+  const j = (await res.json().catch(() => ({}))) as { error?: unknown };
+  throw new Error(paymentComplementErrorMessage(j.error, "No se pudo descartar el complemento"));
+}
+
+export async function downloadPaymentComplementFile(id: string, kind: "xml" | "pdf"): Promise<void> {
+  const res = await apiFetch(`/payment-complements/${id}/${kind}`);
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: string };
+    throw new Error(typeof j.error === "string" ? j.error : "No se pudo descargar el archivo");
+  }
+  const blob = await res.blob();
+  const filename =
+    parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
+    `complemento-${id}.${kind}`;
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  a.click();
+  URL.revokeObjectURL(url);
 }
 

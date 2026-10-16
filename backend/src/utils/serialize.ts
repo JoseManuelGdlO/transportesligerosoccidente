@@ -413,6 +413,7 @@ export function tenantFiscalToJson(t: Tenant): Record<string, unknown> {
     has_pac_token: !!p.pac_token_enc,
     has_csd: !!(p.csd_cer_path && p.csd_key_path),
     cfdi_serie: p.cfdi_serie ?? undefined,
+    cfdi_serie_pago: p.cfdi_serie_pago ?? undefined,
     metodo_pago_default: p.metodo_pago_default ?? undefined,
     forma_pago_default: p.forma_pago_default ?? undefined,
     uso_cfdi_default: p.uso_cfdi_default ?? undefined,

@@ -203,6 +203,15 @@ export default function Empresa() {
                   />
                 </div>
                 <div>
+                  <Label>Serie complemento de pago</Label>
+                  <Input
+                    value={fiscal.cfdi_serie_pago || ""}
+                    maxLength={16}
+                    onChange={(e) => setFiscal({ ...fiscal, cfdi_serie_pago: e.target.value })}
+                    placeholder="P"
+                  />
+                </div>
+                <div>
                   <Label>Uso CFDI default</Label>
                   <Input
                     value={fiscal.uso_cfdi_default || "G03"}
