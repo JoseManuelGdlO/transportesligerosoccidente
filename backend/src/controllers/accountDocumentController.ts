@@ -2,6 +2,12 @@ import { z } from "zod";
 import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import * as accountDocumentService from "../services/accountDocumentService";
+import type { AccountPaymentDto } from "../services/accountDocumentService";
+import {
+  complementSnapshot,
+  documentoRequiereComplemento,
+  paymentComplementUuids,
+} from "../services/paymentComplement/paymentComplementService";
 import { sumConceptos, summarizeConceptos } from "../types/documentConcepto";
 
 const tid = (req: Request) => req.user!.tenantId;
@@ -94,9 +100,48 @@ export const getAging = asyncHandler(async (req: Request, res: Response) => {
   res.json(summary);
 });
 
+async function paymentsWithComplementUuid(
+  tenantId: string,
+  payments: AccountPaymentDto[] | undefined,
+): Promise<AccountPaymentDto[]> {
+  const rows = payments ?? [];
+  const ids = [...new Set(rows.flatMap((payment) => (payment.cfdi_pago_id ? [payment.cfdi_pago_id] : [])))];
+  if (!ids.length) return rows;
+  const uuids = await paymentComplementUuids(tenantId, ids);
+  return rows.map((payment) => {
+    const uuid = payment.cfdi_pago_id ? uuids.get(payment.cfdi_pago_id) : undefined;
+    return uuid ? { ...payment, uuid } : payment;
+  });
+}
+
 export const getAccountDocument = asyncHandler(async (req: Request, res: Response) => {
   const row = await accountDocumentService.getDocument(tid(req), req.params.id);
-  res.json(row);
+  const payments = await paymentsWithComplementUuid(tid(req), row.payments);
+  const snap = await complementSnapshot(tid(req), row.id);
+  const base = { ...row, payments };
+  if (
+    snap &&
+    documentoRequiereComplemento(
+      { metodoPago: snap.metodoPago },
+      {
+        tipo: row.tipo,
+        origen: row.origen,
+        estatus: row.estatus,
+        client_id: row.client_id ?? null,
+      },
+    )
+  ) {
+    res.json({
+      ...base,
+      complemento_disponible: true,
+      metodo_pago: "PPD",
+      moneda: snap.moneda,
+      saldo_sat: snap.saldoSat,
+      siguiente_parcialidad: snap.siguienteParcialidad,
+    });
+    return;
+  }
+  res.json(base);
 });
 
 export const createAccountDocument = asyncHandler(async (req: Request, res: Response) => {

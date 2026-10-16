@@ -36,6 +36,7 @@ import * as pushC from "../controllers/pushController";
 import * as satCatalogC from "../controllers/satCatalogController";
 import * as supplierC from "../controllers/supplierController";
 import * as accountDocC from "../controllers/accountDocumentController";
+import * as paymentComplementC from "../controllers/paymentComplementController";
 import { uploadDriverDocument, uploadTruckDocument } from "../middlewares/uploadDocument";
 import { loadDocumentForPatch, uploadDocumentPatch } from "../middlewares/documentPatchUpload";
 import { uploadPdfLogo } from "../middlewares/uploadPdfLogo";
@@ -153,11 +154,18 @@ r.delete("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gesti
 r.get("/account-documents/aging", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.getAging);
 r.post("/account-documents/backfill", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postBackfill);
 r.get("/account-documents", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.listAccountDocuments);
+r.post("/account-documents/payment-complements", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postPaymentComplement);
+r.post("/account-documents/payment-complements/from-payments", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postPaymentComplementFromPayments);
 r.get("/account-documents/:id", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.getAccountDocument);
 r.post("/account-documents", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.createAccountDocument);
 r.patch("/account-documents/:id", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.patchAccountDocument);
 r.post("/account-documents/:id/payments", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postPayment);
 r.post("/account-documents/:id/cancel", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postCancel);
+
+r.post("/payment-complements/:id/retry", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postRetryPaymentComplement);
+r.post("/payment-complements/:id/discard", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postDiscardPaymentComplement);
+r.get("/payment-complements/:id/xml", authenticateJwt, requirePermission("cuentas.ver"), paymentComplementC.getPaymentComplementXml);
+r.get("/payment-complements/:id/pdf", authenticateJwt, requirePermission("cuentas.ver"), paymentComplementC.getPaymentComplementPdf);
 
 r.get(
   "/ubicaciones",

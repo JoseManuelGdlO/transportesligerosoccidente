@@ -1,4 +1,6 @@
 import { randomUUID } from "node:crypto";
+import { readFile } from "node:fs/promises";
+import path from "node:path";
 import { Op, Transaction } from "sequelize";
 import {
   AccountDocument,
@@ -15,6 +17,7 @@ import type { TimbradoResult } from "../pac/types";
 import { resolveSicofiBaseUrl, resolveSicofiPagos40Url } from "../pac/sicofi/config";
 import { getSicofiAccessToken, invalidateSicofiAccessToken } from "../pac/sicofi/sicofiAuth";
 import { isSicofiHttp401, sicofiPostPagos40 } from "../pac/sicofi/sicofiClient";
+import { uploadRootDir } from "../../middlewares/uploadDocument";
 import { decryptSecret } from "../../utils/fiscalCrypto";
 import { localDateStr, localDateTimeSatStr } from "../../utils/localDates";
 import { num } from "../../utils/numbers";
@@ -164,6 +167,16 @@ function toComplementDto(pago: {
 
 function messageOf(error: unknown): string {
   return error instanceof Error ? error.message : "Error al timbrar el complemento";
+}
+
+function stampedLines<T extends { account_document_id: string; cfdi_pago_id: string; num_parcialidad: number | string }>(
+  lines: T[],
+  stampedIds: Set<string>,
+  documentId: string,
+): T[] {
+  return lines
+    .filter((line) => line.account_document_id === documentId && stampedIds.has(line.cfdi_pago_id))
+    .sort((a, b) => Number(a.num_parcialidad) - Number(b.num_parcialidad));
 }
 
 async function loadTenant(tenantId: string): Promise<{
@@ -462,9 +475,7 @@ async function draftFromDocuments(
 
   const draft = buildDraftLines({
     docs: sources.map(({ doc, carta, snap, monto }) => {
-      const previous = storedLines
-        .filter((line) => line.account_document_id === doc.id && stampedIds.has(line.cfdi_pago_id))
-        .sort((a, b) => Number(a.num_parcialidad) - Number(b.num_parcialidad));
+      const previous = stampedLines(storedLines, stampedIds, doc.id);
       const last = previous.at(-1);
       return {
         documentId: doc.id,
@@ -723,4 +734,107 @@ export async function discardPaymentComplement(tenantId: string, id: string): Pr
     });
     await pago.destroy({ transaction });
   });
+}
+
+export interface ComplementSnapshot {
+  metodoPago?: string;
+  moneda: string;
+  saldoSat: number;
+  siguienteParcialidad: number;
+}
+
+export async function complementSnapshot(tenantId: string, docId: string): Promise<ComplementSnapshot | null> {
+  const doc = await AccountDocument.findOne({ where: { id: docId, tenant_id: tenantId } });
+  if (!doc?.trip_id) return null;
+
+  const carta = await CartaPorte.findOne({
+    where: {
+      tenant_id: tenantId,
+      trip_id: doc.trip_id,
+      estatus: "timbrada",
+      tipo_comprobante: "ingreso",
+    },
+  });
+  if (!carta?.xml_timbrado) return null;
+
+  let snap;
+  try {
+    snap = parseInvoiceTaxSnapshot(carta.xml_timbrado);
+  } catch {
+    return null;
+  }
+
+  const storedLines = await CfdiPagoDocumento.findAll({
+    where: { tenant_id: tenantId, account_document_id: docId },
+    order: [["num_parcialidad", "ASC"]],
+  });
+  const pagoIds = [...new Set(storedLines.map((line) => line.cfdi_pago_id))];
+  const stamped = pagoIds.length
+    ? await CfdiPago.findAll({
+        where: { tenant_id: tenantId, id: { [Op.in]: pagoIds }, estatus: "timbrado" },
+        attributes: ["id"],
+      })
+    : [];
+  const last = stampedLines(storedLines, new Set(stamped.map((pago) => pago.id)), docId).at(-1);
+  const parcialidadPrevia = last ? Number(last.num_parcialidad) : 0;
+  return {
+    metodoPago: snap.metodoPago,
+    moneda: snap.moneda,
+    saldoSat: last ? num(last.imp_saldo_insoluto) : snap.total,
+    siguienteParcialidad: parcialidadPrevia + 1,
+  };
+}
+
+export async function paymentComplementUuids(tenantId: string, cfdiPagoIds: string[]): Promise<Map<string, string>> {
+  const ids = [...new Set(cfdiPagoIds.filter(Boolean))];
+  const map = new Map<string, string>();
+  if (!ids.length) return map;
+  const rows = await CfdiPago.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: ids } },
+    attributes: ["id", "uuid"],
+  });
+  for (const row of rows) {
+    if (row.uuid) map.set(row.id, row.uuid);
+  }
+  return map;
+}
+
+function pagoFilename(serie: string, folio: string, ext: "xml" | "pdf"): string {
+  const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+  return `complemento-${safe(serie) || "P"}-${safe(folio) || "0"}.${ext}`;
+}
+
+async function loadTimbradoPago(tenantId: string, id: string): Promise<CfdiPago> {
+  const pago = await CfdiPago.findOne({ where: { id, tenant_id: tenantId } });
+  if (!pago) throw new ComplementError("Complemento no encontrado", 404);
+  if (pago.estatus !== "timbrado") {
+    throw new ComplementError("El archivo solo está disponible para un complemento timbrado", 404);
+  }
+  return pago;
+}
+
+export async function getPaymentComplementXml(
+  tenantId: string,
+  id: string,
+): Promise<{ xml: string; filename: string }> {
+  const pago = await loadTimbradoPago(tenantId, id);
+  const xml = pago.xml_timbrado?.trim();
+  if (!xml) throw new ComplementError("XML timbrado no encontrado", 404);
+  return { xml, filename: pagoFilename(pago.serie, String(pago.folio), "xml") };
+}
+
+export async function getPaymentComplementPdf(
+  tenantId: string,
+  id: string,
+): Promise<{ pdf: Buffer; filename: string }> {
+  const pago = await loadTimbradoPago(tenantId, id);
+  const rel = pago.pdf_path?.replace(/\\/g, "/").trim();
+  if (!rel || rel.split("/").includes("..")) throw new ComplementError("PDF no encontrado", 404);
+  const abs = path.join(uploadRootDir(), ...rel.split("/"));
+  try {
+    return { pdf: await readFile(abs), filename: pagoFilename(pago.serie, String(pago.folio), "pdf") };
+  } catch (error) {
+    if (error instanceof ComplementError) throw error;
+    throw new ComplementError("PDF no encontrado", 404);
+  }
 }

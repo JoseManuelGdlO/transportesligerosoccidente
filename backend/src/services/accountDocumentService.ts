@@ -47,6 +47,7 @@ export interface AccountPaymentDto {
   nota?: string;
   created_at?: string;
   cfdi_pago_id?: string;
+  uuid?: string;
 }
 
 export interface AccountDocumentDto {
