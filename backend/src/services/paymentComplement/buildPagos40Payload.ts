@@ -56,12 +56,16 @@ export function buildPagos40Payload(input: {
   numOperacion: string;
   receptor: { rfc: string; razonSocial: string; domicilioFiscal: string; regimenFiscal: string };
   lineas: DraftLine[];
+  email?: string | null;
+  emailMensaje?: string | null;
 }): Record<string, unknown> {
   const monto = round2(input.lineas.reduce((sum, linea) => sum + linea.impPagado, 0));
   const impuestos = aggregatePagoImpuestos(
     input.lineas.map((linea) => linea.taxes),
     input.tipoCambioP,
   );
+  const email = input.email?.trim() || null;
+  const emailMensaje = email ? input.emailMensaje?.trim() || null : null;
 
   return {
     DatosCFDI: {
@@ -81,7 +85,7 @@ export function buildPagos40Payload(input: {
       Exportacion: "01",
       DatosAdicionales: null,
       MensajePDF: null,
-      EmailMensaje: null,
+      EmailMensaje: emailMensaje,
       complementos: null,
     },
     CFDIRelacion40: null,
@@ -94,7 +98,7 @@ export function buildPagos40Payload(input: {
       DomicilioFiscalReceptor: input.receptor.domicilioFiscal,
       RegimenFiscalReceptor: input.receptor.regimenFiscal,
       NoCliente: null,
-      Email: null,
+      Email: email,
       Calle: null,
       NumExt: null,
       NumInt: null,

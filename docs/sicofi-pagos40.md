@@ -24,6 +24,7 @@ Idéntica a **Factura40**: `POST {base}/auth/token` con Basic, luego `POST Pagos
 - Campo tenant: **`cfdi_serie_pago`** (Empresa → datos fiscales / PAC Sicofi, placeholder `P`).
 - Si está vacío, TLO envía serie **`P`** en el JSON.
 - La serie debe estar dada de alta en Sicofi (Administración → SAT → Administrar Series), igual que las series de ingreso.
+- Si el JSON incluye `ReceptorCFDI.Email`, Sicofi envía el PDF y el XML a ese correo; `DatosCFDI.EmailMensaje` es el cuerpo del mensaje.
 
 ## Respuesta
 

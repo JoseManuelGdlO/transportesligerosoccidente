@@ -23,9 +23,10 @@ import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw } from "lucide-reac
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
-import { montoCobroDefault, pendingComplementIdFromError } from "@/lib/paymentComplement";
+import { montoCobroDefault, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError } from "@/lib/paymentComplement";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
+import { ComplementoCorreoFields } from "@/components/tlo/ComplementoCorreoFields";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
 import {
   emptyConcepto,
@@ -227,7 +228,16 @@ export default function Cuentas() {
   const [stampTipoCambio, setStampTipoCambio] = useState("");
   const [stampPayments, setStampPayments] = useState<AccountDocumentPayment[]>([]);
   const [stampIds, setStampIds] = useState<string[]>([]);
+  const [enviarCorreo, setEnviarCorreo] = useState(false);
+  const [correoEmail, setCorreoEmail] = useState("");
+  const [correoMensaje, setCorreoMensaje] = useState(MENSAJE_CORREO_DEFAULT);
   const cobroLoadSeq = useRef(0);
+
+  const resetCorreo = (clientId?: string | null) => {
+    setEnviarCorreo(false);
+    setCorreoEmail(clients.find((c) => c.id === clientId)?.email ?? "");
+    setCorreoMensaje(MENSAJE_CORREO_DEFAULT);
+  };
 
   const fillEditForm = (d: AccountDocument) => {
     setEditForm({
@@ -484,6 +494,7 @@ export default function Cuentas() {
     setCobroForma("03");
     setCobroTipoCambio("");
     setCobroRows([]);
+    resetCorreo(clientId);
     setCobroOpen(true);
     setCobroLoading(true);
     const seq = ++cobroLoadSeq.current;
@@ -528,6 +539,11 @@ export default function Cuentas() {
       toast.error("Tipo de cambio inválido");
       return;
     }
+    const correo = correoComplementoBody(enviarCorreo, correoEmail, correoMensaje);
+    if (correo.ok === false) {
+      toast.error(correo.error);
+      return;
+    }
     const documentos = cobroRows
       .filter((row) => row.checked)
       .map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
@@ -544,6 +560,7 @@ export default function Cuentas() {
         moneda_p: moneda,
         tipo_cambio_p: tipoCambio,
         documentos,
+        ...correo.fields,
       });
       showComplementToast(selected.id, result);
     } catch (e) {
@@ -570,6 +587,7 @@ export default function Cuentas() {
     setStampFecha(new Date().toISOString().slice(0, 10));
     setStampForma("03");
     setStampTipoCambio("");
+    resetCorreo(selected.client_id);
     setStampOpen(true);
   };
 
@@ -593,6 +611,11 @@ export default function Cuentas() {
       toast.error("Selecciona al menos un abono");
       return;
     }
+    const correo = correoComplementoBody(enviarCorreo, correoEmail, correoMensaje);
+    if (correo.ok === false) {
+      toast.error(correo.error);
+      return;
+    }
     setStampSaving(true);
     try {
       const result = await createComplementFromPaymentsApi({
@@ -602,6 +625,7 @@ export default function Cuentas() {
         moneda_p: moneda,
         tipo_cambio_p: tipoCambio,
         payment_ids: stampIds,
+        ...correo.fields,
       });
       showComplementToast(selected.id, result);
     } catch (e) {
@@ -1528,6 +1552,14 @@ export default function Cuentas() {
                 </div>
               )}
             </div>
+            <ComplementoCorreoFields
+              enabled={enviarCorreo}
+              onEnabledChange={setEnviarCorreo}
+              email={correoEmail}
+              onEmailChange={setCorreoEmail}
+              mensaje={correoMensaje}
+              onMensajeChange={setCorreoMensaje}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCobroOpen(false)}>
@@ -1586,6 +1618,14 @@ export default function Cuentas() {
                 </label>
               ))}
             </div>
+            <ComplementoCorreoFields
+              enabled={enviarCorreo}
+              onEnabledChange={setEnviarCorreo}
+              email={correoEmail}
+              onEmailChange={setCorreoEmail}
+              mensaje={correoMensaje}
+              onMensajeChange={setCorreoMensaje}
+            />
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setStampOpen(false)}>

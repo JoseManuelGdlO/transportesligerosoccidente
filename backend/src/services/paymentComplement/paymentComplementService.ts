@@ -44,6 +44,8 @@ export interface CreateComplementInput {
   monedaP: string;
   tipoCambioP: number;
   numOperacion?: string;
+  email?: string;
+  emailMensaje?: string;
   documentos: { documentId: string; monto: number }[];
 }
 
@@ -247,6 +249,17 @@ async function postPagos(
   }
 }
 
+function correoStamp(email?: string | null, mensaje?: string | null): {
+  email: string | null;
+  emailMensaje: string | null;
+} {
+  const trimmed = email?.trim() || null;
+  return {
+    email: trimmed,
+    emailMensaje: trimmed ? mensaje?.trim() || null : null,
+  };
+}
+
 function payloadBody(input: {
   serie: string;
   folio: string;
@@ -260,7 +273,10 @@ function payloadBody(input: {
   lineas: DraftLine[];
   usuario: string;
   contrasena: string;
+  email?: string | null;
+  emailMensaje?: string | null;
 }): Record<string, unknown> {
+  const correo = correoStamp(input.email, input.emailMensaje);
   const payload = buildPagos40Payload({
     serie: input.serie,
     folio: Number(input.folio),
@@ -278,6 +294,8 @@ function payloadBody(input: {
       regimenFiscal: input.client.regimen_fiscal ?? "",
     },
     lineas: input.lineas,
+    email: correo.email,
+    emailMensaje: correo.emailMensaje,
   });
   return {
     Usuario: input.usuario,
@@ -524,6 +542,7 @@ async function runComplement(
     );
     const monto = roundMoney(draft.reduce((sum, linea) => sum + linea.impPagado, 0));
     const paymentIds = mode.kind === "link" ? mode.paymentIds : null;
+    const correo = correoStamp(input.email, input.emailMensaje);
     const pago = await CfdiPago.create(
       {
         id: randomUUID(),
@@ -535,6 +554,8 @@ async function runComplement(
         tipo_cambio_p: String(input.tipoCambioP),
         monto: monto.toFixed(2),
         num_operacion: input.numOperacion?.trim() || null,
+        email: correo.email,
+        email_mensaje: correo.emailMensaje,
         serie: fiscal.serie,
         folio,
         estatus: "error",
@@ -578,6 +599,8 @@ async function runComplement(
     lineas: prepared.draft,
     usuario: fiscal.usuario,
     contrasena: fiscal.contrasena,
+    email: input.email,
+    emailMensaje: input.emailMensaje,
   });
 
   return finishStamp({
@@ -704,6 +727,8 @@ export async function retryPaymentComplement(tenantId: string, id: string): Prom
     lineas: draft,
     usuario: fiscal.usuario,
     contrasena: fiscal.contrasena,
+    email: pago.email,
+    emailMensaje: pago.email_mensaje,
   });
   return finishStamp({
     tenant: fiscal.tenant,

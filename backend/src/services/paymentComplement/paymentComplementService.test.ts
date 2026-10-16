@@ -273,12 +273,44 @@ describe("paymentComplementService", () => {
     const body = h.post.mock.calls[0]?.arguments[1] as {
       Usuario?: string;
       Contrasena?: string;
+      ReceptorCFDI?: { Email?: string | null };
+      DatosCFDI?: { EmailMensaje?: string | null };
       Pagos?: { CFDIPagos40?: { FechaPago?: string }[] };
     };
     assert.equal(body.Usuario, "sicofi-user");
     assert.equal(body.Contrasena, "secret");
+    assert.equal(body.ReceptorCFDI?.Email, null);
+    assert.equal(body.DatosCFDI?.EmailMensaje, null);
     assert.equal(body.Pagos?.CFDIPagos40?.[0]?.FechaPago, `${localDateStr()}T12:00:00`);
     assert.match(String(h.post.mock.calls[0]?.arguments[0]), /\/Comprobante40\/Pagos40$/);
+  });
+
+  it("manda correo y mensaje a Sicofi y los guarda en el complemento", async () => {
+    const doc = makeDoc("doc-1", "trip-1");
+    const h = installHarness({
+      docs: [doc],
+      post: async () => ({ uuid: "UUID-MAIL", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
+      pagoFindAll: () => [],
+      docLines: [],
+      paymentsById: [],
+      paymentsByDocument: [],
+    });
+
+    await createPaymentComplement("tenant-1", "user-1", {
+      ...input([{ documentId: "doc-1", monto: 100 }]),
+      email: "  cliente@empresa.com ",
+      emailMensaje: "  Adjunto el complemento. ",
+    });
+
+    const created = h.pagoCreate.mock.calls[0]?.arguments[0] as { email?: string | null; email_mensaje?: string | null };
+    assert.equal(created.email, "cliente@empresa.com");
+    assert.equal(created.email_mensaje, "Adjunto el complemento.");
+    const body = h.post.mock.calls[0]?.arguments[1] as {
+      ReceptorCFDI?: { Email?: string | null };
+      DatosCFDI?: { EmailMensaje?: string | null };
+    };
+    assert.equal(body.ReceptorCFDI?.Email, "cliente@empresa.com");
+    assert.equal(body.DatosCFDI?.EmailMensaje, "Adjunto el complemento.");
   });
 
   it("parcialidad 2 usa el insoluto de la última línea timbrada", async () => {

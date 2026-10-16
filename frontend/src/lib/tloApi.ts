@@ -1861,6 +1861,8 @@ export interface PaymentComplementCreateBody {
   moneda_p: string;
   tipo_cambio_p: number;
   num_operacion?: string;
+  email?: string;
+  email_mensaje?: string;
   documentos: { document_id: string; monto: number }[];
 }
 
@@ -1871,6 +1873,8 @@ export interface PaymentComplementFromPaymentsBody {
   moneda_p: string;
   tipo_cambio_p: number;
   num_operacion?: string;
+  email?: string;
+  email_mensaje?: string;
   payment_ids: string[];
 }
 

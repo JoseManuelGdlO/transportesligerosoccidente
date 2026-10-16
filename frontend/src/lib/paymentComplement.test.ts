@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { montoCobroDefault, pendingComplementIdFromError } from "./paymentComplement";
+import {
+  correoComplementoBody,
+  montoCobroDefault,
+  pendingComplementIdFromError,
+} from "./paymentComplement";
 
 describe("montoCobroDefault", () => {
   it("toma el menor entre saldo interno y saldo SAT", () => {
@@ -17,5 +21,35 @@ describe("pendingComplementIdFromError", () => {
       ),
     ).toBe(id);
     expect(pendingComplementIdFromError("El monto excede el saldo interno")).toBeNull();
+  });
+});
+
+describe("correoComplementoBody", () => {
+  it("no manda correo si el switch está apagado", () => {
+    expect(correoComplementoBody(false, "cliente@empresa.com", "Hola")).toEqual({
+      ok: true,
+      fields: {},
+    });
+  });
+
+  it("manda correo recortado y mensaje cuando el switch está encendido", () => {
+    expect(correoComplementoBody(true, "  cliente@empresa.com  ", "  Adjunto el complemento.  ")).toEqual({
+      ok: true,
+      fields: { email: "cliente@empresa.com", email_mensaje: "Adjunto el complemento." },
+    });
+  });
+
+  it("omite el mensaje vacío", () => {
+    expect(correoComplementoBody(true, "cliente@empresa.com", "   ")).toEqual({
+      ok: true,
+      fields: { email: "cliente@empresa.com" },
+    });
+  });
+
+  it("rechaza un correo inválido", () => {
+    expect(correoComplementoBody(true, "no-es-correo", "Hola")).toEqual({
+      ok: false,
+      error: "El correo no es válido",
+    });
   });
 });

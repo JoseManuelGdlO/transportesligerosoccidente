@@ -104,6 +104,8 @@ describe("buildPagos40Payload", () => {
     assert.equal(datos.Serie, "P");
     assert.equal(datos.Folio, 12);
     assert.equal(receptor.UsoCfdi, "CP01");
+    assert.equal(receptor.Email, null);
+    assert.equal(datos.EmailMensaje, null);
     assert.equal(payload.ConceptosCFD, null);
     assert.equal(pagos.CFDIPagos40.length, 1);
     assert.equal(pago.Monto, 150);
@@ -137,5 +139,31 @@ describe("buildPagos40Payload", () => {
 
     assert.equal(doctos[0].ImpuestosDR, null);
     assert.equal(doctos[0].ObjetoImpDR, "01");
+  });
+
+  it("pone correo y mensaje cuando hay destinatario", () => {
+    const payload = buildPagos40Payload({
+      ...input(),
+      email: "  cliente@empresa.com  ",
+      emailMensaje: "  Adjunto el complemento.  ",
+    });
+    const datos = payload.DatosCFDI as Record<string, unknown>;
+    const receptor = payload.ReceptorCFDI as Record<string, unknown>;
+
+    assert.equal(receptor.Email, "cliente@empresa.com");
+    assert.equal(datos.EmailMensaje, "Adjunto el complemento.");
+  });
+
+  it("ignora el mensaje si no hay correo", () => {
+    const payload = buildPagos40Payload({
+      ...input(),
+      email: "   ",
+      emailMensaje: "No debe enviarse",
+    });
+    const datos = payload.DatosCFDI as Record<string, unknown>;
+    const receptor = payload.ReceptorCFDI as Record<string, unknown>;
+
+    assert.equal(receptor.Email, null);
+    assert.equal(datos.EmailMensaje, null);
   });
 });

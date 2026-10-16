@@ -13,6 +13,8 @@ const createSchema = z.object({
   moneda_p: z.string().length(3),
   tipo_cambio_p: z.number().positive(),
   num_operacion: z.string().max(100).optional(),
+  email: z.string().trim().email().max(255).optional(),
+  email_mensaje: z.string().trim().max(1000).optional(),
   documentos: z
     .array(
       z.object({
@@ -62,6 +64,8 @@ export const postPaymentComplement = asyncHandler(async (req: Request, res: Resp
       monedaP: data.moneda_p,
       tipoCambioP: data.tipo_cambio_p,
       numOperacion: data.num_operacion,
+      email: data.email,
+      emailMensaje: data.email_mensaje,
       documentos: data.documentos.map((doc) => ({ documentId: doc.document_id, monto: doc.monto })),
     });
     sendDto(res, dto);
@@ -83,6 +87,8 @@ export const postPaymentComplementFromPayments = asyncHandler(async (req: Reques
       monedaP: data.moneda_p,
       tipoCambioP: data.tipo_cambio_p,
       numOperacion: data.num_operacion,
+      email: data.email,
+      emailMensaje: data.email_mensaje,
       paymentIds: data.payment_ids,
     });
     sendDto(res, dto);
