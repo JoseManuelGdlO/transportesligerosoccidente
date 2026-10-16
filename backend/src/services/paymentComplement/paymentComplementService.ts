@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { readFile } from "node:fs/promises";
+import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { Op, Transaction } from "sequelize";
 import {
@@ -363,28 +363,7 @@ async function finishStamp(input: {
     await refreshStatuses(input.docs, input.tenantId, transaction);
   });
 
-  const receptor = await Client.findByPk(input.pago.client_id);
-  const pdf = await renderPagoPdf({
-    serie: input.pago.serie,
-    folio: input.pago.folio,
-    uuid: input.pago.uuid ?? "",
-    fechaPago: input.fechaPago,
-    formaPagoP: input.pago.forma_pago_p,
-    monedaP: input.pago.moneda_p,
-    monto: num(input.pago.monto),
-    receptorNombre: receptor?.razon_social ?? "",
-    receptorRfc: receptor?.rfc ?? "",
-    lineas: input.draft.map((linea) => ({
-      serie: linea.serie,
-      folio: linea.folio,
-      uuid: linea.uuid,
-      numParcialidad: linea.numParcialidad,
-      impSaldoAnt: linea.impSaldoAnt,
-      impPagado: linea.impPagado,
-      impSaldoInsoluto: linea.impSaldoInsoluto,
-      taxes: linea.taxes,
-    })),
-  });
+  const pdf = await renderPagoPdf(result.xmlTimbrado, input.tenant);
   const pdfPath = await writePagoPdf(input.pago.id, input.tenantId, pdf);
   await input.pago.update({ pdf_path: pdfPath });
   return toComplementDto(input.pago, input.draft);
@@ -849,11 +828,25 @@ export async function getPaymentComplementPdf(
   id: string,
 ): Promise<{ pdf: Buffer; filename: string }> {
   const pago = await loadTimbradoPago(tenantId, id);
+  const filename = pagoFilename(pago.serie, String(pago.folio), "pdf");
+  const xml = pago.xml_timbrado?.trim();
+  if (xml) {
+    const tenant = await Tenant.findByPk(tenantId);
+    const pdf = await renderPagoPdf(xml, tenant);
+    const rel = pago.pdf_path?.replace(/\\/g, "/").trim();
+    if (rel && !rel.split("/").includes("..")) {
+      const abs = path.join(uploadRootDir(), ...rel.split("/"));
+      await mkdir(path.dirname(abs), { recursive: true });
+      await writeFile(abs, pdf);
+    }
+    return { pdf, filename };
+  }
+
   const rel = pago.pdf_path?.replace(/\\/g, "/").trim();
   if (!rel || rel.split("/").includes("..")) throw new ComplementError("PDF no encontrado", 404);
   const abs = path.join(uploadRootDir(), ...rel.split("/"));
   try {
-    return { pdf: await readFile(abs), filename: pagoFilename(pago.serie, String(pago.folio), "pdf") };
+    return { pdf: await readFile(abs), filename };
   } catch (error) {
     if (error instanceof ComplementError) throw error;
     throw new ComplementError("PDF no encontrado", 404);

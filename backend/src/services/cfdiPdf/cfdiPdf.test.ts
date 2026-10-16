@@ -147,6 +147,50 @@ describe("renderCfdiPdfFromXml", () => {
   });
 });
 
+describe("parseCfdiXml pagos", () => {
+  it("lee el complemento de pagos 2.0 y no lo confunde con carta porte", () => {
+    const xml = `<?xml version="1.0"?>
+<cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20" Version="4.0" Serie="P" Folio="1" Fecha="2026-10-16T12:44:00" SubTotal="0" Total="0" Moneda="XXX" TipoDeComprobante="P" LugarExpedicion="45640">
+  <cfdi:Emisor Rfc="TNU150126V30" Nombre="TRANSPORTES LIGEROS DE OCCIDENTE" RegimenFiscal="624"/>
+  <cfdi:Receptor Rfc="AHH211109FL2" Nombre="ACEROS HH" DomicilioFiscalReceptor="45645" RegimenFiscalReceptor="601" UsoCFDI="CP01"/>
+  <cfdi:Conceptos><cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0"/></cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Totales TotalRetencionesIVA="71.43" MontoTotalPagos="2000.00"/>
+      <pago20:Pago FechaPago="2026-10-16T12:00:00" FormaDePagoP="03" MonedaP="MXN" TipoCambioP="1" Monto="2000.00">
+        <pago20:DoctoRelacionado IdDocumento="02c28acb-4bba-4fa1-ac5d-5df4420e386c" Folio="4497" MonedaDR="MXN" EquivalenciaDR="1" NumParcialidad="1" ImpSaldoAnt="4704.00" ImpPagado="2000.00" ImpSaldoInsoluto="2704.00" ObjetoImpDR="02">
+          <pago20:ImpuestosDR>
+            <pago20:TrasladosDR><pago20:TrasladoDR BaseDR="1785.71" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="285.71"/></pago20:TrasladosDR>
+            <pago20:RetencionesDR><pago20:RetencionDR BaseDR="1785.71" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.040000" ImporteDR="71.43"/></pago20:RetencionesDR>
+          </pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>
+        <pago20:ImpuestosP>
+          <pago20:TrasladosP><pago20:TrasladoP BaseP="1785.71" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="0.160000" ImporteP="285.71"/></pago20:TrasladosP>
+          <pago20:RetencionesP><pago20:RetencionP ImpuestoP="002" ImporteP="71.43"/></pago20:RetencionesP>
+        </pago20:ImpuestosP>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" UUID="0ca71ac8-61a8-4d50-8136-fc447522c588" FechaTimbrado="2026-10-16T12:44:00"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+    const cfdi = parseCfdiXml(xml);
+    assert.equal(cfdi.cartaPorte, undefined);
+    assert.equal(cfdi.pagos?.version, "2.0");
+    assert.equal(cfdi.pagos?.totales.montoTotalPagos, "2000.00");
+    assert.equal(cfdi.pagos?.totales.totalRetencionesIVA, "71.43");
+    assert.equal(cfdi.pagos?.pagos.length, 1);
+    const pago = cfdi.pagos?.pagos[0];
+    assert.equal(pago?.formaDePagoP, "03");
+    assert.equal(pago?.documentos[0]?.folio, "4497");
+    assert.equal(pago?.documentos[0]?.serie, undefined);
+    assert.equal(pago?.documentos[0]?.traslados[0]?.importe, "285.71");
+    assert.equal(pago?.documentos[0]?.retenciones[0]?.tasaOCuota, "0.040000");
+    assert.equal(pago?.trasladosP[0]?.base, "1785.71");
+    assert.equal(pago?.retencionesP[0]?.importe, "71.43");
+    assert.equal(pago?.numOperacion, undefined);
+  });
+});
+
 describe("numeroEnLetra", () => {
   it("convierte montos típicos", () => {
     assert.match(numeroEnLetra(8960), /OCHO MIL/);

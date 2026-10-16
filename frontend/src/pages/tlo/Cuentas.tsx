@@ -19,7 +19,7 @@ import {
   AlertDialogTitle,
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { ChevronLeft, ChevronRight, Plus, RefreshCw } from "lucide-react";
+import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw } from "lucide-react";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
@@ -60,6 +60,54 @@ import type {
   Supplier,
 } from "@/types/tlo";
 import { toast } from "sonner";
+
+/** Catálogo SAT c_FormaPago usable en complemento (99 “Por definir” no aplica). */
+const FORMAS_PAGO_COMPLEMENTO = [
+  ["01", "Efectivo"],
+  ["02", "Cheque nominativo"],
+  ["03", "Transferencia electrónica de fondos"],
+  ["04", "Tarjeta de crédito"],
+  ["05", "Monedero electrónico"],
+  ["06", "Dinero electrónico"],
+  ["08", "Vales de despensa"],
+  ["12", "Dación en pago"],
+  ["13", "Pago por subrogación"],
+  ["14", "Pago por consignación"],
+  ["15", "Condonación"],
+  ["17", "Compensación"],
+  ["23", "Novación"],
+  ["24", "Confusión"],
+  ["25", "Remisión de deuda"],
+  ["26", "Prescripción o caducidad"],
+  ["27", "A satisfacción del acreedor"],
+  ["28", "Tarjeta de débito"],
+  ["29", "Tarjeta de servicios"],
+  ["30", "Aplicación de anticipos"],
+  ["31", "Intermediario pagos"],
+] as const;
+
+function FormaPagoSelect({
+  value,
+  onChange,
+}: {
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger>
+        <SelectValue placeholder="Forma de pago" />
+      </SelectTrigger>
+      <SelectContent>
+        {FORMAS_PAGO_COMPLEMENTO.map(([code, label]) => (
+          <SelectItem key={code} value={code}>
+            {code} — {label}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
+}
 
 const BUCKET_LABELS: Record<AgingBucket, string> = {
   corriente: "Corriente",
@@ -122,6 +170,7 @@ export default function Cuentas() {
   const [createOpen, setCreateOpen] = useState(false);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [detailOpen, setDetailOpen] = useState(false);
+  const [detailLoading, setDetailLoading] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
   const [selected, setSelected] = useState<AccountDocument | null>(null);
@@ -198,12 +247,14 @@ export default function Cuentas() {
     setSelected(d);
     fillEditForm(d);
     setDetailOpen(true);
+    setDetailLoading(true);
     void fetchAccountDocument(d.id)
       .then((full) => {
         setSelected(full);
         fillEditForm(full);
       })
-      .catch(() => undefined);
+      .catch(() => undefined)
+      .finally(() => setDetailLoading(false));
   };
 
   const load = useCallback(async () => {
@@ -279,6 +330,7 @@ export default function Cuentas() {
   useEffect(() => {
     const docId = searchParams.get("doc");
     if (!docId || !canView) return;
+    setDetailLoading(true);
     void fetchAccountDocument(docId)
       .then((d) => {
         setSelected(d);
@@ -286,7 +338,8 @@ export default function Cuentas() {
         setDetailOpen(true);
         setTipo(d.tipo);
       })
-      .catch(() => toast.error("Documento no encontrado"));
+      .catch(() => toast.error("Documento no encontrado"))
+      .finally(() => setDetailLoading(false));
   }, [searchParams, canView]);
 
   const totals = useMemo(
@@ -374,7 +427,11 @@ export default function Cuentas() {
 
   const refreshAfterComplement = async (documentId: string) => {
     const full = await fetchAccountDocument(documentId).catch(() => null);
-    if (full) setSelected(full);
+    if (full) {
+      setSelected(full);
+      fillEditForm(full);
+      setDetailOpen(true);
+    }
     await load();
   };
 
@@ -383,6 +440,7 @@ export default function Cuentas() {
       toast.success(result.dto.uuid ? `Complemento timbrado ${result.dto.uuid}` : "Complemento timbrado");
       setCobroOpen(false);
       setStampOpen(false);
+      setDetailOpen(true);
       void refreshAfterComplement(documentId);
       return;
     }
@@ -1221,7 +1279,14 @@ export default function Cuentas() {
               <Button variant="outline" onClick={() => setDetailOpen(false)}>
                 Cerrar
               </Button>
+              {canManage && detailLoading && selected?.estatus === "abierta" && selected.saldo_pendiente > 0 && (
+                <Button variant="secondary" disabled>
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  Cargando…
+                </Button>
+              )}
               {canManage &&
+                !detailLoading &&
                 selected?.complemento_disponible &&
                 selected.estatus === "abierta" &&
                 selected.saldo_pendiente > 0 && (
@@ -1230,6 +1295,7 @@ export default function Cuentas() {
                   </Button>
                 )}
               {canManage &&
+                !detailLoading &&
                 selected?.estatus === "abierta" &&
                 selected.saldo_pendiente > 0 &&
                 !selected.complemento_disponible && (
@@ -1398,11 +1464,7 @@ export default function Cuentas() {
             </div>
             <div>
               <Label>Forma de pago</Label>
-              <Input
-                maxLength={2}
-                value={cobroForma}
-                onChange={(e) => setCobroForma(e.target.value)}
-              />
+              <FormaPagoSelect value={cobroForma} onChange={setCobroForma} />
             </div>
             <div>
               <Label>Moneda</Label>
@@ -1490,11 +1552,7 @@ export default function Cuentas() {
             </div>
             <div>
               <Label>Forma de pago</Label>
-              <Input
-                maxLength={2}
-                value={stampForma}
-                onChange={(e) => setStampForma(e.target.value)}
-              />
+              <FormaPagoSelect value={stampForma} onChange={setStampForma} />
             </div>
             {!cobroEsMxn && (
               <div>

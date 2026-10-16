@@ -86,6 +86,66 @@ export interface CfdiAutotransporte {
   primaSeguro?: string;
 }
 
+export interface CfdiPagoImpuesto {
+  base?: string;
+  impuesto: string;
+  tipoFactor?: string;
+  tasaOCuota?: string;
+  importe: string;
+}
+
+export interface CfdiDoctoRelacionado {
+  idDocumento: string;
+  serie?: string;
+  folio?: string;
+  monedaDR: string;
+  equivalenciaDR?: string;
+  numParcialidad: string;
+  impSaldoAnt: string;
+  impPagado: string;
+  impSaldoInsoluto: string;
+  objetoImpDR?: string;
+  traslados: CfdiPagoImpuesto[];
+  retenciones: CfdiPagoImpuesto[];
+}
+
+export interface CfdiPagoNode {
+  fechaPago: string;
+  formaDePagoP: string;
+  monedaP: string;
+  tipoCambioP?: string;
+  monto: string;
+  numOperacion?: string;
+  rfcEmisorCtaOrd?: string;
+  nomBancoOrdExt?: string;
+  ctaOrdenante?: string;
+  rfcEmisorCtaBen?: string;
+  ctaBeneficiario?: string;
+  documentos: CfdiDoctoRelacionado[];
+  trasladosP: CfdiPagoImpuesto[];
+  retencionesP: CfdiPagoImpuesto[];
+}
+
+export interface CfdiPagosTotales {
+  totalRetencionesISR?: string;
+  totalRetencionesIVA?: string;
+  totalRetencionesIEPS?: string;
+  totalTrasladosBaseIVA16?: string;
+  totalTrasladosImpuestoIVA16?: string;
+  totalTrasladosBaseIVA8?: string;
+  totalTrasladosImpuestoIVA8?: string;
+  totalTrasladosBaseIVA0?: string;
+  totalTrasladosImpuestoIVA0?: string;
+  totalTrasladosBaseIVAExento?: string;
+  montoTotalPagos: string;
+}
+
+export interface CfdiPagos {
+  version: string;
+  totales: CfdiPagosTotales;
+  pagos: CfdiPagoNode[];
+}
+
 export interface CfdiCartaPorte {
   version: string;
   idCCP?: string;
@@ -116,6 +176,7 @@ export interface ParsedCfdi {
   folio?: string;
   fecha: string;
   subTotal: string;
+  descuento?: string;
   total: string;
   moneda: string;
   tipoDeComprobante: string;
@@ -146,6 +207,7 @@ export interface ParsedCfdi {
     rfcProvCertif?: string;
   };
   cartaPorte?: CfdiCartaPorte;
+  pagos?: CfdiPagos;
 }
 
 function asArray<T>(v: T | T[] | undefined | null): T[] {
@@ -340,14 +402,102 @@ function parseCartaPorte(node: Record<string, unknown>): CfdiCartaPorte {
 
 function findCartaPorte(complemento: Record<string, unknown> | undefined): CfdiCartaPorte | undefined {
   if (!complemento) return undefined;
-  const cp =
-    complemento.CartaPorte ||
-    complemento["cartaporte31:CartaPorte"] ||
-    Object.values(complemento).find(
-      (v) => v && typeof v === "object" && ("@_Version" in (v as object) || "Ubicaciones" in (v as object)),
-    );
-  if (!cp || typeof cp !== "object") return undefined;
-  return parseCartaPorte(cp as Record<string, unknown>);
+  const named = complemento.CartaPorte || complemento["cartaporte31:CartaPorte"];
+  if (named && typeof named === "object") return parseCartaPorte(named as Record<string, unknown>);
+  const fallback = Object.entries(complemento).find(([key, value]) => {
+    if (key === "Pagos" || key === "TimbreFiscalDigital") return false;
+    return !!value && typeof value === "object" && ("Ubicaciones" in value || "Mercancias" in value);
+  });
+  if (!fallback) return undefined;
+  return parseCartaPorte(fallback[1] as Record<string, unknown>);
+}
+
+function childNodes(node: Record<string, unknown> | undefined, wrapper: string, item: string): Record<string, unknown>[] {
+  if (!node) return [];
+  const wrap = node[wrapper];
+  if (!wrap || typeof wrap !== "object") return [];
+  if (Array.isArray(wrap)) {
+    return wrap.flatMap((entry) => asRecordArray((entry as Record<string, unknown>)[item]));
+  }
+  return asRecordArray((wrap as Record<string, unknown>)[item]);
+}
+
+function parsePagoImpuesto(node: Record<string, unknown>, suffix: "DR" | "P"): CfdiPagoImpuesto {
+  return {
+    base: attr(node, `Base${suffix}`) || undefined,
+    impuesto: attr(node, `Impuesto${suffix}`),
+    tipoFactor: attr(node, `TipoFactor${suffix}`) || undefined,
+    tasaOCuota: attr(node, `TasaOCuota${suffix}`) || undefined,
+    importe: attr(node, `Importe${suffix}`),
+  };
+}
+
+function parseDoctoRelacionado(node: Record<string, unknown>): CfdiDoctoRelacionado {
+  const impuestos = node.ImpuestosDR as Record<string, unknown> | undefined;
+  return {
+    idDocumento: attr(node, "IdDocumento"),
+    serie: attr(node, "Serie") || undefined,
+    folio: attr(node, "Folio") || undefined,
+    monedaDR: attr(node, "MonedaDR"),
+    equivalenciaDR: attr(node, "EquivalenciaDR") || undefined,
+    numParcialidad: attr(node, "NumParcialidad"),
+    impSaldoAnt: attr(node, "ImpSaldoAnt"),
+    impPagado: attr(node, "ImpPagado"),
+    impSaldoInsoluto: attr(node, "ImpSaldoInsoluto"),
+    objetoImpDR: attr(node, "ObjetoImpDR") || undefined,
+    traslados: childNodes(impuestos, "TrasladosDR", "TrasladoDR").map((row) => parsePagoImpuesto(row, "DR")),
+    retenciones: childNodes(impuestos, "RetencionesDR", "RetencionDR").map((row) => parsePagoImpuesto(row, "DR")),
+  };
+}
+
+function parsePagoNode(node: Record<string, unknown>): CfdiPagoNode {
+  const impuestos = node.ImpuestosP as Record<string, unknown> | undefined;
+  return {
+    fechaPago: attr(node, "FechaPago"),
+    formaDePagoP: attr(node, "FormaDePagoP"),
+    monedaP: attr(node, "MonedaP"),
+    tipoCambioP: attr(node, "TipoCambioP") || undefined,
+    monto: attr(node, "Monto"),
+    numOperacion: attr(node, "NumOperacion") || undefined,
+    rfcEmisorCtaOrd: attr(node, "RfcEmisorCtaOrd") || undefined,
+    nomBancoOrdExt: attr(node, "NomBancoOrdExt") || undefined,
+    ctaOrdenante: attr(node, "CtaOrdenante") || undefined,
+    rfcEmisorCtaBen: attr(node, "RfcEmisorCtaBen") || undefined,
+    ctaBeneficiario: attr(node, "CtaBeneficiario") || undefined,
+    documentos: asRecordArray(node.DoctoRelacionado).map(parseDoctoRelacionado),
+    trasladosP: childNodes(impuestos, "TrasladosP", "TrasladoP").map((row) => parsePagoImpuesto(row, "P")),
+    retencionesP: childNodes(impuestos, "RetencionesP", "RetencionP").map((row) => parsePagoImpuesto(row, "P")),
+  };
+}
+
+function optionalAttr(node: Record<string, unknown> | undefined, name: string): string | undefined {
+  const value = attr(node, name);
+  return value || undefined;
+}
+
+function findPagos(complemento: Record<string, unknown> | undefined): CfdiPagos | undefined {
+  if (!complemento) return undefined;
+  const pagos = complemento.Pagos;
+  if (!pagos || typeof pagos !== "object") return undefined;
+  const node = pagos as Record<string, unknown>;
+  const totales = (node.Totales as Record<string, unknown> | undefined) ?? {};
+  return {
+    version: attr(node, "Version") || "2.0",
+    totales: {
+      totalRetencionesISR: optionalAttr(totales, "TotalRetencionesISR"),
+      totalRetencionesIVA: optionalAttr(totales, "TotalRetencionesIVA"),
+      totalRetencionesIEPS: optionalAttr(totales, "TotalRetencionesIEPS"),
+      totalTrasladosBaseIVA16: optionalAttr(totales, "TotalTrasladosBaseIVA16"),
+      totalTrasladosImpuestoIVA16: optionalAttr(totales, "TotalTrasladosImpuestoIVA16"),
+      totalTrasladosBaseIVA8: optionalAttr(totales, "TotalTrasladosBaseIVA8"),
+      totalTrasladosImpuestoIVA8: optionalAttr(totales, "TotalTrasladosImpuestoIVA8"),
+      totalTrasladosBaseIVA0: optionalAttr(totales, "TotalTrasladosBaseIVA0"),
+      totalTrasladosImpuestoIVA0: optionalAttr(totales, "TotalTrasladosImpuestoIVA0"),
+      totalTrasladosBaseIVAExento: optionalAttr(totales, "TotalTrasladosBaseIVAExento"),
+      montoTotalPagos: attr(totales, "MontoTotalPagos"),
+    },
+    pagos: asRecordArray(node.Pago).map(parsePagoNode),
+  };
 }
 
 function parseImpuestos(impNode: Record<string, unknown> | undefined): CfdiImpuesto[] {
@@ -383,9 +533,23 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     attributeNamePrefix: "@_",
     removeNSPrefix: true,
     isArray: (name) =>
-      ["Concepto", "Ubicacion", "Mercancia", "CantidadTransporta", "CantidadTransportada", "TiposFigura", "Traslado", "Retencion", "RegimenAduanero"].includes(
-        name,
-      ),
+      [
+        "Concepto",
+        "Ubicacion",
+        "Mercancia",
+        "CantidadTransporta",
+        "CantidadTransportada",
+        "TiposFigura",
+        "Traslado",
+        "Retencion",
+        "RegimenAduanero",
+        "Pago",
+        "DoctoRelacionado",
+        "TrasladoDR",
+        "RetencionDR",
+        "TrasladoP",
+        "RetencionP",
+      ].includes(name),
   });
   const doc = parser.parse(xml) as Record<string, unknown>;
   const comprobante = (doc.Comprobante || doc["cfdi:Comprobante"]) as Record<string, unknown> | undefined;
@@ -431,6 +595,7 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
     folio: attr(comprobante, "Folio") || undefined,
     fecha: attr(comprobante, "Fecha"),
     subTotal: attr(comprobante, "SubTotal") || "0",
+    descuento: attr(comprobante, "Descuento") || undefined,
     total: attr(comprobante, "Total") || "0",
     moneda: attr(comprobante, "Moneda") || "MXN",
     tipoDeComprobante: attr(comprobante, "TipoDeComprobante"),
@@ -466,5 +631,6 @@ export function parseCfdiXml(xml: string): ParsedCfdi {
       rfcProvCertif: attr(tfd, "RfcProvCertif") || undefined,
     },
     cartaPorte: findCartaPorte(complemento),
+    pagos: findPagos(complemento),
   };
 }

@@ -12,7 +12,11 @@ import {
   type CfdiAutotransporte,
   type CfdiCartaPorte,
   type CfdiConcepto,
+  type CfdiDoctoRelacionado,
   type CfdiMercancia,
+  type CfdiPagoImpuesto,
+  type CfdiPagoNode,
+  type CfdiPagosTotales,
   type CfdiUbicacion,
 } from "./parseCfdiXml";
 import { formatCantidadVisible, prepareCfdiForPdf, type CartaPortePdfSource } from "./prepareCfdiForPdf";
@@ -41,6 +45,7 @@ import {
   drawInlineField,
   drawPanel,
   drawPanelFrame,
+  filledBox,
   drawPlainSeal,
   drawPurpleBand,
   drawPurpleCell,
@@ -158,6 +163,7 @@ const P2 = {
 function tipoLabel(tipo: string): string {
   if (tipo === "I" || tipo === "FA") return "I - Factura";
   if (tipo === "T") return "T - Traslado";
+  if (tipo === "P") return "P - Pagos";
   return `${tipo} - Comprobante`;
 }
 
@@ -177,10 +183,10 @@ function impuestoLabel(code: string): string {
   return code;
 }
 
-function fmtCantidad(n: string): string {
+function fmtCantidad(n: string, decimals = 4): string {
   const v = parseFloat(n);
   if (Number.isNaN(v)) return n;
-  return v.toLocaleString("es-MX", { minimumFractionDigits: 4, maximumFractionDigits: 4 });
+  return v.toLocaleString("es-MX", { minimumFractionDigits: decimals, maximumFractionDigits: decimals });
 }
 
 function impuestoTotalLabel(tipo: "traslado" | "retencion", impuesto: string, tasa?: string): string {
@@ -325,7 +331,7 @@ function drawCertPanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
   const values = [
     cfdi.timbre.fechaTimbrado,
     val(cfdi.timbre.noCertificadoSAT),
-    formatCatalogCode(cfdi.formaPago, "formaPago"),
+    cfdi.formaPago ? formatCatalogCode(cfdi.formaPago, "formaPago") : "-",
   ];
   const bodyH = c.h - c.headerH;
   c.cols.forEach(([left, right], i) => {
@@ -369,7 +375,13 @@ function drawReceptorPanel(doc: PdfDoc, cfdi: ParsedCfdi): void {
   });
 }
 
-function drawConceptosTable(doc: PdfDoc, cfdi: ParsedCfdi, lookup: CatalogLookup): number {
+function drawConceptosTable(
+  doc: PdfDoc,
+  cfdi: ParsedCfdi,
+  lookup: CatalogLookup,
+  minRowH = P1.conceptos.minRowH,
+  cantidadDecimals = 4,
+): number {
   const t = P1.conceptos;
   const xs = t.xs;
   drawPurpleBand(doc, CONTENT_L, t.y, CONTENT_W, t.headerH);
@@ -382,12 +394,12 @@ function drawConceptosTable(doc: PdfDoc, cfdi: ParsedCfdi, lookup: CatalogLookup
   let y = t.y + t.headerH;
   for (const c of cfdi.conceptos) {
     const desc = conceptoDescripcion(c, lookup);
-    const rowH = Math.max(t.minRowH, lineCount(doc, desc, descW, 7) * LEAD_7);
+    const rowH = Math.max(minRowH, lineCount(doc, desc, descW, 7) * LEAD_7);
     for (let i = 0; i < xs.length - 1; i++) {
       box(doc, xs[i], y, xs[i + 1] - xs[i], rowH, BLACK, 1);
     }
     const mid = centerTop(y, rowH, 7);
-    textCenter(doc, fmtCantidad(c.cantidad), xs[0], xs[1], mid, { size: 7, color: PURPLE });
+    textCenter(doc, fmtCantidad(c.cantidad, cantidadDecimals), xs[0], xs[1], mid, { size: 7, color: PURPLE });
     textCenter(doc, conceptoClaveUnidad(c), xs[1], xs[2], mid, { size: 7, color: PURPLE });
     text(doc, desc, xs[2] + 2, y - 0.5, { size: 7, color: PURPLE, width: descW, leading: LEAD_7 });
     textRight(doc, fmtMoney(c.valorUnitario), xs[4] - 2, mid, { size: 7, color: PURPLE, width: xs[4] - xs[3] - 4 });
@@ -483,8 +495,12 @@ async function renderPage1(
     text(doc, p, P1.letra.x, sealsY + P1.metodoOffsets[i], { size: 7 });
   });
 
-  await drawQr(doc, cfdi, P1.qr.x, sealsY + P1.qr.dy, P1.qr.size);
+  await drawFiscalSeals(doc, cfdi, sealsY);
+  drawPage1Footer(doc);
+}
 
+async function drawFiscalSeals(doc: PdfDoc, cfdi: ParsedCfdi, sealsY: number): Promise<void> {
+  await drawQr(doc, cfdi, P1.qr.x, sealsY + P1.qr.dy, P1.qr.size);
   const titles = [
     "Cadena original del complemento de certificación digital del SAT",
     "Sello digital del emisor",
@@ -500,8 +516,6 @@ async function renderPage1(
     drawPurpleSeal(doc, P1.seals.x, sy, P1.seals.w, h, titles[i], contents[i]);
     sy += h + P1.seals.gap;
   });
-
-  drawPage1Footer(doc);
 }
 
 function drawPage2Header(
@@ -906,6 +920,266 @@ async function renderPage2(
   drawPage2Footer(doc);
 }
 
+function fmtPagoImporte(n: string): string {
+  const v = parseFloat(n);
+  if (Number.isNaN(v)) return n;
+  return v.toLocaleString("es-MX", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+function fmtPagoBase(n: string): string {
+  const v = parseFloat(n);
+  if (Number.isNaN(v)) return n;
+  return v.toFixed(2);
+}
+
+function fmtComprobanteCero(raw: string | undefined, moneda: string): string {
+  const v = parseFloat(raw ?? "0");
+  if (!raw || Number.isNaN(v) || v === 0) return `0 ${moneda}`;
+  return fmtMoney(v, moneda);
+}
+
+/** Sicofi pone la moneda antes de los centavos: `CERO XXX  00/100`. */
+function totalEnLetraPago(total: string, moneda: string): string {
+  const amount = Number.parseFloat(total);
+  const safe = Number.isFinite(amount) ? Math.abs(amount) : 0;
+  const entero = Math.floor(safe + 1e-8);
+  const centavos = Math.round((safe - entero) * 100);
+  const palabras = entero === 0 ? "CERO" : numeroEnLetra(entero, "MXN").replace(/ \d{2}\/100 MXN$/, "");
+  return `${palabras} ${moneda || "XXX"}  ${String(centavos).padStart(2, "0")}/100`;
+}
+
+function factorTasa(tax: CfdiPagoImpuesto): string {
+  if (!tax.tipoFactor) return "";
+  if (!tax.tasaOCuota || tax.tipoFactor.toLowerCase() === "exento") return tax.tipoFactor;
+  return `${tax.tipoFactor} - ${tax.tasaOCuota}`;
+}
+
+function serieFolioDr(docto: CfdiDoctoRelacionado): string {
+  if (docto.serie && docto.folio) return `${docto.serie} ${docto.folio}`;
+  if (docto.folio) return ` ${docto.folio}`;
+  return docto.serie ?? "";
+}
+
+function drawPagoHeader(doc: PdfDoc, cfdi: ParsedCfdi, logo: Buffer | null): void {
+  drawLogo(doc, logo, P1.logo.x, P1.logo.y, P1.logo.w, P1.logo.h);
+  drawInvoicePanel(doc, cfdi);
+  text(doc, `Lugar de expedición: ${cfdi.lugarExpedicion}`, P1.lugarExpedicion.x, P1.lugarExpedicion.top, {
+    size: 7,
+    bold: true,
+  });
+  drawEmisorPanel(doc, cfdi);
+  drawCertPanel(doc, cfdi);
+  drawReceptorPanel(doc, cfdi);
+}
+
+function drawSectionBar(doc: PdfDoc, y: number, title: string): number {
+  const h = 12;
+  filledBox(doc, CONTENT_L, y, CONTENT_W, h, BLACK, BLACK, 0.5);
+  textCenter(doc, title, CONTENT_L, CONTENT_R, centerTop(y, h, 8), { size: 8, color: WHITE });
+  return y + h;
+}
+
+function pagoField(doc: PdfDoc, x: number, top: number, label: string, value: string | undefined, width: number): void {
+  const shown = value?.trim() ?? "";
+  text(doc, shown ? `${label}: ${shown}` : `${label}:`, x, top, { size: 6, width });
+}
+
+function drawComplementoPago(doc: PdfDoc, pago: CfdiPagoNode, y: number): number {
+  y = drawSectionBar(doc, y, "Complemento de Pagos");
+  const top = y + 3;
+  const forma = catalogDescription(pago.formaDePagoP, "formaPago") || pago.formaDePagoP;
+  const left: [string, string | undefined][] = [
+    ["Fecha De Pago", pago.fechaPago],
+    ["Tipo De Cambio", pago.tipoCambioP],
+    ["Moneda", pago.monedaP],
+    ["Monto", fmtPagoImporte(pago.monto)],
+  ];
+  const mid: [string, string | undefined][] = [
+    ["RFC Emisor Cta.Ben", pago.rfcEmisorCtaBen],
+    ["Cta. Beneficiario", pago.ctaBeneficiario],
+    ["RFC Emisor Cta.Ord", pago.rfcEmisorCtaOrd],
+    ["Cta. Ordenante", pago.ctaOrdenante],
+  ];
+  const right: [string, string | undefined][] = [
+    ["Nom. Banco Ord.Ext", pago.nomBancoOrdExt],
+    ["Num. Operacion", pago.numOperacion],
+    ["Forma De Pago", forma],
+  ];
+  left.forEach(([label, value], i) => pagoField(doc, 22, top + i * 9, label, value, 180));
+  mid.forEach(([label, value], i) => pagoField(doc, 212, top + i * 9, label, value, 180));
+  right.forEach(([label, value], i) => pagoField(doc, 402, top + [3, 16, 24][i], label, value, 185));
+  return top + 4 * 9 + 6;
+}
+
+function drawDoctoRelacionado(doc: PdfDoc, docto: CfdiDoctoRelacionado, y: number): number {
+  y = drawSectionBar(doc, y, "Documentos Relacionados");
+  const rows = Math.max(docto.traslados.length, docto.retenciones.length, 1);
+  const identity = [
+    [`Id. Del Documento: ${docto.idDocumento}`, `Objeto Imp DR: ${docto.objetoImpDR ? formatCatalogCode(docto.objetoImpDR, "objetoImp") : ""}`],
+    [`Serie - Folio: ${serieFolioDr(docto)}`, `Imp. Saldo Ant: ${fmtPagoImporte(docto.impSaldoAnt)}`],
+    [
+      `Moneda: ${docto.monedaDR}`,
+      `Imp. Pagado: ${fmtPagoImporte(docto.impPagado)}`,
+    ],
+    [`Num. Parcialidad: ${docto.numParcialidad}`, `Imp. Saldo Insoluto: ${fmtPagoImporte(docto.impSaldoInsoluto)}`],
+  ];
+  const top = y + 0.5;
+  for (let i = 0; i < identity.length; i++) {
+    const rowY = top + i * 8;
+    text(doc, identity[i][0], 20, rowY, { size: 6, width: 180 });
+    text(doc, identity[i][1], 205, rowY, { size: 6, width: 150 });
+  }
+  if (docto.equivalenciaDR) {
+    text(doc, `Equivalencia: ${docto.equivalenciaDR}`, 125, top + 16, { size: 6, width: 75 });
+  }
+  for (let i = 0; i < rows; i++) {
+    const traslado = docto.traslados[i];
+    const retencion = docto.retenciones[i];
+    const baseY = top + i * 32;
+    if (traslado) {
+      const lines = [
+        `BaseT: ${fmtPagoBase(traslado.base ?? "")}`,
+        `Tipo FactorT: ${factorTasa(traslado)}`,
+        `ImpuestoT: ${traslado.impuesto}`,
+        `ImporteT: ${fmtPagoBase(traslado.importe)}`,
+      ];
+      lines.forEach((lineText, lineIndex) => text(doc, lineText, 359, baseY + lineIndex * 8, { size: 6, width: 108 }));
+    }
+    if (retencion) {
+      const lines = [
+        `BaseR: ${fmtPagoBase(retencion.base ?? "")}`,
+        `Tipo FactorR: ${factorTasa(retencion)}`,
+        `ImpuestoR: ${retencion.impuesto}`,
+        `ImporteR: ${fmtPagoBase(retencion.importe)}`,
+      ];
+      lines.forEach((lineText, lineIndex) => text(doc, lineText, 471, baseY + lineIndex * 8, { size: 6, width: 118 }));
+    }
+  }
+  const ruleY = top + Math.max(4, rows * 4) * 8 + 1;
+  hRule(doc, 20, ruleY, CONTENT_W, BLACK, 0.9);
+  return ruleY + 4;
+}
+
+function drawImpuestosP(doc: PdfDoc, pago: CfdiPagoNode, y: number): number {
+  for (const tax of pago.trasladosP) {
+    const tasa = tax.tasaOCuota ? ` TasaOCuotaP: ${tax.tasaOCuota}` : "";
+    const factor = tax.tipoFactor ? ` TipoFactor: ${tax.tipoFactor}` : "";
+    const base = tax.base ? `BaseP: ${fmtPagoBase(tax.base)}` : "";
+    text(
+      doc,
+      [base, tasa.trim(), factor.trim(), `ImpuestoP: ${tax.impuesto}`, `ImporteP: ${fmtPagoBase(tax.importe)}`]
+        .filter(Boolean)
+        .join(" "),
+      20,
+      y,
+      { size: 6, width: CONTENT_W },
+    );
+    y += 14;
+  }
+  for (const tax of pago.retencionesP) {
+    text(doc, `ImpuestoP: ${tax.impuesto} ImporteP: ${fmtPagoBase(tax.importe)}`, 20, y, { size: 6, width: CONTENT_W });
+    y += 14;
+  }
+  return y;
+}
+
+const PAGO_TOTAL_ROWS: [keyof CfdiPagosTotales, string][] = [
+  ["totalRetencionesISR", "TotalRetencionesISR"],
+  ["totalRetencionesIVA", "TotalRetencionesIVA"],
+  ["totalRetencionesIEPS", "TotalRetencionesIEPS"],
+  ["totalTrasladosBaseIVA16", "TotalTrasladosBaseIVA16"],
+  ["totalTrasladosImpuestoIVA16", "TotalTrasladosImpuestoIVA16"],
+  ["totalTrasladosBaseIVA8", "TotalTrasladosBaseIVA8"],
+  ["totalTrasladosImpuestoIVA8", "TotalTrasladosImpuestoIVA8"],
+  ["totalTrasladosBaseIVA0", "TotalTrasladosBaseIVA0"],
+  ["totalTrasladosImpuestoIVA0", "TotalTrasladosImpuestoIVA0"],
+  ["totalTrasladosBaseIVAExento", "TotalTrasladosBaseIVAExento"],
+  ["montoTotalPagos", "MontoTotalPagos"],
+];
+
+function drawPagosTotales(doc: PdfDoc, totales: CfdiPagosTotales, y: number): number {
+  text(doc, "Totales", 22, y, { size: 7, bold: true });
+  y += 18;
+  for (const [key, label] of PAGO_TOTAL_ROWS) {
+    const value = totales[key];
+    if (!value) continue;
+    text(doc, `${label}: ${fmtPagoImporte(value)}`, 22, y, { size: 7, bold: true });
+    y += 8.8;
+  }
+  return y;
+}
+
+function drawPagoComprobanteTotales(doc: PdfDoc, cfdi: ParsedCfdi): void {
+  const t = P1.totals;
+  const y = P1.conceptos.y + t.gapAfterTable;
+  const rows: [string, string][] = [
+    ["Subtotal", fmtComprobanteCero(cfdi.subTotal, cfdi.moneda)],
+    ["Descuento", fmtComprobanteCero(cfdi.descuento, cfdi.moneda)],
+    ["Total", fmtComprobanteCero(cfdi.total, cfdi.moneda)],
+  ];
+  rows.forEach(([label, value], i) => {
+    const ty = y + i * t.rowH;
+    drawPurpleCell(doc, t.labelX, ty, t.labelW, t.rowH, BLACK);
+    drawValueCell(doc, t.valueX, ty, t.valueW, t.rowH, BLACK);
+    const mid = centerTop(ty, t.rowH, 7);
+    textRight(doc, label, t.valueX - 3, mid, { size: 7, color: WHITE, width: t.labelW - 6 });
+    textRight(doc, value, t.valueX + t.valueW - 2, mid, { size: 7, color: PURPLE, width: t.valueW - 4 });
+  });
+  text(doc, "TOTAL EN LETRA:", P1.letra.x, y + P1.letra.labelOffset, { size: 7, bold: true });
+  text(doc, totalEnLetraPago(cfdi.total, cfdi.moneda), P1.letra.x, y + P1.letra.valueOffset, {
+    size: 7,
+    bold: true,
+    width: t.labelX - P1.letra.x - 8,
+  });
+}
+
+async function renderPagoPages(
+  doc: PdfDoc,
+  cfdi: ParsedCfdi,
+  logo: Buffer | null,
+  lookup: CatalogLookup,
+): Promise<void> {
+  const limit = P1.seals.y - 8;
+  drawPagoHeader(doc, cfdi, logo);
+  let y = drawConceptosTable(doc, cfdi, lookup, 17, 2);
+
+  const nextPage = async () => {
+    await drawFiscalSeals(doc, cfdi, P1.seals.y);
+    drawPage1Footer(doc);
+    doc.addPage();
+    drawPagoHeader(doc, cfdi, logo);
+    y = P1.receptor.y + P1.receptor.h + 16;
+  };
+
+  const pagos = cfdi.pagos;
+  if (pagos) {
+    for (const pago of pagos.pagos) {
+      if (y + 62 > limit) await nextPage();
+      y = drawComplementoPago(doc, pago, y);
+      for (const docto of pago.documentos) {
+        const rows = Math.max(docto.traslados.length, docto.retenciones.length, 1);
+        if (y + 20 + rows * 32 > limit) await nextPage();
+        y = drawDoctoRelacionado(doc, docto, y);
+      }
+      const taxLines = pago.trasladosP.length + pago.retencionesP.length;
+      if (y + taxLines * 14 + 8 > limit) await nextPage();
+      y = drawImpuestosP(doc, pago, y + 4);
+    }
+    const totalLines = PAGO_TOTAL_ROWS.filter(([key]) => pagos.totales[key]).length;
+    if (y + 22 + totalLines * 8.8 > limit) await nextPage();
+    drawPagosTotales(doc, pagos.totales, y + 16);
+  }
+
+  await drawFiscalSeals(doc, cfdi, P1.seals.y);
+  drawPage1Footer(doc);
+
+  doc.addPage();
+  drawPagoHeader(doc, cfdi, logo);
+  drawPagoComprobanteTotales(doc, cfdi);
+  await drawFiscalSeals(doc, cfdi, P1.seals.y);
+  drawPage1Footer(doc);
+}
+
 /** Genera el PDF fiscal (CFDI + Carta Porte) a partir del XML timbrado. */
 export async function renderCfdiPdfFromXml(
   xml: string,
@@ -925,6 +1199,13 @@ export async function renderCfdiPdfFromXml(
 
     void (async () => {
       try {
+        if (cfdi.tipoDeComprobante === "P") {
+          await renderPagoPages(doc, cfdi, logo, lookup);
+          const total = doc.bufferedPageRange().count;
+          stampPageNumbers(doc, total, total);
+          doc.end();
+          return;
+        }
         await renderPage1(doc, cfdi, logo, lookup);
         const fiscalPages = doc.bufferedPageRange().count;
         if (cfdi.cartaPorte) {

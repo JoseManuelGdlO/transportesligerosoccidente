@@ -27,6 +27,37 @@ import {
 const uploadDir = mkdtempSync(path.join(os.tmpdir(), "pago-pdf-"));
 process.env.UPLOAD_DIR = uploadDir;
 
+const PAGO_XML = `<?xml version="1.0" encoding="UTF-8"?>
+<cfdi:Comprobante Version="4.0" Serie="P" Folio="1" Fecha="2026-10-16T12:44:00" SubTotal="0" Total="0" TipoDeComprobante="P" LugarExpedicion="45640" Moneda="XXX" Exportacion="01" xmlns:cfdi="http://www.sat.gob.mx/cfd/4" xmlns:pago20="http://www.sat.gob.mx/Pagos20">
+  <cfdi:Emisor Rfc="TNU150126V30" Nombre="TRANSPORTES LIGEROS DE OCCIDENTE" RegimenFiscal="624"/>
+  <cfdi:Receptor Rfc="EKU9003173C9" Nombre="ESCUELA" DomicilioFiscalReceptor="55060" RegimenFiscalReceptor="601" UsoCFDI="CP01"/>
+  <cfdi:Conceptos>
+    <cfdi:Concepto ClaveProdServ="84111506" Cantidad="1" ClaveUnidad="ACT" Descripcion="Pago" ValorUnitario="0" Importe="0" ObjetoImp="01"/>
+  </cfdi:Conceptos>
+  <cfdi:Complemento>
+    <pago20:Pagos Version="2.0">
+      <pago20:Totales TotalRetencionesIVA="200.00" TotalTrasladosBaseIVA16="5000.00" TotalTrasladosImpuestoIVA16="800.00" MontoTotalPagos="5600.00"/>
+      <pago20:Pago FechaPago="2026-10-16T12:00:00" FormaDePagoP="03" MonedaP="MXN" TipoCambioP="1" Monto="5600.00" NumOperacion="SPEI-1">
+        <pago20:DoctoRelacionado IdDocumento="D9BE138A-9449-11EE-9430-00155D012007" Serie="I" Folio="15" MonedaDR="MXN" EquivalenciaDR="1" NumParcialidad="1" ImpSaldoAnt="11200.00" ImpPagado="5600.00" ImpSaldoInsoluto="5600.00" ObjetoImpDR="02">
+          <pago20:ImpuestosDR>
+            <pago20:RetencionesDR>
+              <pago20:RetencionDR BaseDR="5000.00" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.040000" ImporteDR="200.00"/>
+            </pago20:RetencionesDR>
+            <pago20:TrasladosDR>
+              <pago20:TrasladoDR BaseDR="5000.00" ImpuestoDR="002" TipoFactorDR="Tasa" TasaOCuotaDR="0.160000" ImporteDR="800.00"/>
+            </pago20:TrasladosDR>
+          </pago20:ImpuestosDR>
+        </pago20:DoctoRelacionado>
+        <pago20:ImpuestosP>
+          <pago20:RetencionesP><pago20:RetencionP ImpuestoP="002" ImporteP="200.00"/></pago20:RetencionesP>
+          <pago20:TrasladosP><pago20:TrasladoP BaseP="5000.00" ImpuestoP="002" TipoFactorP="Tasa" TasaOCuotaP="0.160000" ImporteP="800.00"/></pago20:TrasladosP>
+        </pago20:ImpuestosP>
+      </pago20:Pago>
+    </pago20:Pagos>
+    <tfd:TimbreFiscalDigital xmlns:tfd="http://www.sat.gob.mx/TimbreFiscalDigital" FechaTimbrado="2026-10-16T12:44:00" UUID="0ca71ac8-61a8-4d50-8136-fc447522c588" NoCertificadoSAT="00001000000718099104" RfcProvCertif="ICA050422AA6" SelloCFD="SELLOCFD12345678" SelloSAT="SELLOSAT" Version="1.1"/>
+  </cfdi:Complemento>
+</cfdi:Comprobante>`;
+
 const PPD_XML = `<?xml version="1.0"?>
 <cfdi:Comprobante xmlns:cfdi="http://www.sat.gob.mx/cfd/4" Version="4.0" Serie="I" Folio="15" Fecha="2026-05-01T10:00:00" SubTotal="10000" Total="11200" Moneda="MXN" TipoDeComprobante="I" MetodoPago="PPD" FormaPago="99" LugarExpedicion="44100">
   <cfdi:Receptor Rfc="EKU9003173C9" Nombre="ESCUELA" UsoCFDI="G03" DomicilioFiscalReceptor="55060" RegimenFiscalReceptor="601"/>
@@ -208,7 +239,7 @@ describe("paymentComplementService", () => {
     const docs = [makeDoc("doc-1", "trip-1"), makeDoc("doc-2", "trip-2")];
     const h = installHarness({
       docs,
-      post: async () => ({ uuid: "UUID-1", xmlTimbrado: "<xml/>", fechaTimbrado: "2026-10-15T12:00:00" }),
+      post: async () => ({ uuid: "UUID-1", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
       pagoFindAll: () => [],
       docLines: [],
       paymentsById: [],
@@ -254,7 +285,7 @@ describe("paymentComplementService", () => {
     const doc = makeDoc("doc-1", "trip-1");
     const h = installHarness({
       docs: [doc],
-      post: async () => ({ uuid: "UUID-2", xmlTimbrado: "<xml/>", fechaTimbrado: "2026-10-15T12:00:00" }),
+      post: async () => ({ uuid: "UUID-2", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
       pagoFindAll: (where) => (where.estatus === "timbrado" ? [{ id: "pago-prev", estatus: "timbrado" }] : []),
       docLines: [
         {
@@ -293,7 +324,7 @@ describe("paymentComplementService", () => {
     };
     const h = installHarness({
       docs: [doc],
-      post: async () => ({ uuid: "UUID-4", xmlTimbrado: "<xml/>", fechaTimbrado: "2026-10-15T12:00:00" }),
+      post: async () => ({ uuid: "UUID-4", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
       pagoFindAll: () => [],
       docLines: [],
       paymentsById: [payment],
@@ -321,7 +352,7 @@ describe("paymentComplementService", () => {
     const doc = makeDoc("doc-1", "trip-1");
     const h = installHarness({
       docs: [doc],
-      post: async () => ({ uuid: "NO", xmlTimbrado: "<xml/>", fechaTimbrado: "2026-10-15T12:00:00" }),
+      post: async () => ({ uuid: "NO", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
       pagoFindAll: (where) => (where.estatus === "error" ? [{ id: "pago-err", estatus: "error" }] : []),
       docLines: [
         {
@@ -356,7 +387,7 @@ describe("paymentComplementService", () => {
     const doc = makeDoc("doc-1", "trip-1");
     const h = installHarness({
       docs: [doc],
-      post: async () => ({ uuid: "UUID-3", xmlTimbrado: "<xml/>", fechaTimbrado: "2026-10-15T12:00:00" }),
+      post: async () => ({ uuid: "UUID-3", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
       pagoFindAll: (where) =>
         where.estatus === "timbrado"
           ? [

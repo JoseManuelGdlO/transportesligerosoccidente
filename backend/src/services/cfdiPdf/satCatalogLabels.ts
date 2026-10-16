@@ -4,7 +4,8 @@ export type SatCatalogName =
   | "metodoPago"
   | "usoCfdi"
   | "claveUnidad"
-  | "claveProdServ";
+  | "claveProdServ"
+  | "objetoImp";
 
 const REGIMEN_FISCAL: Record<string, string> = {
   "601": "General de Ley Personas Morales",
@@ -94,7 +95,15 @@ const CLAVE_UNIDAD: Record<string, string> = {
   ACT: "Actividad",
 };
 
+const OBJETO_IMP: Record<string, string> = {
+  "01": "No objeto de impuesto",
+  "02": "Si objeto de impuesto",
+  "03": "Si objeto del impuesto y no obligado al desglose",
+  "04": "Si objeto del impuesto y no causa impuesto",
+};
+
 const CLAVE_PROD_SERV: Record<string, string> = {
+  "84111506": "Servicios de facturación",
   "78101800": "Servicios de transporte de carga por carretera (en camión) a nivel local y regional",
   "78101801": "Servicios de transporte de carga por carretera (en camión) en área local",
   "78101802": "Servicios transporte de carga por carretera (en camión) a nivel regional y nacional",
@@ -109,6 +118,7 @@ const CATALOGS: Record<SatCatalogName, Record<string, string>> = {
   usoCfdi: USO_CFDI,
   claveUnidad: CLAVE_UNIDAD,
   claveProdServ: CLAVE_PROD_SERV,
+  objetoImp: OBJETO_IMP,
 };
 
 /** Devuelve `"99 - Por definir"` o solo la clave si no hay descripción. */
