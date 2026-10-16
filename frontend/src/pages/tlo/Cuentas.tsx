@@ -663,7 +663,7 @@ export default function Cuentas() {
             <div className="flex flex-wrap gap-2">
               <Input
                 className="max-w-xs"
-                placeholder="Buscar folio, concepto, entidad…"
+                placeholder="Buscar folio, concepto, entidad, UUID…"
                 value={q}
                 onChange={(e) => setQ(e.target.value)}
               />

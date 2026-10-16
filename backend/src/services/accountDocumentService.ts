@@ -4,6 +4,7 @@ import {
   AccountDocument,
   AccountDocumentPayment,
   CartaPorte,
+  CfdiPago,
   Client,
   Expense,
   FuelLoad,
@@ -218,6 +219,34 @@ export function toDocumentDto(
   };
 }
 
+/** Documentos cuyo UUID fiscal (factura o complemento) coincide con el patrón LIKE. */
+async function fiscalUuidMatchIds(
+  tenantId: string,
+  pattern: string,
+): Promise<{ tripIds: string[]; documentIds: string[] }> {
+  const [cartas, pagos] = await Promise.all([
+    CartaPorte.findAll({
+      where: { tenant_id: tenantId, uuid: { [Op.like]: pattern } },
+      attributes: ["trip_id"],
+    }),
+    CfdiPago.findAll({
+      where: { tenant_id: tenantId, uuid: { [Op.like]: pattern } },
+      attributes: ["id"],
+    }),
+  ]);
+  const tripIds = [...new Set(cartas.map((row) => row.trip_id).filter(Boolean))];
+  const pagoIds = pagos.map((row) => row.id);
+  if (!pagoIds.length) return { tripIds, documentIds: [] };
+  const payments = await AccountDocumentPayment.findAll({
+    where: { tenant_id: tenantId, cfdi_pago_id: { [Op.in]: pagoIds } },
+    attributes: ["document_id"],
+  });
+  return {
+    tripIds,
+    documentIds: [...new Set(payments.map((row) => row.document_id))],
+  };
+}
+
 async function loadPaymentsMap(
   tenantId: string,
   docIds: string[],
@@ -261,13 +290,16 @@ export async function listDocuments(
   }
   if (opts.q?.trim()) {
     const q = `%${opts.q.trim()}%`;
-    Object.assign(where, {
-      [Op.or]: [
-        { folio: { [Op.like]: q } },
-        { concepto: { [Op.like]: q } },
-        { entidad_nombre: { [Op.like]: q } },
-      ],
-    });
+    const or: WhereOptions[] = [
+      { folio: { [Op.like]: q } },
+      { concepto: { [Op.like]: q } },
+      { entidad_nombre: { [Op.like]: q } },
+      { id: { [Op.like]: q } },
+    ];
+    const { tripIds, documentIds } = await fiscalUuidMatchIds(tenantId, q);
+    if (tripIds.length) or.push({ trip_id: { [Op.in]: tripIds } });
+    if (documentIds.length) or.push({ id: { [Op.in]: documentIds } });
+    Object.assign(where, { [Op.or]: or });
   }
 
   const rows = await AccountDocument.findAll({

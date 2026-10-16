@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
-import { AccountDocument, AccountDocumentPayment, CartaPorte, Supplier } from "../models";
+import { Op } from "sequelize";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Supplier } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
@@ -18,6 +19,7 @@ import {
   statementTotalsFromDocuments,
   totalCfdiDesdeXml,
   folioCxcTimbrado,
+  listDocuments,
   viajeSyncOmiteMontoYFolio,
   nextDueDate,
   planMaintenanceCxpSync,
@@ -801,5 +803,69 @@ describe("addPayment y complemento PPD", () => {
     assert.equal(created.mock.calls.length, 1);
     assert.equal(dto.id, "doc-manual");
     assert.equal(dto.origen, "manual");
+  });
+});
+
+describe("búsqueda de cuentas por UUID", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("incluye factura, complemento y el id del documento", async () => {
+    mock.method(CartaPorte, "findAll", async () => [{ trip_id: "trip-1" }] as never);
+    mock.method(CfdiPago, "findAll", async () => [{ id: "pago-1" }] as never);
+    mock.method(AccountDocumentPayment, "findAll", async (opts: { where?: { cfdi_pago_id?: unknown } }) => {
+      if (opts?.where && "cfdi_pago_id" in opts.where) return [{ document_id: "doc-pago" }] as never;
+      return [] as never;
+    });
+    let where: Record<PropertyKey, unknown> | undefined;
+    mock.method(AccountDocument, "findAll", async (opts: { where: Record<PropertyKey, unknown> }) => {
+      where = opts.where;
+      return [
+        {
+          id: "doc-factura",
+          tipo: "cxc",
+          entidad_nombre: "Cliente",
+          folio: "A-1",
+          concepto: "Flete",
+          conceptos: null,
+          fecha_emision: "2026-01-01",
+          fecha_ingreso_cobranza: null,
+          plazo_credito_dias: null,
+          fecha_vencimiento: null,
+          monto_original: "100",
+          estatus: "abierta",
+          origen: "viaje",
+          trip_id: "trip-1",
+        },
+      ] as never;
+    });
+
+    const rows = await listDocuments("t1", { q: "D9BE138A" });
+    const or = where?.[Op.or] as Array<Record<string, unknown>>;
+
+    assert.equal(rows.length, 1);
+    assert.equal((or.find((clause) => "folio" in clause)?.folio as { [Op.like]?: string })?.[Op.like], "%D9BE138A%");
+    assert.deepEqual((or.find((clause) => "trip_id" in clause)?.trip_id as { [Op.in]?: string[] })?.[Op.in], [
+      "trip-1",
+    ]);
+    assert.deepEqual(
+      (
+        or.find((clause) => {
+          const id = clause.id as { [Op.in]?: string[] } | undefined;
+          return Boolean(id?.[Op.in]);
+        })?.id as { [Op.in]?: string[] }
+      )?.[Op.in],
+      ["doc-pago"],
+    );
+    assert.equal(
+      (
+        or.find((clause) => {
+          const id = clause.id as { [Op.like]?: string } | undefined;
+          return Boolean(id?.[Op.like]);
+        })?.id as { [Op.like]?: string }
+      )?.[Op.like],
+      "%D9BE138A%",
+    );
   });
 });
