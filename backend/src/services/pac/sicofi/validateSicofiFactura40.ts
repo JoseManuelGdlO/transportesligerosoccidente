@@ -4,7 +4,6 @@ import { bienesTranspCpIssue, configVehicularIssue, permSctIssue } from "../../.
 import type { TimbradoContext } from "../types";
 import { isPublicoGeneralReceptor } from "./publicoGeneral";
 import { normalizeFiscalUbicaciones } from "../../tripFiscalService";
-import { hasLocalidadesForEstado } from "../../satUbicacionCatalogService";
 import { isValidEstadoSatCode } from "../../postalia/domicilioSatResolver";
 
 /**
@@ -16,7 +15,7 @@ import { isValidEstadoSatCode } from "../../postalia/domicilioSatResolver";
  * @param ctx - Contexto del viaje a timbrar.
  * @returns Lista vacía si todo es válido; mensajes descriptivos si hay problemas.
  */
-export async function validateSicofiFactura40(ctx: TimbradoContext): Promise<string[]> {
+export function validateSicofiFactura40(ctx: TimbradoContext): string[] {
   const issues: string[] = [];
   const { tipo, trip, tenant, ubicaciones, mercancias, truck, driver, client } = ctx;
 
@@ -72,10 +71,6 @@ export async function validateSicofiFactura40(ctx: TimbradoContext): Promise<str
     }
     if (!u.colonia_clave?.trim() && !u.colonia?.trim()) {
       issues.push(`Ubicación ${label}: falta colonia o clave SAT`);
-    }
-    const estado = u.estado?.trim().toUpperCase() ?? "";
-    if (estado && (await hasLocalidadesForEstado(estado)) && !u.localidad_clave?.trim() && !u.localidad?.trim()) {
-      issues.push(`Ubicación ${label}: falta localidad o clave SAT`);
     }
   }
 

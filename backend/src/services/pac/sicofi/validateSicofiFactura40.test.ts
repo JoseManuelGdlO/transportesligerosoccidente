@@ -106,4 +106,29 @@ describe("validateSicofiFactura40 ubicaciones", () => {
     assert.ok(issues.some((i) => i.includes("falta municipio")));
     assert.ok(issues.some((i) => i.includes("falta colonia")));
   });
+
+  it("no exige localidad cuando el municipio no está en c_Localidad", async () => {
+    const issues = await validateSicofiFactura40(
+      baseCtx({
+        ubicaciones: [
+          {
+            orden: 1,
+            rfc: "AAA010101AAA",
+            nombre: "Origen SA",
+            cp: "45685",
+            estado: "JAL",
+            municipio_clave: "044",
+            municipio: "Ixtlahuacán de los Membrillos",
+            colonia_clave: "0001",
+            colonia: "Centro",
+          },
+          ubicacionCompleta(2, "44810", "60"),
+        ] as TimbradoContext["ubicaciones"],
+      }),
+    );
+    assert.equal(
+      issues.some((i) => i.toLowerCase().includes("localidad")),
+      false,
+    );
+  });
 });

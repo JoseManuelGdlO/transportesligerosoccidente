@@ -2,6 +2,7 @@ import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
   isValidEstadoSatCode,
+  localidadSearchHints,
   needsDomicilioEnrichment,
   normalizeDesc,
   pickByDescription,
@@ -82,6 +83,22 @@ describe("domicilioSatResolver helpers", () => {
   it("mapa de estados incluye Jalisco y Durango", () => {
     assert.equal(MEXICAN_STATE_NAME_TO_CODE.jalisco, "JAL");
     assert.equal(MEXICAN_STATE_NAME_TO_CODE.durango, "DUR");
+  });
+
+  it("si Postalia manda el estado como ciudad, la siguiente pista es el municipio", () => {
+    const hints = localidadSearchHints(
+      { municipio: "Ixtlahuacán de los Membrillos" },
+      { ciudad: "Jalisco", municipio: "Ixtlahuacán de los Membrillos" },
+    );
+    assert.deepEqual(hints, ["Jalisco", "Ixtlahuacán de los Membrillos"]);
+  });
+
+  it("no repite la ciudad cuando ya viene como localidad", () => {
+    const hints = localidadSearchHints(
+      { localidad: "Guadalajara", municipio: "Guadalajara" },
+      { ciudad: "Guadalajara", municipio: "Guadalajara" },
+    );
+    assert.deepEqual(hints, ["Guadalajara"]);
   });
 });
 

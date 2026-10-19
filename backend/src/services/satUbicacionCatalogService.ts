@@ -260,13 +260,6 @@ export async function listColoniasByCp(cp: string, limit = 50): Promise<SatColon
   return rows.map(toColoniaDto);
 }
 
-export async function hasLocalidadesForEstado(estado: string): Promise<boolean> {
-  const estadoNorm = estado.trim().toUpperCase();
-  if (!estadoNorm) return false;
-  const count = await SatLocalidad.count({ where: { estado: estadoNorm } });
-  return count > 0;
-}
-
 export async function getEstado(
   clave: string,
   municipioClave?: string,

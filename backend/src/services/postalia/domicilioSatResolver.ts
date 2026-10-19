@@ -132,33 +132,65 @@ async function resolveMunicipio(
   return null;
 }
 
+/**
+ * Pistas para c_Localidad, de la más específica a la más genérica.
+ * Postalia a veces pone el nombre del estado en `ciudad` (p. ej. "Jalisco"
+ * para Ixtlahuacán de los Membrillos). Esa pista se conserva por si el
+ * catálogo sí tiene una localidad con ese nombre (Colima, Ciudad de México)
+ * y se complementa con el municipio.
+ */
+export function localidadSearchHints(
+  input: Pick<UbicacionDomicilioInput, "localidad" | "municipio">,
+  postalia: Pick<PostaliaCodigoPostalResponse, "ciudad" | "municipio">,
+): string[] {
+  const raw = [input.localidad, postalia.ciudad, input.municipio, postalia.municipio];
+  const hints: string[] = [];
+  for (const value of raw) {
+    const hint = value?.trim() ?? "";
+    if (!hint) continue;
+    if (hints.some((existing) => normalizeDesc(existing) === normalizeDesc(hint))) continue;
+    hints.push(hint);
+  }
+  return hints;
+}
+
+async function matchLocalidadHint(
+  estado: string,
+  localidadHint: string,
+): Promise<{ clave: string; descripcion: string } | null> {
+  if (/^\d+$/.test(localidadHint)) {
+    const row = await getLocalidad(estado, localidadHint);
+    return row ? { clave: row.clave, descripcion: row.descripcion } : null;
+  }
+
+  const results = await searchLocalidades(localidadHint, estado, 20);
+  const picked = pickByDescription(results, localidadHint);
+  if (!picked) return null;
+  const normHint = normalizeDesc(localidadHint);
+  const normDesc = normalizeDesc(picked.descripcion);
+  if (normDesc !== normHint && !normDesc.includes(normHint)) return null;
+  return { clave: picked.clave, descripcion: picked.descripcion };
+}
+
+/**
+ * c_Localidad no lista todos los municipios. Si ninguna pista coincide,
+ * el atributo se omite: en Carta Porte es condicional.
+ */
 async function resolveLocalidad(
   input: UbicacionDomicilioInput,
   postalia: PostaliaCodigoPostalResponse,
   estado: string,
-  issues: string[],
 ): Promise<{ clave: string; descripcion: string } | null> {
   if (input.localidad_clave?.trim()) {
     const row = await getLocalidad(estado, input.localidad_clave);
     if (row) return { clave: row.clave, descripcion: row.descripcion };
   }
 
-  const localidadHint = input.localidad?.trim() || postalia.ciudad;
-  if (!localidadHint) {
-    issues.push("No se pudo resolver la localidad SAT (sin dato de ciudad/localidad)");
-    return null;
+  for (const hint of localidadSearchHints(input, postalia)) {
+    const match = await matchLocalidadHint(estado, hint);
+    if (match) return match;
   }
 
-  if (/^\d+$/.test(localidadHint)) {
-    const row = await getLocalidad(estado, localidadHint);
-    if (row) return { clave: row.clave, descripcion: row.descripcion };
-  }
-
-  const results = await searchLocalidades(localidadHint, estado, 20);
-  const picked = pickByDescription(results, localidadHint);
-  if (picked) return { clave: picked.clave, descripcion: picked.descripcion };
-
-  issues.push(`No se pudo resolver la localidad SAT para "${localidadHint}" en ${estado}`);
   return null;
 }
 
@@ -241,7 +273,7 @@ export async function resolveDomicilioSat(
   }
 
   if (!input.localidad_clave?.trim()) {
-    const localidad = await resolveLocalidad(input, postalia, estado, issues);
+    const localidad = await resolveLocalidad(input, postalia, estado);
     if (localidad) {
       result.localidad_clave = localidad.clave;
       if (!input.localidad?.trim()) result.localidad = localidad.descripcion;
