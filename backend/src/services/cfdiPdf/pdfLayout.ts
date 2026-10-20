@@ -14,13 +14,14 @@ export const CONTENT_W = CONTENT_R - CONTENT_L;
 
 export type RGB = [number, number, number];
 
-export const BLACK: RGB = [0, 0, 0];
+/** Tinta de factura: gris oscuro, no negro puro. */
+export const BLACK: RGB = [0x4a, 0x4a, 0x4a];
 export const WHITE: RGB = [255, 255, 255];
-export const PURPLE: RGB = [0, 0, 0]; //[0x43, 0x2e, 0x7d];
+export const PURPLE: RGB = [0x4a, 0x4a, 0x4a];
 export const RED: RGB = [0xe8, 0x0c, 0x0c];
 export const GRAY: RGB = [0xcc, 0xcc, 0xcc];
-/** Color de rejilla de las tablas Carta Porte. */
-export const GRID: RGB = [0x33, 0x00, 0x33];
+/** Rejilla de tablas Carta Porte, misma tinta que el resto de la factura. */
+export const GRID: RGB = [0x4a, 0x4a, 0x4a];
 export const BLUE: RGB = [0, 0, 0xff];
 
 export const GG_URL = "https://www.graficosgonzalez.com.mx";
