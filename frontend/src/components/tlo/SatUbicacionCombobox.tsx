@@ -21,6 +21,7 @@ import {
   searchSatLocalidades,
   searchSatMunicipios,
 } from "@/lib/tloApi";
+import { satCatalogSearchTerm } from "@/lib/satCatalogSearch";
 
 export type SatUbicacionKind = "estado" | "municipio" | "localidad" | "colonia";
 
@@ -190,8 +191,7 @@ export function SatUbicacionCombobox({
           const norm = normalizeDesc(hint);
           const match =
             hits.find((item) => normalizeDesc(item.nombre) === norm) ??
-            hits.find((item) => normalizeDesc(item.nombre).includes(norm)) ??
-            hits[0];
+            hits.find((item) => normalizeDesc(item.nombre).includes(norm));
           if (match) {
             row = { clave: match.clave, descripcion: match.nombre };
             maybeResolve(row);
@@ -221,7 +221,7 @@ export function SatUbicacionCombobox({
     if (!open || !filterReady) return;
     if (debounceRef.current) clearTimeout(debounceRef.current);
 
-    const term = query.trim() || value.trim();
+    const term = satCatalogSearchTerm(query, value);
 
     debounceRef.current = setTimeout(() => {
       setLoading(true);
@@ -232,7 +232,7 @@ export function SatUbicacionCombobox({
             ? searchSatMunicipios(term, estado ?? "")
             : kind === "localidad"
               ? searchSatLocalidades(term, estado ?? "")
-              : searchSatColonias(term, cp ?? "");
+              : searchSatColonias(term, cp ?? "", 200);
 
       void searchPromise
         .then((rows) =>

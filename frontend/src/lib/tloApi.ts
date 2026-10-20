@@ -118,8 +118,11 @@ export function normalizeTripUbicacion(raw: Record<string, unknown>): TripUbicac
     fecha_hora: raw.fecha_hora != null ? String(raw.fecha_hora) : undefined,
     calle: raw.calle != null ? String(raw.calle) : undefined,
     colonia: raw.colonia != null ? String(raw.colonia) : undefined,
+    colonia_clave: raw.colonia_clave != null ? String(raw.colonia_clave) : undefined,
     municipio: raw.municipio != null ? String(raw.municipio) : undefined,
+    municipio_clave: raw.municipio_clave != null ? String(raw.municipio_clave) : undefined,
     localidad: raw.localidad != null ? String(raw.localidad) : undefined,
+    localidad_clave: raw.localidad_clave != null ? String(raw.localidad_clave) : undefined,
     estado: raw.estado != null ? String(raw.estado) : undefined,
     cp: raw.cp != null ? String(raw.cp) : undefined,
     numero_exterior: raw.numero_exterior != null ? String(raw.numero_exterior) : undefined,
@@ -498,6 +501,16 @@ export function normalizeRoleDefinition(raw: Record<string, unknown>): RoleDefin
     descripcion: String(raw.descripcion ?? ""),
     permisos: perms,
   };
+}
+
+export async function fetchDriver(id: string): Promise<Driver> {
+  const res = await apiFetch(`/drivers/${id}`);
+  return normalizeDriver(await readJson<Record<string, unknown>>(res));
+}
+
+export async function fetchTruck(id: string): Promise<Truck> {
+  const res = await apiFetch(`/trucks/${id}`);
+  return normalizeTruck(await readJson<Record<string, unknown>>(res));
 }
 
 export async function fetchDrivers(

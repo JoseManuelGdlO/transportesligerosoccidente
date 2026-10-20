@@ -30,6 +30,11 @@ function capLimit(limit: number): number {
   return Math.min(Math.max(limit, 1), 50);
 }
 
+/** Un CP puede tener más colonias que el tope de las otras búsquedas SAT. */
+function capColoniaLimit(limit: number): number {
+  return Math.min(Math.max(limit, 1), 200);
+}
+
 /** Minúsculas y sin acentos, para comparar nombres del catálogo SAT. */
 export function foldCatalogText(value: string): string {
   return value
@@ -155,7 +160,7 @@ export async function searchColonias(
   if (!/^\d{5}$/.test(cpNorm)) return [];
 
   const term = q.trim();
-  const capped = capLimit(limit);
+  const capped = capColoniaLimit(limit);
   const textSearch = Boolean(term) && !/^\d+$/.test(term);
   if (textSearch && term.length < 2) return [];
 
@@ -255,7 +260,7 @@ export async function listColoniasByCp(cp: string, limit = 50): Promise<SatColon
   const rows = await SatColonia.findAll({
     where: { codigo_postal: cpNorm },
     order: [["nombre", "ASC"]],
-    limit: capLimit(limit),
+    limit: capColoniaLimit(limit),
   });
   return rows.map(toColoniaDto);
 }

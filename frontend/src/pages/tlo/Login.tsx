@@ -6,7 +6,7 @@ import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/context/AuthContext";
 import logo from "@/assets/tlo-logo.jpeg";
-import { ShieldCheck, ClipboardList } from "lucide-react";
+import { ShieldCheck, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/types/tlo";
 import { toast } from "sonner";
@@ -16,6 +16,7 @@ export default function Login() {
   const nav = useNavigate();
   const [email, setEmail] = useState("admin@tlo.mx");
   const [pw, setPw] = useState("");
+  const [showPw, setShowPw] = useState(false);
   const [role, setRole] = useState<UserRole>("admin");
   const [loading, setLoading] = useState(false);
 
@@ -66,7 +67,24 @@ export default function Login() {
                   </div>
                   <div>
                     <Label htmlFor="pw">Contraseña</Label>
-                    <Input id="pw" type="password" value={pw} onChange={e => setPw(e.target.value)} required />
+                    <div className="relative">
+                      <Input
+                        id="pw"
+                        type={showPw ? "text" : "password"}
+                        value={pw}
+                        onChange={e => setPw(e.target.value)}
+                        className="pr-10"
+                        required
+                      />
+                      <button
+                        type="button"
+                        onClick={() => setShowPw(v => !v)}
+                        className="absolute inset-y-0 right-0 flex items-center px-3 text-muted-foreground hover:text-foreground"
+                        aria-label={showPw ? "Ocultar contraseña" : "Mostrar contraseña"}
+                      >
+                        {showPw ? <EyeOff className="h-4 w-4" /> : <Eye className="h-4 w-4" />}
+                      </button>
+                    </div>
                   </div>
                 </>
               )}

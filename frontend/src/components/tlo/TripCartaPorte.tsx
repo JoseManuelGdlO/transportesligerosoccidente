@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ClientUbicacionDialog } from "@/components/tlo/ClientUbicacionDialog";
+import { SatUbicacionCombobox } from "@/components/tlo/SatUbicacionCombobox";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -21,6 +22,8 @@ import { apiFetch, readJson } from "@/lib/api";
 import {
   downloadCartaPortePdf,
   downloadCartaPorteXml,
+  fetchDriver,
+  fetchTruck,
   fetchTenantUbicaciones,
   lookupSatClaveProducto,
   normalizeTrip,
@@ -29,6 +32,7 @@ import {
   patchCartaPorteComentarios,
 } from "@/lib/tloApi";
 import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
+import { keepFilledFiscal } from "@/lib/fiscalPrefill";
 import {
   CLEARED_SAT_DOMICILIO,
   useRecalcularDomicilioPorCp,
@@ -469,22 +473,47 @@ export function TripCartaPorte({
   }, [applyMercCatalog]);
 
   useEffect(() => {
-    setDriverFiscal({
-      rfc: driverLive?.rfc ?? "",
-      licencia_federal: driverLive?.licencia_federal ?? "",
-      licencia: driverLive?.licencia ?? "",
-    });
+    setDriverFiscal((prev) => ({
+      rfc: keepFilledFiscal(driverLive?.rfc, prev.rfc),
+      licencia_federal: keepFilledFiscal(driverLive?.licencia_federal, prev.licencia_federal),
+      licencia: keepFilledFiscal(driverLive?.licencia, prev.licencia),
+    }));
   }, [driverLive?.id, driverLive?.rfc, driverLive?.licencia_federal, driverLive?.licencia]);
 
   useEffect(() => {
-    setTruckFiscal({
-      perm_sct: truckLive?.perm_sct ?? "",
-      num_permiso_sct: truckLive?.num_permiso_sct ?? "",
-      config_vehicular: truckLive?.config_vehicular ?? "",
-      peso_bruto_vehicular: truckLive?.peso_bruto_vehicular ?? "",
-      aseguradora_resp_civil: truckLive?.aseguradora_resp_civil ?? "",
-      poliza_resp_civil: truckLive?.poliza_resp_civil ?? "",
-    });
+    const id = driverLive?.id;
+    if (!id) return;
+    let cancelled = false;
+    void fetchDriver(id)
+      .then((d) => {
+        if (cancelled) return;
+        setDriverFiscal((prev) => ({
+          rfc: keepFilledFiscal(d.rfc, prev.rfc),
+          licencia_federal: keepFilledFiscal(d.licencia_federal, prev.licencia_federal),
+          licencia: keepFilledFiscal(d.licencia, prev.licencia),
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [driverLive?.id]);
+
+  useEffect(() => {
+    setTruckFiscal((prev) => ({
+      perm_sct: keepFilledFiscal(truckLive?.perm_sct, prev.perm_sct),
+      num_permiso_sct: keepFilledFiscal(truckLive?.num_permiso_sct, prev.num_permiso_sct),
+      config_vehicular: keepFilledFiscal(truckLive?.config_vehicular, prev.config_vehicular),
+      peso_bruto_vehicular: keepFilledFiscal(
+        truckLive?.peso_bruto_vehicular,
+        prev.peso_bruto_vehicular,
+      ),
+      aseguradora_resp_civil: keepFilledFiscal(
+        truckLive?.aseguradora_resp_civil,
+        prev.aseguradora_resp_civil,
+      ),
+      poliza_resp_civil: keepFilledFiscal(truckLive?.poliza_resp_civil, prev.poliza_resp_civil),
+    }));
   }, [
     truckLive?.id,
     truckLive?.perm_sct,
@@ -494,6 +523,31 @@ export function TripCartaPorte({
     truckLive?.aseguradora_resp_civil,
     truckLive?.poliza_resp_civil,
   ]);
+
+  useEffect(() => {
+    const id = truckLive?.id;
+    if (!id) return;
+    let cancelled = false;
+    void fetchTruck(id)
+      .then((t) => {
+        if (cancelled) return;
+        setTruckFiscal((prev) => ({
+          perm_sct: keepFilledFiscal(t.perm_sct, prev.perm_sct),
+          num_permiso_sct: keepFilledFiscal(t.num_permiso_sct, prev.num_permiso_sct),
+          config_vehicular: keepFilledFiscal(t.config_vehicular, prev.config_vehicular),
+          peso_bruto_vehicular: keepFilledFiscal(t.peso_bruto_vehicular, prev.peso_bruto_vehicular),
+          aseguradora_resp_civil: keepFilledFiscal(
+            t.aseguradora_resp_civil,
+            prev.aseguradora_resp_civil,
+          ),
+          poliza_resp_civil: keepFilledFiscal(t.poliza_resp_civil, prev.poliza_resp_civil),
+        }));
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, [truckLive?.id]);
 
   useEffect(() => {
     void fetchTenantUbicaciones()
@@ -728,42 +782,57 @@ export function TripCartaPorte({
   };
 
   const saveDriverFiscal = () => {
-    if (!canCatalogEdit || !driverLive?.id) return;
+    if (!canCatalogEdit || !driverLive?.id) return Promise.resolve();
+    const rfc = keepFilledFiscal(driverFiscal.rfc, driverLive.rfc ?? "");
+    const licenciaFederal = keepFilledFiscal(
+      driverFiscal.licencia_federal,
+      driverLive.licencia_federal ?? "",
+    );
+    const licencia = keepFilledFiscal(driverFiscal.licencia, driverLive.licencia ?? "");
     const changed =
-      (driverFiscal.rfc || "") !== (driverLive.rfc || "") ||
-      (driverFiscal.licencia_federal || "") !== (driverLive.licencia_federal || "") ||
-      (driverFiscal.licencia || "") !== (driverLive.licencia || "");
-    if (!changed) return;
-    upsertDriver({
+      rfc !== (driverLive.rfc || "") ||
+      licenciaFederal !== (driverLive.licencia_federal || "") ||
+      licencia !== (driverLive.licencia || "");
+    if (!changed) return Promise.resolve();
+    return upsertDriver({
       ...driverLive,
-      rfc: driverFiscal.rfc || undefined,
-      licencia_federal: driverFiscal.licencia_federal || undefined,
-      licencia: driverFiscal.licencia || driverLive.licencia,
+      rfc: rfc || undefined,
+      licencia_federal: licenciaFederal || undefined,
+      licencia: licencia || driverLive.licencia,
     });
   };
 
   const saveTruckFiscal = () => {
-    if (!canCatalogEdit || !truckLive?.id) return;
-    const peso =
-      truckFiscal.peso_bruto_vehicular === ""
-        ? undefined
-        : Number(truckFiscal.peso_bruto_vehicular);
+    if (!canCatalogEdit || !truckLive?.id) return Promise.resolve();
+    const permSct = keepFilledFiscal(truckFiscal.perm_sct, truckLive.perm_sct ?? "");
+    const numPermiso = keepFilledFiscal(truckFiscal.num_permiso_sct, truckLive.num_permiso_sct ?? "");
+    const config = keepFilledFiscal(truckFiscal.config_vehicular, truckLive.config_vehicular ?? "");
+    const pesoRaw = keepFilledFiscal(
+      truckFiscal.peso_bruto_vehicular,
+      truckLive.peso_bruto_vehicular ?? "",
+    );
+    const peso = pesoRaw === "" ? undefined : Number(pesoRaw);
+    const aseguradora = keepFilledFiscal(
+      truckFiscal.aseguradora_resp_civil,
+      truckLive.aseguradora_resp_civil ?? "",
+    );
+    const poliza = keepFilledFiscal(truckFiscal.poliza_resp_civil, truckLive.poliza_resp_civil ?? "");
     const changed =
-      (truckFiscal.perm_sct || "") !== (truckLive.perm_sct || "") ||
-      (truckFiscal.num_permiso_sct || "") !== (truckLive.num_permiso_sct || "") ||
-      (truckFiscal.config_vehicular || "") !== (truckLive.config_vehicular || "") ||
+      permSct !== (truckLive.perm_sct || "") ||
+      numPermiso !== (truckLive.num_permiso_sct || "") ||
+      config !== (truckLive.config_vehicular || "") ||
       peso !== truckLive.peso_bruto_vehicular ||
-      (truckFiscal.aseguradora_resp_civil || "") !== (truckLive.aseguradora_resp_civil || "") ||
-      (truckFiscal.poliza_resp_civil || "") !== (truckLive.poliza_resp_civil || "");
-    if (!changed) return;
-    upsertTruck({
+      aseguradora !== (truckLive.aseguradora_resp_civil || "") ||
+      poliza !== (truckLive.poliza_resp_civil || "");
+    if (!changed) return Promise.resolve();
+    return upsertTruck({
       ...truckLive,
-      perm_sct: truckFiscal.perm_sct || undefined,
-      num_permiso_sct: truckFiscal.num_permiso_sct || undefined,
-      config_vehicular: truckFiscal.config_vehicular || undefined,
+      perm_sct: permSct || undefined,
+      num_permiso_sct: numPermiso || undefined,
+      config_vehicular: config || undefined,
       peso_bruto_vehicular: peso,
-      aseguradora_resp_civil: truckFiscal.aseguradora_resp_civil || undefined,
-      poliza_resp_civil: truckFiscal.poliza_resp_civil || undefined,
+      aseguradora_resp_civil: aseguradora || undefined,
+      poliza_resp_civil: poliza || undefined,
     });
   };
 
@@ -857,6 +926,8 @@ export function TripCartaPorte({
       // Forzar persist para que el preview/backend valide el estado actual del formulario
       // (p. ej. fechas default iguales que aún no estaban en BD).
       await flushPendingSaves({ force: true });
+      await saveDriverFiscal();
+      await saveTruckFiscal();
 
       if (tipoTimbrado === "ingreso" && (conceptosDirty || !trip.cfdi_conceptos?.length)) {
         const ok = await persistCfdiConceptos();
@@ -1352,11 +1423,19 @@ export function TripCartaPorte({
               <Label>RFC</Label>
               <Input
                 value={driverFiscal.rfc}
-                onChange={(e) => setDriverFiscal((p) => ({ ...p, rfc: e.target.value }))}
+                onChange={(e) => setDriverFiscal((p) => ({ ...p, rfc: e.target.value.toUpperCase() }))}
                 onBlur={saveDriverFiscal}
                 disabled={!canCatalogEdit || !driverLive?.id}
                 className={fh(issueFlags.driver.rfc)}
               />
+              {!driverFiscal.rfc.trim() && driverLive?.id ? (
+                <p className="text-xs text-muted-foreground mt-1">
+                  No está en la ficha del operador.{" "}
+                  <Link to={`/operadores?open=${driverLive.id}`} className="underline">
+                    Abrir ficha
+                  </Link>
+                </p>
+              ) : null}
             </div>
             <div>
               <Label>Lic. federal</Label>
@@ -1482,6 +1561,20 @@ export function TripCartaPorte({
             {!canCatalogEdit && (
               <p className="text-xs text-muted-foreground">Requiere permiso catalogos.editar</p>
             )}
+            {truckLive?.id &&
+            (!truckFiscal.perm_sct.trim() ||
+              !truckFiscal.num_permiso_sct.trim() ||
+              !truckFiscal.config_vehicular.trim() ||
+              String(truckFiscal.peso_bruto_vehicular).trim() === "" ||
+              !truckFiscal.aseguradora_resp_civil.trim() ||
+              !truckFiscal.poliza_resp_civil.trim()) ? (
+              <p className="text-xs text-muted-foreground">
+                Estos datos salen de la ficha del camión. Si faltan, al salir del campo se guardan en esa unidad.{" "}
+                <Link to={`/camiones?open=${truckLive.id}`} className="underline">
+                  Abrir ficha
+                </Link>
+              </p>
+            ) : null}
           </CardContent>
         </Card>
       </div>
@@ -1571,6 +1664,20 @@ export function TripCartaPorte({
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
                 className={fh(issueFlags.origen.cp)}
+              />
+            </div>
+            <div>
+              <Label>Colonia</Label>
+              <SatUbicacionCombobox
+                kind="colonia"
+                value={origenForm.colonia_clave}
+                descriptionHint={origenForm.colonia}
+                cp={origenForm.cp}
+                disabled={!canFiscalEdit}
+                onSelect={(item) =>
+                  patchOrigen({ colonia_clave: item.clave, colonia: item.descripcion })
+                }
+                onClear={() => patchOrigen({ colonia_clave: "", colonia: "" })}
               />
             </div>
             <div>
@@ -1676,6 +1783,20 @@ export function TripCartaPorte({
                 onBlur={onUbicFieldBlur}
                 disabled={!canFiscalEdit}
                 className={fh(issueFlags.stops[fiscalStopCount]?.cp ?? false)}
+              />
+            </div>
+            <div>
+              <Label>Colonia</Label>
+              <SatUbicacionCombobox
+                kind="colonia"
+                value={destinoForm.colonia_clave}
+                descriptionHint={destinoForm.colonia}
+                cp={destinoForm.cp}
+                disabled={!canFiscalEdit}
+                onSelect={(item) =>
+                  patchDestino({ colonia_clave: item.clave, colonia: item.descripcion })
+                }
+                onClear={() => patchDestino({ colonia_clave: "", colonia: "" })}
               />
             </div>
             <div>

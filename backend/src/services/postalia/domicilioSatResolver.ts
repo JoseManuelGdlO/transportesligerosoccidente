@@ -45,8 +45,20 @@ export function pickColoniaByNombre<T extends { nombre: string }>(
   return (
     items.find((item) => normalizeDesc(item.nombre) === norm) ??
     items.find((item) => normalizeDesc(item.nombre).includes(norm)) ??
-    items[0]
+    null
   );
+}
+
+/** Asigna colonia solo si el catálogo del CP tiene una clave. Varias opciones las elige el usuario. */
+export function pickAutoColonia<T extends { clave: string }>(items: T[]): T | null {
+  const unique = new Map<string, T>();
+  for (const item of items) {
+    const clave = item.clave.trim();
+    if (!clave || unique.has(clave)) continue;
+    unique.set(clave, item);
+  }
+  if (unique.size !== 1) return null;
+  return [...unique.values()][0] ?? null;
 }
 
 export function isValidEstadoSatCode(estado: string | null | undefined): boolean {
@@ -205,17 +217,33 @@ async function resolveColonia(
     if (row) return { clave: row.clave, nombre: row.nombre };
   }
 
+  if (input.colonia?.trim()) {
+    const results = await searchColonias(input.colonia, cp, 20);
+    const picked = pickColoniaByNombre(results, input.colonia);
+    if (picked) return { clave: picked.clave, nombre: picked.nombre };
+  }
+
+  const satColonias = await listColoniasByCp(cp, 200);
+  const only = pickAutoColonia(satColonias);
+  if (only) return only;
+  if (satColonias.length > 1) {
+    issues.push(`CP ${cp}: hay varias colonias en el catálogo SAT; elige una`);
+    return null;
+  }
+
+  const matches: { clave: string; nombre: string }[] = [];
   for (const colonia of postalia.colonias ?? []) {
     const nombre = colonia.nombre?.trim();
     if (!nombre) continue;
     const results = await searchColonias(nombre, cp, 20);
     const picked = pickColoniaByNombre(results, nombre);
-    if (picked) return { clave: picked.clave, nombre: picked.nombre };
+    if (picked) matches.push({ clave: picked.clave, nombre: picked.nombre });
   }
-
-  const satColonias = await listColoniasByCp(cp, 1);
-  if (satColonias[0]) {
-    return { clave: satColonias[0].clave, nombre: satColonias[0].nombre };
+  const fromNames = pickAutoColonia(matches);
+  if (fromNames) return fromNames;
+  if (matches.length > 1) {
+    issues.push(`CP ${cp}: hay varias colonias en el catálogo SAT; elige una`);
+    return null;
   }
 
   issues.push(`No se pudo resolver la colonia SAT para CP ${cp}`);

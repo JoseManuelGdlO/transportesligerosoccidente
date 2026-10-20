@@ -5,6 +5,7 @@ import {
   localidadSearchHints,
   needsDomicilioEnrichment,
   normalizeDesc,
+  pickAutoColonia,
   pickByDescription,
   pickColoniaByNombre,
   satDomicilioReplacePatch,
@@ -33,6 +34,32 @@ describe("domicilioSatResolver helpers", () => {
       { nombre: "Guadalupe Victoria INFONAVIT" },
     ];
     assert.equal(pickColoniaByNombre(items, "Guadalupe")?.nombre, "Guadalupe");
+  });
+
+  it("pickColoniaByNombre no adivina la primera colonia si el nombre no está en el catálogo", () => {
+    const items = [{ nombre: "Agua Blanca Industrial" }, { nombre: "Centro" }];
+    assert.equal(pickColoniaByNombre(items, "Lazaro Cardenas"), null);
+  });
+
+  it("pickAutoColonia solo asigna cuando el CP tiene una colonia", () => {
+    assert.equal(
+      pickAutoColonia([
+        { clave: "0910", nombre: "Agua Blanca Industrial" },
+        { clave: "1209", nombre: "Colli Urbano" },
+      ]),
+      null,
+    );
+    assert.equal(
+      pickAutoColonia([{ clave: "0910", nombre: "Agua Blanca Industrial" }])?.clave,
+      "0910",
+    );
+    assert.equal(
+      pickAutoColonia([
+        { clave: "0910", nombre: "Agua Blanca Industrial" },
+        { clave: "0910", nombre: "Agua Blanca Industrial" },
+      ])?.clave,
+      "0910",
+    );
   });
 
   it("isValidEstadoSatCode acepta claves SAT", () => {
