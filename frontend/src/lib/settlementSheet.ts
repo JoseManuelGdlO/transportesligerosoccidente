@@ -25,8 +25,7 @@ export interface SettlementSheetLine {
 }
 
 export interface SettlementSheetModel {
-  prestamos: SettlementBalanceBox;
-  incidencias: SettlementBalanceBox;
+  adeudo: SettlementBalanceBox;
   lines: SettlementSheetLine[];
   netoPagar: number;
   pendienteArrastrado: number;
@@ -140,10 +139,9 @@ function balanceRows(summary: SettlementSummary, tipo: string): SettlementBalanc
   }));
 }
 
-/** Arma préstamos, incidencias y el resumen del PDF a partir del cálculo ya existente. */
+/** Arma el adeudo global (préstamos + incidencias) y el resumen del PDF. El detalle por concepto vive en la cuenta del operador. */
 export function buildSettlementSheet(summary: SettlementSummary): SettlementSheetModel {
-  const prestamos = toBox(balanceRows(summary, "prestamo"));
-  const incidencias = toBox(balanceRows(summary, "incidencia"));
+  const adeudo = toBox([...balanceRows(summary, "prestamo"), ...balanceRows(summary, "incidencia")]);
 
   const comisiones = roundMoney(num(summary.total_comisiones));
   const compensaciones = roundMoney(num(summary.total_compensaciones));
@@ -171,8 +169,7 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
     { label: "Anticipos", amount: anticipos, kind: "sub" },
     { label: "Viáticos no comprobados", amount: viaticosNoComprobado(saldoViaticos), kind: "sub" },
     { label: "Subtotal", amount: subtotal, kind: "subtotal" },
-    { label: "Abono a préstamos", amount: prestamos.abono, kind: "sub" },
-    { label: "Abono a incidencias", amount: incidencias.abono, kind: "sub" },
+    { label: "Abono a cuenta", amount: adeudo.abono, kind: "sub" },
   ];
   if (otherAbono > 0) {
     lines.push({ label: otherLabel, amount: otherAbono, kind: "sub" });
@@ -186,5 +183,5 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
     });
   }
 
-  return { prestamos, incidencias, lines, netoPagar, pendienteArrastrado };
+  return { adeudo, lines, netoPagar, pendienteArrastrado };
 }

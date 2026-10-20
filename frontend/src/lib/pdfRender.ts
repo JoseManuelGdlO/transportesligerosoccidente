@@ -941,28 +941,12 @@ function sheetMoney(kind: SettlementSheetLineKind, amount: number): string {
   return fmtMXNDecimal(rounded);
 }
 
-function balanceSheetRows(box: SettlementBalanceBox): SheetRow[] {
-  if (box.rows.length === 0) {
-    return [
-      { label: "Saldo anterior", value: fmtMXNDecimal(0) },
-      { label: "Abono", value: fmtMXNDecimal(0) },
-      { label: "Saldo actual", value: fmtMXNDecimal(0), bold: true },
-    ];
-  }
-  const rows: SheetRow[] = [];
-  for (const row of box.rows) {
-    rows.push({ label: row.concepto, value: "", bold: true });
-    rows.push({ label: "Saldo anterior", value: fmtMXNDecimal(row.saldoAnterior) });
-    rows.push({ label: "Abono", value: fmtMXNDecimal(row.abono) });
-    rows.push({ label: "Saldo actual", value: fmtMXNDecimal(row.saldoActual), bold: true });
-  }
-  if (box.rows.length > 1) {
-    rows.push({ label: "Total", value: "", bold: true });
-    rows.push({ label: "Saldo anterior", value: fmtMXNDecimal(box.saldoAnterior), bold: true });
-    rows.push({ label: "Abono", value: fmtMXNDecimal(box.abono), bold: true });
-    rows.push({ label: "Saldo actual", value: fmtMXNDecimal(box.saldoActual), bold: true });
-  }
-  return rows;
+function globalBalanceRows(box: SettlementBalanceBox): SheetRow[] {
+  return [
+    { label: "Saldo anterior", value: fmtMXNDecimal(box.saldoAnterior) },
+    { label: "Abono", value: fmtMXNDecimal(box.abono) },
+    { label: "Saldo actual", value: fmtMXNDecimal(box.saldoActual), bold: true },
+  ];
 }
 
 function resumenSheetRows(lines: ReturnType<typeof buildSettlementSheet>["lines"]): SheetRow[] {
@@ -1102,10 +1086,9 @@ function renderSettlementLayout(state: RenderState): void {
   if (state.data.kind !== "settlement") return;
   state.zone = "body";
   const model = buildSettlementSheet(state.data.summary);
-  const prestamosRows = balanceSheetRows(model.prestamos);
-  const incidenciaRows = balanceSheetRows(model.incidencias);
+  const adeudoRows = globalBalanceRows(model.adeudo);
   const rightRows = resumenSheetRows(model.lines);
-  const estimate = 22 + Math.max(prestamosRows.length + incidenciaRows.length + 2, rightRows.length) * 5.8;
+  const estimate = 22 + Math.max(adeudoRows.length, rightRows.length) * 5.8;
   const room = state.pageH - state.margin - Math.max(14, state.footerReserve) - 8;
   ensureSpace(state, Math.min(estimate, Math.max(40, room)));
 
@@ -1116,10 +1099,9 @@ function renderSettlementLayout(state: RenderState): void {
   const y0 = state.y;
   const leftX = state.margin;
   const rightX = leftX + leftW + gap;
-  const prestamosBottom = drawSheetBox(state, leftX, y0, leftW, "Préstamos", prestamosRows);
-  const incidenciasBottom = drawSheetBox(state, leftX, prestamosBottom + 4, leftW, "Incidencias", incidenciaRows);
+  const adeudoBottom = drawSheetBox(state, leftX, y0, leftW, "Adeudo", adeudoRows);
   const resumenBottom = drawSheetBox(state, rightX, y0, rightW, "Resumen", rightRows);
-  state.y = Math.max(incidenciasBottom, resumenBottom) + 4;
+  state.y = Math.max(adeudoBottom, resumenBottom) + 4;
   renderSettlementTrips(state);
 }
 

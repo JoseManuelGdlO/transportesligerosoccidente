@@ -68,7 +68,7 @@ function summaryWithDebts(extras: Partial<SettlementSummary> = {}): SettlementSu
 }
 
 describe("buildSettlementPdf hoja de liquidación", () => {
-  it("muestra préstamos, incidencias y resumen", () => {
+  it("muestra el adeudo global y el resumen, sin conceptos", () => {
     const doc = buildSettlementPdf({
       tenantNombre: "TLO",
       driver: SAMPLE_DRIVER,
@@ -78,13 +78,18 @@ describe("buildSettlementPdf hoja de liquidación", () => {
     });
     const text = pdfText(doc);
 
-    expect(text).toContain("Prestamo activo");
+    expect(text).toContain("Adeudo");
+    expect(text).toContain("Abono a cuenta");
     expect(text).toContain("Resumen");
     expect(text).toContain("Neto a pagar");
     expect(text).toContain("Viajes");
+    expect(text).not.toContain("Prestamo activo");
+    expect(text).not.toContain("Llanta sin descuento");
+    expect(text).not.toContain("Préstamos");
+    expect(text).not.toContain("Incidencias");
   });
 
-  it("incluye incidencias vigentes aunque no se descuenten en el periodo", () => {
+  it("suma incidencias vigentes al adeudo aunque no se descuenten en el periodo", () => {
     const doc = buildSettlementPdf({
       tenantNombre: "TLO",
       driver: SAMPLE_DRIVER,
@@ -94,8 +99,9 @@ describe("buildSettlementPdf hoja de liquidación", () => {
     });
     const text = pdfText(doc);
 
-    expect(text).toContain("Incidencias");
-    expect(text).toContain("Llanta sin descuento");
+    expect(text).toContain("Adeudo");
+    expect(text).toContain("Saldo actual");
+    expect(text).not.toContain("Llanta sin descuento");
   });
 
   it("mantiene cinco viajes en una sola hoja", () => {

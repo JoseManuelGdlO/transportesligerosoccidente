@@ -187,7 +187,7 @@ export function TemplateEditor({
               <CardContent className="space-y-2">
                 {kind === "settlement" && zone === "body" ? (
                   <p className="text-xs text-muted-foreground">
-                    El cuerpo de la liquidación es fijo: préstamos, incidencias, resumen y viajes.
+                    El cuerpo de la liquidación es fijo: adeudo, resumen y viajes.
                   </p>
                 ) : null}
                 <SortableContext items={ids} strategy={verticalListSortingStrategy}>

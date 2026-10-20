@@ -30,6 +30,52 @@ function labels(extras: Partial<SettlementSummary> = {}) {
   }));
 }
 
+describe("buildSettlementSheet adeudo", () => {
+  it("suma préstamos e incidencias en un solo saldo y un solo abono", () => {
+    const sheet = buildSettlementSheet(summary({
+      account_items: [
+        {
+          id: "inc",
+          tipo: "incidencia",
+          concepto: "Retrovisor",
+          monto_original: 1000,
+          cuota_liquidacion: 500,
+          saldo: 500,
+          fecha: "2026-09-01",
+          descuento_activo: true,
+        },
+      ],
+      account_applications: [
+        {
+          item_id: "inc",
+          tipo: "incidencia",
+          concepto: "Retrovisor",
+          monto: 500,
+          saldo_antes: 1000,
+          saldo_despues: 500,
+        },
+        {
+          item_id: "loan",
+          tipo: "prestamo",
+          concepto: "Préstamo",
+          monto: 200,
+          saldo_antes: 800,
+          saldo_despues: 600,
+        },
+      ],
+    }));
+
+    expect(sheet.adeudo.saldoAnterior).toBe(1800);
+    expect(sheet.adeudo.abono).toBe(700);
+    expect(sheet.adeudo.saldoActual).toBe(1100);
+    expect(sheet.lines.filter((line) => line.label === "Abono a cuenta")).toEqual([
+      { label: "Abono a cuenta", amount: 700, kind: "sub" },
+    ]);
+    expect(sheet.lines.some((line) => line.label === "Abono a préstamos")).toBe(false);
+    expect(sheet.lines.some((line) => line.label === "Abono a incidencias")).toBe(false);
+  });
+});
+
 describe("buildSettlementSheet descuentos", () => {
   it("muestra la descripción de cada descuento del periodo", () => {
     const lines = labels({
@@ -53,8 +99,7 @@ describe("buildSettlementSheet descuentos", () => {
       "Anticipos",
       "Viáticos no comprobados",
       "Subtotal",
-      "Abono a préstamos",
-      "Abono a incidencias",
+      "Abono a cuenta",
       "Neto a pagar",
     ]);
     expect(lines.find((line) => line.label === "Subtotal")?.amount).toBe(4862.8);
