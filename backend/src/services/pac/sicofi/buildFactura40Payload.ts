@@ -6,9 +6,9 @@ import type { CartaPorte, Trip } from "../../../models";
 import { localDateTimeSatStr } from "../../../utils/localDates";
 import { num } from "../../../utils/numbers";
 import type { TimbradoContext } from "../types";
-import type { Factura40PayloadBody } from "./types";
+import type { ConceptoCFDI40, Factura40PayloadBody } from "./types";
 import { mapCartaPorte31 } from "./mapCartaPorte31";
-import { mapConceptos } from "./mapConceptos";
+import { mapConceptos, noIdentificacionFromComentarios } from "./mapConceptos";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
 import {
   PUBLICO_GENERAL_NOMBRE,
@@ -31,6 +31,16 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
 
 /** Folio inicial cuando aún no hay `folio_cfdi` timbrado (Sicofi no auto-asigna con 0). */
 const DEFAULT_SICOFI_FOLIO = 1;
+
+/**
+ * El comentario vive en la carta porte y Sicofi lo imprime como NoIdentificacion
+ * del primer concepto (debajo del total en letra). Vacío: no se manda el atributo.
+ */
+function withComentario(conceptos: ConceptoCFDI40[], comentarios: string | null | undefined): ConceptoCFDI40[] {
+  const nota = noIdentificacionFromComentarios(comentarios);
+  if (!nota || conceptos.length === 0) return conceptos;
+  return conceptos.map((c, i) => (i === 0 ? { ...c, NoIdentificacion: nota } : c));
+}
 
 /**
  * Folio para Sicofi. Usa `cartaPorte.folio_cfdi` si ya existe y es > 0.
@@ -59,6 +69,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const opts = ctx.opts ?? {};
   const taxOpts = taxOptsFromContext(ctx);
   const conceptBlock = mapConceptos(trip, truck, tipo, taxOpts);
+  const conceptos = withComentario(conceptBlock.conceptos, cartaPorte.comentarios);
   const isTraslado = tipo === "traslado";
   const publicoGeneral = isPublicoGeneralReceptor(client);
   const lugarExpedicion = tenant.cp_fiscal || "00000";
@@ -151,7 +162,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
       Contacto1: null,
       Contacto2: null,
     },
-    ConceptosCFDI40: { Conceptos: conceptBlock.conceptos },
+    ConceptosCFDI40: { Conceptos: conceptos },
     CartaPorte20: null,
     CartaPorte30: null,
     CartaPorte31: mapCartaPorte31(

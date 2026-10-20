@@ -151,6 +151,26 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveProdServ, "78101802");
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveUnidad, "E54");
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].Unidad, "Viaje");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, undefined);
+  });
+
+  it("envía el comentario como NoIdentificacion del primer concepto", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        tipo: "ingreso",
+        cartaPorte: { id_ccp: "abc-123", folio_cfdi: null, comentarios: " REM-10 " } as TimbradoContext["cartaPorte"],
+      }),
+    );
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, "REM-10");
+  });
+
+  it("envía el comentario también en traslado", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        cartaPorte: { id_ccp: "abc-123", folio_cfdi: null, comentarios: "REM|10" } as TimbradoContext["cartaPorte"],
+      }),
+    );
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, "REM 10");
   });
 
   it("incluye TipoCambio solo en ingreso con moneda extranjera", () => {

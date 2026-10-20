@@ -1133,7 +1133,7 @@ export function TripCartaPorte({
               onBlur={() => void saveComentarios()}
             />
             <p className="text-xs text-muted-foreground">
-              Solo aparece en el PDF, debajo del total en letra. Se puede cambiar después de timbrar. {comentarios.length}/100
+              Se envía a Sicofi al timbrar y se imprime debajo del total en letra. Si lo cambias después de timbrar, solo cambia el PDF de este sistema. {comentarios.length}/100
             </p>
           </div>
           {canTimbrar && !cpTimbrada && (

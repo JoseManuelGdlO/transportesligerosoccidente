@@ -14,7 +14,7 @@ export interface CartaPortePdfSource {
     cantidad?: string | number | null;
     cantidad_transportada?: string | number | null;
   }>;
-  /** Nota solo de impresión. null = no mostrar el NoIdentificacion del XML. */
+  /** Nota guardada. null = no mostrar el NoIdentificacion del XML en este PDF. */
   comentarios?: string | null;
 }
 
@@ -59,7 +59,11 @@ export function prepareCfdiForPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource
   return { ...withNota, cartaPorte: { ...cp, ubicaciones, mercancias } };
 }
 
-/** El comentario no viaja en el CFDI. Si el origen lo trae, sustituye al NoIdentificacion del XML. */
+/**
+ * El comentario también viaja a Sicofi como NoIdentificacion al timbrar.
+ * Aquí el valor guardado sustituye al del XML para que un cambio posterior
+ * se vea en el PDF de este sistema.
+ */
 function applyComentarioPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource | null): ParsedCfdi {
   if (!source || source.comentarios === undefined) return cfdi;
   const nota = source.comentarios?.trim() || undefined;
