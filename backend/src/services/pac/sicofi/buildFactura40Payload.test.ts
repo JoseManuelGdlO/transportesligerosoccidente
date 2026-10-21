@@ -152,16 +152,18 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].ClaveUnidad, "E54");
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].Unidad, "Viaje");
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, undefined);
+    assert.equal(payload.DatosCFDI40.MensajePDF, "");
   });
 
-  it("envía el comentario como NoIdentificacion del primer concepto", () => {
+  it("envía el comentario en MensajePDF y no en NoIdentificacion", () => {
     const payload = buildFactura40Payload(
       baseCtx({
         tipo: "ingreso",
         cartaPorte: { id_ccp: "abc-123", folio_cfdi: null, comentarios: " REM-10 " } as TimbradoContext["cartaPorte"],
       }),
     );
-    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, "REM-10");
+    assert.equal(payload.DatosCFDI40.MensajePDF, "REM-10");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, undefined);
   });
 
   it("envía el comentario también en traslado", () => {
@@ -170,7 +172,8 @@ describe("buildFactura40Payload", () => {
         cartaPorte: { id_ccp: "abc-123", folio_cfdi: null, comentarios: "REM|10" } as TimbradoContext["cartaPorte"],
       }),
     );
-    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, "REM 10");
+    assert.equal(payload.DatosCFDI40.MensajePDF, "REM 10");
+    assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, undefined);
   });
 
   it("incluye TipoCambio solo en ingreso con moneda extranjera", () => {

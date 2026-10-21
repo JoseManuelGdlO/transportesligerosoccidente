@@ -15,10 +15,10 @@ function round2(n: number): number {
   return Math.round(n * 100) / 100;
 }
 
-/** SAT: NoIdentificacion admite hasta 100 caracteres y no el carácter `|`. */
+/** El comentario de `MensajePDF` admite hasta 100 caracteres y no el carácter `|`. */
 export const NO_IDENTIFICACION_MAX = 100;
 
-/** Comentario de carta porte listo para `NoIdentificacion`. Vacío → null (no se usa el folio). */
+/** Comentario de carta porte listo para `MensajePDF`. Vacío → null. */
 export function noIdentificacionFromComentarios(value: string | null | undefined): string | null {
   const cleaned = (value ?? "").replace(/\|/g, " ").replace(/\s+/g, " ").trim();
   if (!cleaned) return null;

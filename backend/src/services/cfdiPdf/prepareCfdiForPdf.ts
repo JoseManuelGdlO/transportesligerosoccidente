@@ -60,9 +60,9 @@ export function prepareCfdiForPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource
 }
 
 /**
- * El comentario también viaja a Sicofi como NoIdentificacion al timbrar.
- * Aquí el valor guardado sustituye al del XML para que un cambio posterior
- * se vea en el PDF de este sistema.
+ * Sicofi recibe el comentario en `MensajePDF`, que no regresa en el XML.
+ * Aquí el valor guardado se imprime bajo el total en letra y sustituye
+ * cualquier `NoIdentificacion` que traiga el concepto.
  */
 function applyComentarioPdf(cfdi: ParsedCfdi, source?: CartaPortePdfSource | null): ParsedCfdi {
   if (!source || source.comentarios === undefined) return cfdi;

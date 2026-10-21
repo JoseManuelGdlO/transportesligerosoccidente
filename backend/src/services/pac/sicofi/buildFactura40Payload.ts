@@ -6,7 +6,7 @@ import type { CartaPorte, Trip } from "../../../models";
 import { localDateTimeSatStr } from "../../../utils/localDates";
 import { num } from "../../../utils/numbers";
 import type { TimbradoContext } from "../types";
-import type { ConceptoCFDI40, Factura40PayloadBody } from "./types";
+import type { Factura40PayloadBody } from "./types";
 import { mapCartaPorte31 } from "./mapCartaPorte31";
 import { mapConceptos, noIdentificacionFromComentarios } from "./mapConceptos";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
@@ -33,13 +33,11 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
 const DEFAULT_SICOFI_FOLIO = 1;
 
 /**
- * El comentario vive en la carta porte y Sicofi lo imprime como NoIdentificacion
- * del primer concepto (debajo del total en letra). Vacío: no se manda el atributo.
+ * Comentario que Sicofi imprime en su PDF, en la caja Comentarios (`MensajePDF`).
+ * Vacío: cadena vacía.
  */
-function withComentario(conceptos: ConceptoCFDI40[], comentarios: string | null | undefined): ConceptoCFDI40[] {
-  const nota = noIdentificacionFromComentarios(comentarios);
-  if (!nota || conceptos.length === 0) return conceptos;
-  return conceptos.map((c, i) => (i === 0 ? { ...c, NoIdentificacion: nota } : c));
+function mensajePdf(comentarios: string | null | undefined): string {
+  return noIdentificacionFromComentarios(comentarios) ?? "";
 }
 
 /**
@@ -69,7 +67,6 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const opts = ctx.opts ?? {};
   const taxOpts = taxOptsFromContext(ctx);
   const conceptBlock = mapConceptos(trip, truck, tipo, taxOpts);
-  const conceptos = withComentario(conceptBlock.conceptos, cartaPorte.comentarios);
   const isTraslado = tipo === "traslado";
   const publicoGeneral = isPublicoGeneralReceptor(client);
   const lugarExpedicion = tenant.cp_fiscal || "00000";
@@ -91,7 +88,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     LugarDeExpedicion: lugarExpedicion,
     Exportacion: "01",
     DatosAdicionales: null,
-    MensajePDF: "",
+    MensajePDF: mensajePdf(cartaPorte.comentarios),
     EmailMensaje: null,
     Transaccion: trip.folio || trip.id,
     complementos: null,
@@ -162,7 +159,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
       Contacto1: null,
       Contacto2: null,
     },
-    ConceptosCFDI40: { Conceptos: conceptos },
+    ConceptosCFDI40: { Conceptos: conceptBlock.conceptos },
     CartaPorte20: null,
     CartaPorte30: null,
     CartaPorte31: mapCartaPorte31(
