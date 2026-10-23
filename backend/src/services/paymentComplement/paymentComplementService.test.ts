@@ -281,6 +281,7 @@ describe("paymentComplementService", () => {
     assert.equal(body.Contrasena, "secret");
     assert.equal(body.ReceptorCFDI?.Email, null);
     assert.equal(body.DatosCFDI?.EmailMensaje, null);
+    assert.equal(body.DatosCFDI != null && "Serie" in body.DatosCFDI, false);
     assert.equal(body.Pagos?.CFDIPagos40?.[0]?.FechaPago, `${localDateStr()}T12:00:00`);
     assert.match(String(h.post.mock.calls[0]?.arguments[0]), /\/Comprobante40\/Pagos40$/);
   });

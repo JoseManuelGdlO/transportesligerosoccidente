@@ -45,7 +45,6 @@ function doctoRelacionado(linea: DraftLine) {
 }
 
 export function buildPagos40Payload(input: {
-  serie: string;
   folio: number;
   fechaCfdi: string;
   lugarExpedicion: string;
@@ -69,7 +68,6 @@ export function buildPagos40Payload(input: {
 
   return {
     DatosCFDI: {
-      Serie: input.serie,
       Folio: input.folio,
       Fecha: input.fechaCfdi,
       FormadePago: input.formaPagoP,

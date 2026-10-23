@@ -50,7 +50,6 @@ const lineas: DraftLine[] = [
 
 function input(lineasPago: DraftLine[] = lineas) {
   return {
-    serie: "P",
     folio: 12,
     fechaCfdi: "2026-10-15T15:04:05",
     lugarExpedicion: "44100",
@@ -101,7 +100,8 @@ describe("buildPagos40Payload", () => {
     assert.equal(datos.Total, 0);
     assert.equal(datos.MetodoPago, "PUE");
     assert.equal(datos.FormadePago, "03");
-    assert.equal(datos.Serie, "P");
+    assert.equal("Serie" in datos, false);
+    assert.equal(doctos[0].Serie, "A");
     assert.equal(datos.Folio, 12);
     assert.equal(receptor.UsoCfdi, "CP01");
     assert.equal(receptor.Email, null);
