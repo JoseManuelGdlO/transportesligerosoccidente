@@ -20,15 +20,34 @@ export interface InvoiceTaxResult {
   retenciones: ImpuestoLinea[];
 }
 
-/** Redondeo a 2 decimales para montos fiscales. */
+/**
+ * Redondeo half-up estable. El sesgo de 1e-8 corrige productos binarios
+ * como 4317.60 × 0.16, que en IEEE quedan en 690.8159999999999.
+ */
+function roundTo(n: number, decimals: number): number {
+  const factor = 10 ** decimals;
+  return Math.round(n * factor + Math.sign(n) * 1e-8) / factor;
+}
+
+/** Base y total del comprobante: MXN admite 2 decimales. */
 function round2(n: number): number {
-  return Math.round(n * 100) / 100;
+  return roundTo(n, 2);
+}
+
+/** Importe de impuesto por partida: el XML admite hasta 6 decimales (Anexo 20). */
+function round6(n: number): number {
+  return roundTo(n, 6);
 }
 
 /**
  * Calcula IVA (impuesto 002) y retención para la tarifa de un viaje de ingreso.
  *
- * Fórmula: `total = subtotal + iva − retención`.
+ * La base queda a 2 decimales. El IVA y la retención de la partida conservan
+ * hasta 6 decimales (`Base × tasa`), porque el SAT compara ese importe
+ * contra el producto exacto. El total de la línea se redondea a centavos
+ * una sola vez, al final.
+ *
+ * Fórmula: `total = round2(subtotal + iva − retención)`.
  * Defaults: IVA 16%, retención 4%.
  *
  * @param tarifa - Monto base del flete (subtotal).
@@ -42,8 +61,8 @@ export function computeTripInvoiceTaxes(tarifa: number, opts: InvoiceTaxOpts = {
   }
   const ivaTasa = opts.ivaTasa ?? 0.16;
   const retTasa = opts.retencionTasa ?? 0.04;
-  const iva = round2(subtotal * ivaTasa);
-  const retencion = round2(subtotal * retTasa);
+  const iva = round6(subtotal * ivaTasa);
+  const retencion = round6(subtotal * retTasa);
   const total = round2(subtotal + iva - retencion);
   const traslados: ImpuestoLinea[] = [
     {

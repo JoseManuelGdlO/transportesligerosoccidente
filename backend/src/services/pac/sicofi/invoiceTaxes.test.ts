@@ -27,4 +27,14 @@ describe("computeTripInvoiceTaxes", () => {
     assert.equal(t.total, 500);
     assert.equal(t.traslados.length, 0);
   });
+
+  it("conserva 6 decimales en el IVA de la partida y redondea el total a centavos", () => {
+    const t = computeTripInvoiceTaxes(4317.6);
+    assert.equal(t.subtotal, 4317.6);
+    assert.equal(t.iva, 690.816);
+    assert.equal(t.retencion, 172.704);
+    assert.equal(t.traslados[0].Importe, 690.816);
+    assert.equal(t.retenciones[0].Importe, 172.704);
+    assert.equal(t.total, 4835.71);
+  });
 });
