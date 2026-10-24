@@ -6,7 +6,7 @@ import type { SettlementSummary } from "@/lib/calc";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, isoDay } from "@/lib/format";
 import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
-import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes } from "@/lib/settlementSnapshot";
+import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes, overlayLiveComisionOverrides } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
@@ -617,9 +617,12 @@ export default function Liquidaciones() {
 
   const effectiveSummary = useMemo(() => {
     if (!summary || !driver) return null;
-    const base = summarySource === "snapshot" ? summary : applyTripInclusions(summary, driver, tripInclusions);
+    const withComision =
+      summarySource === "snapshot" ? summary : overlayLiveComisionOverrides(summary, trips);
+    const base =
+      summarySource === "snapshot" ? withComision : applyTripInclusions(withComision, driver, tripInclusions);
     return applySettlementFlete(base, fleteLiquidacion);
-  }, [summary, driver, tripInclusions, summarySource, fleteLiquidacion]);
+  }, [summary, driver, tripInclusions, summarySource, fleteLiquidacion, trips]);
 
   const summaryForPdf = useMemo(() => {
     if (!effectiveSummary) return null;

@@ -3,6 +3,7 @@ import {
   applySettlementFlete,
   applyTripInclusions,
   fleteLiquidacionPayload,
+  overlayLiveComisionOverrides,
   settlementFlete,
   snapshotToPdfSummary,
 } from "@/lib/settlementSnapshot";
@@ -68,6 +69,19 @@ function snapshotWithTrips(
     ...extras,
   };
 }
+
+describe("overlayLiveComisionOverrides", () => {
+  it("pinta la comisión guardada en el viaje aunque el resumen siga con el cálculo automático", () => {
+    const summary = snapshotWithTrips([trip("a", 1000)]);
+    const live = trip("a", 1000);
+    live.comision_override = 760;
+
+    const next = applyTripInclusions(overlayLiveComisionOverrides(summary, [live]), driver, { a: true });
+
+    expect(next.trips[0]?.comision_override).toBe(760);
+    expect(next.total_comisiones).toBe(760);
+  });
+});
 
 describe("snapshotToPdfSummary", () => {
   it("recalcula pendiente_arrastrado al excluir viajes, no conserva el del snapshot", () => {

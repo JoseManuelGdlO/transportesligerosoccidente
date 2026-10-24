@@ -93,6 +93,27 @@ export function enrichSnapshotTripRoutes(
   };
 }
 
+/**
+ * La liquidación en vivo pinta la comisión del viaje guardado en catálogo
+ * aunque el resumen todavía traiga el cálculo automático.
+ */
+export function overlayLiveComisionOverrides(
+  summary: SettlementSummaryApi,
+  catalogTrips: Trip[],
+): SettlementSummaryApi {
+  if (catalogTrips.length === 0) return summary;
+  const byId = new Map(catalogTrips.map((t) => [t.id, t.comision_override]));
+  let changed = false;
+  const trips = summary.trips.map((t) => {
+    if (!byId.has(t.id)) return t;
+    const live = byId.get(t.id);
+    if (live == null || t.comision_override === live) return t;
+    changed = true;
+    return { ...t, comision_override: live };
+  });
+  return changed ? { ...summary, trips } : summary;
+}
+
 export function buildTripInclusionsFromTrips(trips: { id: string; included?: boolean }[]): Record<string, boolean> {
   return Object.fromEntries(trips.map((t) => [t.id, t.included !== false]));
 }

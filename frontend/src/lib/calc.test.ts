@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  computeCommission,
   computeNetoPagar,
   computeSettlement,
   outstandingDebtsForSettlement,
@@ -50,6 +51,20 @@ const tripWithExpenses = (viaticos_entregados: number, monto_comprobado: number)
       fecha: "2026-07-01T12:00:00.000Z",
     },
   ],
+});
+
+describe("computeCommission", () => {
+  it("usa el monto manual y no el porcentaje del operador", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.comision_override = 760;
+    expect(computeCommission(trip, driver)).toBe(760);
+  });
+
+  it("acepta el monto manual cuando el API lo manda como texto", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.comision_override = "760.00" as unknown as number;
+    expect(computeCommission(trip, driver)).toBe(760);
+  });
 });
 
 describe("viaticos helpers", () => {

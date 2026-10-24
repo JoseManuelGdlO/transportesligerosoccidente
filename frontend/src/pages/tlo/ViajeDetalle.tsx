@@ -1,7 +1,7 @@
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, computeCommissionFromScheme, driverById, truckById, driverCommissionRate, tripDriverNombre } from "@/lib/calc";
+import { computeTrip, computeCommissionFromScheme, commissionOverride, driverById, truckById, driverCommissionRate, tripDriverNombre } from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -72,13 +72,17 @@ export default function ViajeDetalle() {
     setTripOverride(updated);
   };
 
+  // Un GET en vuelo no puede pisar un guardado más nuevo (la comisión se veía igual aunque el aviso dijera que sí se guardó).
+  const tripEpoch = useRef(0);
+
   const reloadTrip = async () => {
     if (!id || !hasApiConfigured()) return;
+    const epoch = tripEpoch.current;
     const r = await apiFetch(`/trips/${id}`);
-    if (r.ok) {
-      const j = await readJson<Record<string, unknown>>(r);
-      publishTrip(normalizeTrip(j));
-    }
+    if (!r.ok || epoch !== tripEpoch.current) return;
+    const j = await readJson<Record<string, unknown>>(r);
+    if (epoch !== tripEpoch.current) return;
+    publishTrip(normalizeTrip(j));
   };
 
   useEffect(() => {
@@ -179,7 +183,7 @@ export default function ViajeDetalle() {
   const client = clients.find(c => c.id === trip.client_id);
   const fin = computeTrip(trip, driver);
   const comisionEsquema = computeCommissionFromScheme(trip, driver);
-  const hasComisionManual = typeof trip.comision_override === "number";
+  const hasComisionManual = commissionOverride(trip) != null;
   const isClosed = tripIsClosed(trip);
   const canFacturar = tripIsOpen(trip) || tripIsClosed(trip);
   const customStatusOptions = allStatuses.filter((s) => !s.is_system && s.activo !== false);
@@ -210,6 +214,37 @@ export default function ViajeDetalle() {
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar las notas");
     } finally {
       setSavingNotas(false);
+    }
+  };
+
+  const saveComisionOverride = async (raw: string) => {
+    const trimmed = raw.trim();
+    const next = trimmed === "" ? null : Number(trimmed);
+    if (next != null && (!Number.isFinite(next) || next < 0)) {
+      toast.error("La comisión tiene que ser un monto mayor o igual a cero");
+      return;
+    }
+    const prev = trip.comision_override ?? null;
+    if (next === prev) return;
+
+    const previous = trip;
+    tripEpoch.current += 1;
+    const epoch = tripEpoch.current;
+    publishTrip({ ...trip, comision_override: next });
+    try {
+      if (hasApiConfigured()) {
+        const updated = await patchTrip(trip.id, { comision_override: next });
+        if (epoch !== tripEpoch.current) return;
+        tripEpoch.current += 1;
+        publishTrip(updated);
+      }
+      toast.success(next == null ? "Se restauró la comisión automática" : "Comisión personalizada guardada");
+    } catch (e) {
+      if (epoch === tripEpoch.current) {
+        tripEpoch.current += 1;
+        publishTrip(previous);
+      }
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar la comisión");
     }
   };
 
@@ -783,13 +818,8 @@ export default function ViajeDetalle() {
                       placeholder={String(comisionEsquema)}
                       defaultValue={trip.comision_override ?? ""}
                       key={`comision-${trip.id}-${trip.comision_override ?? "auto"}`}
-                      onBlur={async (e) => {
-                        const v = e.target.value === "" ? null : +e.target.value;
-                        const prev = trip.comision_override ?? null;
-                        if (v === prev) return;
-                        updateTrip(trip.id, { comision_override: v });
-                        toast.success(v == null ? "Se restauró la comisión automática" : "Comisión personalizada guardada");
-                        await reloadTrip();
+                      onBlur={(e) => {
+                        void saveComisionOverride(e.target.value);
                       }}
                     />
                   </div>
@@ -798,10 +828,8 @@ export default function ViajeDetalle() {
                       type="button"
                       variant="outline"
                       className="shrink-0"
-                      onClick={async () => {
-                        updateTrip(trip.id, { comision_override: null });
-                        toast.success("Se restauró la comisión automática");
-                        await reloadTrip();
+                      onClick={() => {
+                        void saveComisionOverride("");
                       }}
                     >
                       <RotateCcw className="h-4 w-4 mr-2" />

@@ -34,8 +34,17 @@ export const computeCommissionFromScheme = (trip: Trip, driver?: Driver): number
   return rate;
 };
 
+/** Monto manual del viaje. Acepta número o decimal en texto, que es como a veces llega del API. */
+export const commissionOverride = (trip: { comision_override?: number | string | null }): number | null => {
+  const value = trip.comision_override;
+  if (value == null || value === "") return null;
+  const amount = typeof value === "number" ? value : Number(value);
+  return Number.isFinite(amount) ? amount : null;
+};
+
 export const computeCommission = (trip: Trip, driver?: Driver): number => {
-  if (typeof trip.comision_override === "number") return trip.comision_override;
+  const override = commissionOverride(trip);
+  if (override != null) return override;
   return computeCommissionFromScheme(trip, driver);
 };
 
