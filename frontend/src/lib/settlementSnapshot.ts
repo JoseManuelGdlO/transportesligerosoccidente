@@ -67,7 +67,7 @@ export function buildFleteLiquidacionFromTrips(
   return map;
 }
 
-/** Completa la ruta de viajes en snapshots viejos usando el catálogo actual (mismo criterio que Viajes). */
+/** Completa ruta y cliente en snapshots viejos usando el catálogo actual (mismo criterio que Viajes). */
 export function enrichSnapshotTripRoutes(
   snapshot: SettlementSummaryApi,
   catalogTrips: Trip[],
@@ -86,6 +86,8 @@ export function enrichSnapshotTripRoutes(
         paradas: live.paradas?.length ? live.paradas : t.paradas,
         origen: live.origen || t.origen,
         destino: live.destino || t.destino,
+        client_id: live.client_id || t.client_id,
+        client_nombre: live.client_nombre || t.client_nombre,
       };
     }),
   };

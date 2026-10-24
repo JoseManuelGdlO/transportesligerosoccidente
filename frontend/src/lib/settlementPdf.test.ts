@@ -83,6 +83,8 @@ describe("buildSettlementPdf hoja de liquidación", () => {
     expect(text).toContain("Resumen");
     expect(text).toContain("Neto a pagar");
     expect(text).toContain("Viajes");
+    expect(text).toContain("Cliente");
+    expect(text).toContain("Cliente León SA");
     expect(text).not.toContain("Prestamo activo");
     expect(text).not.toContain("Llanta sin descuento");
     expect(text).not.toContain("Préstamos");

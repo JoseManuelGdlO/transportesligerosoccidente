@@ -433,8 +433,8 @@ export async function listSettlements(tenantId: string, driverId?: string) {
 }
 
 /**
- * Completa route_nombre / ruta_resumen / paradas en snapshots antiguos
- * (guardados sin Route/paradas) para que PDF e histórico muestren la ruta como en Viajes.
+ * Completa ruta y cliente en snapshots antiguos (guardados sin Route/paradas/Client)
+ * para que PDF e histórico muestren la misma información que Viajes.
  */
 async function enrichSettlementSnapshotsWithRoutes(tenantId: string, settlements: Settlement[]) {
   const tripIds = new Set<string>();
@@ -452,6 +452,7 @@ async function enrichSettlementSnapshotsWithRoutes(tenantId: string, settlements
     include: [
       { association: "paradas" },
       { association: "Route", attributes: ["id", "nombre"], required: false },
+      { association: "Client", attributes: ["id", "razon_social"], required: false },
     ],
   });
   const byId = new Map(trips.map((t) => [String(t.id), tripToJson(t)]));
@@ -471,6 +472,8 @@ async function enrichSettlementSnapshotsWithRoutes(tenantId: string, settlements
         paradas: live.paradas ?? st.paradas,
         origen: live.origen ?? st.origen,
         destino: live.destino ?? st.destino,
+        client_id: live.client_id ?? st.client_id,
+        client_nombre: live.client_nombre ?? st.client_nombre,
       };
     });
     if (changed) {

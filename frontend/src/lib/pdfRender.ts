@@ -1040,6 +1040,7 @@ function renderSettlementTrips(state: RenderState): void {
       String(trip.folio),
       tripUnitLabel(trip, trucks),
       formatTripRoute(trip),
+      trip.client_nombre?.trim() || "—",
       trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local",
       fmtDatePdf(trip.fecha_salida),
       fmtMXNDecimal(flete),
@@ -1055,10 +1056,10 @@ function renderSettlementTrips(state: RenderState): void {
   const footRight = { halign: "right" as const };
   pdfAutoTable(state.doc, {
     startY: state.y,
-    head: [["Folio", "Unidad", "Ruta", "Tipo", "Salida", "Flete", "Comisión"]],
-    body: body.length > 0 ? body : [["", "", "Sin viajes en el periodo", "", "", "", ""]],
+    head: [["Folio", "Unidad", "Ruta", "Cliente", "Tipo", "Salida", "Flete", "Comisión"]],
+    body: body.length > 0 ? body : [["", "", "Sin viajes en el periodo", "", "", "", "", ""]],
     foot: [[
-      { content: "Total", colSpan: 4, styles: { halign: "left" } },
+      { content: "Total", colSpan: 5, styles: { halign: "left" } },
       { content: `${sorted.length} viajes`, styles: { halign: "left" } },
       { content: fmtMXNDecimal(totalFlete), styles: footRight },
       { content: fmtMXNDecimal(totalComision), styles: footRight },
@@ -1070,12 +1071,13 @@ function renderSettlementTrips(state: RenderState): void {
     margin: tableMargins(state),
     rowPageBreak: "avoid",
     columnStyles: {
-      0: { cellWidth: 18 },
-      1: { cellWidth: 34 },
-      3: { cellWidth: 20 },
-      4: { cellWidth: 22 },
-      5: { halign: "right", cellWidth: 28 },
-      6: { halign: "right", cellWidth: 28 },
+      0: { cellWidth: 16 },
+      1: { cellWidth: 28 },
+      3: { cellWidth: 36 },
+      4: { cellWidth: 18 },
+      5: { cellWidth: 20 },
+      6: { halign: "right", cellWidth: 24 },
+      7: { halign: "right", cellWidth: 24 },
     },
   });
   state.doc.setTextColor(0, 0, 0);

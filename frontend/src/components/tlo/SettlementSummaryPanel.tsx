@@ -147,7 +147,7 @@ export function SettlementSummaryPanel({
     return t.included !== false;
   }).length;
   const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
-  const tripColSpan = showTripSelection ? 7 : 6;
+  const tripColSpan = showTripSelection ? 8 : 7;
   const canEditFlete = !readOnly && Boolean(onFleteLiquidacionChange);
   const showFleteNote =
     canEditFlete ||
@@ -548,6 +548,7 @@ export function SettlementSummaryPanel({
                 <TableHead>Folio</TableHead>
                 <TableHead>Tipo</TableHead>
                 <TableHead>Ruta</TableHead>
+                <TableHead>Cliente</TableHead>
                 <TableHead>Fecha</TableHead>
                 <TableHead className="text-right">Flete</TableHead>
                 <TableHead className="text-right">Comisión</TableHead>
@@ -601,6 +602,7 @@ export function SettlementSummaryPanel({
                     </TableCell>
                     <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
                     <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
+                    <TableCell className="text-sm">{t.client_nombre?.trim() || "—"}</TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
                     <TableCell className="text-right">
                       {canEditFlete && onFleteLiquidacionChange ? (
