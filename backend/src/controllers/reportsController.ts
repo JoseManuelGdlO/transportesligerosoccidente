@@ -19,6 +19,17 @@ const querySchema = z.object({
 
 type CriterioFecha = z.infer<typeof criterioFechaSchema>;
 
+/** Nombre visible en reportes: alias interno si existe, si no razón social. */
+export function clientReportName(
+  client: Pick<Client, "razon_social" | "alias"> | null | undefined,
+): string | null {
+  if (!client) return null;
+  const alias = client.alias?.trim();
+  if (alias) return alias;
+  const razon = client.razon_social?.trim();
+  return razon || null;
+}
+
 const EXPENSE_CATS = ["casetas", "refacciones", "hospedaje", "comidas", "otros"] as const;
 type ExpenseCat = (typeof EXPENSE_CATS)[number];
 
@@ -382,7 +393,7 @@ function buildByClient(enriched: TripWithFin[], clients: Client[]) {
       }
       return {
         client_id: c.id,
-        razon_social: c.razon_social,
+        razon_social: clientReportName(c) ?? c.razon_social,
         viajes: rows.length,
         ingreso,
         utilidad,
@@ -498,7 +509,7 @@ function buildNegativeTrips(
         origen: trip.origen,
         destino: trip.destino,
         ruta: tripRouteLabelFromModel(trip),
-        razon_social: cl?.razon_social ?? null,
+        razon_social: clientReportName(cl),
         operador: dr?.nombre ?? "—",
         numero_economico: tk?.numero_economico ?? "—",
         ingreso: fin.ingreso,
@@ -537,7 +548,7 @@ function buildByTrip(
         origen: trip.origen,
         destino: trip.destino,
         ruta: tripRouteLabelFromModel(trip),
-        razon_social: cl?.razon_social ?? null,
+        razon_social: clientReportName(cl),
         operador: dr?.nombre ?? "—",
         numero_economico: tk?.numero_economico ?? "—",
         ingreso: fin.ingreso,

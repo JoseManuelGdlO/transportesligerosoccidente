@@ -1,8 +1,29 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
-import { buildByMonth, withMaintenanceTotals } from "./reportsController";
+import { buildByMonth, clientReportName, withMaintenanceTotals } from "./reportsController";
 import type { TripFinancials } from "../services/calc";
 import type { Truck } from "../models";
+
+describe("clientReportName", () => {
+  it("usa el alias cuando existe", () => {
+    assert.equal(
+      clientReportName({ razon_social: "TRANSPORTES LIGEROS DE OCCIDENTE", alias: "TLO" }),
+      "TLO",
+    );
+  });
+
+  it("cae a la razón social si no hay alias", () => {
+    assert.equal(
+      clientReportName({ razon_social: "RECAL ACEROS", alias: "  " }),
+      "RECAL ACEROS",
+    );
+    assert.equal(clientReportName({ razon_social: "RECAL ACEROS", alias: null }), "RECAL ACEROS");
+  });
+
+  it("devuelve null si no hay cliente", () => {
+    assert.equal(clientReportName(null), null);
+  });
+});
 
 describe("withMaintenanceTotals", () => {
   const base = {
