@@ -318,6 +318,7 @@ export function normalizeClient(raw: Record<string, unknown>): Client {
   return {
     id: String(raw.id),
     razon_social: String(raw.razon_social ?? ""),
+    alias: raw.alias != null && String(raw.alias).trim() !== "" ? String(raw.alias) : undefined,
     rfc: String(raw.rfc ?? ""),
     contacto: String(raw.contacto ?? ""),
     telefono: String(raw.telefono ?? ""),

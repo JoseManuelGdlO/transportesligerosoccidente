@@ -68,6 +68,18 @@ export function ClientFormFields({
           onChange={(e) => patch({ razon_social: e.target.value }, "razon_social")}
         />
       </ValidatedField>
+      <div>
+        <Label htmlFor="alias">Alias</Label>
+        <Input
+          id="alias"
+          value={form.alias ?? ""}
+          placeholder="Nombre corto interno (opcional)"
+          onChange={(e) => onChange({ alias: e.target.value })}
+        />
+        <p className="text-xs text-muted-foreground mt-1">
+          Sirve para buscar al cliente. Vaciarlo y guardar lo quita.
+        </p>
+      </div>
       <div className="grid grid-cols-2 gap-3">
         <ValidatedField id="rfc" label="RFC" required error={fieldErrors?.rfc}>
           <Input

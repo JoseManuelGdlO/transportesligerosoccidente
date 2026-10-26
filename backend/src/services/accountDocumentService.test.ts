@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
-import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Supplier } from "../models";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
@@ -812,6 +812,7 @@ describe("búsqueda de cuentas por UUID", () => {
   });
 
   it("incluye factura, complemento y el id del documento", async () => {
+    mock.method(Client, "findAll", async () => [] as never);
     mock.method(CartaPorte, "findAll", async () => [{ trip_id: "trip-1" }] as never);
     mock.method(CfdiPago, "findAll", async () => [{ id: "pago-1" }] as never);
     mock.method(AccountDocumentPayment, "findAll", async (opts: { where?: { cfdi_pago_id?: unknown } }) => {
@@ -866,6 +867,25 @@ describe("búsqueda de cuentas por UUID", () => {
         })?.id as { [Op.like]?: string }
       )?.[Op.like],
       "%D9BE138A%",
+    );
+  });
+
+  it("encuentra documentos por alias del cliente", async () => {
+    mock.method(CartaPorte, "findAll", async () => [] as never);
+    mock.method(CfdiPago, "findAll", async () => [] as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(Client, "findAll", async () => [{ id: "client-alias" }] as never);
+    let where: Record<PropertyKey, unknown> | undefined;
+    mock.method(AccountDocument, "findAll", async (opts: { where: Record<PropertyKey, unknown> }) => {
+      where = opts.where;
+      return [] as never;
+    });
+
+    await listDocuments("t1", { q: "Bajío" });
+    const or = where?.[Op.or] as Array<Record<string, unknown>>;
+    assert.deepEqual(
+      (or.find((clause) => "client_id" in clause)?.client_id as { [Op.in]?: string[] })?.[Op.in],
+      ["client-alias"],
     );
   });
 });

@@ -29,6 +29,7 @@ import {
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
+import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, fetchTruckOdometerResets, patchTrip } from "@/lib/tloApi";
 import { filterTripsInSameEpoch, findApplicableReset } from "@/lib/odometerEpoch";
@@ -458,25 +459,16 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                 </div>
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label>Cliente</Label>
-                  <Select
+                  <ClientCombobox
+                    clients={clients}
                     value={form.client_id}
-                    onValueChange={(v) => {
+                    onChange={(v) => {
                       setForm({ ...form, client_id: v });
                       setSelectedRouteId("__custom__");
                       if (v !== trip.client_id) setParadas(emptyParadas());
                     }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.razon_social}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Seleccionar..."
+                  />
                 </div>
               </div>
             </TripFormSection>

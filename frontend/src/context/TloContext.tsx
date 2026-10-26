@@ -303,6 +303,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         try {
           const body = {
             razon_social: c.razon_social,
+            alias: c.alias?.trim() || null,
             rfc: c.rfc,
             contacto: c.contacto,
             telefono: c.telefono,

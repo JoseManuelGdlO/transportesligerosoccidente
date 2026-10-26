@@ -25,6 +25,7 @@ import {
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
+import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import { Textarea } from "@/components/ui/textarea";
 import { fmtMXN, fmtDateNumeric, fmtClockFromIso, fmtNumber, formatTripRoute, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
 import {
@@ -583,12 +584,20 @@ export default function Viajes() {
         if (!search.trim()) return true;
         const s = search.toLowerCase();
         const ruta = formatTripRoute(t).toLowerCase();
-        return (
-          t.folio.toLowerCase().includes(s) ||
-          t.origen.toLowerCase().includes(s) ||
-          t.destino.toLowerCase().includes(s) ||
-          ruta.includes(s)
-        );
+        const client = clients.find((c) => c.id === t.client_id);
+        const haystack = [
+          t.folio,
+          t.origen,
+          t.destino,
+          ruta,
+          t.client_nombre,
+          client?.razon_social,
+          client?.alias,
+        ]
+          .filter(Boolean)
+          .join(" ")
+          .toLowerCase();
+        return haystack.includes(s);
       })
       .map((t) => ({ trip: t, fin: computeTrip(t, driverById(drivers, t.driver_id)) }));
   }, [
@@ -602,6 +611,7 @@ export default function Viajes() {
     filterDriver,
     filterTruck,
     search,
+    clients,
   ]);
 
   const sortedRows = useMemo(() => {
@@ -840,19 +850,13 @@ export default function Viajes() {
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-xs text-muted-foreground">Cliente</Label>
-                  <Select value={filterClient} onValueChange={setFilterClient}>
-                    <SelectTrigger className="w-full">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value={FILTER_TODOS}>Todos</SelectItem>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.razon_social}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                  <ClientCombobox
+                    clients={clients}
+                    value={filterClient}
+                    onChange={setFilterClient}
+                    extraOptions={[{ value: FILTER_TODOS, label: "Todos" }]}
+                    placeholder="Todos"
+                  />
                 </div>
               </div>
 
@@ -1268,25 +1272,16 @@ export default function Viajes() {
                 </div>
                 <div className="sm:col-span-2 space-y-1.5">
                   <Label>Cliente</Label>
-                  <Select
+                  <ClientCombobox
+                    clients={clients}
                     value={form.client_id}
-                    onValueChange={(v) => {
+                    onChange={(v) => {
                       setForm({ ...form, client_id: v });
                       setSelectedRouteId("__custom__");
                       setParadas(emptyParadas());
                     }}
-                  >
-                    <SelectTrigger>
-                      <SelectValue placeholder="Seleccionar..." />
-                    </SelectTrigger>
-                    <SelectContent>
-                      {clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.razon_social}
-                        </SelectItem>
-                      ))}
-                    </SelectContent>
-                  </Select>
+                    placeholder="Seleccionar..."
+                  />
                 </div>
               </div>
             </TripFormSection>

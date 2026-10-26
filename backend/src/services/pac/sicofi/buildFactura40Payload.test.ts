@@ -138,6 +138,31 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.ReceptorCFDI40.Email, null);
   });
 
+  it("no usa el alias del cliente en RazonSocial ni en Carta Porte", () => {
+    const payload = buildFactura40Payload(
+      baseCtx({
+        tipo: "ingreso",
+        client: {
+          rfc: "CLI010101AAA",
+          razon_social: "Cliente SA",
+          alias: "Apodo interno",
+          cp: "44100",
+          regimen_fiscal: "601",
+        } as TimbradoContext["client"],
+      }),
+    );
+    assert.equal(payload.ReceptorCFDI40.RazonSocial, "Cliente SA");
+    const ubs = (
+      payload.CartaPorte31 as {
+        Ubicaciones20?: { ubicaciones?: Array<{ nombreremitentedestinatario?: string }> };
+      }
+    ).Ubicaciones20?.ubicaciones;
+    assert.ok(ubs && ubs.length > 0);
+    for (const u of ubs) {
+      assert.equal(u.nombreremitentedestinatario, "Cliente SA");
+    }
+  });
+
   it("ingreso incluye FormadePago y MetodoPago", () => {
     const payload = buildFactura40Payload(baseCtx({ tipo: "ingreso" }));
     assert.equal(payload.DatosCFDI40.FormadePago, "99");

@@ -6,6 +6,7 @@ import type { SettlementSummary } from "@/lib/calc";
 import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, isoDay } from "@/lib/format";
 import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
+import { settlementSummaryWithClientNames } from "@/lib/clientDisplayName";
 import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes, overlayLiveComisionOverrides } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
@@ -62,7 +63,7 @@ const clampDate = (day: string, inicio: string, fin: string) => {
 
 export default function Liquidaciones() {
   const nav = useNavigate();
-  const { drivers, trucks, trips } = useTlo();
+  const { drivers, trucks, trips, clients } = useTlo();
   const { tenant, hasApiSession, permissions, user } = useAuth();
   const canClose = permissions.includes("liquidaciones.cerrar");
   const canCancel = user?.role === "admin";
@@ -90,6 +91,7 @@ export default function Liquidaciones() {
   const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
   const [fleteLiquidacion, setFleteLiquidacion] = useState<Record<string, number | null>>({});
   const [accountOpen, setAccountOpen] = useState(false);
+  const [usarAlias, setUsarAlias] = useState(false);
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
   const [advForm, setAdvForm] = useState({ monto: 0, fecha: defaultFechaEnPeriodo(), descripcion: "" });
@@ -575,7 +577,7 @@ export default function Liquidaciones() {
         driver: params.driver,
         inicio: params.inicio,
         fin: params.fin,
-        summary: params.summary,
+        summary: settlementSummaryWithClientNames(params.summary, clients, usarAlias),
         trucks,
         template: tenant?.pdf_config?.settlement,
         logoDataUrl,
@@ -877,9 +879,22 @@ export default function Liquidaciones() {
                 </div>
               )}
 
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="usar-alias-actual"
+                  checked={usarAlias}
+                  onCheckedChange={(checked) => setUsarAlias(checked === true)}
+                />
+                <Label htmlFor="usar-alias-actual" className="text-sm font-normal">
+                  Usar alias
+                </Label>
+              </div>
+
               <SettlementSummaryPanel
                 summary={effectiveSummary ?? summary}
                 driver={driver}
+                clients={clients}
+                usarAlias={usarAlias}
                 readOnly={summarySource === "snapshot"}
                 canEditFinance={canClose}
                 canSelectTrips={canClose && summarySource === "live"}
@@ -1070,9 +1085,21 @@ export default function Liquidaciones() {
                   Liquidación — {viewingHistoryDriver.nombre} ({viewingHistory.fecha_inicio} — {viewingHistory.fecha_fin})
                 </DialogTitle>
               </DialogHeader>
+              <div className="flex items-center gap-2">
+                <Checkbox
+                  id="usar-alias-historico"
+                  checked={usarAlias}
+                  onCheckedChange={(checked) => setUsarAlias(checked === true)}
+                />
+                <Label htmlFor="usar-alias-historico" className="text-sm font-normal">
+                  Usar alias
+                </Label>
+              </div>
               <SettlementSummaryPanel
                 summary={viewingHistorySummary}
                 driver={viewingHistoryDriver}
+                clients={clients}
+                usarAlias={usarAlias}
                 readOnly
               />
               <div className="flex justify-end pt-2">

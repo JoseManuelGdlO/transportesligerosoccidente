@@ -751,6 +751,7 @@ export interface DocumentDashboardSummary {
 export interface Client {
   id: string;
   razon_social: string;
+  alias?: string | null;
   rfc: string;
   contacto: string;
   telefono: string;

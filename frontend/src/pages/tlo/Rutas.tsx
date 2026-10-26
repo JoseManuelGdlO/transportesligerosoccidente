@@ -8,6 +8,7 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { TripParadasEditor, type ParadaDraft } from "@/components/tlo/TripParadasEditor";
+import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 import type { RouteCatalog, TripType } from "@/types/tlo";
@@ -149,18 +150,13 @@ export default function Rutas() {
           {(filterScope === "cliente" || filterScope === "todos") && (
             <div>
               <Label className="text-xs">Cliente</Label>
-              <Select value={filterClientId} onValueChange={setFilterClientId}>
-                <SelectTrigger className="w-[220px]">
-                  <SelectValue placeholder="Seleccionar cliente..." />
-                </SelectTrigger>
-                <SelectContent>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.razon_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+              <ClientCombobox
+                clients={clients}
+                value={filterClientId}
+                onChange={setFilterClientId}
+                placeholder="Seleccionar cliente..."
+                className="w-[220px]"
+              />
             </div>
           )}
         </div>
@@ -231,22 +227,13 @@ export default function Rutas() {
             </div>
             <div>
               <Label>Ámbito</Label>
-              <Select
+              <ClientCombobox
+                clients={clients}
                 value={clientId || "__global__"}
-                onValueChange={(v) => setClientId(v === "__global__" ? "" : v)}
-              >
-                <SelectTrigger>
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__global__">Global (todos los clientes)</SelectItem>
-                  {clients.map((c) => (
-                    <SelectItem key={c.id} value={c.id}>
-                      {c.razon_social}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                onChange={(v) => setClientId(v === "__global__" ? "" : v)}
+                extraOptions={[{ value: "__global__", label: "Global (todos los clientes)" }]}
+                placeholder="Global (todos los clientes)"
+              />
             </div>
             <div>
               <Label>Tipo de viaje sugerido</Label>

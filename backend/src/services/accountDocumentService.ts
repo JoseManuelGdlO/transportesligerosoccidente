@@ -299,6 +299,13 @@ export async function listDocuments(
     const { tripIds, documentIds } = await fiscalUuidMatchIds(tenantId, q);
     if (tripIds.length) or.push({ trip_id: { [Op.in]: tripIds } });
     if (documentIds.length) or.push({ id: { [Op.in]: documentIds } });
+    const aliasClients = await Client.findAll({
+      where: { tenant_id: tenantId, alias: { [Op.like]: q } },
+      attributes: ["id"],
+    });
+    if (aliasClients.length) {
+      or.push({ client_id: { [Op.in]: aliasClients.map((c) => c.id) } });
+    }
     Object.assign(where, { [Op.or]: or });
   }
 

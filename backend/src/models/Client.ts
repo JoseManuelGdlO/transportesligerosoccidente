@@ -11,6 +11,7 @@ export class Client extends Model<InferAttributes<Client>, InferCreationAttribut
   declare id: CreationOptional<string>;
   declare tenant_id: string;
   declare razon_social: string;
+  declare alias: CreationOptional<string | null>;
   declare rfc: string;
   declare contacto: string;
   declare telefono: string;
@@ -41,6 +42,7 @@ export function initClient(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       razon_social: { type: DataTypes.STRING(255), allowNull: false },
+      alias: { type: DataTypes.STRING(255), allowNull: true },
       rfc: { type: DataTypes.STRING(32), allowNull: false },
       contacto: { type: DataTypes.STRING(255), allowNull: false },
       telefono: { type: DataTypes.STRING(64), allowNull: false },

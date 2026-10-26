@@ -145,6 +145,7 @@ function installHarness(opts: HarnessOpts) {
     tenant_id: "tenant-1",
     rfc: "EKU9003173C9",
     razon_social: "ESCUELA",
+    alias: "Apodo interno",
     cp: "55060",
     regimen_fiscal: "601",
   }));
@@ -273,12 +274,13 @@ describe("paymentComplementService", () => {
     const body = h.post.mock.calls[0]?.arguments[1] as {
       Usuario?: string;
       Contrasena?: string;
-      ReceptorCFDI?: { Email?: string | null };
+      ReceptorCFDI?: { Email?: string | null; RazonSocial?: string };
       DatosCFDI?: { EmailMensaje?: string | null };
       Pagos?: { CFDIPagos40?: { FechaPago?: string }[] };
     };
     assert.equal(body.Usuario, "sicofi-user");
     assert.equal(body.Contrasena, "secret");
+    assert.equal(body.ReceptorCFDI?.RazonSocial, "ESCUELA");
     assert.equal(body.ReceptorCFDI?.Email, null);
     assert.equal(body.DatosCFDI?.EmailMensaje, null);
     assert.equal(body.DatosCFDI != null && "Serie" in body.DatosCFDI, false);

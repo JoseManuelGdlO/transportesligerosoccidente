@@ -328,6 +328,7 @@ export function clientToJson(c: Client): Record<string, unknown> {
   return {
     id: p.id,
     razon_social: p.razon_social,
+    alias: p.alias != null && String(p.alias).trim() !== "" ? String(p.alias) : undefined,
     rfc: p.rfc,
     contacto: p.contacto,
     telefono: p.telefono,

@@ -3,6 +3,7 @@ import { computeTrip, roundMoney, viaticosAFavor, viaticosNoComprobado } from "@
 import { settlementFlete } from "@/lib/settlementSnapshot";
 import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
 import type {
+  Client,
   Driver,
   DriverAdvance,
   DriverDiscount,
@@ -11,6 +12,7 @@ import type {
   CompensationType,
   SettlementSummaryApi,
 } from "@/types/tlo";
+import { tripClientDisplayName } from "@/lib/clientDisplayName";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -112,6 +114,8 @@ interface SettlementSummaryPanelProps {
   onTripInclusionChange?: (tripId: string, included: boolean) => void;
   onSelectAllTrips?: (included: boolean) => void;
   onFleteLiquidacionChange?: (tripId: string, monto: number | null) => void;
+  clients?: Client[];
+  usarAlias?: boolean;
 }
 
 export function SettlementSummaryPanel({
@@ -137,6 +141,8 @@ export function SettlementSummaryPanel({
   onTripInclusionChange,
   onSelectAllTrips,
   onFleteLiquidacionChange,
+  clients = [],
+  usarAlias = false,
 }: SettlementSummaryPanelProps) {
   const showFinanceForms = !readOnly && canEditFinance;
   const sortedTrips = [...summary.trips].sort((a, b) =>
@@ -602,7 +608,9 @@ export function SettlementSummaryPanel({
                     </TableCell>
                     <TableCell>{t.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</TableCell>
                     <TableCell className="text-sm">{formatTripRoute(t)}</TableCell>
-                    <TableCell className="text-sm">{t.client_nombre?.trim() || "—"}</TableCell>
+                    <TableCell className="text-sm">
+                      {tripClientDisplayName(t, clients, usarAlias) || "—"}
+                    </TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
                     <TableCell className="text-right">
                       {canEditFlete && onFleteLiquidacionChange ? (

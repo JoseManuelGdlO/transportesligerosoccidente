@@ -9,6 +9,7 @@ const tid = (req: Request) => req.user!.tenantId;
 
 const bodySchema = z.object({
   razon_social: z.string().min(1),
+  alias: z.string().max(255).optional().nullable(),
   rfc: z.string().min(1),
   contacto: z.string().min(1),
   telefono: z.string().min(1),
@@ -30,6 +31,12 @@ const bodySchema = z.object({
   observaciones: z.string().optional(),
   dias_credito: z.number().int().nonnegative().optional().nullable(),
 });
+
+function withNormalizedAlias<T extends { alias?: string | null }>(data: T): T {
+  if (data.alias === undefined) return data;
+  const trimmed = data.alias?.trim() ?? "";
+  return { ...data, alias: trimmed === "" ? null : trimmed };
+}
 
 export const listClients = asyncHandler(async (req: Request, res: Response) => {
   const rows = await Client.findAll({
@@ -57,7 +64,7 @@ export const createClient = asyncHandler(async (req: Request, res: Response) => 
   const c = await Client.create({
     id: randomUUID(),
     tenant_id: tid(req),
-    ...parsed.data,
+    ...withNormalizedAlias(parsed.data),
   } as never);
   res.status(201).json(clientToJson(c));
 });
@@ -73,7 +80,7 @@ export const updateClient = asyncHandler(async (req: Request, res: Response) => 
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  await c.update(parsed.data as never);
+  await c.update(withNormalizedAlias(parsed.data) as never);
   res.json(clientToJson(c));
 });
 

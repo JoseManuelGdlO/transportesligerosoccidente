@@ -1,13 +1,15 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useTlo } from "@/context/TloContext";
 import { ClientFormFields } from "@/components/tlo/ClientFormFields";
 import { ClientUbicacionDialog, emptyClientUbicacionForm } from "@/components/tlo/ClientUbicacionDialog";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
-import { Plus, Pencil, Trash2 } from "lucide-react";
+import { Plus, Pencil, Search, Trash2 } from "lucide-react";
 import type { Client, ClientUbicacion } from "@/types/tlo";
 import { deleteClientUbicacion, fetchClientUbicaciones } from "@/lib/tloApi";
 import {
@@ -41,6 +43,17 @@ export default function Clientes() {
     Partial<Omit<ClientUbicacion, "id" | "client_id">>
   >({});
   const [editingUbicId, setEditingUbicId] = useState<string | null>(null);
+  const [search, setSearch] = useState("");
+
+  const filteredClients = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return clients;
+    return clients.filter((c) =>
+      [c.razon_social, c.rfc, c.contacto, c.alias]
+        .filter((v): v is string => Boolean(v && v.trim()))
+        .some((v) => v.toLowerCase().includes(q)),
+    );
+  }, [clients, search]);
 
   const loadUbicaciones = useCallback(async (clientId: string) => {
     try {
@@ -140,8 +153,28 @@ export default function Clientes() {
 
   return (
     <div className="space-y-4">
-      <div className="flex items-center justify-between">
-        <p className="text-sm text-muted-foreground">{clients.length} clientes registrados</p>
+      <div className="flex flex-col gap-3 sm:flex-row sm:items-end sm:justify-between">
+        <div className="flex-1 min-w-[200px]">
+          <Label htmlFor="clientes-buscar" className="sr-only">
+            Buscar clientes
+          </Label>
+          <div className="relative">
+            <Search className="absolute left-2.5 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              id="clientes-buscar"
+              placeholder="Buscar por razón social, alias, RFC o contacto…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="pl-9"
+              aria-label="Buscar clientes"
+            />
+          </div>
+          <p className="text-sm text-muted-foreground mt-2">
+            {search.trim()
+              ? `${filteredClients.length} de ${clients.length} clientes`
+              : `${clients.length} clientes registrados`}
+          </p>
+        </div>
         <Button
           onClick={() => openClientDialog()}
           className="bg-primary text-primary-foreground hover:bg-primary-glow"
@@ -154,6 +187,7 @@ export default function Clientes() {
           <TableHeader>
             <TableRow className="bg-secondary/50">
               <TableHead>Razón social</TableHead>
+              <TableHead>Alias</TableHead>
               <TableHead>RFC</TableHead>
               <TableHead>CP</TableHead>
               <TableHead>Estatus</TableHead>
@@ -162,9 +196,17 @@ export default function Clientes() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {clients.map((c) => (
+            {filteredClients.length === 0 && (
+              <TableRow>
+                <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                  {search.trim() ? "Ningún cliente coincide con el filtro" : "Sin clientes registrados"}
+                </TableCell>
+              </TableRow>
+            )}
+            {filteredClients.map((c) => (
               <TableRow key={c.id} className="hover:bg-muted/30">
                 <TableCell className="font-medium">{c.razon_social}</TableCell>
+                <TableCell>{c.alias?.trim() || "—"}</TableCell>
                 <TableCell className="font-mono text-sm">{c.rfc}</TableCell>
                 <TableCell className="font-mono text-sm">{c.cp || "—"}</TableCell>
                 <TableCell className="capitalize">{c.estatus ?? "activo"}</TableCell>

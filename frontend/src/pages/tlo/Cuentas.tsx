@@ -28,6 +28,7 @@ import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
 import { ComplementoCorreoFields } from "@/components/tlo/ComplementoCorreoFields";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
+import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import {
   emptyConcepto,
   filledConceptos,
@@ -960,14 +961,17 @@ export default function Cuentas() {
           <div className="space-y-3">
             <div>
               <Label>{tipo === "cxc" ? "Cliente" : "Proveedor"}</Label>
-              <Select
-                value={form.entidad_id || "__none__"}
-                onValueChange={(v) => {
-                  if (v === "__none__") {
-                    setForm({ ...form, entidad_id: "", entidad_nombre: "" });
-                    return;
-                  }
-                  if (tipo === "cxc") {
+              {tipo === "cxc" ? (
+                <ClientCombobox
+                  clients={clients}
+                  value={form.entidad_id || "__none__"}
+                  extraOptions={[{ value: "__none__", label: "—" }]}
+                  placeholder="Seleccionar…"
+                  onChange={(v) => {
+                    if (v === "__none__") {
+                      setForm({ ...form, entidad_id: "", entidad_nombre: "" });
+                      return;
+                    }
                     const c = clients.find((x) => x.id === v);
                     setForm({
                       ...form,
@@ -976,7 +980,16 @@ export default function Cuentas() {
                       plazo_credito_dias:
                         c?.dias_credito != null ? String(c.dias_credito) : form.plazo_credito_dias,
                     });
-                  } else {
+                  }}
+                />
+              ) : (
+                <Select
+                  value={form.entidad_id || "__none__"}
+                  onValueChange={(v) => {
+                    if (v === "__none__") {
+                      setForm({ ...form, entidad_id: "", entidad_nombre: "" });
+                      return;
+                    }
                     const s = suppliers.find((x) => x.id === v);
                     setForm({
                       ...form,
@@ -985,33 +998,27 @@ export default function Cuentas() {
                       plazo_credito_dias:
                         s?.dias_credito != null ? String(s.dias_credito) : form.plazo_credito_dias,
                     });
-                  }
-                }}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Seleccionar…" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="__none__">—</SelectItem>
-                  {tipo === "cxc"
-                    ? clients.map((c) => (
-                        <SelectItem key={c.id} value={c.id}>
-                          {c.razon_social}
-                        </SelectItem>
-                      ))
-                    : suppliers
-                        .filter(
-                          (s) =>
-                            (s.origen ?? "manual") === "manual" &&
-                            (s.estatus ?? "activo") === "activo",
-                        )
-                        .map((s) => (
+                  }}
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Seleccionar…" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {suppliers
+                      .filter(
+                        (s) =>
+                          (s.origen ?? "manual") === "manual" &&
+                          (s.estatus ?? "activo") === "activo",
+                      )
+                      .map((s) => (
                         <SelectItem key={s.id} value={s.id}>
                           {s.razon_social}
                         </SelectItem>
                       ))}
-                </SelectContent>
-              </Select>
+                  </SelectContent>
+                </Select>
+              )}
             </div>
             {tipo === "cxp" && !form.entidad_id && (
               <div>
