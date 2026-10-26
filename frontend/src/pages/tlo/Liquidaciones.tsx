@@ -3,7 +3,7 @@ import { useNavigate } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
 import { useAuth } from "@/context/AuthContext";
 import type { SettlementSummary } from "@/lib/calc";
-import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, isoDay } from "@/lib/format";
+import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, fmtNumber, isoDay } from "@/lib/format";
 import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { settlementSummaryWithClientNames } from "@/lib/clientDisplayName";
@@ -223,6 +223,7 @@ export default function Liquidaciones() {
       neto_pagar: countedWeekRows.reduce((sum, row) => sum + row.neto_pagar, 0),
       comisiones: countedWeekRows.reduce((sum, row) => sum + row.comisiones, 0),
       viajes: countedWeekRows.reduce((sum, row) => sum + row.viajes, 0),
+      km: countedWeekRows.reduce((sum, row) => sum + (row.km ?? 0), 0),
       operadores: countedWeekRows.length,
       cerradas: countedWeekRows.filter((row) => row.estado === "cerrada").length,
     }),
@@ -774,7 +775,8 @@ export default function Liquidaciones() {
                         />
                       </TableHead>
                       <TableHead>Operador</TableHead>
-                      <TableHead className="text-right">Viajes</TableHead>
+                      <TableHead className="text-right">Conteo</TableHead>
+                      <TableHead className="text-right">Km</TableHead>
                       <TableHead className="text-right">Facturación</TableHead>
                       <TableHead className="text-right">Comisiones</TableHead>
                       <TableHead className="text-right">Neto a pagar</TableHead>
@@ -784,7 +786,7 @@ export default function Liquidaciones() {
                   <TableBody>
                     {weekSummary.rows.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={8} className="text-center text-muted-foreground py-6">
                           Sin operadores activos
                         </TableCell>
                       </TableRow>
@@ -817,6 +819,7 @@ export default function Liquidaciones() {
                             ) : null}
                           </TableCell>
                           <TableCell className="text-right font-mono">{row.viajes}</TableCell>
+                          <TableCell className="text-right font-mono">{fmtNumber(row.km ?? 0)}</TableCell>
                           <TableCell className="text-right font-mono">{fmtMXN(row.facturacion)}</TableCell>
                           <TableCell className="text-right font-mono">{fmtMXN(row.comisiones)}</TableCell>
                           <TableCell
@@ -841,6 +844,7 @@ export default function Liquidaciones() {
                         <TableCell />
                         <TableCell>Totales</TableCell>
                         <TableCell className="text-right font-mono">{countedWeekTotals.viajes}</TableCell>
+                        <TableCell className="text-right font-mono">{fmtNumber(countedWeekTotals.km)}</TableCell>
                         <TableCell className="text-right font-mono">
                           {fmtMXN(countedWeekTotals.facturacion)}
                         </TableCell>

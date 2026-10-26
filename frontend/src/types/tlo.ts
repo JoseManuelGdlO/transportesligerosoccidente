@@ -1113,6 +1113,7 @@ export interface WeekSettlementRow {
   driver_id: string;
   driver_nombre: string;
   viajes: number;
+  km: number;
   facturacion: number;
   comisiones: number;
   neto_pagar: number;

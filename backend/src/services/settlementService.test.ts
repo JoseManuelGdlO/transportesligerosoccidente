@@ -1099,9 +1099,10 @@ describe("weekSettlementSummary", () => {
             total_comisiones: 1000,
             neto_pagar: 800,
             trips: [
-              { id: "t1", included: true },
-              { id: "t2", included: false },
+              { id: "t1", included: true, km_inicial: 1000, km_final: 1180 },
+              { id: "t2", included: false, km_inicial: 0, km_final: 500 },
             ],
+            total_km: 999,
           },
         },
         {
@@ -1131,6 +1132,7 @@ describe("weekSettlementSummary", () => {
     assert.equal(result.rows[0].facturacion, 10000);
     assert.equal(result.rows[0].neto_pagar, 800);
     assert.equal(result.rows[0].viajes, 1);
+    assert.equal(result.rows[0].km, 180);
     assert.equal(result.rows[0].settlement_id, "set-closed");
 
     assert.equal(result.rows[1].driver_nombre, "Bob");

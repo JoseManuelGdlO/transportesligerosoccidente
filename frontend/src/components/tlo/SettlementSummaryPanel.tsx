@@ -1,7 +1,7 @@
 import { useState } from "react";
 import { computeTrip, roundMoney, viaticosAFavor, viaticosNoComprobado } from "@/lib/calc";
 import { settlementFlete } from "@/lib/settlementSnapshot";
-import { fmtDate, fmtMXN, formatTripRoute } from "@/lib/format";
+import { fmtDate, fmtMXN, fmtNumber, formatTripRoute } from "@/lib/format";
 import type {
   Client,
   Driver,
@@ -18,7 +18,7 @@ import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Input } from "@/components/ui/input";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
+import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
@@ -153,7 +153,7 @@ export function SettlementSummaryPanel({
     return t.included !== false;
   }).length;
   const showTripSelection = canSelectTrips || (readOnly && summary.trips.some((t) => t.included !== undefined));
-  const tripColSpan = showTripSelection ? 8 : 7;
+  const tripColSpan = showTripSelection ? 9 : 8;
   const canEditFlete = !readOnly && Boolean(onFleteLiquidacionChange);
   const showFleteNote =
     canEditFlete ||
@@ -169,6 +169,10 @@ export function SettlementSummaryPanel({
   };
 
   const includedInSortedTrips = sortedTrips.filter((t) => isTripIncluded(t.id, t.included)).length;
+  const includedKm = sortedTrips.reduce((sum, t) => {
+    if (!isTripIncluded(t.id, t.included)) return sum;
+    return sum + computeTrip(t, driver).km_recorridos;
+  }, 0);
   const selectAllChecked: boolean | "indeterminate" =
     sortedTrips.length === 0
       ? false
@@ -556,6 +560,7 @@ export function SettlementSummaryPanel({
                 <TableHead>Ruta</TableHead>
                 <TableHead>Cliente</TableHead>
                 <TableHead>Fecha</TableHead>
+                <TableHead className="text-right">Km</TableHead>
                 <TableHead className="text-right">Flete</TableHead>
                 <TableHead className="text-right">Comisión</TableHead>
               </TableRow>
@@ -612,6 +617,26 @@ export function SettlementSummaryPanel({
                       {tripClientDisplayName(t, clients, usarAlias) || "—"}
                     </TableCell>
                     <TableCell>{fmtDate(t.fecha_salida)}</TableCell>
+                    <TableCell className="text-right font-mono text-sm tabular-nums whitespace-nowrap">
+                      {t.km_final != null ? (
+                        <div className="leading-tight space-y-1">
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Inicial</p>
+                            <p>{fmtNumber(t.km_inicial)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Final</p>
+                            <p>{fmtNumber(t.km_final)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[10px] uppercase tracking-wide text-muted-foreground">Recorridos</p>
+                            <p>{fmtNumber(f.km_recorridos)}</p>
+                          </div>
+                        </div>
+                      ) : (
+                        fmtNumber(t.km_inicial)
+                      )}
+                    </TableCell>
                     <TableCell className="text-right">
                       {canEditFlete && onFleteLiquidacionChange ? (
                         <FleteLiquidacionInput
@@ -651,6 +676,18 @@ export function SettlementSummaryPanel({
                 );
               })}
             </TableBody>
+            {sortedTrips.length > 0 && (
+              <TableFooter>
+                <TableRow>
+                  <TableCell colSpan={showTripSelection ? 6 : 5}>
+                    Conteo del operador: {includedTripCount}
+                  </TableCell>
+                  <TableCell className="text-right font-mono">{fmtNumber(includedKm)}</TableCell>
+                  <TableCell />
+                  <TableCell />
+                </TableRow>
+              </TableFooter>
+            )}
           </Table>
           {showFleteNote && (
             <p className="px-4 py-3 text-xs text-muted-foreground">

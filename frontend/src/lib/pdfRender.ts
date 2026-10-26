@@ -1031,11 +1031,13 @@ function renderSettlementTrips(state: RenderState): void {
   const sorted = sortSettlementTrips(summary.trips);
   let totalFlete = 0;
   let totalComision = 0;
+  let totalKm = 0;
   const body = sorted.map((trip) => {
     const financials = computeTrip(trip, driver);
     const flete = settlementFlete(trip);
     totalFlete = roundMoney(totalFlete + flete);
     totalComision = roundMoney(totalComision + financials.comision);
+    totalKm += financials.km_recorridos;
     return [
       String(trip.folio),
       tripUnitLabel(trip, trucks),
@@ -1043,6 +1045,7 @@ function renderSettlementTrips(state: RenderState): void {
       trip.client_nombre?.trim() || "—",
       trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local",
       fmtDatePdf(trip.fecha_salida),
+      fmtNumber(financials.km_recorridos),
       fmtMXNDecimal(flete),
       fmtMXNDecimal(financials.comision),
     ];
@@ -1056,15 +1059,16 @@ function renderSettlementTrips(state: RenderState): void {
   const footRight = { halign: "right" as const };
   pdfAutoTable(state.doc, {
     startY: state.y,
-    head: [["Folio", "Unidad", "Ruta", "Cliente", "Tipo", "Salida", "Flete", "Comisión"]],
-    body: body.length > 0 ? body : [["", "", "Sin viajes en el periodo", "", "", "", "", ""]],
+    head: [["Folio", "Unidad", "Ruta", "Cliente", "Tipo", "Salida", "Km", "Flete", "Comisión"]],
+    body: body.length > 0 ? body : [["", "", "Sin viajes en el periodo", "", "", "", "", "", ""]],
     foot: [[
-      { content: "Total", colSpan: 5, styles: { halign: "left" } },
-      { content: `${sorted.length} viajes`, styles: { halign: "left" } },
+      { content: `Total · conteo ${sorted.length}`, colSpan: 5, styles: { halign: "left" } },
+      "",
+      { content: fmtNumber(totalKm), styles: footRight },
       { content: fmtMXNDecimal(totalFlete), styles: footRight },
       { content: fmtMXNDecimal(totalComision), styles: footRight },
     ]],
-    styles: { fontSize: 8, cellPadding: 1.5, font: "helvetica" },
+    styles: { fontSize: 8, cellPadding: 1.2, font: "helvetica" },
     headStyles: { fillColor: colors.fill, textColor: colors.text },
     footStyles: { fillColor: colors.fill, textColor: colors.text, fontStyle: "bold" },
     showFoot: "lastPage",
@@ -1076,8 +1080,9 @@ function renderSettlementTrips(state: RenderState): void {
       3: { cellWidth: 36 },
       4: { cellWidth: 18 },
       5: { cellWidth: 20 },
-      6: { halign: "right", cellWidth: 24 },
+      6: { halign: "right", cellWidth: 14 },
       7: { halign: "right", cellWidth: 24 },
+      8: { halign: "right", cellWidth: 24 },
     },
   });
   state.doc.setTextColor(0, 0, 0);

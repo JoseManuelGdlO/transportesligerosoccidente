@@ -242,6 +242,8 @@ export type WeekSettlementRow = {
   driver_id: string;
   driver_nombre: string;
   viajes: number;
+  /** Km recorridos de los viajes incluidos en la liquidación. */
+  km: number;
   facturacion: number;
   comisiones: number;
   neto_pagar: number;
@@ -256,6 +258,32 @@ function countIncludedTrips(trips: unknown): number {
   return trips.filter((t) => (t as { included?: boolean }).included !== false).length;
 }
 
+function kmOfSnapshotTrip(raw: unknown): number | null {
+  if (!raw || typeof raw !== "object") return null;
+  const trip = raw as { km_inicial?: unknown; km_final?: unknown };
+  if (trip.km_final == null || trip.km_inicial == null) return null;
+  const fin = Number(trip.km_final);
+  const ini = Number(trip.km_inicial);
+  if (!Number.isFinite(fin) || !Number.isFinite(ini)) return null;
+  return Math.max(0, fin - ini);
+}
+
+/** Km de viajes incluidos. Si el snapshot no guardó odómetro, usa total_km. */
+function includedKmFromSnapshot(snapshot: Record<string, unknown>): number {
+  const trips = snapshot.trips;
+  if (!Array.isArray(trips)) return num(snapshot.total_km);
+  let sawKm = false;
+  let sum = 0;
+  for (const raw of trips) {
+    if ((raw as { included?: boolean }).included === false) continue;
+    const km = kmOfSnapshotTrip(raw);
+    if (km == null) continue;
+    sawKm = true;
+    sum += km;
+  }
+  return sawKm ? sum : num(snapshot.total_km);
+}
+
 function weekRowFromSnapshot(
   driver: { id: string; nombre: string },
   settlementId: string,
@@ -266,6 +294,7 @@ function weekRowFromSnapshot(
     driver_id: driver.id,
     driver_nombre: driver.nombre,
     viajes: countIncludedTrips(snapshot.trips),
+    km: includedKmFromSnapshot(snapshot),
     facturacion: roundMoney(num(snapshot.total_ingresos)),
     comisiones: roundMoney(num(snapshot.total_comisiones)),
     neto_pagar: roundMoney(num(snapshot.neto_pagar)),
@@ -397,6 +426,7 @@ export async function weekSettlementSummary(
       driver_id: driver.id,
       driver_nombre: driver.nombre,
       viajes,
+      km: num(summary.total_km),
       facturacion: roundMoney(num(summary.total_ingresos)),
       comisiones: roundMoney(num(summary.total_comisiones)),
       neto_pagar: roundMoney(num(summary.neto_pagar)),
