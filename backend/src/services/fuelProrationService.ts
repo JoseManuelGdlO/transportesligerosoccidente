@@ -760,24 +760,13 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
     throw Object.assign(new Error("El ticket no tiene viajes asignados"), { status: 400 });
   }
 
-  if (ticket.source_trip_id) {
-    const sourceId = String(ticket.source_trip_id);
-    if (assignments.length !== 1 || String(assignments[0]!.trip_id) !== sourceId) {
-      throw Object.assign(
-        new Error("Ticket desde viaje: la asignación debe ser únicamente el viaje de origen"),
-        { status: 400 },
-      );
-    }
-  }
-
   const tripIds = assignments.map((a) => String(a.trip_id));
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
   });
 
-  const isSourceTicket = !!ticket.source_trip_id;
-  const withKm = trips.filter((t) => tripKmRecorridos(t) > 0);
-  if (!isSourceTicket && withKm.length === 0) {
+  const withKm = trips.filter((t) => tripKmRecorridos(t) > 0).sort(compareTripOrder);
+  if (withKm.length === 0) {
     throw Object.assign(new Error("Ningún viaje asignado tiene km registrado"), { status: 400 });
   }
 
@@ -786,93 +775,76 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   const fuelFecha = new Date(ticketTimestampMs(ticket));
   const ticketLitros = num(ticket.litros);
   const esForaneo = !!ticket.es_foraneo;
+  const shares = allocateByKm(
+    ticketLitros,
+    num(ticket.importe_total),
+    withKm.map((trip) => ({ trip_id: String(trip.id), km: tripKmRecorridos(trip) })),
+  );
+  const shareByTrip = new Map(shares.map((row) => [row.trip_id, row]));
+  const kmByTrip = new Map(withKm.map((trip) => [String(trip.id), tripKmRecorridos(trip)]));
 
   await sequelize.transaction(async (t) => {
-    if (isSourceTicket) {
-      const trip = trips[0]!;
-      const assignment = assignments[0]!;
-      const km = tripKmRecorridos(trip);
-      await assignment.update(
-        {
-          km_recorridos: String(km),
-          litros_asignados: String(ticketLitros),
-          costo_asignado: String(Math.round(ticketLitros * precioLitro * 100) / 100),
-        },
-        { transaction: t },
-      );
-
-      const existingLoad = await FuelLoad.findOne({
-        where: {
-          tenant_id: tenantId,
-          trip_id: String(trip.id),
-          fuel_ticket_id: ticketId,
-        },
-        transaction: t,
-      });
-      if (!existingLoad && ticketLitros > 0) {
-        await FuelLoad.create(
-          {
-            id: randomUUID(),
-            tenant_id: tenantId,
-            trip_id: String(trip.id),
-            litros: String(ticketLitros),
-            precio_litro: String(precioLitro),
-            ubicacion,
-            estacion_nombre: ubicacion,
-            es_foraneo: esForaneo,
-            es_estacion_empresa: !esForaneo,
-            comprobante_url: null,
-            fuel_ticket_id: ticketId,
-            fecha: fuelFecha,
-          } as never,
-          { transaction: t },
-        );
-      }
-      await ticket.update({ prorrateo_confirmado_at: new Date() }, { transaction: t });
-      return;
-    }
-
-    const block = buildProratedBlock(ticket, withKm);
-    const rowByTripId = new Map(block.viajes.map((v) => [v.trip_id, v]));
-
     for (const assignment of assignments) {
-      const row = rowByTripId.get(String(assignment.trip_id));
-      if (!row) {
+      const tripId = String(assignment.trip_id);
+      const km = kmByTrip.get(tripId);
+      if (km == null) {
         await assignment.destroy({ transaction: t });
         continue;
       }
+      const computed = shareByTrip.get(tripId);
+      const hasStoredShare = assignment.litros_asignados != null;
+      const litrosAsignados = hasStoredShare ? num(assignment.litros_asignados) : (computed?.litros_asignados ?? 0);
+      const costoAsignado = hasStoredShare ? num(assignment.costo_asignado) : (computed?.costo_asignado ?? 0);
+
       await assignment.update(
         {
-          km_recorridos: String(row.km_recorridos),
-          litros_asignados: String(row.litros_asignados),
-          costo_asignado: String(row.costo_asignado),
+          km_recorridos: String(km),
+          litros_asignados: String(litrosAsignados),
+          costo_asignado: String(costoAsignado),
         },
         { transaction: t },
       );
 
-      if (row.litros_asignados <= 0) continue;
+      if (litrosAsignados <= 0) {
+        await FuelLoad.destroy({
+          where: { tenant_id: tenantId, trip_id: tripId, fuel_ticket_id: ticketId },
+          transaction: t,
+        });
+        continue;
+      }
 
       const existingLoad = await FuelLoad.findOne({
         where: {
           tenant_id: tenantId,
-          trip_id: row.trip_id,
+          trip_id: tripId,
           fuel_ticket_id: ticketId,
         },
         transaction: t,
       });
-      if (existingLoad) continue;
+      if (existingLoad) {
+        await existingLoad.update(
+          {
+            litros: String(litrosAsignados),
+            precio_litro: String(precioLitro),
+            es_foraneo: esForaneo,
+            es_estacion_empresa: !esForaneo,
+          },
+          { transaction: t },
+        );
+        continue;
+      }
 
       await FuelLoad.create(
         {
           id: randomUUID(),
           tenant_id: tenantId,
-          trip_id: row.trip_id,
-          litros: String(row.litros_asignados),
+          trip_id: tripId,
+          litros: String(litrosAsignados),
           precio_litro: String(precioLitro),
           ubicacion,
           estacion_nombre: ubicacion,
-          es_foraneo: false,
-          es_estacion_empresa: true,
+          es_foraneo: esForaneo,
+          es_estacion_empresa: !esForaneo,
           comprobante_url: null,
           fuel_ticket_id: ticketId,
           fecha: fuelFecha,
