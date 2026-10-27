@@ -539,6 +539,27 @@ describe("buildProratedBlock", () => {
       ["TL007-17", "TL007-18", "TL007-19", "TL007-20", "TL007-21"],
     );
   });
+
+  it("buildProratedBlock cierra la suma de litros con el ticket", () => {
+    const ticket = mockTicket({
+      id: "tk",
+      truck_id: "t1",
+      fecha: "2026-06-02",
+      hora: "08:00:00",
+      litros: "100",
+      importe_total: "100",
+    });
+    const trips = [
+      mockTrip({ id: "a", truck_id: "t1", fecha_salida: "2026-06-02T09:00:00.000Z", km_inicial: 0, km_final: 1, folio: "A" }),
+      mockTrip({ id: "b", truck_id: "t1", fecha_salida: "2026-06-02T10:00:00.000Z", km_inicial: 0, km_final: 1, folio: "B" }),
+      mockTrip({ id: "c", truck_id: "t1", fecha_salida: "2026-06-02T11:00:00.000Z", km_inicial: 0, km_final: 1, folio: "C" }),
+    ];
+    const block = buildProratedBlock(ticket, trips);
+    const litros = block.viajes.reduce((s, v) => s + v.litros_asignados, 0);
+    const costo = block.viajes.reduce((s, v) => s + v.costo_asignado, 0);
+    assert.equal(Math.round(litros * 100) / 100, 100);
+    assert.equal(Math.round(costo * 100) / 100, 100);
+  });
 });
 
 describe("confirmTicketProration", () => {

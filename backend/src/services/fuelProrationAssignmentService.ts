@@ -115,8 +115,7 @@ export async function getConfirmedTripIdsForTruck(
 }
 
 /**
- * Reemplaza borradores de tickets *sin* source_trip_id.
- * Las asignaciones de tickets nacidos desde viaje no se tocan.
+ * Reemplaza borradores de todos los tickets pendientes de la unidad, incluidos los nacidos de un viaje.
  */
 export async function saveDraftAssignmentsForTruck(
   tenantId: string,
@@ -128,7 +127,6 @@ export async function saveDraftAssignmentsForTruck(
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
-      source_trip_id: null,
     },
     attributes: ["id"],
   });
