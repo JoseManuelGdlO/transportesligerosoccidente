@@ -19,6 +19,7 @@ import {
   partitionPeriodTrips,
   reopenTicketProration,
   resumenFromBlocks,
+  sumLitersForPeriod,
   ticketTimestampMs,
   ticketWindowEndMs,
   tripKmRecorridos,
@@ -1031,5 +1032,37 @@ describe("buildTankBlocks", () => {
       blocks.find((b) => b.ticket_id === "patio")!.viajes.map((v) => v.folio),
       ["B"],
     );
+  });
+});
+
+describe("sumLitersForPeriod", () => {
+  it("suma la parte del tanque de los viajes del periodo y no los litros crudos del ticket", () => {
+    const periodTripIds = new Set(["ida", "regreso"]);
+    const pendingBlocks: ProratedTicketBlock[] = [
+      {
+        ticket_id: "patio",
+        fecha: "2026-05-01",
+        litros: 343.59,
+        precio_litro: 29.468,
+        importe_total: 10125,
+        odometro: 0,
+        ubicacion: "GDL",
+        km_total_periodo: 2159,
+        rendimiento_periodo: 6.28,
+        sin_asignar: false,
+        viajes: [
+          { trip_id: "ida", folio: "TLO11-77", origen: "GDL", destino: "MTY", ruta: "", fecha_salida: "2026-06-02", km_recorridos: 1273, litros_asignados: 202.59, costo_asignado: 5969.95 },
+          { trip_id: "regreso", folio: "TLO11-78", origen: "MTY", destino: "GDL", ruta: "", fecha_salida: "2026-06-05", km_recorridos: 886, litros_asignados: 141, costo_asignado: 4155.05 },
+          { trip_id: "fuera", folio: "X", origen: "A", destino: "B", ruta: "", fecha_salida: "2026-07-01", km_recorridos: 100, litros_asignados: 10, costo_asignado: 200 },
+        ],
+      },
+    ];
+    const litros = sumLitersForPeriod({
+      periodTripIds,
+      confirmed: [{ trip_id: "ida", litros: 88.44 }],
+      pendingBlocks,
+      orphanLoads: [{ trip_id: "regreso", litros: 5 }],
+    });
+    assert.equal(litros, 437.03);
   });
 });
