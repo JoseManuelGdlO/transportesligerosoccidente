@@ -772,14 +772,12 @@ describe("confirmTicketProration", () => {
 
     await confirmTicketProration(tenantId, ticketId);
 
-    const idaPatch = idaAssignment.update.mock.calls[0]?.arguments[0] as {
-      litros_asignados: string;
-      costo_asignado: string;
-    };
-    const regresoPatch = regresoAssignment.update.mock.calls[0]?.arguments[0] as {
-      litros_asignados: string;
-      costo_asignado: string;
-    };
+    const idaPatch = (idaAssignment.update.mock.calls[0]?.arguments as unknown as [
+      { litros_asignados: string; costo_asignado: string },
+    ])[0];
+    const regresoPatch = (regresoAssignment.update.mock.calls[0]?.arguments as unknown as [
+      { litros_asignados: string; costo_asignado: string },
+    ])[0];
     assert.equal(idaPatch.litros_asignados, "88.44");
     assert.equal(idaPatch.costo_asignado, "2396.82");
     assert.equal(regresoPatch.litros_asignados, "61.56");
@@ -797,7 +795,7 @@ describe("confirmTicketProration", () => {
     assert.equal(created.es_foraneo, true);
     assert.equal(created.es_estacion_empresa, false);
 
-    const loadPatch = existingLoad.update.mock.calls[0]?.arguments[0] as { litros: string };
+    const loadPatch = (existingLoad.update.mock.calls[0]?.arguments as unknown as [{ litros: string }])[0];
     assert.equal(loadPatch.litros, "88.44");
 
     ticketFindOne.mock.restore();
