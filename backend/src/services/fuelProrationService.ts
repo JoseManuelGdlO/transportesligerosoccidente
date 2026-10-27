@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
 import { FuelLoad, FuelProrationAssignment, FuelTicket, Route, Trip, Truck, sequelize } from "../models";
 import {
   getConfirmedTripIdsForTruck,
@@ -10,6 +10,11 @@ import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
 import { tripRouteLabelFromModel } from "./tripRouteLabel";
+
+function runInTransaction<T>(existing: Transaction | undefined, fn: (t: Transaction) => Promise<T>): Promise<T> {
+  if (existing) return fn(existing);
+  return sequelize.transaction(fn);
+}
 
 export type FuelProrationEstado = "pendiente" | "confirmado";
 
@@ -744,9 +749,14 @@ export async function autoProratePending(
   return prorateRangeAll(tenantId, inicio, fin, "pendiente");
 }
 
-export async function confirmTicketProration(tenantId: string, ticketId: string): Promise<void> {
+export async function confirmTicketProration(
+  tenantId: string,
+  ticketId: string,
+  transaction?: Transaction,
+): Promise<void> {
   const ticket = await FuelTicket.findOne({
     where: { id: ticketId, tenant_id: tenantId },
+    transaction,
   });
   if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
   if (ticket.prorrateo_confirmado_at) {
@@ -755,6 +765,7 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
 
   const assignments = await FuelProrationAssignment.findAll({
     where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+    transaction,
   });
   if (assignments.length === 0) {
     throw Object.assign(new Error("El ticket no tiene viajes asignados"), { status: 400 });
@@ -763,6 +774,7 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   const tripIds = assignments.map((a) => String(a.trip_id));
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
+    transaction,
   });
 
   const withKm = trips.filter((t) => tripKmRecorridos(t) > 0).sort(compareTripOrder);
@@ -783,7 +795,7 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   const shareByTrip = new Map(shares.map((row) => [row.trip_id, row]));
   const kmByTrip = new Map(withKm.map((trip) => [String(trip.id), tripKmRecorridos(trip)]));
 
-  await sequelize.transaction(async (t) => {
+  await runInTransaction(transaction, async (t) => {
     for (const assignment of assignments) {
       const tripId = String(assignment.trip_id);
       const km = kmByTrip.get(tripId);
@@ -856,9 +868,10 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   });
 }
 
-async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string) {
+async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string, transaction?: Transaction) {
   const ticket = await FuelTicket.findOne({
     where: { id: ticketId, tenant_id: tenantId },
+    transaction,
   });
   if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
   if (!ticket.prorrateo_confirmado_at) {
@@ -867,10 +880,14 @@ async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string) {
   return ticket;
 }
 
-export async function reopenTicketProration(tenantId: string, ticketId: string): Promise<void> {
-  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId);
+export async function reopenTicketProration(
+  tenantId: string,
+  ticketId: string,
+  transaction?: Transaction,
+): Promise<void> {
+  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId, transaction);
 
-  await sequelize.transaction(async (t) => {
+  await runInTransaction(transaction, async (t) => {
     await FuelLoad.destroy({
       where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
       transaction: t,

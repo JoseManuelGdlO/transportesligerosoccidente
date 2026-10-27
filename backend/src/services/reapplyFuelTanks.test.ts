@@ -2,7 +2,16 @@ import assert from "node:assert/strict";
 import { describe, it, mock } from "node:test";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
-import { applyTankReapply, planTankReapply, tankReapplyOps } from "./reapplyFuelTanks";
+import {
+  applyTankReapply,
+  compareTankReapplyMetrics,
+  formatRendimientoLabel,
+  fuelRendimientoEstado,
+  planTankReapply,
+  tankMetricReportRows,
+  tankReapplyOps,
+} from "./reapplyFuelTanks";
+import { buildTankBlocks } from "./fuelProrationService";
 
 function mockTicket(partial: {
   id: string;
@@ -154,7 +163,13 @@ describe("applyTankReapply", () => {
 
     const { tickets, trips } = tlo11Fixtures();
     const lines = planTankReapply({ id: "t1", numero_economico: "TL011" }, tickets, trips);
-    const result = await applyTankReapply("tenant-1", lines);
+    const tx = { id: "outer-tx" };
+    const result = await applyTankReapply("tenant-1", lines, tx as never);
+
+    assert.equal(reopen.mock.calls[0]!.arguments[2], tx);
+    assert.equal(saveTicket.mock.calls[0]!.arguments[3], tx);
+    assert.equal(confirm.mock.calls[0]!.arguments[2], tx);
+    assert.equal(saveDraft.mock.calls[0]!.arguments[3], tx);
 
     assert.deepEqual(calls, ["reopen", "save:ida,regreso", "confirm", "draft:ida,regreso"]);
     assert.equal(result.applied, 2);
@@ -196,5 +211,72 @@ describe("applyTankReapply", () => {
     saveTicket.mock.restore();
     confirm.mock.restore();
     saveDraft.mock.restore();
+  });
+});
+
+describe("compareTankReapplyMetrics", () => {
+  it("muestra el km/L actual vs el de la regla de tanque sin escribir", () => {
+    const { tickets, trips } = tlo11Fixtures();
+    const lines = planTankReapply({ id: "t1", numero_economico: "TL011" }, tickets, trips);
+    const pendingBlocks = buildTankBlocks(tickets, trips).filter((b) => b.ticket_id === "foraneo");
+    const snapshot = compareTankReapplyMetrics({
+      truck: { id: "t1", numero_economico: "TL011" },
+      trips,
+      lines,
+      confirmedLitros: [{ trip_id: "ida", litros: 343.59 }],
+      pendingBlocks,
+      orphanLoads: [],
+    });
+    assert.equal(snapshot.km, 2159);
+    assert.equal(snapshot.litros_antes, 493.59);
+    assert.equal(snapshot.rendimiento_antes, 4.37);
+    assert.equal(snapshot.litros_despues, 493.59);
+    assert.equal(snapshot.rendimiento_despues, 4.37);
+  });
+
+  it("detecta cuando los litros guardados cambian el rendimiento", () => {
+    const { tickets, trips } = tlo11Fixtures();
+    const lines = planTankReapply({ id: "t1", numero_economico: "TL011" }, tickets, trips);
+    const snapshot = compareTankReapplyMetrics({
+      truck: { id: "t1", numero_economico: "TL011" },
+      trips,
+      lines,
+      confirmedLitros: [{ trip_id: "ida", litros: 100 }],
+      pendingBlocks: [],
+      orphanLoads: [],
+    });
+    assert.equal(snapshot.litros_antes, 100);
+    assert.equal(snapshot.rendimiento_antes, 21.59);
+    assert.equal(snapshot.litros_despues, 493.59);
+    assert.equal(snapshot.rendimiento_despues, 4.37);
+  });
+});
+
+describe("formatRendimientoLabel", () => {
+  it("copia el texto del reporte de combustible", () => {
+    assert.equal(formatRendimientoLabel(4.5, 3), "Rendimiento 4.50 km/L / 3.0 esp.");
+    assert.equal(fuelRendimientoEstado(4.5, 3), "OK");
+    assert.equal(fuelRendimientoEstado(21.59, 3), "Faltan litros");
+    assert.equal(fuelRendimientoEstado(2, 3), "Bajo rendimiento");
+  });
+
+  it("arma las filas del Excel con actual vs tanque", () => {
+    const rows = tankMetricReportRows([
+      {
+        truck_id: "t1",
+        numero_economico: "TL011",
+        viajes: 2,
+        km: 2159,
+        litros_antes: 100,
+        litros_despues: 493.59,
+        rendimiento_esperado: 3,
+        rendimiento_antes: 21.59,
+        rendimiento_despues: 4.37,
+      },
+    ]);
+    assert.equal(rows[0]!.rendimiento_antes, "Rendimiento 21.59 km/L / 3.0 esp.");
+    assert.equal(rows[0]!.rendimiento_despues, "Rendimiento 4.37 km/L / 3.0 esp.");
+    assert.equal(rows[0]!.estado_antes, "Faltan litros");
+    assert.equal(rows[0]!.estado_despues, "OK");
   });
 });

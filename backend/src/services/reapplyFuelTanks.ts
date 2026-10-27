@@ -1,3 +1,4 @@
+import type { Transaction } from "sequelize";
 import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import {
@@ -8,6 +9,9 @@ import {
   buildTankBlocks,
   confirmTicketProration,
   reopenTicketProration,
+  sumLitersForPeriod,
+  tripKmRecorridos,
+  type ProratedTicketBlock,
 } from "./fuelProrationService";
 
 export const tankReapplyOps = {
@@ -27,6 +31,63 @@ export type TankReapplyLine = {
   skip_reason: string | null;
   viajes: { trip_id: string; folio: string; litros_asignados: number; costo_asignado: number }[];
 };
+
+export type TankMetricSnapshot = {
+  truck_id: string;
+  numero_economico: string;
+  viajes: number;
+  km: number;
+  litros_antes: number;
+  litros_despues: number;
+  rendimiento_esperado: number;
+  rendimiento_antes: number | null;
+  rendimiento_despues: number | null;
+};
+
+export type TankMetricReportRow = {
+  unidad: string;
+  viajes: number;
+  km: number;
+  litros_antes: number;
+  litros_despues: number;
+  rendimiento_antes: string;
+  rendimiento_despues: string;
+  estado_antes: string;
+  estado_despues: string;
+};
+
+/** Texto del reporte de combustible: `Rendimiento 4.50 km/L / 3.0 esp.` */
+export function formatRendimientoLabel(rend: number | null, esperado: number): string {
+  const esp = esperado > 0 ? esperado.toFixed(1) : null;
+  if (rend == null) return esp ? `Rendimiento — / ${esp} esp.` : "Rendimiento —";
+  if (!esp) return `Rendimiento ${rend.toFixed(2)} km/L`;
+  return `Rendimiento ${rend.toFixed(2)} km/L / ${esp} esp.`;
+}
+
+export function fuelRendimientoEstado(rend: number | null, esperado: number): string {
+  if (rend == null || esperado <= 0) return "—";
+  if (rend < esperado * 0.9) return "Bajo rendimiento";
+  if (rend > esperado * 1.5) return "Faltan litros";
+  return "OK";
+}
+
+export function tankMetricReportRows(metrics: TankMetricSnapshot[]): TankMetricReportRow[] {
+  return metrics.map((row) => ({
+    unidad: row.numero_economico,
+    viajes: row.viajes,
+    km: row.km,
+    litros_antes: row.litros_antes,
+    litros_despues: row.litros_despues,
+    rendimiento_antes: formatRendimientoLabel(row.rendimiento_antes, row.rendimiento_esperado),
+    rendimiento_despues: formatRendimientoLabel(row.rendimiento_despues, row.rendimiento_esperado),
+    estado_antes: fuelRendimientoEstado(row.rendimiento_antes, row.rendimiento_esperado),
+    estado_despues: fuelRendimientoEstado(row.rendimiento_despues, row.rendimiento_esperado),
+  }));
+}
+
+function rendimiento(km: number, litros: number): number | null {
+  return litros > 0 && km > 0 ? Math.round((km / litros) * 100) / 100 : null;
+}
 
 export function planTankReapply(
   truck: { id: string; numero_economico: string },
@@ -55,9 +116,49 @@ export function planTankReapply(
   });
 }
 
+/** Km/L actual vs regla de tanque, sin escribir. Misma fórmula que el reporte de combustible. */
+export function compareTankReapplyMetrics(input: {
+  truck: { id: string; numero_economico: string; rendimiento_esperado?: number };
+  trips: TripModel[];
+  lines: TankReapplyLine[];
+  confirmedLitros: { trip_id: string; litros: number }[];
+  pendingBlocks: ProratedTicketBlock[];
+  orphanLoads: { trip_id: string; litros: number }[];
+}): TankMetricSnapshot {
+  const periodTripIds = new Set(input.trips.map((trip) => String(trip.id)));
+  const km = input.trips.reduce((sum, trip) => sum + tripKmRecorridos(trip), 0);
+  const litrosAntes = sumLitersForPeriod({
+    periodTripIds,
+    confirmed: input.confirmedLitros,
+    pendingBlocks: input.pendingBlocks,
+    orphanLoads: input.orphanLoads,
+  });
+  const litrosDespues = sumLitersForPeriod({
+    periodTripIds,
+    confirmed: input.lines.flatMap((line) =>
+      line.viajes.map((viaje) => ({ trip_id: viaje.trip_id, litros: viaje.litros_asignados })),
+    ),
+    pendingBlocks: [],
+    orphanLoads: input.orphanLoads,
+  });
+  const rendimientoEsperado = input.truck.rendimiento_esperado ?? 0;
+  return {
+    truck_id: input.truck.id,
+    numero_economico: input.truck.numero_economico,
+    viajes: input.trips.length,
+    km,
+    litros_antes: litrosAntes,
+    litros_despues: litrosDespues,
+    rendimiento_esperado: rendimientoEsperado,
+    rendimiento_antes: rendimiento(km, litrosAntes),
+    rendimiento_despues: rendimiento(km, litrosDespues),
+  };
+}
+
 export async function applyTankReapply(
   tenantId: string,
   lines: TankReapplyLine[],
+  transaction?: Transaction,
 ): Promise<{ applied: number; skipped: number }> {
   const byTruck = new Map<string, TankReapplyLine[]>();
   for (const line of lines) {
@@ -77,13 +178,14 @@ export async function applyTankReapply(
         continue;
       }
       try {
-        await tankReapplyOps.reopenTicketProration(tenantId, line.ticket_id);
+        await tankReapplyOps.reopenTicketProration(tenantId, line.ticket_id, transaction);
         await tankReapplyOps.saveTicketAssignments(
           tenantId,
           line.ticket_id,
           line.viajes.map((viaje) => viaje.trip_id),
+          transaction,
         );
-        await tankReapplyOps.confirmTicketProration(tenantId, line.ticket_id);
+        await tankReapplyOps.confirmTicketProration(tenantId, line.ticket_id, transaction);
         applied += 1;
       } catch (err) {
         const message = err instanceof Error ? err.message : String(err);
@@ -99,6 +201,7 @@ export async function applyTankReapply(
       pending.flatMap((line) =>
         line.viajes.map((viaje) => ({ trip_id: viaje.trip_id, fuel_ticket_id: line.ticket_id })),
       ),
+      transaction,
     );
     applied += pending.length;
   }
