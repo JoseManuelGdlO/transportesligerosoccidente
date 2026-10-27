@@ -209,6 +209,137 @@ export function buildProratedBlock(
   };
 }
 
+export function isPatioTicket(ticket: { es_foraneo?: boolean | null }): boolean {
+  return !ticket.es_foraneo;
+}
+
+export function allocateByKm(
+  litros: number,
+  importe: number,
+  trips: { trip_id: string; km: number }[],
+): { trip_id: string; litros_asignados: number; costo_asignado: number }[] {
+  const kmTotal = trips.reduce((s, t) => s + t.km, 0);
+  if (kmTotal <= 0 || trips.length === 0) return [];
+  const rows = trips.map((t) => {
+    const share = t.km / kmTotal;
+    return {
+      trip_id: t.trip_id,
+      litros_asignados: Math.round(litros * share * 100) / 100,
+      costo_asignado: Math.round(importe * share * 100) / 100,
+    };
+  });
+  const last = rows[rows.length - 1]!;
+  const litrosSum = rows.reduce((s, r) => s + r.litros_asignados, 0);
+  const costoSum = rows.reduce((s, r) => s + r.costo_asignado, 0);
+  last.litros_asignados = Math.round((last.litros_asignados + (litros - litrosSum)) * 100) / 100;
+  last.costo_asignado = Math.round((last.costo_asignado + (importe - costoSum)) * 100) / 100;
+  return rows;
+}
+
+type TankSegment = {
+  openMs: number;
+  closeMs: number | null;
+  tickets: FuelTicketModel[];
+};
+
+export function buildTankBlocks(
+  tickets: FuelTicketModel[],
+  trips: TripModel[],
+): ProratedTicketBlock[] {
+  const sortedTickets = [...tickets].sort(compareTicketOrder);
+  const patio = sortedTickets.filter((t) => isPatioTicket(t));
+  const segments: TankSegment[] = [];
+
+  for (let i = 0; i < patio.length; i++) {
+    const open = patio[i]!;
+    const next = patio[i + 1] ?? null;
+    segments.push({
+      openMs: ticketTimestampMs(open),
+      closeMs: next ? ticketTimestampMs(next) : null,
+      tickets: [open],
+    });
+  }
+
+  for (const ticket of sortedTickets) {
+    if (isPatioTicket(ticket)) continue;
+    const ts = ticketTimestampMs(ticket);
+    const host = [...segments].reverse().find((s) => s.openMs <= ts && (s.closeMs == null || ts < s.closeMs));
+    if (host) {
+      host.tickets.push(ticket);
+      continue;
+    }
+    const nextPatio = patio.find((p) => ticketTimestampMs(p) > ts) ?? null;
+    segments.push({
+      openMs: ts,
+      closeMs: nextPatio ? ticketTimestampMs(nextPatio) : null,
+      tickets: [ticket],
+    });
+  }
+
+  const withKm = trips
+    .map((trip) => ({ trip, km: tripKmRecorridos(trip) }))
+    .filter((x) => x.km > 0)
+    .sort((a, b) => compareTripOrder(a.trip, b.trip));
+
+  const blocks: ProratedTicketBlock[] = [];
+  for (const segment of segments) {
+    const segmentTrips = withKm.filter(({ trip }) => {
+      const ts = tripTimestampMs(trip);
+      if (ts <= segment.openMs) return false;
+      if (segment.closeMs != null && ts >= segment.closeMs) return false;
+      return true;
+    });
+    const kmTotal = segmentTrips.reduce((s, x) => s + x.km, 0);
+    for (const ticket of segment.tickets) {
+      const litros = num(ticket.litros);
+      const importe = num(ticket.importe_total);
+      const shares = allocateByKm(
+        litros,
+        importe,
+        segmentTrips.map(({ trip, km }) => ({ trip_id: String(trip.id), km })),
+      );
+      const shareByTrip = new Map(shares.map((s) => [s.trip_id, s]));
+      blocks.push({
+        ticket_id: String(ticket.id),
+        fecha: dateOnly(ticket.fecha),
+        hora: ticket.hora ? String(ticket.hora).slice(0, 8) : undefined,
+        litros,
+        precio_litro: num(ticket.precio_litro),
+        importe_total: importe,
+        odometro: ticket.odometro,
+        ubicacion: ticket.ubicacion,
+        km_total_periodo: kmTotal,
+        rendimiento_periodo: litros > 0 && kmTotal > 0 ? Math.round((kmTotal / litros) * 100) / 100 : null,
+        sin_asignar: segmentTrips.length === 0,
+        prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
+          ? ticket.prorrateo_confirmado_at.toISOString()
+          : null,
+        es_foraneo: !!ticket.es_foraneo,
+        source_trip_id: ticket.source_trip_id ? String(ticket.source_trip_id) : null,
+        viajes: segmentTrips.map(({ trip, km }) => {
+          const share = shareByTrip.get(String(trip.id));
+          return {
+            trip_id: String(trip.id),
+            folio: trip.folio,
+            origen: trip.origen,
+            destino: trip.destino,
+            ruta: tripRutaLabel(trip),
+            fecha_salida: dateOnly(trip.fecha_salida),
+            km_recorridos: km,
+            litros_asignados: share?.litros_asignados ?? 0,
+            costo_asignado: share?.costo_asignado ?? 0,
+          };
+        }),
+      });
+    }
+  }
+
+  return blocks.sort((a, b) => {
+    if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
+    return (a.hora ?? "").localeCompare(b.hora ?? "");
+  });
+}
+
 function buildEmptyTicketBlock(ticket: FuelTicketModel): ProratedTicketBlock {
   return buildProratedBlock(ticket, []);
 }

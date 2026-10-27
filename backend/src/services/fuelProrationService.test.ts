@@ -13,6 +13,7 @@ import {
   applyManualAssignments,
   buildProratedBlock,
   buildProrationBlocks,
+  buildTankBlocks,
   confirmTicketProration,
   deleteConfirmedTicketProration,
   partitionPeriodTrips,
@@ -34,6 +35,9 @@ function mockTicket(partial: {
   fecha: string;
   hora?: string | null;
   litros?: string;
+  precio_litro?: string;
+  importe_total?: string;
+  es_foraneo?: boolean;
 }): FuelTicketModel {
   return {
     id: partial.id,
@@ -41,8 +45,9 @@ function mockTicket(partial: {
     fecha: partial.fecha as unknown as Date,
     hora: partial.hora ?? null,
     litros: partial.litros ?? "100",
-    precio_litro: "30",
-    importe_total: "3000",
+    precio_litro: partial.precio_litro ?? "30",
+    importe_total: partial.importe_total ?? "3000",
+    es_foraneo: partial.es_foraneo ?? false,
     odometro: 0,
     ubicacion: "X",
   } as unknown as FuelTicketModel;
@@ -851,5 +856,118 @@ describe("partitionPeriodTrips", () => {
     const { sinAsignar, sinKm } = partitionPeriodTrips(periodTrips, assigned);
     assert.deepEqual(sinAsignar.map((t) => t.trip_id), ["b"]);
     assert.deepEqual(sinKm.map((t) => t.trip_id), ["c"]);
+  });
+});
+
+describe("buildTankBlocks", () => {
+  it("reparte patio y foráneo del caso TLO11 entre ida y regreso", () => {
+    const tickets = [
+      mockTicket({
+        id: "foraneo",
+        truck_id: "t1",
+        fecha: "2026-06-04",
+        hora: "12:00:00",
+        litros: "150",
+        precio_litro: "27.1",
+        importe_total: "4065",
+        es_foraneo: true,
+      }),
+      mockTicket({
+        id: "patio",
+        truck_id: "t1",
+        fecha: "2026-06-02",
+        hora: "08:00:00",
+        litros: "343.59",
+        precio_litro: "29.468",
+        importe_total: "10125",
+        es_foraneo: false,
+      }),
+    ];
+    const trips = [
+      mockTrip({
+        id: "regreso",
+        truck_id: "t1",
+        fecha_salida: "2026-06-05T08:00:00.000Z",
+        km_inicial: 1273,
+        km_final: 2159,
+        folio: "TLO11-78",
+      }),
+      mockTrip({
+        id: "ida",
+        truck_id: "t1",
+        fecha_salida: "2026-06-02T10:00:00.000Z",
+        km_inicial: 0,
+        km_final: 1273,
+        folio: "TLO11-77",
+      }),
+    ];
+
+    const blocks = buildTankBlocks(tickets, trips);
+    const patio = blocks.find((b) => b.ticket_id === "patio")!;
+    const foraneo = blocks.find((b) => b.ticket_id === "foraneo")!;
+    const litros = (block: ProratedTicketBlock, folio: string) =>
+      block.viajes.find((v) => v.folio === folio)!;
+
+    assert.equal(litros(patio, "TLO11-77").litros_asignados, 202.59);
+    assert.equal(litros(patio, "TLO11-77").costo_asignado, 5969.95);
+    assert.equal(litros(patio, "TLO11-78").litros_asignados, 141);
+    assert.equal(litros(patio, "TLO11-78").costo_asignado, 4155.05);
+    assert.equal(litros(foraneo, "TLO11-77").litros_asignados, 88.44);
+    assert.equal(litros(foraneo, "TLO11-77").costo_asignado, 2396.82);
+    assert.equal(litros(foraneo, "TLO11-78").litros_asignados, 61.56);
+    assert.equal(litros(foraneo, "TLO11-78").costo_asignado, 1668.18);
+    assert.equal(patio.km_total_periodo, 2159);
+    assert.equal(foraneo.km_total_periodo, 2159);
+  });
+
+  it("el foráneo sin patio anterior se cierra en el primer patio y no se reparte después", () => {
+    const tickets = [
+      mockTicket({
+        id: "camino",
+        truck_id: "t1",
+        fecha: "2026-06-01",
+        hora: "08:00:00",
+        litros: "100",
+        importe_total: "2000",
+        es_foraneo: true,
+      }),
+      mockTicket({
+        id: "patio",
+        truck_id: "t1",
+        fecha: "2026-06-03",
+        hora: "08:00:00",
+        litros: "50",
+        importe_total: "1000",
+        es_foraneo: false,
+      }),
+    ];
+    const trips = [
+      mockTrip({
+        id: "antes",
+        truck_id: "t1",
+        fecha_salida: "2026-06-02T08:00:00.000Z",
+        km_inicial: 0,
+        km_final: 100,
+        folio: "A",
+      }),
+      mockTrip({
+        id: "despues",
+        truck_id: "t1",
+        fecha_salida: "2026-06-04T08:00:00.000Z",
+        km_inicial: 100,
+        km_final: 200,
+        folio: "B",
+      }),
+    ];
+
+    const blocks = buildTankBlocks(tickets, trips);
+    assert.deepEqual(
+      blocks.find((b) => b.ticket_id === "camino")!.viajes.map((v) => v.folio),
+      ["A"],
+    );
+    assert.deepEqual(
+      blocks.find((b) => b.ticket_id === "patio")!.viajes.map((v) => v.folio),
+      ["B"],
+    );
   });
 });
