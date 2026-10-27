@@ -412,18 +412,33 @@ describe("saveTicketAssignments", () => {
     transaction.mock.restore();
   });
 
-  it("rechaza asignar más de un viaje a un ticket nacido desde viaje", async () => {
+  it("acepta ida y regreso en un ticket nacido desde viaje", async () => {
     const ticketFindOne = mock.method(FuelTicket, "findOne", async () =>
       mockTicket({ id: "tk1", fecha: "2026-08-22", source_trip_id: "mexico" }),
     );
+    const tripFindAll = mock.method(Trip, "findAll", async () =>
+      [mockTrip({ id: "mexico", folio: "TL008-56" }), mockTrip({ id: "taller", folio: "TL008-57" })] as never,
+    );
+    const destroy = mock.method(FuelProrationAssignment, "destroy", async () => 0 as never);
+    const bulkCreate = mock.method(FuelProrationAssignment, "bulkCreate", async () => [] as never);
+    const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
+      await fn({});
+    });
 
-    await expectError(
-      () => saveTicketAssignments(tenantId, "tk1", ["mexico", "taller"]),
-      400,
-      "Este ticket nació del viaje; la asignación debe ser solo ese viaje",
+    await saveTicketAssignments(tenantId, "tk1", ["mexico", "taller"]);
+
+    assert.equal(bulkCreate.mock.callCount(), 1);
+    const rows = bulkCreate.mock.calls[0]!.arguments[0] as Array<{ trip_id: string; fuel_ticket_id: string }>;
+    assert.deepEqual(
+      rows.map((r) => r.trip_id).sort(),
+      ["mexico", "taller"],
     );
 
     ticketFindOne.mock.restore();
+    tripFindAll.mock.restore();
+    destroy.mock.restore();
+    bulkCreate.mock.restore();
+    transaction.mock.restore();
   });
 });
 

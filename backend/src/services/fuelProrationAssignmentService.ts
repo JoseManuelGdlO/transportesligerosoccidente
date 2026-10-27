@@ -175,17 +175,7 @@ export async function saveTicketAssignments(
   }
 
   const truckId = String(ticket.truck_id);
-  let uniqueTripIds = [...new Set(tripIds)];
-
-  if (ticket.source_trip_id) {
-    const sourceId = String(ticket.source_trip_id);
-    if (uniqueTripIds.length !== 1 || uniqueTripIds[0] !== sourceId) {
-      throw Object.assign(
-        new Error("Este ticket nació del viaje; la asignación debe ser solo ese viaje"),
-        { status: 400 },
-      );
-    }
-  }
+  const uniqueTripIds = [...new Set(tripIds)];
 
   if (uniqueTripIds.length > 0) {
     const trips = await Trip.findAll({
@@ -285,12 +275,6 @@ export async function saveAssignments(
       if (ticket.prorrateo_confirmado_at) {
         throw Object.assign(new Error("No se pueden modificar asignaciones de un ticket confirmado"), { status: 400 });
       }
-      if (ticket.source_trip_id) {
-        throw Object.assign(
-          new Error("No se pueden reasignar tickets creados desde un viaje"),
-          { status: 400 },
-        );
-      }
       const ticketDate = dateOnly(ticket.fecha);
       if (ticketDate < inicio || ticketDate > fin) {
         throw Object.assign(new Error("El ticket no está en el período seleccionado"), { status: 400 });
@@ -307,7 +291,6 @@ export async function saveAssignments(
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
-      source_trip_id: null,
       fecha: { [Op.between]: [inicio, fin] },
     },
     attributes: ["id"],
