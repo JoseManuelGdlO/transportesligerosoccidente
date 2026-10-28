@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
 import {
   FuelProrationAssignment,
   FuelTicket,
@@ -8,6 +8,11 @@ import {
   sequelize,
 } from "../models";
 import type { Trip as TripModel } from "../models/Trip";
+
+function runInTransaction<T>(existing: Transaction | undefined, fn: (t: Transaction) => Promise<T>): Promise<T> {
+  if (existing) return fn(existing);
+  return sequelize.transaction(fn);
+}
 
 function dateOnly(d: Date | string): string {
   if (typeof d === "string") return d.slice(0, 10);
@@ -115,29 +120,29 @@ export async function getConfirmedTripIdsForTruck(
 }
 
 /**
- * Reemplaza borradores de tickets *sin* source_trip_id.
- * Las asignaciones de tickets nacidos desde viaje no se tocan.
+ * Reemplaza borradores de todos los tickets pendientes de la unidad, incluidos los nacidos de un viaje.
  */
 export async function saveDraftAssignmentsForTruck(
   tenantId: string,
   truckId: string,
   assignments: DraftAssignmentPair[],
+  transaction?: Transaction,
 ): Promise<void> {
   const pendingTickets = await FuelTicket.findAll({
     where: {
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
-      source_trip_id: null,
     },
     attributes: ["id"],
+    transaction,
   });
   const pendingTicketIds = pendingTickets.map((t) => String(t.id));
   if (pendingTicketIds.length === 0) return;
 
   const filtered = assignments.filter((a) => pendingTicketIds.includes(a.fuel_ticket_id));
 
-  await sequelize.transaction(async (t) => {
+  await runInTransaction(transaction, async (t) => {
     await FuelProrationAssignment.destroy({
       where: {
         tenant_id: tenantId,
@@ -167,9 +172,11 @@ export async function saveTicketAssignments(
   tenantId: string,
   ticketId: string,
   tripIds: string[],
+  transaction?: Transaction,
 ): Promise<void> {
   const ticket = await FuelTicket.findOne({
     where: { id: ticketId, tenant_id: tenantId },
+    transaction,
   });
   if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
   if (ticket.prorrateo_confirmado_at) {
@@ -177,21 +184,12 @@ export async function saveTicketAssignments(
   }
 
   const truckId = String(ticket.truck_id);
-  let uniqueTripIds = [...new Set(tripIds)];
-
-  if (ticket.source_trip_id) {
-    const sourceId = String(ticket.source_trip_id);
-    if (uniqueTripIds.length !== 1 || uniqueTripIds[0] !== sourceId) {
-      throw Object.assign(
-        new Error("Este ticket nació del viaje; la asignación debe ser solo ese viaje"),
-        { status: 400 },
-      );
-    }
-  }
+  const uniqueTripIds = [...new Set(tripIds)];
 
   if (uniqueTripIds.length > 0) {
     const trips = await Trip.findAll({
       where: { tenant_id: tenantId, id: { [Op.in]: uniqueTripIds } },
+      transaction,
     });
     if (trips.length !== uniqueTripIds.length) {
       throw Object.assign(new Error("Viaje no encontrado"), { status: 400 });
@@ -206,7 +204,7 @@ export async function saveTicketAssignments(
     }
   }
 
-  await sequelize.transaction(async (t) => {
+  await runInTransaction(transaction, async (t) => {
     await FuelProrationAssignment.destroy({
       where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
       transaction: t,
@@ -287,12 +285,6 @@ export async function saveAssignments(
       if (ticket.prorrateo_confirmado_at) {
         throw Object.assign(new Error("No se pueden modificar asignaciones de un ticket confirmado"), { status: 400 });
       }
-      if (ticket.source_trip_id) {
-        throw Object.assign(
-          new Error("No se pueden reasignar tickets creados desde un viaje"),
-          { status: 400 },
-        );
-      }
       const ticketDate = dateOnly(ticket.fecha);
       if (ticketDate < inicio || ticketDate > fin) {
         throw Object.assign(new Error("El ticket no está en el período seleccionado"), { status: 400 });
@@ -309,7 +301,6 @@ export async function saveAssignments(
       tenant_id: tenantId,
       truck_id: truckId,
       prorrateo_confirmado_at: null,
-      source_trip_id: null,
       fecha: { [Op.between]: [inicio, fin] },
     },
     attributes: ["id"],

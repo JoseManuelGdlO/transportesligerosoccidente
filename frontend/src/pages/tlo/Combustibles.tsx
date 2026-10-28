@@ -1391,12 +1391,10 @@ export default function Combustibles() {
                         )}
                         {canCreate && (
                           <>
-                            {!block.source_trip_id && (
-                              <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit, block)}>
-                                <Pencil className="h-4 w-4 mr-1.5" />
-                                Editar
-                              </Button>
-                            )}
+                            <Button variant="outline" size="sm" onClick={() => openAssignDialog(unit, block)}>
+                              <Pencil className="h-4 w-4 mr-1.5" />
+                              Editar
+                            </Button>
                             <Button
                               variant="default"
                               size="sm"

@@ -1529,6 +1529,7 @@ export default function Reportes() {
                       const esperado = truck?.rendimiento_esperado ?? 0;
                       const rend = row.rendimiento;
                       const bajo = rend != null && esperado > 0 && rend < esperado * 0.9;
+                      const faltan = rend != null && esperado > 0 && rend > esperado * 1.5;
                       return (
                         <TableRow key={row.truck_id}>
                           <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
@@ -1541,7 +1542,15 @@ export default function Reportes() {
                             {esperado > 0 && <span className="text-xs text-muted-foreground ml-1">/ {fmtNumber(esperado, 1)} esp.</span>}
                           </TableCell>
                           <TableCell className="text-right">
-                            {bajo ? <Badge variant="destructive">Bajo rendimiento</Badge> : rend != null ? <Badge variant="outline">OK</Badge> : <span className="text-muted-foreground text-xs">—</span>}
+                            {bajo ? (
+                              <Badge variant="destructive">Bajo rendimiento</Badge>
+                            ) : faltan ? (
+                              <Badge variant="destructive">Faltan litros</Badge>
+                            ) : rend != null ? (
+                              <Badge variant="outline">OK</Badge>
+                            ) : (
+                              <span className="text-muted-foreground text-xs">—</span>
+                            )}
                           </TableCell>
                         </TableRow>
                       );

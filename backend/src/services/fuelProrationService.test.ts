@@ -13,11 +13,13 @@ import {
   applyManualAssignments,
   buildProratedBlock,
   buildProrationBlocks,
+  buildTankBlocks,
   confirmTicketProration,
   deleteConfirmedTicketProration,
   partitionPeriodTrips,
   reopenTicketProration,
   resumenFromBlocks,
+  sumLitersForPeriod,
   ticketTimestampMs,
   ticketWindowEndMs,
   tripKmRecorridos,
@@ -34,6 +36,9 @@ function mockTicket(partial: {
   fecha: string;
   hora?: string | null;
   litros?: string;
+  precio_litro?: string;
+  importe_total?: string;
+  es_foraneo?: boolean;
 }): FuelTicketModel {
   return {
     id: partial.id,
@@ -41,8 +46,9 @@ function mockTicket(partial: {
     fecha: partial.fecha as unknown as Date,
     hora: partial.hora ?? null,
     litros: partial.litros ?? "100",
-    precio_litro: "30",
-    importe_total: "3000",
+    precio_litro: partial.precio_litro ?? "30",
+    importe_total: partial.importe_total ?? "3000",
+    es_foraneo: partial.es_foraneo ?? false,
     odometro: 0,
     ubicacion: "X",
   } as unknown as FuelTicketModel;
@@ -534,6 +540,27 @@ describe("buildProratedBlock", () => {
       ["TL007-17", "TL007-18", "TL007-19", "TL007-20", "TL007-21"],
     );
   });
+
+  it("buildProratedBlock cierra la suma de litros con el ticket", () => {
+    const ticket = mockTicket({
+      id: "tk",
+      truck_id: "t1",
+      fecha: "2026-06-02",
+      hora: "08:00:00",
+      litros: "100",
+      importe_total: "100",
+    });
+    const trips = [
+      mockTrip({ id: "a", truck_id: "t1", fecha_salida: "2026-06-02T09:00:00.000Z", km_inicial: 0, km_final: 1, folio: "A" }),
+      mockTrip({ id: "b", truck_id: "t1", fecha_salida: "2026-06-02T10:00:00.000Z", km_inicial: 0, km_final: 1, folio: "B" }),
+      mockTrip({ id: "c", truck_id: "t1", fecha_salida: "2026-06-02T11:00:00.000Z", km_inicial: 0, km_final: 1, folio: "C" }),
+    ];
+    const block = buildProratedBlock(ticket, trips);
+    const litros = block.viajes.reduce((s, v) => s + v.litros_asignados, 0);
+    const costo = block.viajes.reduce((s, v) => s + v.costo_asignado, 0);
+    assert.equal(Math.round(litros * 100) / 100, 100);
+    assert.equal(Math.round(costo * 100) / 100, 100);
+  });
 });
 
 describe("confirmTicketProration", () => {
@@ -652,7 +679,7 @@ describe("confirmTicketProration", () => {
     const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
     const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [assignment] as never);
     const tripFindAll = mock.method(Trip, "findAll", async () => [trip] as never);
-    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async () => ({ id: "existing" }) as never);
+    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async () => ({ id: "existing", update: mock.fn(async () => {}) }) as never);
     const fuelLoadCreate = mock.method(FuelLoad, "create", async () => {
       throw new Error("no debe crear");
     });
@@ -672,65 +699,104 @@ describe("confirmTicketProration", () => {
     transaction.mock.restore();
   });
 
-  it("ticket desde viaje confirma con 100% litros sin recrear load", async () => {
+  it("ticket desde viaje confirma la parte de cada viaje del tanque", async () => {
     const tenantId = "tenant-1";
     const ticketId = "tk-src";
-    const tripId = "v1";
 
     const ticket = {
       id: ticketId,
       tenant_id: tenantId,
       truck_id: "truck-1",
-      fecha: "2026-06-02",
-      hora: "10:00:00",
-      litros: "80",
-      precio_litro: "25",
-      importe_total: "2000",
+      fecha: "2026-06-04",
+      hora: "12:00:00",
+      litros: "150",
+      precio_litro: "27.1",
+      importe_total: "4065",
       odometro: 1200,
       ubicacion: "Ruta",
       prorrateo_confirmado_at: null,
-      source_trip_id: tripId,
+      source_trip_id: "ida",
       es_foraneo: true,
       update: mock.fn(async () => {}),
     };
 
-    const assignment = {
-      trip_id: tripId,
+    const idaAssignment = {
+      trip_id: "ida",
       fuel_ticket_id: ticketId,
+      litros_asignados: null,
+      costo_asignado: null,
+      update: mock.fn(async () => {}),
+      destroy: mock.fn(async () => {}),
+    };
+    const regresoAssignment = {
+      trip_id: "regreso",
+      fuel_ticket_id: ticketId,
+      litros_asignados: null,
+      costo_asignado: null,
       update: mock.fn(async () => {}),
       destroy: mock.fn(async () => {}),
     };
 
-    const trip = mockTrip({
-      id: tripId,
+    const ida = mockTrip({
+      id: "ida",
       truck_id: "truck-1",
-      fecha_salida: "2026-06-02T09:00:00.000Z",
+      fecha_salida: "2026-06-02T10:00:00.000Z",
       km_inicial: 0,
-      km_final: 100,
+      km_final: 1273,
+      folio: "TLO11-77",
+    });
+    const regreso = mockTrip({
+      id: "regreso",
+      truck_id: "truck-1",
+      fecha_salida: "2026-06-05T08:00:00.000Z",
+      km_inicial: 1273,
+      km_final: 2159,
+      folio: "TLO11-78",
     });
 
+    const existingLoad = { update: mock.fn(async () => {}) };
+
     const ticketFindOne = mock.method(FuelTicket, "findOne", async () => ticket as never);
-    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () => [assignment] as never);
-    const tripFindAll = mock.method(Trip, "findAll", async () => [trip] as never);
-    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async () => ({ id: "existing-load" }) as never);
-    const fuelLoadCreate = mock.method(FuelLoad, "create", async () => {
-      throw new Error("no debe crear");
+    const assignmentFindAll = mock.method(FuelProrationAssignment, "findAll", async () =>
+      [idaAssignment, regresoAssignment] as never,
+    );
+    const tripFindAll = mock.method(Trip, "findAll", async () => [regreso, ida] as never);
+    const fuelLoadFindOne = mock.method(FuelLoad, "findOne", async (opts: { where?: { trip_id?: string } }) => {
+      if (opts?.where?.trip_id === "ida") return existingLoad as never;
+      return null;
     });
+    const fuelLoadCreate = mock.method(FuelLoad, "create", async (row: Record<string, unknown>) => row as never);
     const transaction = mock.method(sequelize, "transaction", async (fn: (t: unknown) => Promise<void>) => {
       await fn({});
     });
 
     await confirmTicketProration(tenantId, ticketId);
 
-    assert.equal(fuelLoadCreate.mock.callCount(), 0);
-    assert.equal(assignment.update.mock.callCount(), 1);
-    const updateArgs = assignment.update.mock.calls[0]?.arguments as unknown as [
+    const idaPatch = (idaAssignment.update.mock.calls[0]?.arguments as unknown as [
       { litros_asignados: string; costo_asignado: string },
-    ];
-    const patch = updateArgs[0];
-    assert.equal(patch.litros_asignados, "80");
-    assert.equal(patch.costo_asignado, "2000");
-    assert.equal(ticket.update.mock.callCount(), 1);
+    ])[0];
+    const regresoPatch = (regresoAssignment.update.mock.calls[0]?.arguments as unknown as [
+      { litros_asignados: string; costo_asignado: string },
+    ])[0];
+    assert.equal(idaPatch.litros_asignados, "88.44");
+    assert.equal(idaPatch.costo_asignado, "2396.82");
+    assert.equal(regresoPatch.litros_asignados, "61.56");
+    assert.equal(regresoPatch.costo_asignado, "1668.18");
+
+    assert.equal(fuelLoadCreate.mock.callCount(), 1);
+    const created = fuelLoadCreate.mock.calls[0]!.arguments[0] as {
+      trip_id: string;
+      litros: string;
+      es_foraneo: boolean;
+      es_estacion_empresa: boolean;
+    };
+    assert.equal(created.trip_id, "regreso");
+    assert.equal(created.litros, "61.56");
+    assert.equal(created.es_foraneo, true);
+    assert.equal(created.es_estacion_empresa, false);
+
+    const loadPatch = (existingLoad.update.mock.calls[0]?.arguments as unknown as [{ litros: string }])[0];
+    assert.equal(loadPatch.litros, "88.44");
 
     ticketFindOne.mock.restore();
     assignmentFindAll.mock.restore();
@@ -851,5 +917,150 @@ describe("partitionPeriodTrips", () => {
     const { sinAsignar, sinKm } = partitionPeriodTrips(periodTrips, assigned);
     assert.deepEqual(sinAsignar.map((t) => t.trip_id), ["b"]);
     assert.deepEqual(sinKm.map((t) => t.trip_id), ["c"]);
+  });
+});
+
+describe("buildTankBlocks", () => {
+  it("reparte patio y foráneo del caso TLO11 entre ida y regreso", () => {
+    const tickets = [
+      mockTicket({
+        id: "foraneo",
+        truck_id: "t1",
+        fecha: "2026-06-04",
+        hora: "12:00:00",
+        litros: "150",
+        precio_litro: "27.1",
+        importe_total: "4065",
+        es_foraneo: true,
+      }),
+      mockTicket({
+        id: "patio",
+        truck_id: "t1",
+        fecha: "2026-06-02",
+        hora: "08:00:00",
+        litros: "343.59",
+        precio_litro: "29.468",
+        importe_total: "10125",
+        es_foraneo: false,
+      }),
+    ];
+    const trips = [
+      mockTrip({
+        id: "regreso",
+        truck_id: "t1",
+        fecha_salida: "2026-06-05T08:00:00.000Z",
+        km_inicial: 1273,
+        km_final: 2159,
+        folio: "TLO11-78",
+      }),
+      mockTrip({
+        id: "ida",
+        truck_id: "t1",
+        fecha_salida: "2026-06-02T10:00:00.000Z",
+        km_inicial: 0,
+        km_final: 1273,
+        folio: "TLO11-77",
+      }),
+    ];
+
+    const blocks = buildTankBlocks(tickets, trips);
+    const patio = blocks.find((b) => b.ticket_id === "patio")!;
+    const foraneo = blocks.find((b) => b.ticket_id === "foraneo")!;
+    const litros = (block: ProratedTicketBlock, folio: string) =>
+      block.viajes.find((v) => v.folio === folio)!;
+
+    assert.equal(litros(patio, "TLO11-77").litros_asignados, 202.59);
+    assert.equal(litros(patio, "TLO11-77").costo_asignado, 5969.95);
+    assert.equal(litros(patio, "TLO11-78").litros_asignados, 141);
+    assert.equal(litros(patio, "TLO11-78").costo_asignado, 4155.05);
+    assert.equal(litros(foraneo, "TLO11-77").litros_asignados, 88.44);
+    assert.equal(litros(foraneo, "TLO11-77").costo_asignado, 2396.82);
+    assert.equal(litros(foraneo, "TLO11-78").litros_asignados, 61.56);
+    assert.equal(litros(foraneo, "TLO11-78").costo_asignado, 1668.18);
+    assert.equal(patio.km_total_periodo, 2159);
+    assert.equal(foraneo.km_total_periodo, 2159);
+  });
+
+  it("el foráneo sin patio anterior se cierra en el primer patio y no se reparte después", () => {
+    const tickets = [
+      mockTicket({
+        id: "camino",
+        truck_id: "t1",
+        fecha: "2026-06-01",
+        hora: "08:00:00",
+        litros: "100",
+        importe_total: "2000",
+        es_foraneo: true,
+      }),
+      mockTicket({
+        id: "patio",
+        truck_id: "t1",
+        fecha: "2026-06-03",
+        hora: "08:00:00",
+        litros: "50",
+        importe_total: "1000",
+        es_foraneo: false,
+      }),
+    ];
+    const trips = [
+      mockTrip({
+        id: "antes",
+        truck_id: "t1",
+        fecha_salida: "2026-06-02T08:00:00.000Z",
+        km_inicial: 0,
+        km_final: 100,
+        folio: "A",
+      }),
+      mockTrip({
+        id: "despues",
+        truck_id: "t1",
+        fecha_salida: "2026-06-04T08:00:00.000Z",
+        km_inicial: 100,
+        km_final: 200,
+        folio: "B",
+      }),
+    ];
+
+    const blocks = buildTankBlocks(tickets, trips);
+    assert.deepEqual(
+      blocks.find((b) => b.ticket_id === "camino")!.viajes.map((v) => v.folio),
+      ["A"],
+    );
+    assert.deepEqual(
+      blocks.find((b) => b.ticket_id === "patio")!.viajes.map((v) => v.folio),
+      ["B"],
+    );
+  });
+});
+
+describe("sumLitersForPeriod", () => {
+  it("suma la parte del tanque de los viajes del periodo y no los litros crudos del ticket", () => {
+    const periodTripIds = new Set(["ida", "regreso"]);
+    const pendingBlocks: ProratedTicketBlock[] = [
+      {
+        ticket_id: "patio",
+        fecha: "2026-05-01",
+        litros: 343.59,
+        precio_litro: 29.468,
+        importe_total: 10125,
+        odometro: 0,
+        ubicacion: "GDL",
+        km_total_periodo: 2159,
+        rendimiento_periodo: 6.28,
+        sin_asignar: false,
+        viajes: [
+          { trip_id: "ida", folio: "TLO11-77", origen: "GDL", destino: "MTY", ruta: "", fecha_salida: "2026-06-02", km_recorridos: 1273, litros_asignados: 202.59, costo_asignado: 5969.95 },
+          { trip_id: "regreso", folio: "TLO11-78", origen: "MTY", destino: "GDL", ruta: "", fecha_salida: "2026-06-05", km_recorridos: 886, litros_asignados: 141, costo_asignado: 4155.05 },
+          { trip_id: "fuera", folio: "X", origen: "A", destino: "B", ruta: "", fecha_salida: "2026-07-01", km_recorridos: 100, litros_asignados: 10, costo_asignado: 200 },
+        ],
+      },
+    ];
+    const litros = sumLitersForPeriod({
+      periodTripIds,
+      confirmed: [{ trip_id: "ida", litros: 88.44 }],
+      pendingBlocks,
+      orphanLoads: [{ trip_id: "regreso", litros: 5 }],
+    });
+    assert.equal(litros, 437.03);
   });
 });

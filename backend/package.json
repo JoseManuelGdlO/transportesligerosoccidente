@@ -13,6 +13,7 @@
     "db:import:sat-claves": "tsx scripts/import-sat-claves-productos.ts",
     "db:import:sat-ubicaciones": "tsx scripts/import-sat-ubicaciones.ts",
     "job:fuel-sync": "tsx src/scripts/runFuelSync.ts",
+    "job:reapply-fuel-tanks": "tsx src/scripts/reapplyFuelTanks.ts",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
     "test": "tsx --test src/**/*.test.ts"

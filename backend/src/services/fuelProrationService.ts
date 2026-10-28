@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
 import { FuelLoad, FuelProrationAssignment, FuelTicket, Route, Trip, Truck, sequelize } from "../models";
 import {
   getConfirmedTripIdsForTruck,
@@ -10,6 +10,11 @@ import type { FuelTicket as FuelTicketModel } from "../models/FuelTicket";
 import type { Trip as TripModel } from "../models/Trip";
 import { num } from "../utils/numbers";
 import { tripRouteLabelFromModel } from "./tripRouteLabel";
+
+function runInTransaction<T>(existing: Transaction | undefined, fn: (t: Transaction) => Promise<T>): Promise<T> {
+  if (existing) return fn(existing);
+  return sequelize.transaction(fn);
+}
 
 export type FuelProrationEstado = "pendiente" | "confirmado";
 
@@ -165,15 +170,22 @@ export function buildProratedBlock(
 ): ProratedTicketBlock {
   const litros = num(ticket.litros);
   const precio = num(ticket.precio_litro);
+  const importe = num(ticket.importe_total);
   const withKm = tripsInWindow
     .map((t) => ({ trip: t, km: tripKmRecorridos(t) }))
     .filter((x) => x.km > 0)
     .sort((a, b) => compareTripOrder(a.trip, b.trip));
   const kmTotal = withKm.reduce((s, x) => s + x.km, 0);
+  const shares = allocateByKm(
+    litros,
+    importe,
+    withKm.map(({ trip, km }) => ({ trip_id: String(trip.id), km })),
+  );
+  const shareByTrip = new Map(shares.map((s) => [s.trip_id, s]));
 
   const viajes: ProratedTripRow[] = withKm.map(({ trip, km }) => {
-    const litrosAsignados = kmTotal > 0 ? (litros * km) / kmTotal : 0;
     const tripId = String(trip.id);
+    const share = shareByTrip.get(tripId);
     return {
       trip_id: tripId,
       folio: trip.folio,
@@ -182,8 +194,8 @@ export function buildProratedBlock(
       ruta: tripRutaLabel(trip),
       fecha_salida: dateOnly(trip.fecha_salida),
       km_recorridos: km,
-      litros_asignados: Math.round(litrosAsignados * 100) / 100,
-      costo_asignado: Math.round(litrosAsignados * precio * 100) / 100,
+      litros_asignados: share?.litros_asignados ?? 0,
+      costo_asignado: share?.costo_asignado ?? 0,
       ...(manualTripIds.has(tripId) ? { asignacion_manual: true } : {}),
     };
   });
@@ -207,6 +219,137 @@ export function buildProratedBlock(
     source_trip_id: ticket.source_trip_id ? String(ticket.source_trip_id) : null,
     viajes,
   };
+}
+
+export function isPatioTicket(ticket: { es_foraneo?: boolean | null }): boolean {
+  return !ticket.es_foraneo;
+}
+
+export function allocateByKm(
+  litros: number,
+  importe: number,
+  trips: { trip_id: string; km: number }[],
+): { trip_id: string; litros_asignados: number; costo_asignado: number }[] {
+  const kmTotal = trips.reduce((s, t) => s + t.km, 0);
+  if (kmTotal <= 0 || trips.length === 0) return [];
+  const rows = trips.map((t) => {
+    const share = t.km / kmTotal;
+    return {
+      trip_id: t.trip_id,
+      litros_asignados: Math.round(litros * share * 100) / 100,
+      costo_asignado: Math.round(importe * share * 100) / 100,
+    };
+  });
+  const last = rows[rows.length - 1]!;
+  const litrosSum = rows.reduce((s, r) => s + r.litros_asignados, 0);
+  const costoSum = rows.reduce((s, r) => s + r.costo_asignado, 0);
+  last.litros_asignados = Math.round((last.litros_asignados + (litros - litrosSum)) * 100) / 100;
+  last.costo_asignado = Math.round((last.costo_asignado + (importe - costoSum)) * 100) / 100;
+  return rows;
+}
+
+type TankSegment = {
+  openMs: number;
+  closeMs: number | null;
+  tickets: FuelTicketModel[];
+};
+
+export function buildTankBlocks(
+  tickets: FuelTicketModel[],
+  trips: TripModel[],
+): ProratedTicketBlock[] {
+  const sortedTickets = [...tickets].sort(compareTicketOrder);
+  const patio = sortedTickets.filter((t) => isPatioTicket(t));
+  const segments: TankSegment[] = [];
+
+  for (let i = 0; i < patio.length; i++) {
+    const open = patio[i]!;
+    const next = patio[i + 1] ?? null;
+    segments.push({
+      openMs: ticketTimestampMs(open),
+      closeMs: next ? ticketTimestampMs(next) : null,
+      tickets: [open],
+    });
+  }
+
+  for (const ticket of sortedTickets) {
+    if (isPatioTicket(ticket)) continue;
+    const ts = ticketTimestampMs(ticket);
+    const host = [...segments].reverse().find((s) => s.openMs <= ts && (s.closeMs == null || ts < s.closeMs));
+    if (host) {
+      host.tickets.push(ticket);
+      continue;
+    }
+    const nextPatio = patio.find((p) => ticketTimestampMs(p) > ts) ?? null;
+    segments.push({
+      openMs: ts,
+      closeMs: nextPatio ? ticketTimestampMs(nextPatio) : null,
+      tickets: [ticket],
+    });
+  }
+
+  const withKm = trips
+    .map((trip) => ({ trip, km: tripKmRecorridos(trip) }))
+    .filter((x) => x.km > 0)
+    .sort((a, b) => compareTripOrder(a.trip, b.trip));
+
+  const blocks: ProratedTicketBlock[] = [];
+  for (const segment of segments) {
+    const segmentTrips = withKm.filter(({ trip }) => {
+      const ts = tripTimestampMs(trip);
+      if (ts <= segment.openMs) return false;
+      if (segment.closeMs != null && ts >= segment.closeMs) return false;
+      return true;
+    });
+    const kmTotal = segmentTrips.reduce((s, x) => s + x.km, 0);
+    for (const ticket of segment.tickets) {
+      const litros = num(ticket.litros);
+      const importe = num(ticket.importe_total);
+      const shares = allocateByKm(
+        litros,
+        importe,
+        segmentTrips.map(({ trip, km }) => ({ trip_id: String(trip.id), km })),
+      );
+      const shareByTrip = new Map(shares.map((s) => [s.trip_id, s]));
+      blocks.push({
+        ticket_id: String(ticket.id),
+        fecha: dateOnly(ticket.fecha),
+        hora: ticket.hora ? String(ticket.hora).slice(0, 8) : undefined,
+        litros,
+        precio_litro: num(ticket.precio_litro),
+        importe_total: importe,
+        odometro: ticket.odometro,
+        ubicacion: ticket.ubicacion,
+        km_total_periodo: kmTotal,
+        rendimiento_periodo: litros > 0 && kmTotal > 0 ? Math.round((kmTotal / litros) * 100) / 100 : null,
+        sin_asignar: segmentTrips.length === 0,
+        prorrateo_confirmado_at: ticket.prorrateo_confirmado_at
+          ? ticket.prorrateo_confirmado_at.toISOString()
+          : null,
+        es_foraneo: !!ticket.es_foraneo,
+        source_trip_id: ticket.source_trip_id ? String(ticket.source_trip_id) : null,
+        viajes: segmentTrips.map(({ trip, km }) => {
+          const share = shareByTrip.get(String(trip.id));
+          return {
+            trip_id: String(trip.id),
+            folio: trip.folio,
+            origen: trip.origen,
+            destino: trip.destino,
+            ruta: tripRutaLabel(trip),
+            fecha_salida: dateOnly(trip.fecha_salida),
+            km_recorridos: km,
+            litros_asignados: share?.litros_asignados ?? 0,
+            costo_asignado: share?.costo_asignado ?? 0,
+          };
+        }),
+      });
+    }
+  }
+
+  return blocks.sort((a, b) => {
+    if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
+    return (a.hora ?? "").localeCompare(b.hora ?? "");
+  });
 }
 
 function buildEmptyTicketBlock(ticket: FuelTicketModel): ProratedTicketBlock {
@@ -240,43 +383,6 @@ function buildBlocksFromDraftMap(
   }
   return sortedTickets.map((ticket) => {
     const trips = tripsPerTicket.get(String(ticket.id)) ?? [];
-    if (ticket.source_trip_id && trips.length === 1) {
-      // 100% del ticket al viaje de origen aunque haya varios km o cero
-      const litros = num(ticket.litros);
-      const precio = num(ticket.precio_litro);
-      const trip = trips[0]!;
-      const km = tripKmRecorridos(trip);
-      return {
-        ticket_id: String(ticket.id),
-        fecha: dateOnly(ticket.fecha),
-        hora: ticket.hora ? String(ticket.hora).slice(0, 8) : undefined,
-        litros,
-        precio_litro: precio,
-        importe_total: num(ticket.importe_total),
-        odometro: ticket.odometro,
-        ubicacion: ticket.ubicacion,
-        km_total_periodo: km,
-        rendimiento_periodo: litros > 0 && km > 0 ? Math.round((km / litros) * 100) / 100 : null,
-        sin_asignar: false,
-        prorrateo_confirmado_at: null,
-        es_foraneo: !!ticket.es_foraneo,
-        source_trip_id: String(ticket.source_trip_id),
-        viajes: [
-          {
-            trip_id: String(trip.id),
-            folio: trip.folio,
-            origen: trip.origen,
-            destino: trip.destino,
-            ruta: tripRutaLabel(trip),
-            fecha_salida: dateOnly(trip.fecha_salida),
-            km_recorridos: km,
-            litros_asignados: Math.round(litros * 100) / 100,
-            costo_asignado: Math.round(litros * precio * 100) / 100,
-            asignacion_manual: true,
-          },
-        ],
-      };
-    }
     return buildProratedBlock(ticket, trips);
   });
 }
@@ -606,29 +712,18 @@ export async function autoProratePending(
   for (const truck of trucks) {
     const truckId = String(truck.id);
 
-    const pendingTickets = await FuelTicket.findAll({
+    const allTickets = await FuelTicket.findAll({
       where: {
         tenant_id: tenantId,
         truck_id: truckId,
-        fecha: { [Op.between]: [inicio, fin] },
-        prorrateo_confirmado_at: null,
-        source_trip_id: null,
       },
     });
-    if (pendingTickets.length === 0) continue;
-
-    const anchorTicket = await FuelTicket.findOne({
-      where: {
-        tenant_id: tenantId,
-        truck_id: truckId,
-        fecha: { [Op.lt]: inicio },
-        source_trip_id: null,
-      },
-      order: [
-        ["fecha", "DESC"],
-        ["hora", "DESC"],
-      ],
+    const pendingInRange = allTickets.filter((ticket) => {
+      if (ticket.prorrateo_confirmado_at) return false;
+      const fecha = dateOnly(ticket.fecha);
+      return fecha >= inicio && fecha <= fin;
     });
+    if (pendingInRange.length === 0) continue;
 
     const allTrips = await Trip.findAll({
       where: { tenant_id: tenantId, truck_id: truckId },
@@ -636,12 +731,13 @@ export async function autoProratePending(
       order: [["fecha_salida", "ASC"]],
     });
 
-    const sorted = [...pendingTickets].sort(compareTicketOrder);
-
-    let blocks = buildProrationBlocks(sorted, allTrips, truckId, fin, anchorTicket);
+    const blocks = buildTankBlocks(allTickets, allTrips);
+    const pendingIds = new Set(pendingInRange.map((ticket) => String(ticket.id)));
 
     const draftAssignments: { trip_id: string; fuel_ticket_id: string }[] = [];
     for (const block of blocks) {
+      if (!pendingIds.has(block.ticket_id)) continue;
+      if (block.fecha < inicio || block.fecha > fin) continue;
       for (const v of block.viajes) {
         draftAssignments.push({ trip_id: v.trip_id, fuel_ticket_id: block.ticket_id });
       }
@@ -653,9 +749,14 @@ export async function autoProratePending(
   return prorateRangeAll(tenantId, inicio, fin, "pendiente");
 }
 
-export async function confirmTicketProration(tenantId: string, ticketId: string): Promise<void> {
+export async function confirmTicketProration(
+  tenantId: string,
+  ticketId: string,
+  transaction?: Transaction,
+): Promise<void> {
   const ticket = await FuelTicket.findOne({
     where: { id: ticketId, tenant_id: tenantId },
+    transaction,
   });
   if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
   if (ticket.prorrateo_confirmado_at) {
@@ -664,29 +765,20 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
 
   const assignments = await FuelProrationAssignment.findAll({
     where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
+    transaction,
   });
   if (assignments.length === 0) {
     throw Object.assign(new Error("El ticket no tiene viajes asignados"), { status: 400 });
   }
 
-  if (ticket.source_trip_id) {
-    const sourceId = String(ticket.source_trip_id);
-    if (assignments.length !== 1 || String(assignments[0]!.trip_id) !== sourceId) {
-      throw Object.assign(
-        new Error("Ticket desde viaje: la asignación debe ser únicamente el viaje de origen"),
-        { status: 400 },
-      );
-    }
-  }
-
   const tripIds = assignments.map((a) => String(a.trip_id));
   const trips = await Trip.findAll({
     where: { tenant_id: tenantId, id: { [Op.in]: tripIds } },
+    transaction,
   });
 
-  const isSourceTicket = !!ticket.source_trip_id;
-  const withKm = trips.filter((t) => tripKmRecorridos(t) > 0);
-  if (!isSourceTicket && withKm.length === 0) {
+  const withKm = trips.filter((t) => tripKmRecorridos(t) > 0).sort(compareTripOrder);
+  if (withKm.length === 0) {
     throw Object.assign(new Error("Ningún viaje asignado tiene km registrado"), { status: 400 });
   }
 
@@ -695,93 +787,76 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   const fuelFecha = new Date(ticketTimestampMs(ticket));
   const ticketLitros = num(ticket.litros);
   const esForaneo = !!ticket.es_foraneo;
+  const shares = allocateByKm(
+    ticketLitros,
+    num(ticket.importe_total),
+    withKm.map((trip) => ({ trip_id: String(trip.id), km: tripKmRecorridos(trip) })),
+  );
+  const shareByTrip = new Map(shares.map((row) => [row.trip_id, row]));
+  const kmByTrip = new Map(withKm.map((trip) => [String(trip.id), tripKmRecorridos(trip)]));
 
-  await sequelize.transaction(async (t) => {
-    if (isSourceTicket) {
-      const trip = trips[0]!;
-      const assignment = assignments[0]!;
-      const km = tripKmRecorridos(trip);
-      await assignment.update(
-        {
-          km_recorridos: String(km),
-          litros_asignados: String(ticketLitros),
-          costo_asignado: String(Math.round(ticketLitros * precioLitro * 100) / 100),
-        },
-        { transaction: t },
-      );
-
-      const existingLoad = await FuelLoad.findOne({
-        where: {
-          tenant_id: tenantId,
-          trip_id: String(trip.id),
-          fuel_ticket_id: ticketId,
-        },
-        transaction: t,
-      });
-      if (!existingLoad && ticketLitros > 0) {
-        await FuelLoad.create(
-          {
-            id: randomUUID(),
-            tenant_id: tenantId,
-            trip_id: String(trip.id),
-            litros: String(ticketLitros),
-            precio_litro: String(precioLitro),
-            ubicacion,
-            estacion_nombre: ubicacion,
-            es_foraneo: esForaneo,
-            es_estacion_empresa: !esForaneo,
-            comprobante_url: null,
-            fuel_ticket_id: ticketId,
-            fecha: fuelFecha,
-          } as never,
-          { transaction: t },
-        );
-      }
-      await ticket.update({ prorrateo_confirmado_at: new Date() }, { transaction: t });
-      return;
-    }
-
-    const block = buildProratedBlock(ticket, withKm);
-    const rowByTripId = new Map(block.viajes.map((v) => [v.trip_id, v]));
-
+  await runInTransaction(transaction, async (t) => {
     for (const assignment of assignments) {
-      const row = rowByTripId.get(String(assignment.trip_id));
-      if (!row) {
+      const tripId = String(assignment.trip_id);
+      const km = kmByTrip.get(tripId);
+      if (km == null) {
         await assignment.destroy({ transaction: t });
         continue;
       }
+      const computed = shareByTrip.get(tripId);
+      const hasStoredShare = assignment.litros_asignados != null;
+      const litrosAsignados = hasStoredShare ? num(assignment.litros_asignados) : (computed?.litros_asignados ?? 0);
+      const costoAsignado = hasStoredShare ? num(assignment.costo_asignado) : (computed?.costo_asignado ?? 0);
+
       await assignment.update(
         {
-          km_recorridos: String(row.km_recorridos),
-          litros_asignados: String(row.litros_asignados),
-          costo_asignado: String(row.costo_asignado),
+          km_recorridos: String(km),
+          litros_asignados: String(litrosAsignados),
+          costo_asignado: String(costoAsignado),
         },
         { transaction: t },
       );
 
-      if (row.litros_asignados <= 0) continue;
+      if (litrosAsignados <= 0) {
+        await FuelLoad.destroy({
+          where: { tenant_id: tenantId, trip_id: tripId, fuel_ticket_id: ticketId },
+          transaction: t,
+        });
+        continue;
+      }
 
       const existingLoad = await FuelLoad.findOne({
         where: {
           tenant_id: tenantId,
-          trip_id: row.trip_id,
+          trip_id: tripId,
           fuel_ticket_id: ticketId,
         },
         transaction: t,
       });
-      if (existingLoad) continue;
+      if (existingLoad) {
+        await existingLoad.update(
+          {
+            litros: String(litrosAsignados),
+            precio_litro: String(precioLitro),
+            es_foraneo: esForaneo,
+            es_estacion_empresa: !esForaneo,
+          },
+          { transaction: t },
+        );
+        continue;
+      }
 
       await FuelLoad.create(
         {
           id: randomUUID(),
           tenant_id: tenantId,
-          trip_id: row.trip_id,
-          litros: String(row.litros_asignados),
+          trip_id: tripId,
+          litros: String(litrosAsignados),
           precio_litro: String(precioLitro),
           ubicacion,
           estacion_nombre: ubicacion,
-          es_foraneo: false,
-          es_estacion_empresa: true,
+          es_foraneo: esForaneo,
+          es_estacion_empresa: !esForaneo,
           comprobante_url: null,
           fuel_ticket_id: ticketId,
           fecha: fuelFecha,
@@ -793,9 +868,10 @@ export async function confirmTicketProration(tenantId: string, ticketId: string)
   });
 }
 
-async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string) {
+async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string, transaction?: Transaction) {
   const ticket = await FuelTicket.findOne({
     where: { id: ticketId, tenant_id: tenantId },
+    transaction,
   });
   if (!ticket) throw Object.assign(new Error("Ticket no encontrado"), { status: 404 });
   if (!ticket.prorrateo_confirmado_at) {
@@ -804,10 +880,14 @@ async function getConfirmedTicketOrThrow(tenantId: string, ticketId: string) {
   return ticket;
 }
 
-export async function reopenTicketProration(tenantId: string, ticketId: string): Promise<void> {
-  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId);
+export async function reopenTicketProration(
+  tenantId: string,
+  ticketId: string,
+  transaction?: Transaction,
+): Promise<void> {
+  const ticket = await getConfirmedTicketOrThrow(tenantId, ticketId, transaction);
 
-  await sequelize.transaction(async (t) => {
+  await runInTransaction(transaction, async (t) => {
     await FuelLoad.destroy({
       where: { tenant_id: tenantId, fuel_ticket_id: ticketId },
       transaction: t,
@@ -843,6 +923,27 @@ export async function deleteConfirmedTicketProration(tenantId: string, ticketId:
   });
 }
 
+export function sumLitersForPeriod(opts: {
+  periodTripIds: Set<string>;
+  confirmed: { trip_id: string; litros: number }[];
+  pendingBlocks: ProratedTicketBlock[];
+  orphanLoads: { trip_id: string; litros: number }[];
+}): number {
+  let litros = 0;
+  for (const row of opts.confirmed) {
+    if (opts.periodTripIds.has(row.trip_id)) litros += row.litros;
+  }
+  for (const block of opts.pendingBlocks) {
+    for (const viaje of block.viajes) {
+      if (opts.periodTripIds.has(viaje.trip_id)) litros += viaje.litros_asignados;
+    }
+  }
+  for (const load of opts.orphanLoads) {
+    if (opts.periodTripIds.has(load.trip_id)) litros += load.litros;
+  }
+  return Math.round(litros * 100) / 100;
+}
+
 export async function fuelSummaryByTruck(
   tenantId: string,
   inicio: string,
@@ -853,14 +954,7 @@ export async function fuelSummaryByTruck(
     order: [["numero_economico", "ASC"]],
   });
 
-  const tickets = await FuelTicket.findAll({
-    where: {
-      tenant_id: tenantId,
-      fecha: { [Op.between]: [inicio, fin] },
-    },
-  });
-
-  const trips = await Trip.findAll({
+  const periodTrips = await Trip.findAll({
     where: {
       tenant_id: tenantId,
       fecha_salida: {
@@ -870,47 +964,71 @@ export async function fuelSummaryByTruck(
     },
   });
 
-  const litrosByTruck = new Map<string, number>();
-  for (const tk of tickets) {
-    const id = String(tk.truck_id);
-    litrosByTruck.set(id, (litrosByTruck.get(id) ?? 0) + num(tk.litros));
-  }
+  const truckIds = [...new Set(periodTrips.map((trip) => String(trip.truck_id)))];
+  const allTickets = truckIds.length
+    ? await FuelTicket.findAll({
+        where: { tenant_id: tenantId, truck_id: { [Op.in]: truckIds } },
+      })
+    : [];
+  const allTrips = truckIds.length
+    ? await Trip.findAll({
+        where: { tenant_id: tenantId, truck_id: { [Op.in]: truckIds } },
+      })
+    : [];
 
-  // Diesel foráneo capturado desde el viaje: no existe como FuelTicket, así que
-  // se suma aparte. Se excluyen cargas con fuel_ticket_id para no duplicar litros
-  // ya contados por los tickets de prorrateo confirmados.
-  const tripIds = trips.map((t) => String(t.id));
-  if (tripIds.length > 0) {
-    const foraneoLoads = await FuelLoad.findAll({
-      where: {
-        tenant_id: tenantId,
-        trip_id: { [Op.in]: tripIds },
-        es_foraneo: true,
-        fuel_ticket_id: null,
-      },
-    });
-    const truckByTrip = new Map(trips.map((t) => [String(t.id), String(t.truck_id)]));
-    for (const load of foraneoLoads) {
-      const truckId = truckByTrip.get(String(load.trip_id));
-      if (!truckId) continue;
-      litrosByTruck.set(truckId, (litrosByTruck.get(truckId) ?? 0) + num(load.litros));
-    }
-  }
+  const confirmedTicketIds = allTickets
+    .filter((ticket) => ticket.prorrateo_confirmado_at != null)
+    .map((ticket) => String(ticket.id));
+  const assignments = confirmedTicketIds.length
+    ? await FuelProrationAssignment.findAll({
+        where: { tenant_id: tenantId, fuel_ticket_id: { [Op.in]: confirmedTicketIds } },
+      })
+    : [];
+
+  const periodTripIdList = periodTrips.map((trip) => String(trip.id));
+  const orphanLoadRows = periodTripIdList.length
+    ? await FuelLoad.findAll({
+        where: {
+          tenant_id: tenantId,
+          trip_id: { [Op.in]: periodTripIdList },
+          fuel_ticket_id: null,
+        },
+      })
+    : [];
 
   const rows: FuelSummaryRow[] = [];
   for (const truck of trucks) {
     const tid = String(truck.id);
-    const truckTrips = trips.filter((t) => String(t.truck_id) === tid);
-    const km = truckTrips.reduce((s, t) => s + tripKmRecorridos(t), 0);
-    const litros = litrosByTruck.get(tid) ?? 0;
-    if (litros === 0 && km === 0 && truckTrips.length === 0) continue;
+    const truckPeriodTrips = periodTrips.filter((trip) => String(trip.truck_id) === tid);
+    const km = truckPeriodTrips.reduce((s, trip) => s + tripKmRecorridos(trip), 0);
+    if (truckPeriodTrips.length === 0 && km === 0) continue;
+
+    const periodTripIds = new Set(truckPeriodTrips.map((trip) => String(trip.id)));
+    const truckTickets = allTickets.filter((ticket) => String(ticket.truck_id) === tid);
+    const pendingIds = new Set(
+      truckTickets.filter((ticket) => ticket.prorrateo_confirmado_at == null).map((ticket) => String(ticket.id)),
+    );
+    const confirmedIds = new Set(
+      truckTickets.filter((ticket) => ticket.prorrateo_confirmado_at != null).map((ticket) => String(ticket.id)),
+    );
+    const confirmed = assignments
+      .filter((row) => confirmedIds.has(String(row.fuel_ticket_id)) && row.litros_asignados != null)
+      .map((row) => ({ trip_id: String(row.trip_id), litros: num(row.litros_asignados) }));
+    const truckTrips = allTrips.filter((trip) => String(trip.truck_id) === tid);
+    const pendingBlocks = buildTankBlocks(truckTickets, truckTrips).filter((block) => pendingIds.has(block.ticket_id));
+    const orphanLoads = orphanLoadRows
+      .filter((load) => periodTripIds.has(String(load.trip_id)))
+      .map((load) => ({ trip_id: String(load.trip_id), litros: num(load.litros) }));
+    const litros = sumLitersForPeriod({ periodTripIds, confirmed, pendingBlocks, orphanLoads });
+
+    if (litros === 0 && km === 0 && truckPeriodTrips.length === 0) continue;
     rows.push({
       truck_id: tid,
       numero_economico: truck.numero_economico,
       placas: truck.placas,
-      viajes: truckTrips.length,
+      viajes: truckPeriodTrips.length,
       km_recorridos: km,
-      litros: Math.round(litros * 100) / 100,
+      litros,
       rendimiento: litros > 0 ? Math.round((km / litros) * 100) / 100 : null,
     });
   }
