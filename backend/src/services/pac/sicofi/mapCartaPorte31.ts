@@ -29,7 +29,7 @@ function mapDomicilio(u: TripUbicacion) {
     numeroexterior_ubicacion: u.numero_exterior || "1",
     numerointerior_ubicacion: u.numero_interior || null,
     colonia_ubicacion: u.colonia_clave || u.colonia || null,
-    localidad_ubicacion: u.localidad_clave?.trim() || null,
+    localidad_ubicacion: null,
     referencia_ubicacion: null,
     municipio_ubicacion: u.municipio_clave || u.municipio || null,
     estado_ubicacion: u.estado || "",

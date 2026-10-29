@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   isValidEstadoSatCode,
   localidadSearchHints,
+  localidadSatOmitPatch,
   needsDomicilioEnrichment,
   normalizeDesc,
   pickAutoColonia,
@@ -85,6 +86,10 @@ describe("domicilioSatResolver helpers", () => {
     };
     assert.equal(needsDomicilioEnrichment(incomplete), true);
     assert.equal(needsDomicilioEnrichment({ cp: "123" }), false);
+  });
+
+  it("localidadSatOmitPatch vacía clave y nombre para no mandarlas al SAT", () => {
+    assert.deepEqual(localidadSatOmitPatch(), { localidad: "", localidad_clave: "" });
   });
 
   it("needsDomicilioEnrichment no exige localidad: en Carta Porte es condicional", () => {

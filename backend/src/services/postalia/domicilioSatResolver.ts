@@ -66,6 +66,11 @@ export function isValidEstadoSatCode(estado: string | null | undefined): boolean
   return /^[A-Z]{2,3}$/.test(code);
 }
 
+/** Carta Porte omite Localidad si no hay catálogo c_CodigoPostal. */
+export function localidadSatOmitPatch(): { localidad: string; localidad_clave: string } {
+  return { localidad: "", localidad_clave: "" };
+}
+
 export function needsDomicilioEnrichment(input: UbicacionDomicilioInput): boolean {
   const cp = input.cp?.trim() ?? "";
   if (!/^\d{5}$/.test(cp)) return false;
@@ -286,14 +291,6 @@ export async function resolveDomicilioSat(
     if (municipio) {
       result.municipio_clave = municipio.clave;
       if (!input.municipio?.trim()) result.municipio = municipio.descripcion;
-    }
-  }
-
-  if (!input.localidad_clave?.trim()) {
-    const localidad = await resolveLocalidad(input, postalia, estado);
-    if (localidad) {
-      result.localidad_clave = localidad.clave;
-      if (!input.localidad?.trim()) result.localidad = localidad.descripcion;
     }
   }
 

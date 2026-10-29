@@ -307,7 +307,7 @@ describe("buildFactura40Payload", () => {
     assert.equal(mercNo?.materialpeligroso, "No");
   });
 
-  it("manda localidad SAT solo si hay clave; no envía el nombre", () => {
+  it("omite Localidad en Carta Porte: c_CodigoPostal a menudo la trae vacía", () => {
     const withClave = buildFactura40Payload(
       baseCtx({
         ubicaciones: [
@@ -341,7 +341,7 @@ describe("buildFactura40Payload", () => {
         };
       }
     ).Ubicaciones20?.ubicaciones;
-    assert.equal(ubs?.[0]?.DomicilioUbicacion?.localidad_ubicacion, "05");
+    assert.equal(ubs?.[0]?.DomicilioUbicacion?.localidad_ubicacion, null);
     assert.equal(ubs?.[1]?.DomicilioUbicacion?.localidad_ubicacion, null);
   });
 

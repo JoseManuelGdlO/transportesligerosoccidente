@@ -3,6 +3,7 @@ import { getColonia } from "../satUbicacionCatalogService";
 import { listUbicaciones, normalizeFiscalUbicaciones } from "../tripFiscalService";
 import {
   isValidEstadoSatCode,
+  localidadSatOmitPatch,
   needsDomicilioEnrichment,
   resolveDomicilioSat,
   satDomicilioReplacePatch,
@@ -38,10 +39,7 @@ function buildUpdatePatch(
     patch.colonia_clave = resolved.colonia_clave;
     if (resolved.colonia) patch.colonia = resolved.colonia;
   }
-  if (!input.localidad_clave?.trim() && resolved.localidad_clave) {
-    patch.localidad_clave = resolved.localidad_clave;
-    if (resolved.localidad) patch.localidad = resolved.localidad;
-  }
+  Object.assign(patch, localidadSatOmitPatch());
   if (!input.municipio_clave?.trim() && resolved.municipio_clave) {
     patch.municipio_clave = resolved.municipio_clave;
     if (resolved.municipio) patch.municipio = resolved.municipio;
@@ -72,9 +70,17 @@ export async function enrichUbicacionesDomicilio(
 ): Promise<{ ubicaciones: TripUbicacion[]; issues: string[] }> {
   const fiscal = normalizeFiscalUbicaciones(ubicaciones);
   const pending: { ubicacion: TripUbicacion; replace: boolean }[] = [];
+  let changed = false;
+  const omitLocalidad = localidadSatOmitPatch();
 
   for (const u of fiscal) {
     const input = toDomicilioInput(u);
+    if (u.id && (input.localidad?.trim() || input.localidad_clave?.trim())) {
+      await TripUbicacion.update(omitLocalidad, {
+        where: { id: u.id, tenant_id: tenantId, trip_id: tripId },
+      });
+      changed = true;
+    }
     const replace = await coloniaAjenaAlCp(input);
     if (replace || needsDomicilioEnrichment(input)) {
       pending.push({ ubicacion: u, replace });
@@ -82,10 +88,26 @@ export async function enrichUbicacionesDomicilio(
   }
 
   if (pending.length === 0) {
-    return { ubicaciones: fiscal, issues: [] };
+    if (!changed) return { ubicaciones: fiscal, issues: [] };
+    const reloaded = await listUbicaciones(tenantId, tripId);
+    return { ubicaciones: normalizeFiscalUbicaciones(reloaded), issues: [] };
   }
 
   if (!isPostaliaConfigured()) {
+    if (changed) {
+      const reloaded = await listUbicaciones(tenantId, tripId);
+      return {
+        ubicaciones: normalizeFiscalUbicaciones(reloaded),
+        issues: pending.map(
+          ({ ubicacion: u, replace }) =>
+            `Ubicación ${ubicacionLabel(u.orden)}: ${
+              replace
+                ? "el domicilio SAT no corresponde al código postal"
+                : "falta domicilio SAT completo"
+            } y POSTALIA_API_TOKEN no está configurado`,
+        ),
+      };
+    }
     return {
       ubicaciones: fiscal,
       issues: pending.map(
@@ -101,7 +123,6 @@ export async function enrichUbicacionesDomicilio(
 
   const client = new PostaliaClient();
   const issues: string[] = [];
-  let changed = false;
 
   for (const { ubicacion: u, replace } of pending) {
     const label = ubicacionLabel(u.orden);

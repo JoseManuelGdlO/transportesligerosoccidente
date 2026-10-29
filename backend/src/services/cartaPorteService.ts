@@ -418,9 +418,12 @@ export async function timbrarCartaPorte(
   if (!truck || !driver || !client) {
     throw err("Datos incompletos para timbrar");
   }
-  const ubicaciones = normalizeFiscalUbicaciones(
+  const enrichedStamp = await enrichUbicacionesDomicilio(
+    tenantId,
+    tripId,
     (trip as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [],
   );
+  const ubicaciones = enrichedStamp.ubicaciones;
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
   const cp = await getOrCreateCartaPorte(tenantId, tripId);
   if (cp.estatus === "timbrada") {
