@@ -159,7 +159,14 @@ function messageFromSicofiJsonBody(body: string, fallbackStatus: number): string
   let msg = `Sicofi respondió ${fallbackStatus}`;
   try {
     const j = JSON.parse(body) as Record<string, unknown> | string;
-    if (typeof j === "string") return formatSicofiPlainCancelacionError(j);
+    if (typeof j === "string") {
+      const estatus = parseSatCancelEstatusUuid(j);
+      if (estatus) return satCancelEstatusMessage(estatus);
+      return formatSicofiPlainCancelacionError(j);
+    }
+    const acuse = typeof j.acuse === "string" ? j.acuse : typeof j.Acuse === "string" ? j.Acuse : "";
+    const estatus = parseSatCancelEstatusUuid(acuse) ?? parseSatCancelEstatusUuid(body);
+    if (estatus) return satCancelEstatusMessage(estatus);
     if (typeof j.message === "string") msg = j.message;
     else if (typeof j.Mensaje === "string") msg = j.Mensaje;
     else if (typeof j.ErrorCancelacion === "string") msg = j.ErrorCancelacion;
@@ -172,6 +179,8 @@ function messageFromSicofiJsonBody(body: string, fallbackStatus: number): string
       if (parts.length) msg = `${msg} — ${parts.join("; ")}`;
     }
   } catch {
+    const estatus = parseSatCancelEstatusUuid(body);
+    if (estatus) return satCancelEstatusMessage(estatus);
     if (body.trim()) msg = body.trim().slice(0, 500);
   }
   const decoded = decodeSicofiUnicodeEscapes(msg);
@@ -192,19 +201,72 @@ const YA_CANCELADA_EN_SAT = /ya se encuentra cancelada/i;
 /** `<a:Estado>Cancelado</a:Estado>` o `<Estado>Cancelado</Estado>`. No coincide con EsCancelable. */
 const ESTADO_SAT_CANCELADO = /<(?:[\w.]+:)?Estado>\s*Cancelado\s*<\/(?:[\w.]+:)?Estado>/i;
 
+const SAT_CANCEL_ESTATUS: Record<string, { success: boolean; label: string }> = {
+  "201": { success: true, label: "UUID cancelado" },
+  "202": { success: true, label: "UUID previamente cancelado" },
+  "203": { success: false, label: "UUID no corresponde al emisor" },
+  "204": { success: false, label: "UUID no aplicable para cancelación" },
+  "205": { success: false, label: "UUID no existe" },
+  "206": { success: false, label: "UUID no corresponde a un CFDI del SAT" },
+  "207": { success: false, label: "UUID no corresponde al emisor" },
+  "208": { success: false, label: "Folio de sustitución no encontrado" },
+  "209": { success: false, label: "UUID en proceso de cancelación" },
+  "211": { success: true, label: "UUID cancelado con aceptación" },
+  "212": { success: true, label: "UUID cancelado sin aceptación" },
+};
+
+/** Extrae `EstatusUUID` del acuse de cancelación del SAT. */
+export function parseSatCancelEstatusUuid(text: string): string | null {
+  const match = text.match(/<EstatusUUID>\s*(\d{3})\s*<\/EstatusUUID>/i);
+  return match?.[1] ?? null;
+}
+
+export function satCancelEstatusMessage(code: string): string {
+  const row = SAT_CANCEL_ESTATUS[code];
+  if (row) return `SAT ${code}: ${row.label}`;
+  return `SAT ${code}: estatus de cancelación desconocido`;
+}
+
+export function isSatCancelSuccessEstatus(code: string): boolean {
+  return SAT_CANCEL_ESTATUS[code]?.success === true;
+}
+
+function satCancelEstatusFromBlob(text: string | null | undefined): string | null {
+  if (!text?.trim()) return null;
+  return parseSatCancelEstatusUuid(text);
+}
+
+function collectCancelTextBlobs(
+  res: SicofiCancelaTimbradoResponse | Record<string, unknown> | string | null | undefined,
+  rawBody?: string,
+): string[] {
+  if (typeof res === "string") return [res, rawBody ?? ""].filter(Boolean);
+  const blobs: string[] = [];
+  if (rawBody?.trim()) blobs.push(rawBody);
+  if (!res || typeof res !== "object") return blobs;
+  for (const value of Object.values(res as Record<string, unknown>)) {
+    if (typeof value === "string" && value.trim()) blobs.push(value);
+  }
+  return blobs;
+}
+
 /**
  * El SAT ya canceló el CFDI. Sicofi no manda `CancelacionCorrecta`, pero el acuse
  * o el `Estado` del SOAP lo confirman. Se trata como éxito para alinear el estatus local.
  */
 export function isSicofiCfdiYaCancelado(
   res: SicofiCancelaTimbradoResponse | Record<string, unknown> | null | undefined,
+  rawBody?: string,
 ): boolean {
-  if (!res) return false;
-  const record = res as Record<string, unknown>;
-  const acuse = pickSicofiCancelField(record, "acuse", "Acuse");
-  if (acuse && YA_CANCELADA_EN_SAT.test(acuse)) return true;
-  const mensajeSat = pickSicofiCancelField(record, "mensajeSAT", "MensajeSAT", "mensajeSat");
-  return Boolean(mensajeSat && ESTADO_SAT_CANCELADO.test(mensajeSat));
+  if (!res && !rawBody) return false;
+  const blobs = collectCancelTextBlobs(res, rawBody);
+  for (const blob of blobs) {
+    const code = satCancelEstatusFromBlob(blob);
+    if (code && isSatCancelSuccessEstatus(code)) return true;
+    if (YA_CANCELADA_EN_SAT.test(blob)) return true;
+    if (ESTADO_SAT_CANCELADO.test(blob)) return true;
+  }
+  return false;
 }
 
 /** Quita el SOAP de consulta SAT antes de mostrar un body crudo. */
@@ -274,11 +336,22 @@ export function formatSicofiPlainCancelacionError(text: string): string {
  * `mensajeSAT` es el SOAP de consulta y no se muestra: desborda el modal.
  * Si el PAC manda un string JSON, lo decodifica. Si no hay detalle, usa el body crudo ya decodificado.
  */
+function humanizeCancelDetail(text: string): string {
+  const decoded = decodeSicofiUnicodeEscapes(text);
+  const estatus = parseSatCancelEstatusUuid(decoded);
+  if (estatus) return satCancelEstatusMessage(estatus);
+  if (SICOFI_PLAIN_CANCEL_ERROR.test(decoded)) return formatSicofiPlainCancelacionError(decoded);
+  if (/<(?:Acuse|Folios|EstatusUUID)\b/i.test(decoded)) {
+    return "Cancelación rechazada por el SAT (acuse sin EstatusUUID)";
+  }
+  return decoded;
+}
+
 export function formatSicofiCancelacionError(
   res: SicofiCancelaTimbradoResponse | Record<string, unknown> | string,
   rawBody?: string,
 ): string {
-  if (typeof res === "string") return formatSicofiPlainCancelacionError(res);
+  if (typeof res === "string") return humanizeCancelDetail(res);
 
   const r = res as Record<string, unknown>;
   const parts = [
@@ -295,11 +368,7 @@ export function formatSicofiCancelacionError(
     })(),
   ]
     .filter((p): p is string => typeof p === "string" && p.length > 0)
-    .map((p) =>
-      SICOFI_PLAIN_CANCEL_ERROR.test(decodeSicofiUnicodeEscapes(p))
-        ? formatSicofiPlainCancelacionError(p)
-        : decodeSicofiUnicodeEscapes(p),
-    );
+    .map((p) => humanizeCancelDetail(p));
 
   if (parts.length) return parts.join(" — ");
 
@@ -345,6 +414,13 @@ export async function sicofiPostCancelaTimbrado(
       `[Sicofi] CancelaTimbrado response status=${res.status} body:\n${body.slice(0, 4000)}`,
     );
     if (!res.ok) {
+      const estatus = parseSatCancelEstatusUuid(body);
+      if (estatus && isSatCancelSuccessEstatus(estatus)) {
+        logger.info(
+          `[Sicofi] CancelaTimbrado HTTP ${res.status} con acuse SAT ${estatus}; se toma como éxito`,
+        );
+        return { CancelacionCorrecta: "true", acuse: body };
+      }
       logger.warn(`[Sicofi] CancelaTimbrado HTTP ${res.status}: ${body.slice(0, 1000)}`);
       throw new SicofiHttpError(res.status, messageFromSicofiJsonBody(body, res.status));
     }
@@ -352,12 +428,29 @@ export async function sicofiPostCancelaTimbrado(
     try {
       parsed = JSON.parse(body);
     } catch {
+      const estatus = parseSatCancelEstatusUuid(body);
+      if (estatus && isSatCancelSuccessEstatus(estatus)) {
+        logger.info(
+          `[Sicofi] CancelaTimbrado: acuse SAT ${estatus} (XML); se toma como éxito`,
+        );
+        return { CancelacionCorrecta: "true", acuse: body };
+      }
+      if (estatus) {
+        throw new Error(enhanceSicofiErrorMessage(satCancelEstatusMessage(estatus)));
+      }
       logger.warn(`[Sicofi] CancelaTimbrado respuesta no JSON: ${body.slice(0, 1000)}`);
       throw new Error(
         `Respuesta de cancelación Sicofi no es JSON válido: ${decodeSicofiUnicodeEscapes(body.trim()).slice(0, 500) || "(vacío)"}`,
       );
     }
     if (typeof parsed === "string") {
+      const estatus = parseSatCancelEstatusUuid(parsed);
+      if (estatus && isSatCancelSuccessEstatus(estatus)) {
+        logger.info(
+          `[Sicofi] CancelaTimbrado: acuse SAT ${estatus}; se toma como éxito`,
+        );
+        return { CancelacionCorrecta: "true", acuse: parsed };
+      }
       const detail = formatSicofiCancelacionError(parsed);
       logger.warn(`[Sicofi] CancelaTimbrado rechazada (texto): ${detail}`);
       throw new Error(enhanceSicofiErrorMessage(detail));
@@ -369,7 +462,7 @@ export async function sicofiPostCancelaTimbrado(
     if (
       response &&
       (isSicofiCancelacionCorrecta(response.CancelacionCorrecta) ||
-        isSicofiCfdiYaCancelado(response))
+        isSicofiCfdiYaCancelado(response, body))
     ) {
       if (!isSicofiCancelacionCorrecta(response.CancelacionCorrecta)) {
         logger.info(

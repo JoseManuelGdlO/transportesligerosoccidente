@@ -221,6 +221,60 @@ describe("SicofiPacProvider", () => {
     await provider.cancelar("AAA-BBB-CCC", "02", tenant);
   });
 
+  it("cancelar trata como éxito el acuse SAT EstatusUUID 201", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const acuse =
+      '<?xml version="1.0" encoding="utf-8"?><Acuse RfcEmisor="TNU150126V30"><Folios><UUID>E26F2F6F-D966-47DA-A954-777B3A49D891</UUID><EstatusUUID>201</EstatusUUID></Folios></Acuse>';
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(JSON.stringify({ CancelacionCorrecta: "false", acuse }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await provider.cancelar("E26F2F6F-D966-47DA-A954-777B3A49D891", "02", tenant);
+  });
+
+  it("cancelar traduce EstatusUUID de rechazo y no muestra el XML", async () => {
+    process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
+    const tenant = {
+      pac_usuario: "user@test.com",
+      pac_token_enc: encryptSecret("secret"),
+      pac_proveedor: "sicofi",
+    } as never;
+
+    const acuse =
+      '<?xml version="1.0"?><Acuse><Folios><UUID>AAA-BBB</UUID><EstatusUUID>205</EstatusUUID></Folios></Acuse>';
+    mock.method(globalThis, "fetch", async (input: RequestInfo | URL) => {
+      const url = typeof input === "string" ? input : input.toString();
+      if (url.includes("/auth/token")) return authResponse();
+      return new Response(JSON.stringify({ CancelacionCorrecta: "false", acuse }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      });
+    });
+
+    const provider = new SicofiPacProvider();
+    await assert.rejects(
+      () => provider.cancelar("AAA-BBB", "02", tenant),
+      (err: unknown) => {
+        assert.ok(err instanceof Error);
+        assert.match(err.message, /SAT 205: UUID no existe/);
+        assert.doesNotMatch(err.message, /<\?xml|<Acuse/);
+        return true;
+      },
+    );
+  });
+
   it("cancelar trata como éxito si mensajeSAT trae Estado Cancelado", async () => {
     process.env.FISCAL_ENC_KEY = "test-key-for-unit-tests-only";
     const tenant = {
