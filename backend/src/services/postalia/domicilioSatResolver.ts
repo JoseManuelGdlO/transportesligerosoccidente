@@ -149,7 +149,7 @@ async function resolveMunicipio(
  * otra clave (p. ej. Jocotepec 44 con CP 45820 de San Juan Cosalá).
  */
 export function localidadSearchHints(
-  input: Pick<UbicacionDomicilioInput, "localidad">,
+  input: Pick<UbicacionDomicilioInput, "localidad" | "municipio">,
   _postalia?: Pick<PostaliaCodigoPostalResponse, "ciudad" | "municipio">,
 ): string[] {
   const hint = input.localidad?.trim() ?? "";

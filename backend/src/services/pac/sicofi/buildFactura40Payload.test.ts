@@ -331,7 +331,7 @@ describe("buildFactura40Payload", () => {
             municipio_clave: "050",
             localidad: "Jocotepec",
           },
-        ] as TimbradoContext["ubicaciones"],
+        ] as unknown as TimbradoContext["ubicaciones"],
       }),
     );
     const ubs = (
