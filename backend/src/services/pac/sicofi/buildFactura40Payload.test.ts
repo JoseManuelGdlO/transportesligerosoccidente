@@ -307,6 +307,44 @@ describe("buildFactura40Payload", () => {
     assert.equal(mercNo?.materialpeligroso, "No");
   });
 
+  it("manda localidad SAT solo si hay clave; no envía el nombre", () => {
+    const withClave = buildFactura40Payload(
+      baseCtx({
+        ubicaciones: [
+          {
+            orden: 1,
+            tipo: "Origen",
+            cp: "44100",
+            estado: "JAL",
+            colonia_clave: "0001",
+            municipio_clave: "039",
+            localidad_clave: "05",
+            localidad: "Guadalajara",
+          },
+          {
+            orden: 2,
+            tipo: "Destino",
+            cp: "45820",
+            estado: "JAL",
+            distancia_km: "65",
+            colonia_clave: "1380",
+            municipio_clave: "050",
+            localidad: "Jocotepec",
+          },
+        ] as TimbradoContext["ubicaciones"],
+      }),
+    );
+    const ubs = (
+      withClave.CartaPorte31 as {
+        Ubicaciones20?: {
+          ubicaciones?: Array<{ DomicilioUbicacion?: { localidad_ubicacion?: string | null } }>;
+        };
+      }
+    ).Ubicaciones20?.ubicaciones;
+    assert.equal(ubs?.[0]?.DomicilioUbicacion?.localidad_ubicacion, "05");
+    assert.equal(ubs?.[1]?.DomicilioUbicacion?.localidad_ubicacion, null);
+  });
+
   it("omite idubicacion y CantidadTransporta (opcionales en Sicofi)", () => {
     const payload = buildFactura40Payload(baseCtx());
     const cp31 = payload.CartaPorte31 as {

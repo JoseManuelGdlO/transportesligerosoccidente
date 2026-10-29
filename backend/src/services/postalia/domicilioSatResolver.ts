@@ -72,7 +72,6 @@ export function needsDomicilioEnrichment(input: UbicacionDomicilioInput): boolea
 
   return (
     !input.colonia_clave?.trim() ||
-    !input.localidad_clave?.trim() ||
     !input.municipio_clave?.trim() ||
     !isValidEstadoSatCode(input.estado)
   );
@@ -145,25 +144,16 @@ async function resolveMunicipio(
 }
 
 /**
- * Pistas para c_Localidad, de la más específica a la más genérica.
- * Postalia a veces pone el nombre del estado en `ciudad` (p. ej. "Jalisco"
- * para Ixtlahuacán de los Membrillos). Esa pista se conserva por si el
- * catálogo sí tiene una localidad con ese nombre (Colima, Ciudad de México)
- * y se complementa con el municipio.
+ * Pistas para c_Localidad. No se usa municipio ni ciudad de Postalia:
+ * el SAT cruza localidad contra c_CodigoPostal, y el municipio suele ser
+ * otra clave (p. ej. Jocotepec 44 con CP 45820 de San Juan Cosalá).
  */
 export function localidadSearchHints(
-  input: Pick<UbicacionDomicilioInput, "localidad" | "municipio">,
-  postalia: Pick<PostaliaCodigoPostalResponse, "ciudad" | "municipio">,
+  input: Pick<UbicacionDomicilioInput, "localidad">,
+  _postalia?: Pick<PostaliaCodigoPostalResponse, "ciudad" | "municipio">,
 ): string[] {
-  const raw = [input.localidad, postalia.ciudad, input.municipio, postalia.municipio];
-  const hints: string[] = [];
-  for (const value of raw) {
-    const hint = value?.trim() ?? "";
-    if (!hint) continue;
-    if (hints.some((existing) => normalizeDesc(existing) === normalizeDesc(hint))) continue;
-    hints.push(hint);
-  }
-  return hints;
+  const hint = input.localidad?.trim() ?? "";
+  return hint ? [hint] : [];
 }
 
 async function matchLocalidadHint(
@@ -185,8 +175,9 @@ async function matchLocalidadHint(
 }
 
 /**
- * c_Localidad no lista todos los municipios. Si ninguna pista coincide,
- * el atributo se omite: en Carta Porte es condicional.
+ * c_Localidad no aplica a todos los CP. Sin pista explícita del usuario
+ * el atributo se omite: en Carta Porte es condicional y c_CodigoPostal
+ * a menudo lo trae vacío.
  */
 async function resolveLocalidad(
   input: UbicacionDomicilioInput,
@@ -260,10 +251,8 @@ export function satDomicilioReplacePatch(
     patch.municipio_clave = resolved.municipio_clave;
     patch.municipio = resolved.municipio ?? "";
   }
-  if (resolved.localidad_clave) {
-    patch.localidad_clave = resolved.localidad_clave;
-    patch.localidad = resolved.localidad ?? "";
-  }
+  patch.localidad_clave = resolved.localidad_clave ?? "";
+  patch.localidad = resolved.localidad ?? "";
   if (resolved.colonia_clave) {
     patch.colonia_clave = resolved.colonia_clave;
     patch.colonia = resolved.colonia ?? "";

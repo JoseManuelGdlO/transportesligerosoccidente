@@ -87,6 +87,16 @@ describe("domicilioSatResolver helpers", () => {
     assert.equal(needsDomicilioEnrichment({ cp: "123" }), false);
   });
 
+  it("needsDomicilioEnrichment no exige localidad: en Carta Porte es condicional", () => {
+    const sinLocalidad: UbicacionDomicilioInput = {
+      cp: "45820",
+      colonia_clave: "1380",
+      municipio_clave: "050",
+      estado: "JAL",
+    };
+    assert.equal(needsDomicilioEnrichment(sinLocalidad), false);
+  });
+
   it("satDomicilioReplacePatch sustituye el domicilio aunque ya hubiera claves", () => {
     const patch = satDomicilioReplacePatch({
       estado: "DUR",
@@ -107,25 +117,39 @@ describe("domicilioSatResolver helpers", () => {
     assert.equal(patch.pais, "MEX");
   });
 
+  it("satDomicilioReplacePatch borra localidad si el CP no resolvió una", () => {
+    const patch = satDomicilioReplacePatch({
+      estado: "JAL",
+      municipio: "Jocotepec",
+      municipio_clave: "050",
+      colonia: "San Juan Cosalá",
+      colonia_clave: "1380",
+      pais: "MEX",
+      issues: [],
+    });
+    assert.equal(patch.localidad_clave, "");
+    assert.equal(patch.localidad, "");
+  });
+
   it("mapa de estados incluye Jalisco y Durango", () => {
     assert.equal(MEXICAN_STATE_NAME_TO_CODE.jalisco, "JAL");
     assert.equal(MEXICAN_STATE_NAME_TO_CODE.durango, "DUR");
   });
 
-  it("si Postalia manda el estado como ciudad, la siguiente pista es el municipio", () => {
+  it("no usa municipio ni ciudad de Postalia como pista de localidad", () => {
     const hints = localidadSearchHints(
-      { municipio: "Ixtlahuacán de los Membrillos" },
-      { ciudad: "Jalisco", municipio: "Ixtlahuacán de los Membrillos" },
+      { municipio: "Jocotepec" },
+      { ciudad: "Jalisco", municipio: "Jocotepec" },
     );
-    assert.deepEqual(hints, ["Jalisco", "Ixtlahuacán de los Membrillos"]);
+    assert.deepEqual(hints, []);
   });
 
-  it("no repite la ciudad cuando ya viene como localidad", () => {
+  it("solo usa la localidad capturada, no el municipio homónimo", () => {
     const hints = localidadSearchHints(
-      { localidad: "Guadalajara", municipio: "Guadalajara" },
-      { ciudad: "Guadalajara", municipio: "Guadalajara" },
+      { localidad: "San Juan Cosalá", municipio: "Jocotepec" },
+      { ciudad: "Jalisco", municipio: "Jocotepec" },
     );
-    assert.deepEqual(hints, ["Guadalajara"]);
+    assert.deepEqual(hints, ["San Juan Cosalá"]);
   });
 });
 
