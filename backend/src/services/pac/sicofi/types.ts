@@ -37,7 +37,8 @@ export interface ConceptoCFDI40 {
 /** Encabezado fiscal del comprobante (`DatosCFDI40`). */
 export interface DatosCFDI40 {
   Serie?: string;
-  Folio: number | string;
+  /** Ausente en carta nueva: Sicofi asigna el consecutivo de su serie. */
+  Folio?: number | string;
   Fecha: string;
   /** Omitir en comprobante tipo T (traslado). */
   FormadePago?: string;
