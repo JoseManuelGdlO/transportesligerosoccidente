@@ -213,7 +213,7 @@ npx tsx scripts/sicofi-dump-curl.ts
 
 - XML del CFDI timbrado (a veces envuelto en JSON con campo `Xml`).
 - Se extrae `UUID` y `FechaTimbrado` de `TimbreFiscalDigital`.
-- Sin `folio_cfdi` previo, TLO omite `Folio` para que Sicofi asigne el consecutivo de su serie. Un reintento reenvía el folio ya guardado.
+- Sin `folio_cfdi` previo, TLO envía `Folio: 1` (Sicofi no auto-asigna con `0`).
 - `DatosCFDI40.Fecha` → fecha/hora SAT válida al momento del timbrado (`localDateTimeSatStr`, TZ del proceso).
 
 ## Errores comunes

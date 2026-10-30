@@ -87,7 +87,7 @@ describe("buildFactura40Payload", () => {
     const payload = buildFactura40Payload(baseCtx());
     assert.match(payload.DatosCFDI40.Fecha, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
     assert.notEqual(payload.DatosCFDI40.Fecha, "0001-01-01T00:00:00");
-    assert.equal("Folio" in payload.DatosCFDI40, false);
+    assert.equal(payload.DatosCFDI40.Folio, 1);
     assert.equal(payload.DatosCFDI40.TipodeComprobante, "T");
     assert.equal(payload.DatosCFDI40.Subtotal, 0);
     assert.equal(payload.DatosCFDI40.Total, 0);
@@ -104,26 +104,13 @@ describe("buildFactura40Payload", () => {
     assert.equal(idCcp, "CCCabc-123");
   });
 
-  it("omite Folio cuando la carta no tiene folio, para que Sicofi asigne el consecutivo", () => {
-    for (const folio_cfdi of [null, "", "0"]) {
-      const payload = buildFactura40Payload(
-        baseCtx({
-          cartaPorte: { id_ccp: "x", folio_cfdi } as TimbradoContext["cartaPorte"],
-        }),
-      );
-      assert.equal("Folio" in payload.DatosCFDI40, false);
-      const json = JSON.stringify(payload.DatosCFDI40);
-      assert.equal(json.includes('"Folio"'), false);
-    }
-  });
-
-  it("reenvía el folio ya timbrado en un reintento", () => {
+  it("reemplaza folio_cfdi 0 por folio inicial 1", () => {
     const payload = buildFactura40Payload(
       baseCtx({
-        cartaPorte: { id_ccp: "x", folio_cfdi: "4619" } as TimbradoContext["cartaPorte"],
+        cartaPorte: { id_ccp: "x", folio_cfdi: "0" } as TimbradoContext["cartaPorte"],
       }),
     );
-    assert.equal(payload.DatosCFDI40.Folio, 4619);
+    assert.equal(payload.DatosCFDI40.Folio, 1);
   });
 
   it("traslado usa solo datos del tenant como receptor, no del cliente", () => {

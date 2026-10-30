@@ -44,7 +44,7 @@ El token JWT se cachea en memoria por `{baseUrl}:{usuario}` con TTL = `expires_i
 
 - Éxito: **XML** del CFDI timbrado (a veces envuelto en JSON con campo `Xml`).
 - Extracción: `tfd:TimbreFiscalDigital` → `UUID`, `FechaTimbrado`; atributos `Serie`/`Folio` en `cfdi:Comprobante`.
-- Sin `folio_cfdi` previo, TLO omite `Folio` para que Sicofi asigne el consecutivo de su serie. Un reintento reenvía el folio ya guardado.
+- Sin `folio_cfdi` previo, TLO envía `Folio: 1` (Sicofi no auto-asigna con `0`).
 - `DatosCFDI40.Fecha` → fecha/hora local válida `YYYY-MM-DDTHH:mm:ss` (TZ del servidor, recomendado `America/Mexico_City`).
 
 ## Errores comunes (Sicofi 301 / validación XSD)

@@ -29,6 +29,9 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
   };
 }
 
+/** Folio inicial cuando aún no hay `folio_cfdi` timbrado (Sicofi no auto-asigna con 0). */
+const DEFAULT_SICOFI_FOLIO = 1;
+
 /**
  * Comentario que Sicofi imprime en su PDF, en la caja Comentarios (`MensajePDF`).
  * Vacío: cadena vacía.
@@ -38,16 +41,15 @@ function mensajePdf(comentarios: string | null | undefined): string {
 }
 
 /**
- * Folio para Sicofi. `undefined` omite la clave: Sicofi asigna el consecutivo de su serie.
- * Un reintento reenvía `folio_cfdi` si ya es mayor que 0.
+ * Folio para Sicofi. Usa `cartaPorte.folio_cfdi` si ya existe y es > 0.
  */
-function folioNumber(cartaPorte: CartaPorte, _trip: Trip): number | string | undefined {
+function folioNumber(cartaPorte: CartaPorte, _trip: Trip): number | string {
   if (cartaPorte.folio_cfdi != null && cartaPorte.folio_cfdi !== "") {
     const n = Number(cartaPorte.folio_cfdi);
-    if (Number.isFinite(n)) return n > 0 ? n : undefined;
+    if (Number.isFinite(n)) return n > 0 ? n : DEFAULT_SICOFI_FOLIO;
     return cartaPorte.folio_cfdi;
   }
-  return undefined;
+  return DEFAULT_SICOFI_FOLIO;
 }
 
 /**
@@ -72,9 +74,8 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const moneda = isTraslado ? "XXX" : (opts.moneda ?? conceptBlock.moneda);
   const hasCartaPorte = mercancias.length > 0 || ubicaciones.length > 0;
 
-  const folio = folioNumber(cartaPorte, trip);
   const datosCfdi: Factura40PayloadBody["DatosCFDI40"] = {
-    ...(folio !== undefined ? { Folio: folio } : {}),
+    Folio: folioNumber(cartaPorte, trip),
     Fecha: localDateTimeSatStr(),
     CondicionesDePago: isTraslado
       ? null
