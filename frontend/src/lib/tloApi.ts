@@ -173,6 +173,7 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
         ? raw.tipo_comprobante
         : undefined,
     comentarios: raw.comentarios != null ? String(raw.comentarios) : undefined,
+    folio_sugerido: typeof raw.folio_sugerido === "number" ? raw.folio_sugerido : undefined,
   };
 }
 
@@ -832,6 +833,33 @@ export async function patchCartaPorteComentarios(tripId: string, comentarios: st
     body: JSON.stringify({ comentarios }),
   });
   const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
+export async function fetchCartaPorte(tripId: string): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte`);
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
+export async function patchCartaPorteFolio(tripId: string, folio: string): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/folio`, {
+    method: "PATCH",
+    body: JSON.stringify({ folio }),
+  });
+  const text = await res.text();
+  let raw: Record<string, unknown> = {};
+  try {
+    raw = text ? (JSON.parse(text) as Record<string, unknown>) : {};
+  } catch {
+    raw = {};
+  }
+  if (!res.ok) {
+    const message = typeof raw.error === "string" ? raw.error : "No se pudo guardar el folio";
+    const error = new Error(message) as Error & { folio_sugerido?: number };
+    if (typeof raw.folio_sugerido === "number") error.folio_sugerido = raw.folio_sugerido;
+    throw error;
+  }
   return normalizeCartaPorte(raw);
 }
 

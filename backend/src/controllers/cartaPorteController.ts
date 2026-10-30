@@ -13,7 +13,8 @@ const tid = (req: Request) => req.user!.tenantId;
 
 export const getCartaPorte = asyncHandler(async (req: Request, res: Response) => {
   const cp = await cartaPorteService.getCartaPorteForTrip(tid(req), req.params.id);
-  res.json(cartaPorteToJson(cp));
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
 export const getCartaPorteXml = asyncHandler(async (req: Request, res: Response) => {
@@ -39,6 +40,7 @@ const timbradoOptsSchema = z.object({
   forma_pago: z.string().optional(),
   condiciones_pago: z.string().optional(),
   comentarios: z.string().max(100).optional(),
+  folio: z.union([z.number(), z.string()]).optional(),
   iva_tasa: z.number().min(0).max(1).optional(),
   retencion_tasa: z.number().min(0).max(1).optional(),
   exento: z.boolean().optional(),
@@ -53,6 +55,7 @@ function timbradoOptsFromBody(body: z.infer<typeof timbradoOptsSchema>) {
     formaPago: body.forma_pago,
     condicionesPago: body.condiciones_pago,
     comentarios: body.comentarios,
+    folio: body.folio,
     ivaTasa: body.iva_tasa,
     retencionTasa: body.retencion_tasa,
     exento: body.exento,
@@ -110,6 +113,21 @@ export const patchComentarios = asyncHandler(async (req: Request, res: Response)
     parsed.data.comentarios,
   );
   res.json(cartaPorteToJson(cp));
+});
+
+const folioSchema = z.object({
+  folio: z.union([z.number(), z.string()]),
+});
+
+export const patchFolio = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = folioSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const cp = await cartaPorteService.reservarFolioCarta(tid(req), req.params.id, parsed.data.folio);
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
 const cancelSchema = z.object({

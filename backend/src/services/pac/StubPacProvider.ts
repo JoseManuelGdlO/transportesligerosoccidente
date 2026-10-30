@@ -18,7 +18,9 @@ export class StubPacProvider implements PacProvider {
    */
   async timbrar(ctx: TimbradoContext): Promise<TimbradoResult> {
     const serie = ctx.tenant.cfdi_serie || "CP";
+    const requested = ctx.opts?.folio != null ? String(ctx.opts.folio).trim() : "";
     const folio =
+      requested ||
       ctx.cartaPorte.folio_cfdi ||
       ctx.trip.folio.replace(/[^0-9]/g, "").slice(-8) ||
       "1";

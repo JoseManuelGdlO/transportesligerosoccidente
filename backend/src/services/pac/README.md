@@ -203,7 +203,7 @@ npx tsx scripts/sicofi-dump-curl.ts
 |---------|----------------|----------------|
 | Montos | tarifa + IVA − retención | $0 |
 | Moneda | MXN (o override) | `XXX` |
-| Serie | `A` | `tenant.cfdi_serie` o `CP` |
+| Serie | Se omite | Se omite (en Sicofi la serie está vacía) |
 | UsoCFDI | `G03` (o default tenant) | `S01` fijo |
 | Receptor RFC | Cliente (no `XAXX` con CP) | **Mismo RFC que el emisor** (`tenant.rfc`) |
 | Carta Porte | Sí (complemento 3.1) | Obligatorio |
@@ -213,7 +213,7 @@ npx tsx scripts/sicofi-dump-curl.ts
 
 - XML del CFDI timbrado (a veces envuelto en JSON con campo `Xml`).
 - Se extrae `UUID` y `FechaTimbrado` de `TimbreFiscalDigital`.
-- Sin `folio_cfdi` previo, TLO envía `Folio: 0` para que Sicofi asigne el consecutivo. Omitir el campo responde 888.
+- TLO envía `Folio` con el entero de la carta (piso 4634, luego el máximo ya usado + 1). El usuario puede subirlo si timbraron en el portal de Sicofi. La serie no se envía. Omitir `Folio` responde 888.
 - `DatosCFDI40.Fecha` → fecha/hora SAT válida al momento del timbrado (`localDateTimeSatStr`, TZ del proceso).
 
 ## Errores comunes

@@ -10,6 +10,7 @@ import type { Factura40PayloadBody } from "./types";
 import { mapCartaPorte31 } from "./mapCartaPorte31";
 import { mapConceptos, noIdentificacionFromComentarios } from "./mapConceptos";
 import type { InvoiceTaxOpts } from "./invoiceTaxes";
+import { FOLIO_CFDI_PISO, parseFolioEntero } from "./folioCfdi";
 import {
   PUBLICO_GENERAL_NOMBRE,
   PUBLICO_GENERAL_REGIMEN,
@@ -30,12 +31,6 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
 }
 
 /**
- * Carta nueva: `0` para que Sicofi asigne el consecutivo de su serie.
- * Omitir la clave responde 888 (el campo es requerido).
- */
-const DEFAULT_SICOFI_FOLIO = 0;
-
-/**
  * Comentario que Sicofi imprime en su PDF, en la caja Comentarios (`MensajePDF`).
  * Vacío: cadena vacía.
  */
@@ -44,16 +39,15 @@ function mensajePdf(comentarios: string | null | undefined): string {
 }
 
 /**
- * Folio para Sicofi. Reenvía `folio_cfdi` si ya es mayor que 0.
- * Si no hay folio, manda `0` para que Sicofi asigne el siguiente.
+ * Folio que Sicofi timbra tal cual. La serie no se envía (en el portal está vacía).
+ * Prefiere el folio del request; si no, el ya guardado en la carta.
  */
-function folioNumber(cartaPorte: CartaPorte, _trip: Trip): number | string {
-  if (cartaPorte.folio_cfdi != null && cartaPorte.folio_cfdi !== "") {
-    const n = Number(cartaPorte.folio_cfdi);
-    if (Number.isFinite(n)) return n > 0 ? n : DEFAULT_SICOFI_FOLIO;
-    return cartaPorte.folio_cfdi;
+function folioNumber(cartaPorte: CartaPorte, opts: TimbradoContext["opts"]): number {
+  const n = parseFolioEntero(opts?.folio) ?? parseFolioEntero(cartaPorte.folio_cfdi);
+  if (n == null || n < FOLIO_CFDI_PISO) {
+    throw new Error(`El folio debe ser un entero mayor o igual a ${FOLIO_CFDI_PISO}`);
   }
-  return DEFAULT_SICOFI_FOLIO;
+  return n;
 }
 
 /**
@@ -79,7 +73,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
   const hasCartaPorte = mercancias.length > 0 || ubicaciones.length > 0;
 
   const datosCfdi: Factura40PayloadBody["DatosCFDI40"] = {
-    Folio: folioNumber(cartaPorte, trip),
+    Folio: folioNumber(cartaPorte, opts),
     Fecha: localDateTimeSatStr(),
     CondicionesDePago: isTraslado
       ? null

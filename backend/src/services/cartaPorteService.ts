@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { existsSync } from "node:fs";
 import { mkdir, readFile, writeFile } from "node:fs/promises";
 import path from "node:path";
+import { QueryTypes, Transaction } from "sequelize";
 import { uploadRootDir } from "../middlewares/uploadDocument";
 import {
   Trip,
@@ -12,11 +13,13 @@ import {
   CartaPorte,
   TripUbicacion,
   TripMercancia,
+  sequelize,
 } from "../models";
 import { getTripOrThrow } from "./tripService";
 import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
+import { folioParaCarta, issueFolioTimbrable, parseFolioEntero } from "./pac/sicofi/folioCfdi";
 import { formatPacErrorMessage } from "./pac/sicofi/sicofiErrors";
 import { validateSicofiFactura40 } from "./pac/sicofi/validateSicofiFactura40";
 import { loadSatMaterialPeligrosoByClaves, validateMercanciasCatalog } from "./satCatalogService";
@@ -114,6 +117,108 @@ export async function updateCartaPorteComentarios(tenantId: string, tripId: stri
   const comentarios = noIdentificacionFromComentarios(raw);
   await cp.update({ comentarios } as never);
   return cp;
+}
+
+type FolioEnUsoError = Error & { status: number; folio_sugerido: number };
+
+function folioEnUso(sugerido: number): FolioEnUsoError {
+  const e = new Error(`Ese folio ya está usado. El siguiente libre es ${sugerido}.`) as FolioEnUsoError;
+  e.status = 409;
+  e.folio_sugerido = sugerido;
+  return e;
+}
+
+/** Mayor folio numérico ya anotado o timbrado en el tenant, sin contar esta carta. */
+async function maxFolioUsado(
+  tenantId: string,
+  excludeCartaId: string,
+  transaction?: Transaction,
+): Promise<number | null> {
+  const rows = await sequelize.query<{ max_folio: number | string | null }>(
+    `SELECT GREATEST(
+       COALESCE((
+         SELECT MAX(CAST(folio_cfdi AS UNSIGNED))
+         FROM cartas_porte
+         WHERE tenant_id = :tenantId
+           AND id <> :excludeId
+           AND folio_cfdi REGEXP '^[0-9]+$'
+       ), 0),
+       COALESCE((
+         SELECT MAX(CAST(t.num_factura AS UNSIGNED))
+         FROM trips t
+         INNER JOIN cartas_porte c ON c.trip_id = t.id AND c.tenant_id = t.tenant_id
+         WHERE t.tenant_id = :tenantId
+           AND c.id <> :excludeId
+           AND c.estatus IN ('timbrada', 'cancelada')
+           AND t.num_factura REGEXP '^[0-9]+$'
+       ), 0)
+     ) AS max_folio`,
+    {
+      replacements: { tenantId, excludeId: excludeCartaId },
+      type: QueryTypes.SELECT,
+      transaction,
+    },
+  );
+  const n = Number(rows[0]?.max_folio ?? 0);
+  return Number.isFinite(n) && n > 0 ? n : null;
+}
+
+/** Folio a mostrar: el de esta carta si ya es entero, si no el siguiente libre. */
+export async function folioSugeridoForCarta(tenantId: string, cp: CartaPorte): Promise<number> {
+  const propio = parseFolioEntero(cp.folio_cfdi);
+  if (propio != null) return propio;
+  return folioParaCarta(null, await maxFolioUsado(tenantId, cp.id));
+}
+
+/**
+ * Reserva el folio de esta carta antes del POST a Sicofi.
+ * El lock del tenant evita que dos timbrados pidan el mismo entero.
+ */
+export async function reservarFolioCarta(
+  tenantId: string,
+  tripId: string,
+  raw: string | number | null | undefined,
+) {
+  const issue = issueFolioTimbrable(raw);
+  if (issue) throw err(issue);
+  const folio = parseFolioEntero(raw)!;
+  await getTripOrThrow(tenantId, tripId, false);
+  const existing = await getOrCreateCartaPorte(tenantId, tripId);
+  if (existing.estatus === "timbrada" || existing.estatus === "cancelada") {
+    throw err("No se puede cambiar el folio de una carta timbrada o cancelada");
+  }
+  return sequelize.transaction(
+    { isolationLevel: Transaction.ISOLATION_LEVELS.READ_COMMITTED },
+    async (t) => {
+      const tenant = await Tenant.findByPk(tenantId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!tenant) throw err("Empresa no encontrada", 404);
+      const cp = await CartaPorte.findByPk(existing.id, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!cp) throw err("Carta porte no encontrada", 404);
+      if (cp.estatus === "timbrada" || cp.estatus === "cancelada") {
+        throw err("No se puede cambiar el folio de una carta timbrada o cancelada");
+      }
+      const taken = await sequelize.query<{ id: string }>(
+        `SELECT id FROM cartas_porte
+         WHERE tenant_id = :tenantId
+           AND id <> :cartaId
+           AND folio_cfdi REGEXP '^[0-9]+$'
+           AND CAST(folio_cfdi AS UNSIGNED) = :folio
+         LIMIT 1
+         FOR UPDATE`,
+        {
+          replacements: { tenantId, cartaId: cp.id, folio },
+          type: QueryTypes.SELECT,
+          transaction: t,
+        },
+      );
+      if (taken.length > 0) {
+        const sugerido = folioParaCarta(null, await maxFolioUsado(tenantId, cp.id, t));
+        throw folioEnUso(sugerido);
+      }
+      await cp.update({ folio_cfdi: String(folio) } as never, { transaction: t });
+      return cp;
+    },
+  );
 }
 
 async function loadTripContext(tenantId: string, tripId: string) {
@@ -367,7 +472,14 @@ export async function previewCartaPorte(
     issues = issues.filter((i) => !i.includes("Certificados CSD"));
   }
   const cp = cartaPorte;
-  const folio = cp.folio_cfdi || trip.folio.replace(/[^0-9]/g, "").slice(-8) || "1";
+  const folioFuente = opts?.folio ?? cp.folio_cfdi;
+  const folioIssue = issueFolioTimbrable(folioFuente);
+  if (folioIssue) issues.push(folioIssue);
+  const folioEntero = parseFolioEntero(folioFuente);
+  const folio =
+    folioEntero != null
+      ? String(folioEntero)
+      : cp.folio_cfdi || trip.folio.replace(/[^0-9]/g, "").slice(-8) || "1";
   let payload_preview: Record<string, unknown> | undefined;
   if (truck && driver && client) {
     const satMaterialPeligrosoByClave = await satMaterialPeligrosoForMercancias(mercancias);
@@ -411,6 +523,12 @@ export async function timbrarCartaPorte(
   if (!preview.valid) {
     throw err(preview.issues.join("; ") || "Datos incompletos para timbrar");
   }
+  if (preview.cartaPorte.estatus === "timbrada") {
+    throw err("La carta porte ya está timbrada");
+  }
+  const folioRaw = opts?.folio ?? preview.cartaPorte.folio_cfdi;
+  await reservarFolioCarta(tenantId, tripId, folioRaw);
+  const stampOpts: TimbradoOpts = { ...opts, folio: parseFolioEntero(folioRaw)! };
   const { trip, tenant } = await loadTripContext(tenantId, tripId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
@@ -441,7 +559,7 @@ export async function timbrarCartaPorte(
     driver,
     client,
     tipo,
-    opts,
+    stampOpts,
     satMaterialPeligrosoByClave,
   );
   try {

@@ -247,6 +247,12 @@ r.patch(
   requirePermission("cartaporte.timbrar"),
   cartaPorteC.patchComentarios,
 );
+r.patch(
+  "/trips/:id/carta-porte/folio",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.patchFolio,
+);
 r.post("/trips/:id/carta-porte/cancelar", authenticateJwt, requirePermission("cartaporte.cancelar"), cartaPorteC.postCancelar);
 r.put(
   "/trips/:id/carta-porte/ubicacion-origen",

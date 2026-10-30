@@ -51,7 +51,7 @@ export async function sicofiPostFactura40(
   const timeout = setTimeout(() => controller.abort(), sicofiTimeoutMs());
   try {
     const debugBody = { ...payload, Contrasena: "[redacted]" };
-    logger.debug(`[Sicofi] Factura40 request body:\n${JSON.stringify(debugBody, null, 2)}`);
+    logger.debug(`[Sicofi] Factura40 POST ${url}\n${JSON.stringify(debugBody, null, 2)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -112,7 +112,7 @@ export async function sicofiPostPagos40(
   const timeout = setTimeout(() => controller.abort(), sicofiTimeoutMs());
   try {
     const debugBody = { ...payload, Contrasena: "[redacted]" };
-    logger.debug(`[Sicofi] Pagos40 request body:\n${JSON.stringify(debugBody, null, 2)}`);
+    logger.debug(`[Sicofi] Pagos40 POST ${url}\n${JSON.stringify(debugBody, null, 2)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: {
@@ -398,7 +398,7 @@ export async function sicofiPostCancelaTimbrado(
   const timeout = setTimeout(() => controller.abort(), sicofiTimeoutMs());
   try {
     const debugBody = { ...payload, Contrasena: "[redacted]" };
-    logger.debug(`[Sicofi] CancelaTimbrado request body:\n${JSON.stringify(debugBody, null, 2)}`);
+    logger.debug(`[Sicofi] CancelaTimbrado POST ${url}\n${JSON.stringify(debugBody, null, 2)}`);
     const res = await fetch(url, {
       method: "POST",
       headers: {

@@ -40,6 +40,8 @@ export interface TimbradoOpts {
   retencionTasa?: number;
   exento?: boolean;
   comentarios?: string;
+  /** Folio entero que Sicofi debe timbrar. La serie no se envía. */
+  folio?: number | string;
 }
 
 /**

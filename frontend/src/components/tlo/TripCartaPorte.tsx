@@ -30,6 +30,8 @@ import {
   putTripCfdiConceptos,
   putTripUbicaciones,
   patchCartaPorteComentarios,
+  fetchCartaPorte,
+  patchCartaPorteFolio,
 } from "@/lib/tloApi";
 import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
 import { keepFilledFiscal } from "@/lib/fiscalPrefill";
@@ -225,6 +227,9 @@ export function TripCartaPorte({
   const [condicionesPago, setCondicionesPago] = useState("");
   const [comentarios, setComentarios] = useState(cp?.comentarios ?? "");
   const [savingComentarios, setSavingComentarios] = useState(false);
+  const [folio, setFolio] = useState(cp?.folio_cfdi ?? "");
+  const [savingFolio, setSavingFolio] = useState(false);
+  const folioTouched = useRef(false);
   const [cancelOpen, setCancelOpen] = useState(false);
   const [motivoCancelacion, setMotivoCancelacion] = useState("02");
   const [folioSustitucion, setFolioSustitucion] = useState("");
@@ -243,11 +248,33 @@ export function TripCartaPorte({
     forma_pago: tipoTimbrado === "ingreso" ? formaPago : undefined,
     condiciones_pago: tipoTimbrado === "ingreso" && condicionesPago ? condicionesPago : undefined,
     comentarios,
+    folio: folio.trim() || undefined,
   });
 
   useEffect(() => {
     setComentarios(cp?.comentarios ?? "");
   }, [trip.id, cp?.comentarios]);
+
+  useEffect(() => {
+    folioTouched.current = false;
+    const propio = cp?.folio_cfdi?.trim() ?? "";
+    if (propio) {
+      setFolio(propio);
+      return;
+    }
+    let cancelled = false;
+    void fetchCartaPorte(trip.id)
+      .then((record) => {
+        if (cancelled || folioTouched.current) return;
+        if (record.folio_sugerido != null) setFolio(String(record.folio_sugerido));
+      })
+      .catch(() => {
+        // El preview pide el folio si el campo sigue vacío.
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [trip.id, cp?.folio_cfdi]);
 
   const saveComentarios = async () => {
     if (!canTimbrar) return;
@@ -262,6 +289,29 @@ export function TripCartaPorte({
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar los comentarios");
     } finally {
       setSavingComentarios(false);
+    }
+  };
+
+  const saveFolio = async (): Promise<boolean> => {
+    if (!canTimbrar || cpTimbrada) return true;
+    const next = folio.trim();
+    if (next === (cp?.folio_cfdi ?? "")) return true;
+    setSavingFolio(true);
+    try {
+      const record = await patchCartaPorteFolio(trip.id, next);
+      setFolio(record.folio_cfdi ?? next);
+      onTripUpdated({ ...trip, carta_porte: record });
+      return true;
+    } catch (e) {
+      const sugerido =
+        e instanceof Error && "folio_sugerido" in e
+          ? (e as Error & { folio_sugerido?: number }).folio_sugerido
+          : undefined;
+      if (typeof sugerido === "number") setFolio(String(sugerido));
+      toast.error(e instanceof Error ? e.message : "No se pudo guardar el folio");
+      return false;
+    } finally {
+      setSavingFolio(false);
     }
   };
 
@@ -926,6 +976,8 @@ export function TripCartaPorte({
       await flushPendingSaves({ force: true });
       await saveDriverFiscal();
       await saveTruckFiscal();
+      const folioOk = await saveFolio();
+      if (!folioOk) return;
 
       if (tipoTimbrado === "ingreso" && (conceptosDirty || !trip.cfdi_conceptos?.length)) {
         const ok = await persistCfdiConceptos();
@@ -952,7 +1004,10 @@ export function TripCartaPorte({
         body: JSON.stringify(timbradoBody()),
       });
       if (!r.ok) {
-        const j = await r.json().catch(() => ({}));
+        const j = (await r.json().catch(() => ({}))) as { error?: unknown; folio_sugerido?: unknown };
+        if (r.status === 409 && typeof j.folio_sugerido === "number") {
+          setFolio(String(j.folio_sugerido));
+        }
         toast.error(typeof j.error === "string" ? j.error : "Error al timbrar");
         try {
           await reloadTrip();
@@ -1118,6 +1173,23 @@ export function TripCartaPorte({
             </p>
           )}
           {cp?.error_mensaje && <CartaPorteErrorNotice message={cp.error_mensaje} />}
+          <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
+            <Label htmlFor="cp-folio">Folio</Label>
+            <Input
+              id="cp-folio"
+              inputMode="numeric"
+              value={folio}
+              disabled={!canTimbrar || cpTimbrada || loading || savingFolio}
+              onChange={(e) => {
+                folioTouched.current = true;
+                setFolio(e.target.value.replace(/\D/g, ""));
+              }}
+              onBlur={() => void saveFolio()}
+            />
+            <p className="text-xs text-muted-foreground">
+              Es el folio de esta carta. Sicofi lo timbra tal cual. Si ya timbraron en el portal, anota aquí el folio que debe llevar esta factura.
+            </p>
+          </div>
           <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
             <Label htmlFor="cp-comentarios">Comentarios</Label>
             <Textarea

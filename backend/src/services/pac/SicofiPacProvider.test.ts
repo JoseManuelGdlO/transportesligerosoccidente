@@ -16,7 +16,7 @@ const minimalCtx = (): TimbradoContext =>
     tipo: "traslado",
     trip: { id: "t1", folio: "F1", origen: "A", destino: "B", tarifa: "0" },
     tenant: { cfdi_serie: "CP", cp_fiscal: "44100" },
-    cartaPorte: { id_ccp: "x" },
+    cartaPorte: { id_ccp: "x", folio_cfdi: "4634" },
     ubicaciones: [
       { orden: 1, tipo: "Origen", cp: "44100", estado: "JAL", colonia_clave: "1", municipio_clave: "2" },
       {

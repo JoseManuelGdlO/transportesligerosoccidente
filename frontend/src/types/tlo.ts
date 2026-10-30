@@ -210,6 +210,8 @@ export interface CartaPorteRecord {
   transporte_internacional?: boolean;
   tipo_comprobante?: "ingreso" | "traslado";
   comentarios?: string;
+  /** Siguiente folio libre, o el ya guardado en esta carta. */
+  folio_sugerido?: number;
 }
 
 export interface TenantFiscal {
@@ -371,6 +373,18 @@ export interface FuelProrationReport {
   unidades: FuelProrationUnitReport[];
 }
 
+export interface FuelPeriodCarga {
+  carga_id: string;
+  origen: "ticket" | "sin_ticket";
+  folio: string | null;
+  fecha: string;
+  ubicacion: string;
+  tipo: "local" | "foraneo";
+  litros: number;
+  km: number;
+  rendimiento: number | null;
+}
+
 export interface FuelSummaryRow {
   truck_id: string;
   numero_economico: string;
@@ -379,6 +393,11 @@ export interface FuelSummaryRow {
   km_recorridos: number;
   litros: number;
   rendimiento: number | null;
+  litros_local: number;
+  litros_foraneo: number;
+  rendimiento_local: number | null;
+  rendimiento_foraneo: number | null;
+  cargas: FuelPeriodCarga[];
 }
 
 export interface ReportsOverviewTotals {

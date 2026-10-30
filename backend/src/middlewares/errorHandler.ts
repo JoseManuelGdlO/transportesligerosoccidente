@@ -30,7 +30,11 @@ export function errorHandler(err: unknown, req: Request, res: Response, _next: N
 
   if (typeof err === "object" && err !== null && "status" in err && typeof (err as { status?: number }).status === "number") {
     const code = (err as { status: number }).status;
-    res.status(code).json({ error: msg });
+    const folioSugerido = (err as { folio_sugerido?: unknown }).folio_sugerido;
+    res.status(code).json({
+      error: msg,
+      ...(typeof folioSugerido === "number" ? { folio_sugerido: folioSugerido } : {}),
+    });
     return;
   }
   if (typeof err === "object" && err !== null && "name" in err && (err as { name?: string }).name === "SequelizeUniqueConstraintError") {
