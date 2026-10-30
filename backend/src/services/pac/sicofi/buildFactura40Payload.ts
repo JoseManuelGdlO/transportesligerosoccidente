@@ -29,8 +29,11 @@ function taxOptsFromContext(ctx: TimbradoContext): InvoiceTaxOpts {
   };
 }
 
-/** Folio inicial cuando aún no hay `folio_cfdi` timbrado (Sicofi no auto-asigna con 0). */
-const DEFAULT_SICOFI_FOLIO = 1;
+/**
+ * Carta nueva: `0` para que Sicofi asigne el consecutivo de su serie.
+ * Omitir la clave responde 888 (el campo es requerido).
+ */
+const DEFAULT_SICOFI_FOLIO = 0;
 
 /**
  * Comentario que Sicofi imprime en su PDF, en la caja Comentarios (`MensajePDF`).
@@ -41,7 +44,8 @@ function mensajePdf(comentarios: string | null | undefined): string {
 }
 
 /**
- * Folio para Sicofi. Usa `cartaPorte.folio_cfdi` si ya existe y es > 0.
+ * Folio para Sicofi. Reenvía `folio_cfdi` si ya es mayor que 0.
+ * Si no hay folio, manda `0` para que Sicofi asigne el siguiente.
  */
 function folioNumber(cartaPorte: CartaPorte, _trip: Trip): number | string {
   if (cartaPorte.folio_cfdi != null && cartaPorte.folio_cfdi !== "") {

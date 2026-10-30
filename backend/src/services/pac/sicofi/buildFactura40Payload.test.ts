@@ -87,7 +87,7 @@ describe("buildFactura40Payload", () => {
     const payload = buildFactura40Payload(baseCtx());
     assert.match(payload.DatosCFDI40.Fecha, /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}$/);
     assert.notEqual(payload.DatosCFDI40.Fecha, "0001-01-01T00:00:00");
-    assert.equal(payload.DatosCFDI40.Folio, 1);
+    assert.equal(payload.DatosCFDI40.Folio, 0);
     assert.equal(payload.DatosCFDI40.TipodeComprobante, "T");
     assert.equal(payload.DatosCFDI40.Subtotal, 0);
     assert.equal(payload.DatosCFDI40.Total, 0);
@@ -104,13 +104,13 @@ describe("buildFactura40Payload", () => {
     assert.equal(idCcp, "CCCabc-123");
   });
 
-  it("reemplaza folio_cfdi 0 por folio inicial 1", () => {
+  it("envía Folio 0 cuando folio_cfdi es 0", () => {
     const payload = buildFactura40Payload(
       baseCtx({
         cartaPorte: { id_ccp: "x", folio_cfdi: "0" } as TimbradoContext["cartaPorte"],
       }),
     );
-    assert.equal(payload.DatosCFDI40.Folio, 1);
+    assert.equal(payload.DatosCFDI40.Folio, 0);
   });
 
   it("traslado usa solo datos del tenant como receptor, no del cliente", () => {
