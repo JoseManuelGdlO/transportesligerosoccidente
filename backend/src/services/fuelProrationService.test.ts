@@ -19,6 +19,7 @@ import {
   partitionPeriodTrips,
   reopenTicketProration,
   resumenFromBlocks,
+  splitFuelPeriod,
   sumLitersForPeriod,
   ticketTimestampMs,
   ticketWindowEndMs,
@@ -27,6 +28,7 @@ import {
   tripTimestampMs,
   tripsInWindow,
   utcWallClockMs,
+  type FuelPeriodPart,
   type ProratedTicketBlock,
 } from "./fuelProrationService";
 
@@ -1062,5 +1064,114 @@ describe("sumLitersForPeriod", () => {
       orphanLoads: [{ trip_id: "regreso", litros: 5 }],
     });
     assert.equal(litros, 437.03);
+  });
+});
+
+describe("splitFuelPeriod", () => {
+  const periodTripIds = new Set(["ida", "regreso"]);
+  const periodKmByTrip = new Map([
+    ["ida", 1273],
+    ["regreso", 886],
+  ]);
+  const tlo11Parts: FuelPeriodPart[] = [
+    {
+      carga_id: "patio",
+      origen: "ticket",
+      folio: "PATIO",
+      fecha: "2026-06-02",
+      ubicacion: "GDL",
+      es_foraneo: false,
+      trip_id: "ida",
+      litros: 202.59,
+    },
+    {
+      carga_id: "patio",
+      origen: "ticket",
+      folio: "PATIO",
+      fecha: "2026-06-02",
+      ubicacion: "GDL",
+      es_foraneo: false,
+      trip_id: "regreso",
+      litros: 141,
+    },
+    {
+      carga_id: "patio",
+      origen: "ticket",
+      folio: "PATIO",
+      fecha: "2026-06-02",
+      ubicacion: "GDL",
+      es_foraneo: false,
+      trip_id: "fuera",
+      litros: 10,
+    },
+    {
+      carga_id: "foraneo",
+      origen: "ticket",
+      folio: "CAMINO",
+      fecha: "2026-06-04",
+      ubicacion: "MTY",
+      es_foraneo: true,
+      trip_id: "ida",
+      litros: 88.44,
+    },
+    {
+      carga_id: "foraneo",
+      origen: "ticket",
+      folio: "CAMINO",
+      fecha: "2026-06-04",
+      ubicacion: "MTY",
+      es_foraneo: true,
+      trip_id: "regreso",
+      litros: 61.56,
+    },
+  ];
+
+  it("parte patio y foráneo del caso TLO11 con el mismo km", () => {
+    const split = splitFuelPeriod({ periodTripIds, periodKmByTrip, parts: tlo11Parts });
+    assert.equal(split.litros_local, 343.59);
+    assert.equal(split.litros_foraneo, 150);
+    assert.equal(split.litros, 493.59);
+    assert.equal(split.cargas.length, 2);
+    const local = split.cargas.find((c) => c.carga_id === "patio")!;
+    const foraneo = split.cargas.find((c) => c.carga_id === "foraneo")!;
+    assert.equal(local.km, 2159);
+    assert.equal(foraneo.km, 2159);
+    assert.equal(local.rendimiento, 6.28);
+    assert.equal(foraneo.rendimiento, 14.39);
+    assert.equal(local.tipo, "local");
+    assert.equal(foraneo.tipo, "foraneo");
+    assert.deepEqual(
+      split.cargas.map((c) => c.carga_id),
+      ["patio", "foraneo"],
+    );
+  });
+
+  it("suma una huérfana local al corte local y la lista como carga sin ticket", () => {
+    const split = splitFuelPeriod({
+      periodTripIds,
+      periodKmByTrip,
+      parts: [
+        ...tlo11Parts,
+        {
+          carga_id: "huerfana",
+          origen: "sin_ticket",
+          folio: null,
+          fecha: "2026-06-06",
+          ubicacion: "GDL",
+          es_foraneo: false,
+          trip_id: "regreso",
+          litros: 5,
+        },
+      ],
+    });
+    assert.equal(split.litros_local, 348.59);
+    assert.equal(split.litros_foraneo, 150);
+    assert.equal(split.litros, 498.59);
+    assert.equal(split.cargas.length, 3);
+    const orphan = split.cargas.find((c) => c.carga_id === "huerfana")!;
+    assert.equal(orphan.origen, "sin_ticket");
+    assert.equal(orphan.tipo, "local");
+    assert.equal(orphan.litros, 5);
+    assert.equal(orphan.km, 886);
   });
 });

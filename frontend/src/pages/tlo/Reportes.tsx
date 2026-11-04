@@ -198,6 +198,33 @@ function variationTone(pct: number | null | undefined, invert = false): "success
   return positive ? "success" : "destructive";
 }
 
+function fuelEstado(rend: number | null, esperado: number): "bajo" | "faltan" | "ok" | null {
+  if (rend == null || esperado <= 0) return null;
+  if (rend < esperado * 0.9) return "bajo";
+  if (rend > esperado * 1.5) return "faltan";
+  return "ok";
+}
+
+function FuelEstadoBadge({ rend, esperado }: { rend: number | null; esperado: number }) {
+  const estado = fuelEstado(rend, esperado);
+  if (estado === "bajo") return <Badge variant="destructive">Bajo rendimiento</Badge>;
+  if (estado === "faltan") return <Badge variant="destructive">Faltan litros</Badge>;
+  if (estado === "ok") return <Badge variant="outline">OK</Badge>;
+  return <span className="text-muted-foreground text-xs">—</span>;
+}
+
+function fuelRendimientoCell(rend: number | null, esperado: number, hint?: string) {
+  return (
+    <span>
+      {rend != null ? `${fmtNumber(rend, 2)} km/L` : "—"}
+      {hint ? <span className="text-xs text-muted-foreground ml-1">{hint}</span> : null}
+      {esperado > 0 && (
+        <span className="text-xs text-muted-foreground ml-1">/ {fmtNumber(esperado, 1)} esp.</span>
+      )}
+    </span>
+  );
+}
+
 export default function Reportes() {
   const { hasPermission, apiMode } = useAuth();
   const { trucks } = useTlo();
@@ -214,6 +241,7 @@ export default function Reportes() {
   const [error, setError] = useState<string | null>(null);
   const [activeTab, setActiveTab] = useState<ReportTab>("resumen");
   const [expandedRuta, setExpandedRuta] = useState<string | null>(null);
+  const [expandedFuelTruck, setExpandedFuelTruck] = useState<string | null>(null);
   const [routeTripSort, setRouteTripSort] = useState<RouteTripSort>("margen");
 
   const truckById = useMemo(() => new Map(trucks.map((t) => [t.id, t])), [trucks]);
@@ -518,14 +546,64 @@ export default function Reportes() {
       return;
     }
     if (activeTab === "combustible") {
+      const csvRows = fuelSummary
+        .filter((r) => r.viajes > 0 || r.litros > 0)
+        .flatMap((r) => {
+          const base = {
+            numero_economico: r.numero_economico,
+            placas: r.placas,
+            viajes: r.viajes,
+            km_recorridos: r.km_recorridos,
+            litros: r.litros,
+            rendimiento: r.rendimiento,
+            litros_local: r.litros_local,
+            rendimiento_local: r.rendimiento_local,
+            litros_foraneo: r.litros_foraneo,
+            rendimiento_foraneo: r.rendimiento_foraneo,
+          };
+          const cargas = r.cargas ?? [];
+          if (cargas.length === 0) {
+            return [{
+              ...base,
+              folio: "",
+              fecha: "",
+              ubicacion: "",
+              tipo: "",
+              litros_carga: "",
+              km_carga: "",
+              rendimiento_carga: "",
+            }];
+          }
+          return cargas.map((c) => ({
+            ...base,
+            folio: c.folio ?? "",
+            fecha: c.fecha,
+            ubicacion: c.ubicacion,
+            tipo: c.tipo === "foraneo" ? "Foráneo" : "Local",
+            litros_carga: c.litros,
+            km_carga: c.km,
+            rendimiento_carga: c.rendimiento,
+          }));
+        });
       exportCsv(filename, [
         { key: "numero_economico", label: "Unidad" },
         { key: "placas", label: "Placas" },
         { key: "viajes", label: "Viajes" },
         { key: "km_recorridos", label: "Km" },
-        { key: "litros", label: "Litros" },
-        { key: "rendimiento", label: "Rendimiento km/L" },
-      ], fuelSummary.filter((r) => r.viajes > 0 || r.litros > 0));
+        { key: "litros", label: "Litros total" },
+        { key: "rendimiento", label: "Rendimiento total km/L" },
+        { key: "litros_local", label: "Litros local" },
+        { key: "rendimiento_local", label: "Rendimiento local km/L" },
+        { key: "litros_foraneo", label: "Litros foráneo" },
+        { key: "rendimiento_foraneo", label: "Rendimiento foráneo km/L" },
+        { key: "folio", label: "Folio carga" },
+        { key: "fecha", label: "Fecha carga" },
+        { key: "ubicacion", label: "Ubicación" },
+        { key: "tipo", label: "Tipo" },
+        { key: "litros_carga", label: "Litros carga" },
+        { key: "km_carga", label: "Km carga" },
+        { key: "rendimiento_carga", label: "Rendimiento carga km/L" },
+      ], csvRows);
       toast.success("Exportado a CSV");
       return;
     }
@@ -1508,56 +1586,135 @@ export default function Reportes() {
             <p className="text-sm text-muted-foreground">Cargando resumen de combustible…</p>
           ) : (
             <Card className="tlo-shadow-md overflow-hidden">
+              <CardHeader>
+                <CardTitle className="text-base">Rendimiento por unidad</CardTitle>
+                <p className="text-xs text-muted-foreground">
+                  El km del periodo es el mismo para local y foráneo; por eso cada km/L sube. El total es km ÷ todos los litros y es el que cuadra con el tanque. El km de una carga es el de los viajes del periodo que recibieron esa carga.
+                </p>
+              </CardHeader>
+              <div className="overflow-x-auto">
               <Table>
                 <TableHeader>
                   <TableRow className="bg-secondary/50">
+                    <TableHead className="w-8" />
                     <TableHead>Unidad</TableHead>
                     <TableHead>Placas</TableHead>
                     <TableHead className="text-right">Viajes</TableHead>
                     <TableHead className="text-right">Km</TableHead>
-                    <TableHead className="text-right">Litros</TableHead>
-                    <TableHead className="text-right">Rendimiento</TableHead>
-                    <TableHead className="text-right">Estado</TableHead>
+                    <TableHead className="text-right">Litros total</TableHead>
+                    <TableHead className="text-right">km/L total</TableHead>
+                    <TableHead className="text-right">Litros local</TableHead>
+                    <TableHead className="text-right">km/L local</TableHead>
+                    <TableHead className="text-right">Estado local</TableHead>
+                    <TableHead className="text-right">Litros foráneo</TableHead>
+                    <TableHead className="text-right">km/L foráneo</TableHead>
+                    <TableHead className="text-right">Estado foráneo</TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
                   {fuelSummary.filter((r) => r.viajes > 0 || r.litros > 0).length === 0 ? (
-                    <TableRow><TableCell colSpan={7} className="text-center text-muted-foreground py-8">Sin datos de combustible en el periodo</TableCell></TableRow>
+                    <TableRow><TableCell colSpan={13} className="text-center text-muted-foreground py-8">Sin datos de combustible en el periodo</TableCell></TableRow>
                   ) : (
                     fuelSummary.filter((r) => r.viajes > 0 || r.litros > 0).map((row) => {
                       const truck = truckById.get(row.truck_id);
                       const esperado = truck?.rendimiento_esperado ?? 0;
-                      const rend = row.rendimiento;
-                      const bajo = rend != null && esperado > 0 && rend < esperado * 0.9;
-                      const faltan = rend != null && esperado > 0 && rend > esperado * 1.5;
+                      const open = expandedFuelTruck === row.truck_id;
+                      const cargas = row.cargas ?? [];
                       return (
-                        <TableRow key={row.truck_id}>
-                          <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
-                          <TableCell className="text-muted-foreground">{row.placas}</TableCell>
-                          <TableCell className="text-right">{row.viajes}</TableCell>
-                          <TableCell className="text-right font-mono">{fmtNumber(row.km_recorridos)}</TableCell>
-                          <TableCell className="text-right font-mono">{fmtNumber(row.litros, 1)}</TableCell>
-                          <TableCell className="text-right font-mono">
-                            {rend != null ? `${fmtNumber(rend, 2)} km/L` : "—"}
-                            {esperado > 0 && <span className="text-xs text-muted-foreground ml-1">/ {fmtNumber(esperado, 1)} esp.</span>}
-                          </TableCell>
-                          <TableCell className="text-right">
-                            {bajo ? (
-                              <Badge variant="destructive">Bajo rendimiento</Badge>
-                            ) : faltan ? (
-                              <Badge variant="destructive">Faltan litros</Badge>
-                            ) : rend != null ? (
-                              <Badge variant="outline">OK</Badge>
-                            ) : (
-                              <span className="text-muted-foreground text-xs">—</span>
-                            )}
-                          </TableCell>
-                        </TableRow>
+                        <Fragment key={row.truck_id}>
+                          <TableRow
+                            className="cursor-pointer hover:bg-muted/30"
+                            onClick={() => setExpandedFuelTruck(open ? null : row.truck_id)}
+                          >
+                            <TableCell className="w-8 pr-0">
+                              <ChevronDown
+                                className={`h-4 w-4 text-muted-foreground transition-transform ${open ? "rotate-180" : ""}`}
+                              />
+                            </TableCell>
+                            <TableCell className="font-mono font-semibold">{row.numero_economico}</TableCell>
+                            <TableCell className="text-muted-foreground">{row.placas}</TableCell>
+                            <TableCell className="text-right">{row.viajes}</TableCell>
+                            <TableCell className="text-right font-mono">{fmtNumber(row.km_recorridos)}</TableCell>
+                            <TableCell className="text-right font-mono">{fmtNumber(row.litros, 1)}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              {fuelRendimientoCell(row.rendimiento, esperado, "total")}
+                            </TableCell>
+                            <TableCell className="text-right font-mono">{fmtNumber(row.litros_local ?? 0, 1)}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              {fuelRendimientoCell(row.rendimiento_local ?? null, esperado)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <FuelEstadoBadge rend={row.rendimiento_local ?? null} esperado={esperado} />
+                            </TableCell>
+                            <TableCell className="text-right font-mono">{fmtNumber(row.litros_foraneo ?? 0, 1)}</TableCell>
+                            <TableCell className="text-right font-mono">
+                              {fuelRendimientoCell(row.rendimiento_foraneo ?? null, esperado)}
+                            </TableCell>
+                            <TableCell className="text-right">
+                              <FuelEstadoBadge rend={row.rendimiento_foraneo ?? null} esperado={esperado} />
+                            </TableCell>
+                          </TableRow>
+                          {open && (
+                            <TableRow className="bg-muted/20 hover:bg-muted/20">
+                              <TableCell colSpan={13} className="p-0">
+                                {cargas.length === 0 ? (
+                                  <p className="text-xs text-muted-foreground text-center py-4">
+                                    Sin cargas atribuidas a viajes del periodo
+                                  </p>
+                                ) : (
+                                  <div className="px-3 py-2 overflow-x-auto">
+                                    <Table>
+                                      <TableHeader>
+                                        <TableRow className="bg-secondary/30">
+                                          <TableHead className="text-xs">Folio</TableHead>
+                                          <TableHead className="text-xs">Fecha</TableHead>
+                                          <TableHead className="text-xs">Ubicación</TableHead>
+                                          <TableHead className="text-xs">Tipo</TableHead>
+                                          <TableHead className="text-xs text-right">Litros</TableHead>
+                                          <TableHead className="text-xs text-right">Km</TableHead>
+                                          <TableHead className="text-xs text-right">km/L</TableHead>
+                                          <TableHead className="text-xs text-right">Estado</TableHead>
+                                        </TableRow>
+                                      </TableHeader>
+                                      <TableBody>
+                                        {cargas.map((carga) => (
+                                          <TableRow key={carga.carga_id}>
+                                            <TableCell className="font-mono text-sm">
+                                              {carga.folio ?? "—"}
+                                            </TableCell>
+                                            <TableCell className="text-sm">{formatIsoDateEs(carga.fecha)}</TableCell>
+                                            <TableCell className="text-sm">{carga.ubicacion}</TableCell>
+                                            <TableCell className="text-sm">
+                                              {carga.tipo === "foraneo" ? "Foráneo" : "Local"}
+                                            </TableCell>
+                                            <TableCell className="text-right font-mono text-sm">
+                                              {fmtNumber(carga.litros, 1)}
+                                            </TableCell>
+                                            <TableCell className="text-right font-mono text-sm">
+                                              {fmtNumber(carga.km)}
+                                            </TableCell>
+                                            <TableCell className="text-right font-mono text-sm">
+                                              {fuelRendimientoCell(carga.rendimiento, esperado)}
+                                            </TableCell>
+                                            <TableCell className="text-right">
+                                              <FuelEstadoBadge rend={carga.rendimiento} esperado={esperado} />
+                                            </TableCell>
+                                          </TableRow>
+                                        ))}
+                                      </TableBody>
+                                    </Table>
+                                  </div>
+                                )}
+                              </TableCell>
+                            </TableRow>
+                          )}
+                        </Fragment>
                       );
                     })
                   )}
                 </TableBody>
               </Table>
+              </div>
             </Card>
           )}
         </TabsContent>

@@ -153,6 +153,29 @@ export type ProrationRangeResult = {
   };
 };
 
+export type FuelPeriodPart = {
+  carga_id: string;
+  origen: "ticket" | "sin_ticket";
+  folio: string | null;
+  fecha: string;
+  ubicacion: string;
+  es_foraneo: boolean;
+  trip_id: string;
+  litros: number;
+};
+
+export type FuelPeriodCarga = {
+  carga_id: string;
+  origen: "ticket" | "sin_ticket";
+  folio: string | null;
+  fecha: string;
+  ubicacion: string;
+  tipo: "local" | "foraneo";
+  litros: number;
+  km: number;
+  rendimiento: number | null;
+};
+
 export type FuelSummaryRow = {
   truck_id: string;
   numero_economico: string;
@@ -161,6 +184,11 @@ export type FuelSummaryRow = {
   km_recorridos: number;
   litros: number;
   rendimiento: number | null;
+  litros_local: number;
+  litros_foraneo: number;
+  rendimiento_local: number | null;
+  rendimiento_foraneo: number | null;
+  cargas: FuelPeriodCarga[];
 };
 
 export function buildProratedBlock(
@@ -944,6 +972,81 @@ export function sumLitersForPeriod(opts: {
   return Math.round(litros * 100) / 100;
 }
 
+function roundLiters(n: number): number {
+  return Math.round(n * 100) / 100;
+}
+
+export function splitFuelPeriod(opts: {
+  periodTripIds: Set<string>;
+  periodKmByTrip: Map<string, number>;
+  parts: FuelPeriodPart[];
+}): { litros: number; litros_local: number; litros_foraneo: number; cargas: FuelPeriodCarga[] } {
+  type Acc = {
+    carga_id: string;
+    origen: FuelPeriodPart["origen"];
+    folio: string | null;
+    fecha: string;
+    ubicacion: string;
+    es_foraneo: boolean;
+    litros: number;
+    tripIds: Set<string>;
+  };
+
+  const byCarga = new Map<string, Acc>();
+  let local = 0;
+  let foraneo = 0;
+
+  for (const part of opts.parts) {
+    if (!opts.periodTripIds.has(part.trip_id) || part.litros === 0) continue;
+    if (part.es_foraneo) foraneo += part.litros;
+    else local += part.litros;
+
+    let acc = byCarga.get(part.carga_id);
+    if (!acc) {
+      acc = {
+        carga_id: part.carga_id,
+        origen: part.origen,
+        folio: part.folio,
+        fecha: part.fecha,
+        ubicacion: part.ubicacion,
+        es_foraneo: part.es_foraneo,
+        litros: 0,
+        tripIds: new Set(),
+      };
+      byCarga.set(part.carga_id, acc);
+    }
+    acc.litros += part.litros;
+    acc.tripIds.add(part.trip_id);
+  }
+
+  const litros_local = roundLiters(local);
+  const litros_foraneo = roundLiters(foraneo);
+  const litros = roundLiters(litros_local + litros_foraneo);
+
+  const cargas: FuelPeriodCarga[] = [...byCarga.values()].map((acc) => {
+    const km = [...acc.tripIds].reduce((sum, id) => sum + (opts.periodKmByTrip.get(id) ?? 0), 0);
+    const litrosCarga = roundLiters(acc.litros);
+    return {
+      carga_id: acc.carga_id,
+      origen: acc.origen,
+      folio: acc.folio,
+      fecha: acc.fecha,
+      ubicacion: acc.ubicacion,
+      tipo: acc.es_foraneo ? "foraneo" : "local",
+      litros: litrosCarga,
+      km,
+      rendimiento: litrosCarga > 0 && km > 0 ? roundLiters(km / litrosCarga) : null,
+    };
+  });
+
+  cargas.sort((a, b) => {
+    if (a.fecha !== b.fecha) return a.fecha < b.fecha ? -1 : 1;
+    return (a.folio ?? a.carga_id).localeCompare(b.folio ?? b.carga_id);
+  });
+
+  return { litros, litros_local, litros_foraneo, cargas };
+}
+
 export async function fuelSummaryByTruck(
   tenantId: string,
   inicio: string,
@@ -1011,25 +1114,78 @@ export async function fuelSummaryByTruck(
     const confirmedIds = new Set(
       truckTickets.filter((ticket) => ticket.prorrateo_confirmado_at != null).map((ticket) => String(ticket.id)),
     );
-    const confirmed = assignments
-      .filter((row) => confirmedIds.has(String(row.fuel_ticket_id)) && row.litros_asignados != null)
-      .map((row) => ({ trip_id: String(row.trip_id), litros: num(row.litros_asignados) }));
+    const ticketById = new Map(truckTickets.map((ticket) => [String(ticket.id), ticket]));
     const truckTrips = allTrips.filter((trip) => String(trip.truck_id) === tid);
     const pendingBlocks = buildTankBlocks(truckTickets, truckTrips).filter((block) => pendingIds.has(block.ticket_id));
-    const orphanLoads = orphanLoadRows
-      .filter((load) => periodTripIds.has(String(load.trip_id)))
-      .map((load) => ({ trip_id: String(load.trip_id), litros: num(load.litros) }));
-    const litros = sumLitersForPeriod({ periodTripIds, confirmed, pendingBlocks, orphanLoads });
+    const parts: FuelPeriodPart[] = [];
 
-    if (litros === 0 && km === 0 && truckPeriodTrips.length === 0) continue;
+    for (const row of assignments) {
+      if (!confirmedIds.has(String(row.fuel_ticket_id)) || row.litros_asignados == null) continue;
+      const ticket = ticketById.get(String(row.fuel_ticket_id));
+      if (!ticket) continue;
+      parts.push({
+        carga_id: String(row.fuel_ticket_id),
+        origen: "ticket",
+        folio: ticket.folio ?? null,
+        fecha: dateOnly(ticket.fecha),
+        ubicacion: ticket.ubicacion,
+        es_foraneo: !!ticket.es_foraneo,
+        trip_id: String(row.trip_id),
+        litros: num(row.litros_asignados),
+      });
+    }
+
+    for (const block of pendingBlocks) {
+      const ticket = ticketById.get(block.ticket_id);
+      for (const viaje of block.viajes) {
+        parts.push({
+          carga_id: block.ticket_id,
+          origen: "ticket",
+          folio: ticket?.folio ?? null,
+          fecha: block.fecha,
+          ubicacion: block.ubicacion,
+          es_foraneo: !!block.es_foraneo,
+          trip_id: viaje.trip_id,
+          litros: viaje.litros_asignados,
+        });
+      }
+    }
+
+    for (const load of orphanLoadRows) {
+      if (!periodTripIds.has(String(load.trip_id))) continue;
+      parts.push({
+        carga_id: String(load.id),
+        origen: "sin_ticket",
+        folio: null,
+        fecha: dateOnly(load.fecha),
+        ubicacion: load.ubicacion,
+        es_foraneo: !!load.es_foraneo,
+        trip_id: String(load.trip_id),
+        litros: num(load.litros),
+      });
+    }
+
+    const periodKmByTrip = new Map(
+      truckPeriodTrips.map((trip) => [String(trip.id), tripKmRecorridos(trip)]),
+    );
+    const split = splitFuelPeriod({ periodTripIds, periodKmByTrip, parts });
+    const rendimientoDe = (litrosCorte: number) =>
+      litrosCorte > 0 ? Math.round((km / litrosCorte) * 100) / 100 : null;
+
+    if (split.litros === 0 && km === 0 && truckPeriodTrips.length === 0) continue;
     rows.push({
       truck_id: tid,
       numero_economico: truck.numero_economico,
       placas: truck.placas,
       viajes: truckPeriodTrips.length,
       km_recorridos: km,
-      litros,
-      rendimiento: litros > 0 ? Math.round((km / litros) * 100) / 100 : null,
+      litros: split.litros,
+      rendimiento: rendimientoDe(split.litros),
+      litros_local: split.litros_local,
+      litros_foraneo: split.litros_foraneo,
+      rendimiento_local: rendimientoDe(split.litros_local),
+      rendimiento_foraneo: rendimientoDe(split.litros_foraneo),
+      cargas: split.cargas,
     });
   }
 
