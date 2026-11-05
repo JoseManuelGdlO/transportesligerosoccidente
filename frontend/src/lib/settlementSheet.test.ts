@@ -93,6 +93,8 @@ describe("buildSettlementSheet descuentos", () => {
     expect(lines.map((line) => line.label)).toEqual([
       "Comisión",
       "Compensaciones",
+      "Viáticos entregados",
+      "Viáticos comprobados",
       "Viáticos a favor",
       "Nomina",
       "Multa patio",
@@ -106,6 +108,21 @@ describe("buildSettlementSheet descuentos", () => {
     expect(lines.find((line) => line.label === "Anticipos")?.amount).toBe(200);
     expect(lines.find((line) => line.label === "Neto a pagar")?.amount).toBe(7602.8);
     expect(lines.some((line) => line.label === "Descuentos")).toBe(false);
+  });
+
+  it("muestra entregados y comprobados como referencia sin alterar el subtotal", () => {
+    const lines = labels({
+      viaticos_entregados: 2800,
+      viaticos_comprobados: 2100,
+      saldo_viaticos: -700,
+      neto_pagar: 6902.8,
+    });
+
+    expect(lines).toContainEqual({ label: "Viáticos entregados", amount: 2800, kind: "note" });
+    expect(lines).toContainEqual({ label: "Viáticos comprobados", amount: 2100, kind: "note" });
+    expect(lines).toContainEqual({ label: "Viáticos a favor", amount: 0, kind: "add" });
+    expect(lines).toContainEqual({ label: "Viáticos no comprobados", amount: 700, kind: "sub" });
+    expect(lines.find((line) => line.label === "Subtotal")?.amount).toBe(6902.8);
   });
 
   it("usa el tipo cuando la descripción está vacía o es el texto automático", () => {

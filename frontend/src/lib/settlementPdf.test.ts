@@ -81,6 +81,9 @@ describe("buildSettlementPdf hoja de liquidación", () => {
     expect(text).toContain("Adeudo");
     expect(text).toContain("Abono a cuenta");
     expect(text).toContain("Resumen");
+    expect(text).toContain("Viáticos entregados");
+    expect(text).toContain("Viáticos comprobados");
+    expect(text).toContain("Viáticos no comprobados");
     expect(text).toContain("Neto a pagar");
     expect(text).toContain("Viajes");
     expect(text).toContain("Cliente");

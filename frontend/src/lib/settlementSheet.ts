@@ -145,6 +145,8 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
 
   const comisiones = roundMoney(num(summary.total_comisiones));
   const compensaciones = roundMoney(num(summary.total_compensaciones));
+  const viaticosEntregados = roundMoney(num(summary.viaticos_entregados));
+  const viaticosComprobados = roundMoney(num(summary.viaticos_comprobados));
   const saldoViaticos = roundMoney(num(summary.saldo_viaticos));
   const descuentos = roundMoney(num(summary.total_descuentos));
   const anticipos = roundMoney(num(summary.total_anticipos));
@@ -164,6 +166,8 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
   const lines: SettlementSheetLine[] = [
     { label: "Comisión", amount: comisiones, kind: "plain" },
     { label: "Compensaciones", amount: compensaciones, kind: "add" },
+    { label: "Viáticos entregados", amount: viaticosEntregados, kind: "note" },
+    { label: "Viáticos comprobados", amount: viaticosComprobados, kind: "note" },
     { label: "Viáticos a favor", amount: viaticosAFavor(saldoViaticos), kind: "add" },
     ...discountSheetLines(summary, descuentos),
     { label: "Anticipos", amount: anticipos, kind: "sub" },
