@@ -7,7 +7,7 @@ import { startOfWeek, endOfWeek, startOfMonth, endOfMonth, fmtDate, fmtMXN, fmtN
 import { weekRowCountsInPayroll } from "@/lib/weekSettlement";
 import { downloadSettlementPdf, loadPdfLogoDataUrl } from "@/lib/settlementPdf";
 import { settlementSummaryWithClientNames } from "@/lib/clientDisplayName";
-import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes, overlayLiveComisionOverrides } from "@/lib/settlementSnapshot";
+import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, applySettlementFlete, buildTripInclusionsFromTrips, buildLiveTripInclusionsFromTrips, buildFleteLiquidacionFromTrips, tripInclusionsPayload, fleteLiquidacionPayload, enrichSnapshotTripRoutes, overlayLiveComisionOverrides } from "@/lib/settlementSnapshot";
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
@@ -145,7 +145,7 @@ export default function Liquidaciones() {
       const res = await apiFetch(`/settlements/summary?${q}`);
       const data = await readJson<SettlementSummaryApi>(res);
       setSummary(data);
-      setTripInclusions(buildTripInclusionsFromTrips(data.trips));
+      setTripInclusions(buildLiveTripInclusionsFromTrips(data.trips));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cargar resumen");
       setSummary(null);
@@ -906,11 +906,12 @@ export default function Liquidaciones() {
                 onTripInclusionChange={(tripId, included) => {
                   setTripInclusions((prev) => ({ ...prev, [tripId]: included }));
                 }}
-                onSelectAllTrips={(included) => {
-                  if (!summary) return;
-                  setTripInclusions(
-                    Object.fromEntries(summary.trips.map((t) => [t.id, included])),
-                  );
+                onSelectAllTrips={(included, tripIds) => {
+                  setTripInclusions((prev) => {
+                    const next = { ...prev };
+                    for (const id of tripIds) next[id] = included;
+                    return next;
+                  });
                 }}
                 onFleteLiquidacionChange={
                   canClose && summarySource === "live"

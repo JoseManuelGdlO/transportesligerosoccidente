@@ -118,6 +118,15 @@ export function buildTripInclusionsFromTrips(trips: { id: string; included?: boo
   return Object.fromEntries(trips.map((t) => [t.id, t.included !== false]));
 }
 
+/** Inclusiones al cargar liquidación en vivo: fuera de periodo nace excluido. */
+export function buildLiveTripInclusionsFromTrips(
+  trips: { id: string; included?: boolean; en_periodo?: boolean }[],
+): Record<string, boolean> {
+  return Object.fromEntries(
+    trips.map((t) => [t.id, t.en_periodo === false ? false : t.included !== false]),
+  );
+}
+
 export function tripInclusionsPayload(inclusions: Record<string, boolean>): TripInclusionPayload[] {
   return Object.entries(inclusions).map(([id, included]) => ({ id, included }));
 }

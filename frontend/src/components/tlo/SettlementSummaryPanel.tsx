@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { Table, TableBody, TableCell, TableFooter, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Checkbox } from "@/components/ui/checkbox";
+import { Label } from "@/components/ui/label";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, Gift, HandCoins, CircleMinus, CircleDollarSign } from "lucide-react";
 
@@ -112,7 +113,7 @@ interface SettlementSummaryPanelProps {
   canSelectTrips?: boolean;
   tripInclusions?: Record<string, boolean>;
   onTripInclusionChange?: (tripId: string, included: boolean) => void;
-  onSelectAllTrips?: (included: boolean) => void;
+  onSelectAllTrips?: (included: boolean, tripIds: string[]) => void;
   onFleteLiquidacionChange?: (tripId: string, monto: number | null) => void;
   clients?: Client[];
   usarAlias?: boolean;
@@ -144,10 +145,13 @@ export function SettlementSummaryPanel({
   clients = [],
   usarAlias = false,
 }: SettlementSummaryPanelProps) {
+  const [showOutOfPeriodTrips, setShowOutOfPeriodTrips] = useState(false);
   const showFinanceForms = !readOnly && canEditFinance;
-  const sortedTrips = [...summary.trips].sort((a, b) =>
-    a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" }),
-  );
+  const hasOutOfPeriodTrips = summary.trips.some((t) => t.en_periodo === false);
+  // En vivo se ocultan fuera de periodo salvo el check; en snapshot se muestran todos.
+  const sortedTrips = [...summary.trips]
+    .filter((t) => !canSelectTrips || showOutOfPeriodTrips || t.en_periodo !== false)
+    .sort((a, b) => a.folio.localeCompare(b.folio, undefined, { numeric: true, sensitivity: "base" }));
   const includedTripCount = summary.trips.filter((t) => {
     if (tripInclusions) return tripInclusions[t.id] !== false;
     return t.included !== false;
@@ -162,10 +166,23 @@ export function SettlementSummaryPanel({
     );
   // Snapshot de pre-liquidación: casillas visibles pero bloqueadas; el padre sí cableó el cambio.
   const showSnapshotInclusionHint = !canSelectTrips && Boolean(onTripInclusionChange);
+  const showOutOfPeriodToggle = canSelectTrips && hasOutOfPeriodTrips;
 
   const isTripIncluded = (tripId: string, tripIncluded?: boolean) => {
     if (tripInclusions) return tripInclusions[tripId] !== false;
     return tripIncluded !== false;
+  };
+
+  const excludeOutOfPeriodTrips = () => {
+    if (!onTripInclusionChange) return;
+    for (const t of summary.trips) {
+      if (t.en_periodo === false) onTripInclusionChange(t.id, false);
+    }
+  };
+
+  const handleShowOutOfPeriodChange = (checked: boolean) => {
+    setShowOutOfPeriodTrips(checked);
+    if (!checked) excludeOutOfPeriodTrips();
   };
 
   const includedInSortedTrips = sortedTrips.filter((t) => isTripIncluded(t.id, t.included)).length;
@@ -535,7 +552,21 @@ export function SettlementSummaryPanel({
       </div>
 
       <Card className="tlo-shadow-md">
-        <CardHeader><CardTitle className="text-base">Viajes del periodo</CardTitle></CardHeader>
+        <CardHeader className="flex flex-row flex-wrap items-center justify-between gap-3 space-y-0">
+          <CardTitle className="text-base">Viajes del periodo</CardTitle>
+          {showOutOfPeriodToggle && (
+            <div className="flex items-center gap-2">
+              <Checkbox
+                id="mostrar-viajes-fuera-periodo"
+                checked={showOutOfPeriodTrips}
+                onCheckedChange={(checked) => handleShowOutOfPeriodChange(checked === true)}
+              />
+              <Label htmlFor="mostrar-viajes-fuera-periodo" className="text-sm font-normal">
+                Mostrar viajes fuera del periodo
+              </Label>
+            </div>
+          )}
+        </CardHeader>
         <CardContent className="p-0">
           <Table>
             <TableHeader>
@@ -548,7 +579,12 @@ export function SettlementSummaryPanel({
                           checked={selectAllChecked}
                           disabled={sortedTrips.length === 0}
                           aria-label="Incluir o excluir todos los viajes"
-                          onCheckedChange={(checked) => onSelectAllTrips(checked === true)}
+                          onCheckedChange={(checked) =>
+                            onSelectAllTrips(
+                              checked === true,
+                              sortedTrips.map((t) => t.id),
+                            )
+                          }
                         />
                       )}
                       <span>Incluir</span>

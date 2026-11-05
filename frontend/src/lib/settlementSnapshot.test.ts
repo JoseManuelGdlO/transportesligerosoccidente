@@ -2,6 +2,8 @@ import { describe, expect, it } from "vitest";
 import {
   applySettlementFlete,
   applyTripInclusions,
+  buildLiveTripInclusionsFromTrips,
+  buildTripInclusionsFromTrips,
   fleteLiquidacionPayload,
   overlayLiveComisionOverrides,
   settlementFlete,
@@ -166,6 +168,37 @@ describe("snapshotToPdfSummary", () => {
     const pdf = snapshotToPdfSummary(snapshot);
 
     expect(pdf.account_items).toEqual(items);
+  });
+});
+
+describe("buildTripInclusionsFromTrips", () => {
+  it("respeta included del snapshot aunque esté fuera del periodo", () => {
+    const carry = trip("carry", 1000, true);
+    carry.en_periodo = false;
+    const current = trip("current", 2000, true);
+    current.en_periodo = true;
+
+    expect(buildTripInclusionsFromTrips([carry, current])).toEqual({
+      carry: true,
+      current: true,
+    });
+  });
+});
+
+describe("buildLiveTripInclusionsFromTrips", () => {
+  it("excluye viajes fuera del periodo aunque el API los mande incluidos", () => {
+    const carry = trip("carry", 1000, true);
+    carry.en_periodo = false;
+    const current = trip("current", 2000, true);
+    current.en_periodo = true;
+    const alreadyOut = trip("out", 500, false);
+    alreadyOut.en_periodo = false;
+
+    expect(buildLiveTripInclusionsFromTrips([carry, current, alreadyOut])).toEqual({
+      carry: false,
+      current: true,
+      out: false,
+    });
   });
 });
 
