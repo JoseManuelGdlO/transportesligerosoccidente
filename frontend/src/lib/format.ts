@@ -66,14 +66,14 @@ export function formatTripRoute(
   if (trip.route_nombre?.trim()) {
     return trip.route_nombre.trim().replace(/\s*\/\s*/g, " → ");
   }
-  if (trip.ruta_resumen?.trim()) return trip.ruta_resumen.trim();
+  if (trip.ruta_resumen?.trim()) return trip.ruta_resumen.trim().toUpperCase();
   if (trip.paradas && trip.paradas.length >= 2) {
     return [...trip.paradas]
       .sort((a, b) => a.orden - b.orden)
-      .map((p) => p.etiqueta)
+      .map((p) => p.etiqueta.trim().toUpperCase())
       .join(" → ");
   }
-  return `${trip.origen} → ${trip.destino}`;
+  return `${trip.origen.trim().toUpperCase()} → ${trip.destino.trim().toUpperCase()}`;
 }
 
 export const fmtDateTime = (iso?: string) => {

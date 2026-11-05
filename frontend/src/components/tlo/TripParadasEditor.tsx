@@ -12,10 +12,15 @@ type Props = {
   disabled?: boolean;
 };
 
+/** Ubicación de parada: trim + mayúsculas (mismo criterio que el API). */
+export function normalizeParadaEtiqueta(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 export function paradasToTripStops(paradas: ParadaDraft[]): TripStop[] {
   return paradas.map((p, i) => ({
     orden: i + 1,
-    etiqueta: p.etiqueta.trim(),
+    etiqueta: normalizeParadaEtiqueta(p.etiqueta),
     client_ubicacion_id: p.client_ubicacion_id,
   }));
 }
@@ -23,13 +28,16 @@ export function paradasToTripStops(paradas: ParadaDraft[]): TripStop[] {
 export function tripStopsToParadas(stops: TripStop[]): ParadaDraft[] {
   return [...stops]
     .sort((a, b) => a.orden - b.orden)
-    .map((s) => ({ etiqueta: s.etiqueta, client_ubicacion_id: s.client_ubicacion_id }));
+    .map((s) => ({
+      etiqueta: normalizeParadaEtiqueta(s.etiqueta),
+      client_ubicacion_id: s.client_ubicacion_id,
+    }));
 }
 
 export function TripParadasEditor({ paradas, onChange, disabled }: Props) {
   const update = (index: number, etiqueta: string) => {
     const next = [...paradas];
-    next[index] = { ...next[index], etiqueta };
+    next[index] = { ...next[index], etiqueta: etiqueta.toUpperCase() };
     onChange(next);
   };
 

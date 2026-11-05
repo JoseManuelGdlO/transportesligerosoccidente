@@ -7,8 +7,13 @@ export type ParadaInput = {
   client_ubicacion_id?: string | null;
 };
 
+/** Etiqueta de ubicación/parada: trim + mayúsculas. */
+export function normalizeEtiqueta(value: string): string {
+  return value.trim().toUpperCase();
+}
+
 export function formatRutaResumen(paradas: { etiqueta: string }[]): string {
-  return paradas.map((p) => p.etiqueta.trim()).filter(Boolean).join(" → ");
+  return paradas.map((p) => normalizeEtiqueta(p.etiqueta)).filter(Boolean).join(" → ");
 }
 
 export function deriveOrigenDestino(paradas: ParadaInput[]): { origen: string; destino: string } {
@@ -18,8 +23,8 @@ export function deriveOrigenDestino(paradas: ParadaInput[]): { origen: string; d
     throw err;
   }
   return {
-    origen: paradas[0].etiqueta.trim(),
-    destino: paradas[paradas.length - 1].etiqueta.trim(),
+    origen: normalizeEtiqueta(paradas[0].etiqueta),
+    destino: normalizeEtiqueta(paradas[paradas.length - 1].etiqueta),
   };
 }
 
@@ -31,14 +36,17 @@ export function normalizeParadasInput(
   if (input?.paradas && input.paradas.length >= 2) {
     return input.paradas.map((p) =>
       typeof p === "string"
-        ? { etiqueta: p.trim() }
-        : { etiqueta: p.etiqueta.trim(), client_ubicacion_id: p.client_ubicacion_id ?? null },
+        ? { etiqueta: normalizeEtiqueta(p) }
+        : {
+            etiqueta: normalizeEtiqueta(p.etiqueta),
+            client_ubicacion_id: p.client_ubicacion_id ?? null,
+          },
     );
   }
   if (input?.origen && input?.destino) {
     return [
-      { etiqueta: input.origen.trim() },
-      { etiqueta: input.destino.trim() },
+      { etiqueta: normalizeEtiqueta(input.origen) },
+      { etiqueta: normalizeEtiqueta(input.destino) },
     ];
   }
   const err = new Error("Indica paradas (mínimo 2) u origen y destino");
@@ -61,7 +69,7 @@ export async function saveTripStops(
         tenant_id: tenantId,
         trip_id: tripId,
         orden: i + 1,
-        etiqueta: p.etiqueta,
+        etiqueta: normalizeEtiqueta(p.etiqueta),
         client_ubicacion_id: p.client_ubicacion_id ?? null,
       } as never,
       { transaction: t },

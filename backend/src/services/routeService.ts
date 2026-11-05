@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import { Route, RouteStop, Client } from "../models";
 import type { ParadaInput } from "./tripStopService";
-import { formatRutaResumen } from "./tripStopService";
+import { formatRutaResumen, normalizeEtiqueta } from "./tripStopService";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -18,7 +18,7 @@ async function saveRouteStops(routeId: string, paradas: ParadaInput[]) {
       id: randomUUID(),
       route_id: routeId,
       orden: i + 1,
-      etiqueta: p.etiqueta,
+      etiqueta: normalizeEtiqueta(p.etiqueta),
       client_ubicacion_id: p.client_ubicacion_id ?? null,
     } as never);
   }
@@ -64,7 +64,7 @@ export async function getRouteStopsForTrip(tenantId: string, routeId: string): P
   const stops = route.stops ?? [];
   if (stops.length < 2) throw err("La ruta del catálogo debe tener al menos 2 paradas");
   return stops.map((s) => ({
-    etiqueta: s.etiqueta,
+    etiqueta: normalizeEtiqueta(s.etiqueta),
     client_ubicacion_id: s.client_ubicacion_id,
   }));
 }

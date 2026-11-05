@@ -7,7 +7,11 @@ import { Label } from "@/components/ui/label";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from "@/components/ui/dialog";
-import { TripParadasEditor, type ParadaDraft } from "@/components/tlo/TripParadasEditor";
+import {
+  TripParadasEditor,
+  normalizeParadaEtiqueta,
+  type ParadaDraft,
+} from "@/components/tlo/TripParadasEditor";
 import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import { Plus, Pencil, Trash2 } from "lucide-react";
 import { toast } from "sonner";
@@ -79,7 +83,10 @@ export default function Rutas() {
     setTipoViaje(r.tipo_viaje ?? "");
     setParadas(
       r.paradas.length >= 2
-        ? r.paradas.map((p) => ({ etiqueta: p.etiqueta, client_ubicacion_id: p.client_ubicacion_id }))
+        ? r.paradas.map((p) => ({
+            etiqueta: normalizeParadaEtiqueta(p.etiqueta),
+            client_ubicacion_id: p.client_ubicacion_id,
+          }))
         : emptyParadas(),
     );
     setOpen(true);
@@ -101,7 +108,7 @@ export default function Rutas() {
         client_id: clientId || null,
         tipo_viaje: tipoViaje || null,
         paradas: valid.map((p) => ({
-          etiqueta: p.etiqueta.trim(),
+          etiqueta: normalizeParadaEtiqueta(p.etiqueta),
           client_ubicacion_id: p.client_ubicacion_id ?? null,
         })),
       };

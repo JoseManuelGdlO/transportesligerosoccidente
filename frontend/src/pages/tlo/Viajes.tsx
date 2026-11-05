@@ -21,6 +21,7 @@ import { Select, SelectContent, SelectItem, SelectSeparator, SelectTrigger, Sele
 import { TripStatusesPicker, MarginBadge } from "@/components/tlo/StatusBadge";
 import {
   TripParadasEditor,
+  normalizeParadaEtiqueta,
   paradasToTripStops,
   type ParadaDraft,
 } from "@/components/tlo/TripParadasEditor";
@@ -485,7 +486,7 @@ export default function Viajes() {
     if (!r) return;
     setParadas(
       r.paradas.map((p) => ({
-        etiqueta: p.etiqueta,
+        etiqueta: normalizeParadaEtiqueta(p.etiqueta),
         client_ubicacion_id: p.client_ubicacion_id,
       })),
     );

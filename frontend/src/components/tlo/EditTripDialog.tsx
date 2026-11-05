@@ -24,6 +24,7 @@ import {
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import {
   TripParadasEditor,
+  normalizeParadaEtiqueta,
   paradasToTripStops,
   tripStopsToParadas,
   type ParadaDraft,
@@ -106,7 +107,10 @@ function tripToParadas(trip: Trip): ParadaDraft[] {
   if (trip.paradas && trip.paradas.length >= 2) {
     return tripStopsToParadas(trip.paradas);
   }
-  return [{ etiqueta: trip.origen }, { etiqueta: trip.destino }];
+  return [
+    { etiqueta: normalizeParadaEtiqueta(trip.origen) },
+    { etiqueta: normalizeParadaEtiqueta(trip.destino) },
+  ];
 }
 
 type Props = {
@@ -190,7 +194,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
     if (!r) return;
     setParadas(
       r.paradas.map((p) => ({
-        etiqueta: p.etiqueta,
+        etiqueta: normalizeParadaEtiqueta(p.etiqueta),
         client_ubicacion_id: p.client_ubicacion_id,
       })),
     );
