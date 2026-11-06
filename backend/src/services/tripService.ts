@@ -35,6 +35,7 @@ import {
   DEFAULT_CFDI_CLAVE_UNIDAD,
   DEFAULT_CFDI_UNIDAD,
 } from "../types/tripCfdiConcepto";
+import { cartaVisible } from "./cartaPorteSelection";
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -97,12 +98,21 @@ export async function putCfdiConceptos(
   tripId: string,
   rawConceptos: unknown[],
 ): Promise<Trip> {
-  const conceptos = normalizeCfdiConceptosInput(rawConceptos);
   const trip = await getTripOrThrow(tenantId, tripId, false);
-  const cp = await CartaPorte.findOne({ where: { trip_id: trip.id, tenant_id: tenantId } });
-  if (cp?.estatus === "timbrada") {
+  const cartas = await CartaPorte.findAll({
+    where: { trip_id: trip.id, tenant_id: tenantId },
+    order: [["created_at", "ASC"]],
+  });
+  const visible = cartaVisible(cartas);
+  if (visible?.estatus === "timbrada") {
     throw httpError("No se pueden editar conceptos de un CFDI ya timbrado", 400);
   }
+  if (visible && (visible.estatus === "borrador" || visible.estatus === "error")) {
+    const { putConceptosCarta } = await import("./cartaPorteService");
+    await putConceptosCarta(tenantId, tripId, visible.id, rawConceptos);
+    return getTripOrThrow(tenantId, tripId, true, undefined, true);
+  }
+  const conceptos = normalizeCfdiConceptosInput(rawConceptos);
   const tarifa = sumCfdiConceptosTarifa(conceptos);
   await trip.update({ cfdi_conceptos: conceptos, tarifa: String(tarifa) });
   return getTripOrThrow(tenantId, tripId, true, undefined, true);

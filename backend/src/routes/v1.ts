@@ -220,6 +220,12 @@ r.put(
   requirePermission("cartaporte.timbrar"),
   tripC.putCfdiConceptos,
 );
+r.put(
+  "/trips/:id/cartas-porte/:cartaId/conceptos",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.putConceptosCarta,
+);
 r.put("/trips/:id/statuses", authenticateJwt, requirePermission("viajes.crear"), tripStatusC.putTripStatuses);
 r.post("/trips/:id/close", authenticateJwt, requirePermission("viajes.cerrar"), tripC.postCloseTrip);
 r.delete("/trips/:id", authenticateJwt, requirePermission("viajes.eliminar"), tripC.deleteTrip);

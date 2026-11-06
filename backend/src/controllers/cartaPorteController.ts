@@ -263,3 +263,32 @@ export const deleteMercancia = asyncHandler(async (req: Request, res: Response) 
   await tripFiscalService.removeMercancia(tid(req), req.params.id, req.params.mercanciaId);
   res.status(204).send();
 });
+
+const cfdiConceptoSchema = z.object({
+  clave_prod_serv: z.string().min(1),
+  cantidad: z.number().positive(),
+  clave_unidad: z.string().min(1),
+  unidad: z.string().min(1),
+  descripcion: z.string().min(1),
+  valor_unitario: z.number().min(0),
+  objeto_imp: z.enum(["01", "02"]).optional(),
+});
+
+const putCfdiConceptosSchema = z.object({
+  conceptos: z.array(cfdiConceptoSchema).min(1),
+});
+
+export const putConceptosCarta = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = putCfdiConceptosSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const cp = await cartaPorteService.putConceptosCarta(
+    tid(req),
+    req.params.id,
+    req.params.cartaId,
+    parsed.data.conceptos,
+  );
+  res.json(cartaPorteToJson(cp));
+});

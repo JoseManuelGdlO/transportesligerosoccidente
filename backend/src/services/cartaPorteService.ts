@@ -15,7 +15,7 @@ import {
   TripMercancia,
   sequelize,
 } from "../models";
-import { getTripOrThrow } from "./tripService";
+import { getTripOrThrow, normalizeCfdiConceptosInput, sumCfdiConceptosTarifa } from "./tripService";
 import { STATUSES_INCLUDE, tripHasStatusSlug } from "./tripStatusService";
 import { getPacProvider } from "./pac";
 import { buildFactura40Payload } from "./pac/sicofi/buildFactura40Payload";
@@ -34,7 +34,7 @@ import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
-import { cartaVisible } from "./cartaPorteSelection";
+import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -100,6 +100,27 @@ export async function requireCarta(tenantId: string, tripId: string, cartaId: st
     where: { id: cartaId, tenant_id: tenantId, trip_id: tripId },
   });
   if (!cp) throw err("Carta porte no encontrada", 404);
+  return cp;
+}
+
+export async function putConceptosCarta(
+  tenantId: string,
+  tripId: string,
+  cartaId: string,
+  rawConceptos: unknown[],
+): Promise<CartaPorte> {
+  const conceptos = normalizeCfdiConceptosInput(rawConceptos);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
+  if (cp.estatus === "timbrada") {
+    throw err("No se pueden editar conceptos de un CFDI ya timbrado", 400);
+  }
+  await cp.update({ cfdi_conceptos: conceptos } as never);
+  const cartas = await listCartasPorte(tenantId, tripId);
+  const oldest = cartas[0];
+  if (oldest?.id === cp.id && !algunaCartaTimbrada(cartas)) {
+    await trip.update({ cfdi_conceptos: conceptos, tarifa: String(sumCfdiConceptosTarifa(conceptos)) });
+  }
   return cp;
 }
 
