@@ -771,14 +771,10 @@ export async function getCartaPortePdf(
 
   const storedRel = cp.pdf_path ? normalizeUploadRelPath(cp.pdf_path) : null;
   const storedAbs = storedRel ? uploadAbsFromRel(storedRel) : null;
-  const legacyAbs = uploadAbsFromRel(cartaPortePdfRelPath(tenantId, tripId));
   const storedIsLegacy = Boolean(storedRel && pathPointsToLegacyTripFile(storedRel, tripId));
 
   if (storedAbs && storedIsLegacy && existsSync(storedAbs)) {
     return { pdf: await readFile(storedAbs), filename };
-  }
-  if (cartaId !== tripId && existsSync(legacyAbs)) {
-    return { pdf: await readFile(legacyAbs), filename };
   }
 
   const { xml } = await getCartaPorteXml(tenantId, tripId, cartaId);
@@ -808,10 +804,15 @@ export async function getCartaPorteXml(
 
   const byCartaPath = cartaPorteXmlAbsPath(tenantId, cartaId);
   const legacyPath = cartaPorteXmlAbsPath(tenantId, tripId);
+  const storedPdfRel = cp.pdf_path ? normalizeUploadRelPath(cp.pdf_path) : null;
   let xml: string | null = null;
   if (existsSync(byCartaPath)) {
     xml = await readFile(byCartaPath, "utf8");
-  } else if (cartaId !== tripId && existsSync(legacyPath)) {
+  } else if (
+    storedPdfRel &&
+    pathPointsToLegacyTripFile(storedPdfRel, tripId) &&
+    existsSync(legacyPath)
+  ) {
     xml = await readFile(legacyPath, "utf8");
   } else if (cp.xml_timbrado?.trim()) {
     xml = cp.xml_timbrado;
