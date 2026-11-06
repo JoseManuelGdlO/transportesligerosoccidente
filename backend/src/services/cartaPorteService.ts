@@ -34,6 +34,7 @@ import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
+import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -87,22 +88,56 @@ function domicilioAttrs(
   return parts.join("");
 }
 
+export async function listCartasPorte(tenantId: string, tripId: string): Promise<CartaPorte[]> {
+  return CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["created_at", "ASC"]],
+  });
+}
+
+export async function requireCarta(tenantId: string, tripId: string, cartaId: string): Promise<CartaPorte> {
+  const cp = await CartaPorte.findOne({
+    where: { id: cartaId, tenant_id: tenantId, trip_id: tripId },
+  });
+  if (!cp) throw err("Carta porte no encontrada", 404);
+  return cp;
+}
+
 export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
   await ensureUbicacionesFromClient(tenantId, tripId);
-  let cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
-  if (!cp) {
-    cp = await CartaPorte.create({
-      id: randomUUID(),
-      tenant_id: tenantId,
-      trip_id: tripId,
-      estatus: "borrador",
-      id_ccp: randomUUID(),
-      transporte_internacional: false,
-    } as never);
-  } else if (!cp.id_ccp) {
-    await cp.update({ id_ccp: randomUUID() } as never);
+  const rows = await listCartasPorte(tenantId, tripId);
+  const visible = cartaVisible(rows);
+  if (visible) {
+    if (!visible.id_ccp) await visible.update({ id_ccp: randomUUID() } as never);
+    return visible;
   }
-  return cp;
+  return CartaPorte.create({
+    id: randomUUID(),
+    tenant_id: tenantId,
+    trip_id: tripId,
+    estatus: "borrador",
+    id_ccp: randomUUID(),
+    transporte_internacional: false,
+    cfdi_conceptos: null,
+  } as never);
+}
+
+export async function crearCartaPorteAdicional(tenantId: string, tripId: string): Promise<CartaPorte> {
+  await getTripOrThrow(tenantId, tripId, false);
+  const rows = await listCartasPorte(tenantId, tripId);
+  if (!algunaCartaTimbrada(rows)) {
+    throw err("Debe existir una carta porte timbrada para agregar otra");
+  }
+  return CartaPorte.create({
+    id: randomUUID(),
+    tenant_id: tenantId,
+    trip_id: tripId,
+    estatus: "borrador",
+    id_ccp: randomUUID(),
+    folio_cfdi: null,
+    transporte_internacional: false,
+    cfdi_conceptos: null,
+  } as never);
 }
 
 export async function getCartaPorteForTrip(tenantId: string, tripId: string) {
@@ -111,9 +146,14 @@ export async function getCartaPorteForTrip(tenantId: string, tripId: string) {
 }
 
 /** Guarda el comentario que se imprime bajo el total en letra. */
-export async function updateCartaPorteComentarios(tenantId: string, tripId: string, raw: string | null) {
+export async function updateCartaPorteComentarios(
+  tenantId: string,
+  tripId: string,
+  cartaId: string,
+  raw: string | null,
+) {
   await getTripOrThrow(tenantId, tripId, false);
-  const cp = await getOrCreateCartaPorte(tenantId, tripId);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
   const comentarios = noIdentificacionFromComentarios(raw);
   await cp.update({ comentarios } as never);
   return cp;
@@ -177,13 +217,17 @@ export async function folioSugeridoForCarta(tenantId: string, cp: CartaPorte): P
 export async function reservarFolioCarta(
   tenantId: string,
   tripId: string,
+  cartaId: string,
   raw: string | number | null | undefined,
 ) {
   const issue = issueFolioTimbrable(raw);
   if (issue) throw err(issue);
   const folio = parseFolioEntero(raw)!;
   await getTripOrThrow(tenantId, tripId, false);
-  const existing = await getOrCreateCartaPorte(tenantId, tripId);
+  const existing = await CartaPorte.findByPk(cartaId);
+  if (!existing || existing.tenant_id !== tenantId || existing.trip_id !== tripId) {
+    throw err("Carta porte no encontrada", 404);
+  }
   if (existing.estatus === "timbrada" || existing.estatus === "cancelada") {
     throw err("No se puede cambiar el folio de una carta timbrada o cancelada");
   }
@@ -192,8 +236,10 @@ export async function reservarFolioCarta(
     async (t) => {
       const tenant = await Tenant.findByPk(tenantId, { transaction: t, lock: t.LOCK.UPDATE });
       if (!tenant) throw err("Empresa no encontrada", 404);
-      const cp = await CartaPorte.findByPk(existing.id, { transaction: t, lock: t.LOCK.UPDATE });
-      if (!cp) throw err("Carta porte no encontrada", 404);
+      const cp = await CartaPorte.findByPk(cartaId, { transaction: t, lock: t.LOCK.UPDATE });
+      if (!cp || cp.tenant_id !== tenantId || cp.trip_id !== tripId) {
+        throw err("Carta porte no encontrada", 404);
+      }
       if (cp.estatus === "timbrada" || cp.estatus === "cancelada") {
         throw err("No se puede cambiar el folio de una carta timbrada o cancelada");
       }
@@ -221,7 +267,7 @@ export async function reservarFolioCarta(
   );
 }
 
-async function loadTripContext(tenantId: string, tripId: string) {
+async function loadTripContext(tenantId: string, tripId: string, cartaId: string) {
   const trip = await Trip.findOne({
     where: { id: tripId, tenant_id: tenantId },
     include: [
@@ -238,7 +284,7 @@ async function loadTripContext(tenantId: string, tripId: string) {
   if (!trip) throw err("Viaje no encontrado", 404);
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant) throw err("Empresa no encontrada", 404);
-  const cartaPorte = await getOrCreateCartaPorte(tenantId, tripId);
+  const cartaPorte = await requireCarta(tenantId, tripId, cartaId);
   return { trip, tenant, cartaPorte };
 }
 
@@ -418,9 +464,16 @@ function buildTimbradoContext(
   opts?: TimbradoOpts,
   satMaterialPeligrosoByClave?: TimbradoContext["satMaterialPeligrosoByClave"],
 ): TimbradoContext {
+  const cartaConceptos = cartaPorte.cfdi_conceptos;
+  const tripForMapper =
+    Array.isArray(cartaConceptos) && cartaConceptos.length > 0
+      ? (Object.create(trip, {
+          cfdi_conceptos: { get: () => cartaConceptos, enumerable: true, configurable: true },
+        }) as Trip)
+      : trip;
   return {
     tipo,
-    trip,
+    trip: tripForMapper,
     tenant,
     cartaPorte,
     ubicaciones,
@@ -445,13 +498,14 @@ async function satMaterialPeligrosoForMercancias(
 export async function previewCartaPorte(
   tenantId: string,
   tripId: string,
+  cartaId: string,
   tipo: "ingreso" | "traslado" = "traslado",
   opts?: TimbradoOpts,
 ) {
   if (opts?.comentarios !== undefined) {
-    await updateCartaPorteComentarios(tenantId, tripId, opts.comentarios);
+    await updateCartaPorteComentarios(tenantId, tripId, cartaId, opts.comentarios);
   }
-  const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId);
+  const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId, cartaId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
@@ -516,10 +570,11 @@ export async function previewCartaPorte(
 export async function timbrarCartaPorte(
   tenantId: string,
   tripId: string,
+  cartaId: string,
   tipo: "ingreso" | "traslado" = "traslado",
   opts?: TimbradoOpts,
 ) {
-  const preview = await previewCartaPorte(tenantId, tripId, tipo, opts);
+  const preview = await previewCartaPorte(tenantId, tripId, cartaId, tipo, opts);
   if (!preview.valid) {
     throw err(preview.issues.join("; ") || "Datos incompletos para timbrar");
   }
@@ -527,9 +582,9 @@ export async function timbrarCartaPorte(
     throw err("La carta porte ya está timbrada");
   }
   const folioRaw = opts?.folio ?? preview.cartaPorte.folio_cfdi;
-  await reservarFolioCarta(tenantId, tripId, folioRaw);
+  await reservarFolioCarta(tenantId, tripId, cartaId, folioRaw);
   const stampOpts: TimbradoOpts = { ...opts, folio: parseFolioEntero(folioRaw)! };
-  const { trip, tenant } = await loadTripContext(tenantId, tripId);
+  const { trip, tenant } = await loadTripContext(tenantId, tripId, cartaId);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
@@ -543,7 +598,7 @@ export async function timbrarCartaPorte(
   );
   const ubicaciones = enrichedStamp.ubicaciones;
   const mercancias = (trip as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
-  const cp = await getOrCreateCartaPorte(tenantId, tripId);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
   if (cp.estatus === "timbrada") {
     throw err("La carta porte ya está timbrada");
   }
@@ -566,9 +621,9 @@ export async function timbrarCartaPorte(
     const result = await pac.timbrar(ctx);
     const dir = path.join(uploadRootDir(), tenantId, "cartas-porte");
     await mkdir(dir, { recursive: true });
-    const xmlPath = path.join(dir, `${tripId}.xml`);
+    const xmlPath = cartaPorteXmlAbsPath(tenantId, cartaId);
     await writeFile(xmlPath, result.xmlTimbrado, "utf8");
-    const pdfRelPath = cartaPortePdfRelPath(tenantId, tripId);
+    const pdfRelPath = cartaPortePdfRelPath(tenantId, cartaId);
     const pdfPath = uploadAbsFromRel(pdfRelPath);
     let pdfStored: string | null = null;
     try {
@@ -646,8 +701,17 @@ function pdfSourceFromTrip(trip: Trip, comentarios?: string | null): CartaPorteP
 }
 
 /** Ruta relativa al upload root, siempre con `/` (portable entre OS). */
-function cartaPortePdfRelPath(tenantId: string, tripId: string): string {
-  return `${tenantId}/cartas-porte/${tripId}.pdf`;
+function cartaPortePdfRelPath(tenantId: string, cartaId: string): string {
+  return `${tenantId}/cartas-porte/${cartaId}.pdf`;
+}
+
+function cartaPorteXmlAbsPath(tenantId: string, cartaId: string): string {
+  return path.join(uploadRootDir(), tenantId, "cartas-porte", `${cartaId}.xml`);
+}
+
+function pathPointsToLegacyTripFile(relOrAbs: string, tripId: string): boolean {
+  const normalized = relOrAbs.replace(/\\/g, "/");
+  return normalized.endsWith(`/${tripId}.pdf`) || normalized.endsWith(`/${tripId}.xml`);
 }
 
 function normalizeUploadRelPath(rel: string): string {
@@ -688,10 +752,10 @@ function cartaPortePdfFilename(cp: CartaPorte, trip: Trip): string {
 export async function getCartaPortePdf(
   tenantId: string,
   tripId: string,
+  cartaId: string,
 ): Promise<{ pdf: Buffer; filename: string }> {
   await getTripOrThrow(tenantId, tripId, false);
-  const cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
-  if (!cp) throw err("Carta porte no encontrada", 404);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
   if (cp.estatus !== "timbrada" && cp.estatus !== "cancelada") {
     throw err("El PDF solo está disponible para cartas timbradas o canceladas", 404);
   }
@@ -701,39 +765,58 @@ export async function getCartaPortePdf(
   });
   if (!trip) throw err("Viaje no encontrado", 404);
 
-  const defaultRel = cartaPortePdfRelPath(tenantId, tripId);
-  const relPath = normalizeUploadRelPath(cp.pdf_path || defaultRel);
-  const absPath = uploadAbsFromRel(relPath);
+  const byCartaRel = cartaPortePdfRelPath(tenantId, cartaId);
+  const byCartaAbs = uploadAbsFromRel(byCartaRel);
+  const filename = cartaPortePdfFilename(cp, trip);
 
-  const { xml } = await getCartaPorteXml(tenantId, tripId);
+  if (existsSync(byCartaAbs)) {
+    return { pdf: await readFile(byCartaAbs), filename };
+  }
+
+  const storedRel = cp.pdf_path ? normalizeUploadRelPath(cp.pdf_path) : null;
+  const storedAbs = storedRel ? uploadAbsFromRel(storedRel) : null;
+  const legacyAbs = uploadAbsFromRel(cartaPortePdfRelPath(tenantId, tripId));
+  const storedIsLegacy = Boolean(storedRel && pathPointsToLegacyTripFile(storedRel, tripId));
+
+  if (storedAbs && storedIsLegacy && existsSync(storedAbs)) {
+    return { pdf: await readFile(storedAbs), filename };
+  }
+  if (cartaId !== tripId && existsSync(legacyAbs)) {
+    return { pdf: await readFile(legacyAbs), filename };
+  }
+
+  const { xml } = await getCartaPorteXml(tenantId, tripId, cartaId);
   const tenant = await Tenant.findByPk(tenantId);
   const pdfBuffer = await renderCfdiPdfFromXml(xml, tenant, pdfSourceFromTrip(trip, cp.comentarios));
-  const dir = path.dirname(absPath);
+  const dir = path.dirname(byCartaAbs);
   await mkdir(dir, { recursive: true });
-  await writeFile(absPath, pdfBuffer);
-  if (!cp.pdf_path || cp.pdf_path !== relPath) {
-    await cp.update({ pdf_path: relPath } as never);
+  await writeFile(byCartaAbs, pdfBuffer);
+  if (!cp.pdf_path || cp.pdf_path !== byCartaRel) {
+    await cp.update({ pdf_path: byCartaRel } as never);
   }
-  return { pdf: pdfBuffer, filename: cartaPortePdfFilename(cp, trip) };
+  return { pdf: pdfBuffer, filename };
 }
 
 export async function getCartaPorteXml(
   tenantId: string,
   tripId: string,
+  cartaId: string,
 ): Promise<{ xml: string; filename: string }> {
   await getTripOrThrow(tenantId, tripId, false);
-  const cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
-  if (!cp) throw err("Carta porte no encontrada", 404);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
   if (cp.estatus !== "timbrada" && cp.estatus !== "cancelada") {
     throw err("El XML solo está disponible para cartas timbradas o canceladas", 404);
   }
   const trip = await Trip.findOne({ where: { id: tripId, tenant_id: tenantId } });
   if (!trip) throw err("Viaje no encontrado", 404);
 
-  const xmlPath = path.join(uploadRootDir(), tenantId, "cartas-porte", `${tripId}.xml`);
+  const byCartaPath = cartaPorteXmlAbsPath(tenantId, cartaId);
+  const legacyPath = cartaPorteXmlAbsPath(tenantId, tripId);
   let xml: string | null = null;
-  if (existsSync(xmlPath)) {
-    xml = await readFile(xmlPath, "utf8");
+  if (existsSync(byCartaPath)) {
+    xml = await readFile(byCartaPath, "utf8");
+  } else if (cartaId !== tripId && existsSync(legacyPath)) {
+    xml = await readFile(legacyPath, "utf8");
   } else if (cp.xml_timbrado?.trim()) {
     xml = cp.xml_timbrado;
   }
@@ -745,10 +828,11 @@ export async function getCartaPorteXml(
 export async function cancelarCartaPorte(
   tenantId: string,
   tripId: string,
+  cartaId: string,
   motivo: string,
   opts?: { folioSustitucion?: string },
 ) {
-  const cp = await getOrCreateCartaPorte(tenantId, tripId);
+  const cp = await requireCarta(tenantId, tripId, cartaId);
   if (cp.estatus !== "timbrada" || !cp.uuid) {
     throw err("Solo se puede cancelar una carta porte timbrada");
   }

@@ -11,21 +11,30 @@ import * as tripFiscalService from "../services/tripFiscalService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
+async function resolveVisibleCarta(req: Request) {
+  const tenantId = tid(req);
+  const tripId = req.params.id;
+  const cp = await cartaPorteService.getCartaPorteForTrip(tenantId, tripId);
+  return { tenantId, tripId, cartaId: cp.id, cp };
+}
+
 export const getCartaPorte = asyncHandler(async (req: Request, res: Response) => {
-  const cp = await cartaPorteService.getCartaPorteForTrip(tid(req), req.params.id);
-  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  const { tenantId, cp } = await resolveVisibleCarta(req);
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tenantId, cp);
   res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
 export const getCartaPorteXml = asyncHandler(async (req: Request, res: Response) => {
-  const { xml, filename } = await cartaPorteService.getCartaPorteXml(tid(req), req.params.id);
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
+  const { xml, filename } = await cartaPorteService.getCartaPorteXml(tenantId, tripId, cartaId);
   res.setHeader("Content-Type", "application/xml; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.send(xml);
 });
 
 export const getCartaPortePdf = asyncHandler(async (req: Request, res: Response) => {
-  const { pdf, filename } = await cartaPorteService.getCartaPortePdf(tid(req), req.params.id);
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
+  const { pdf, filename } = await cartaPorteService.getCartaPortePdf(tenantId, tripId, cartaId);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.send(pdf);
@@ -66,9 +75,11 @@ export const postPreview = asyncHandler(async (req: Request, res: Response) => {
   const parsed = timbradoOptsSchema.safeParse(req.body ?? {});
   const body = parsed.success ? parsed.data : {};
   const tipo = body.tipo ?? "traslado";
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
   const result = await cartaPorteService.previewCartaPorte(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     tipo,
     timbradoOptsFromBody(body),
   );
@@ -88,9 +99,11 @@ export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   const tipo = parsed.data.tipo ?? "traslado";
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
   const { carta, cxc_sync_error } = await cartaPorteService.timbrarCartaPorte(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     tipo,
     timbradoOptsFromBody(parsed.data),
   );
@@ -107,9 +120,11 @@ export const patchComentarios = asyncHandler(async (req: Request, res: Response)
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
   const cp = await cartaPorteService.updateCartaPorteComentarios(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     parsed.data.comentarios,
   );
   res.json(cartaPorteToJson(cp));
@@ -125,8 +140,9 @@ export const patchFolio = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const cp = await cartaPorteService.reservarFolioCarta(tid(req), req.params.id, parsed.data.folio);
-  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
+  const cp = await cartaPorteService.reservarFolioCarta(tenantId, tripId, cartaId, parsed.data.folio);
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tenantId, cp);
   res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
@@ -142,7 +158,8 @@ export const postCancelar = asyncHandler(async (req: Request, res: Response) => 
     return;
   }
   const folio = parsed.data.folio_sustitucion?.trim();
-  const cp = await cartaPorteService.cancelarCartaPorte(tid(req), req.params.id, parsed.data.motivo, {
+  const { tenantId, tripId, cartaId } = await resolveVisibleCarta(req);
+  const cp = await cartaPorteService.cancelarCartaPorte(tenantId, tripId, cartaId, parsed.data.motivo, {
     folioSustitucion: folio || undefined,
   });
   res.json(cartaPorteToJson(cp));
