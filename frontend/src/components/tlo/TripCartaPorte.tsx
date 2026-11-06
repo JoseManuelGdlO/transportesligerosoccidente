@@ -393,6 +393,20 @@ export function TripCartaPorte({
   }, [trip.id, cp?.id, cp?.comentarios]);
 
   useEffect(() => {
+    if (cp?.tipo_comprobante === "ingreso" || cp?.tipo_comprobante === "traslado") {
+      setTipoTimbrado(cp.tipo_comprobante);
+      return;
+    }
+    setTipoTimbrado("ingreso");
+    setUsoCfdi("G03");
+    setMoneda("MXN");
+    setTipoCambio("");
+    setMetodoPago("PPD");
+    setFormaPago("99");
+    setCondicionesPago("");
+  }, [cp?.id, cp?.tipo_comprobante]);
+
+  useEffect(() => {
     folioTouched.current = false;
     const propio = cp?.folio_cfdi?.trim() ?? "";
     if (propio) {
