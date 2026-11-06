@@ -14,6 +14,7 @@ import type { Tenant } from "../models/Tenant";
 import type { TripUbicacion } from "../models/TripUbicacion";
 import type { TripMercancia } from "../models/TripMercancia";
 import type { CartaPorte } from "../models/CartaPorte";
+import { cartaVisible } from "../services/cartaPorteSelection";
 import type { ClientUbicacion } from "../models/ClientUbicacion";
 import type { Route } from "../models/Route";
 import type { RouteStop } from "../models/RouteStop";
@@ -196,6 +197,7 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
     transporte_internacional: p.transporte_internacional != null ? !!p.transporte_internacional : undefined,
     tipo_comprobante: p.tipo_comprobante ?? undefined,
     comentarios: p.comentarios != null ? String(p.comentarios) : undefined,
+    cfdi_conceptos: Array.isArray(p.cfdi_conceptos) ? p.cfdi_conceptos : undefined,
   };
 }
 
@@ -226,7 +228,8 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     .sort((a, b) => a.orden - b.orden)
     .map((row) => tripUbicacionToJson(row));
   const mercancias = (t as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
-  const cartaPorte = (t as Trip & { cartaPorte?: CartaPorte | null }).cartaPorte;
+  const cartas = (t as Trip & { cartasPorte?: CartaPorte[] }).cartasPorte ?? [];
+  const visible = cartaVisible(cartas);
   const statusesRaw = (t as Trip & { statuses?: TripStatus[] }).statuses ?? [];
   const statuses = statusesRaw.map((row) => tripStatusToJson(row));
   const client = (t as Trip & { Client?: Client }).Client;
@@ -262,7 +265,8 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     expenses: expenses.map((row) => expenseToJson(row)),
     ubicaciones,
     mercancias: mercancias.map((row) => tripMercanciaToJson(row)),
-    carta_porte: cartaPorte ? cartaPorteToJson(cartaPorte) : undefined,
+    carta_porte: visible ? cartaPorteToJson(visible) : undefined,
+    cartas_porte: cartas.map(cartaPorteToJson),
   };
 }
 

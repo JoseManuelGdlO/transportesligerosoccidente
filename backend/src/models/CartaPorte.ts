@@ -6,6 +6,7 @@ import {
   type CreationOptional,
   type Sequelize,
 } from "sequelize";
+import type { TripCfdiConcepto } from "../types/tripCfdiConcepto";
 
 export type CartaPorteEstatus = "borrador" | "timbrada" | "cancelada" | "error";
 
@@ -27,6 +28,7 @@ export class CartaPorte extends Model<InferAttributes<CartaPorte>, InferCreation
   declare transporte_internacional: CreationOptional<boolean>;
   declare tipo_comprobante: CreationOptional<string | null>;
   declare comentarios: CreationOptional<string | null>;
+  declare cfdi_conceptos: CreationOptional<TripCfdiConcepto[] | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -55,6 +57,7 @@ export function initCartaPorte(sequelize: Sequelize) {
       transporte_internacional: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       tipo_comprobante: { type: DataTypes.STRING(16), allowNull: true },
       comentarios: { type: DataTypes.STRING(100), allowNull: true },
+      cfdi_conceptos: { type: DataTypes.JSON, allowNull: true },
     } as never,
     { sequelize, tableName: "cartas_porte", underscored: true },
   );

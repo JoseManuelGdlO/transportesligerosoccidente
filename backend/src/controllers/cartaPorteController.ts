@@ -11,21 +11,51 @@ import * as tripFiscalService from "../services/tripFiscalService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
+async function resolveVisibleCarta(req: Request) {
+  const tenantId = tid(req);
+  const tripId = req.params.id;
+  const cp = await cartaPorteService.getCartaPorteForTrip(tenantId, tripId);
+  return { tenantId, tripId, cartaId: cp.id, cp };
+}
+
+/** Rutas `/cartas-porte/:cartaId/...` usan el param; las `/carta-porte/...` resuelven `cartaVisible`. */
+async function resolveCartaTarget(req: Request) {
+  if (req.params.cartaId) {
+    return { tenantId: tid(req), tripId: req.params.id, cartaId: req.params.cartaId };
+  }
+  return resolveVisibleCarta(req);
+}
+
+export const listCartas = asyncHandler(async (req: Request, res: Response) => {
+  const rows = await cartaPorteService.listCartasPorte(tid(req), req.params.id);
+  res.json(await Promise.all(rows.map(async (cp) => ({
+    ...cartaPorteToJson(cp),
+    folio_sugerido: await cartaPorteService.folioSugeridoForCarta(tid(req), cp),
+  }))));
+});
+
+export const postCrear = asyncHandler(async (req: Request, res: Response) => {
+  const cp = await cartaPorteService.crearCartaPorteAdicional(tid(req), req.params.id);
+  res.status(201).json(cartaPorteToJson(cp));
+});
+
 export const getCartaPorte = asyncHandler(async (req: Request, res: Response) => {
-  const cp = await cartaPorteService.getCartaPorteForTrip(tid(req), req.params.id);
-  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  const { tenantId, cp } = await resolveVisibleCarta(req);
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tenantId, cp);
   res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
 export const getCartaPorteXml = asyncHandler(async (req: Request, res: Response) => {
-  const { xml, filename } = await cartaPorteService.getCartaPorteXml(tid(req), req.params.id);
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
+  const { xml, filename } = await cartaPorteService.getCartaPorteXml(tenantId, tripId, cartaId);
   res.setHeader("Content-Type", "application/xml; charset=utf-8");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.send(xml);
 });
 
 export const getCartaPortePdf = asyncHandler(async (req: Request, res: Response) => {
-  const { pdf, filename } = await cartaPorteService.getCartaPortePdf(tid(req), req.params.id);
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
+  const { pdf, filename } = await cartaPorteService.getCartaPortePdf(tenantId, tripId, cartaId);
   res.setHeader("Content-Type", "application/pdf");
   res.setHeader("Content-Disposition", `attachment; filename="${encodeURIComponent(filename)}"`);
   res.send(pdf);
@@ -66,9 +96,11 @@ export const postPreview = asyncHandler(async (req: Request, res: Response) => {
   const parsed = timbradoOptsSchema.safeParse(req.body ?? {});
   const body = parsed.success ? parsed.data : {};
   const tipo = body.tipo ?? "traslado";
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
   const result = await cartaPorteService.previewCartaPorte(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     tipo,
     timbradoOptsFromBody(body),
   );
@@ -88,9 +120,11 @@ export const postTimbrar = asyncHandler(async (req: Request, res: Response) => {
     return;
   }
   const tipo = parsed.data.tipo ?? "traslado";
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
   const { carta, cxc_sync_error } = await cartaPorteService.timbrarCartaPorte(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     tipo,
     timbradoOptsFromBody(parsed.data),
   );
@@ -107,9 +141,11 @@ export const patchComentarios = asyncHandler(async (req: Request, res: Response)
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
   const cp = await cartaPorteService.updateCartaPorteComentarios(
-    tid(req),
-    req.params.id,
+    tenantId,
+    tripId,
+    cartaId,
     parsed.data.comentarios,
   );
   res.json(cartaPorteToJson(cp));
@@ -125,8 +161,9 @@ export const patchFolio = asyncHandler(async (req: Request, res: Response) => {
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  const cp = await cartaPorteService.reservarFolioCarta(tid(req), req.params.id, parsed.data.folio);
-  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tid(req), cp);
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
+  const cp = await cartaPorteService.reservarFolioCarta(tenantId, tripId, cartaId, parsed.data.folio);
+  const folio_sugerido = await cartaPorteService.folioSugeridoForCarta(tenantId, cp);
   res.json({ ...cartaPorteToJson(cp), folio_sugerido });
 });
 
@@ -142,7 +179,8 @@ export const postCancelar = asyncHandler(async (req: Request, res: Response) => 
     return;
   }
   const folio = parsed.data.folio_sustitucion?.trim();
-  const cp = await cartaPorteService.cancelarCartaPorte(tid(req), req.params.id, parsed.data.motivo, {
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
+  const cp = await cartaPorteService.cancelarCartaPorte(tenantId, tripId, cartaId, parsed.data.motivo, {
     folioSustitucion: folio || undefined,
   });
   res.json(cartaPorteToJson(cp));
@@ -245,4 +283,33 @@ export const postMercancia = asyncHandler(async (req: Request, res: Response) =>
 export const deleteMercancia = asyncHandler(async (req: Request, res: Response) => {
   await tripFiscalService.removeMercancia(tid(req), req.params.id, req.params.mercanciaId);
   res.status(204).send();
+});
+
+const cfdiConceptoSchema = z.object({
+  clave_prod_serv: z.string().min(1),
+  cantidad: z.number().positive(),
+  clave_unidad: z.string().min(1),
+  unidad: z.string().min(1),
+  descripcion: z.string().min(1),
+  valor_unitario: z.number().min(0),
+  objeto_imp: z.enum(["01", "02"]).optional(),
+});
+
+const putCfdiConceptosSchema = z.object({
+  conceptos: z.array(cfdiConceptoSchema).min(1),
+});
+
+export const putConceptosCarta = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = putCfdiConceptosSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const cp = await cartaPorteService.putConceptosCarta(
+    tid(req),
+    req.params.id,
+    req.params.cartaId,
+    parsed.data.conceptos,
+  );
+  res.json(cartaPorteToJson(cp));
 });

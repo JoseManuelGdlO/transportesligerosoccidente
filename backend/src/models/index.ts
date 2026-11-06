@@ -167,8 +167,9 @@ export function initModels() {
   TripUbicacion.belongsTo(Trip, { foreignKey: "trip_id" });
   Trip.hasMany(TripMercancia, { foreignKey: "trip_id", as: "mercancias" });
   TripMercancia.belongsTo(Trip, { foreignKey: "trip_id" });
-  Trip.hasOne(CartaPorte, { foreignKey: "trip_id", as: "cartaPorte" });
+  Trip.hasMany(CartaPorte, { foreignKey: "trip_id", as: "cartasPorte" });
   CartaPorte.belongsTo(Trip, { foreignKey: "trip_id" });
+  AccountDocument.belongsTo(CartaPorte, { foreignKey: "carta_porte_id" });
 
   Tenant.hasMany(TripStatus, { foreignKey: "tenant_id" });
   TripStatus.belongsTo(Tenant, { foreignKey: "tenant_id" });

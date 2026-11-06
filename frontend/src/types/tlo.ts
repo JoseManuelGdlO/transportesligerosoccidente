@@ -212,6 +212,7 @@ export interface CartaPorteRecord {
   comentarios?: string;
   /** Siguiente folio libre, o el ya guardado en esta carta. */
   folio_sugerido?: number;
+  cfdi_conceptos?: TripCfdiConcepto[];
 }
 
 export interface TenantFiscal {
@@ -1011,6 +1012,7 @@ export interface Trip {
   ubicaciones?: TripUbicacion[];
   mercancias?: TripMercancia[];
   carta_porte?: CartaPorteRecord;
+  cartas_porte?: CartaPorteRecord[];
 }
 
 export interface DriverAdvance {

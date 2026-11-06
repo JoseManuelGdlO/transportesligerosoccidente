@@ -40,6 +40,7 @@ export class AccountDocument extends Model<
   declare estatus: AccountDocumentEstatus;
   declare origen: AccountDocumentOrigen;
   declare trip_id: CreationOptional<string | null>;
+  declare carta_porte_id: CreationOptional<string | null>;
   declare fuel_ticket_id: CreationOptional<string | null>;
   declare fuel_load_id: CreationOptional<string | null>;
   declare maintenance_record_id: CreationOptional<string | null>;
@@ -78,6 +79,7 @@ export function initAccountDocument(sequelize: Sequelize) {
         defaultValue: "manual",
       },
       trip_id: { type: DataTypes.CHAR(36), allowNull: true },
+      carta_porte_id: { type: DataTypes.CHAR(36), allowNull: true },
       fuel_ticket_id: { type: DataTypes.CHAR(36), allowNull: true },
       fuel_load_id: { type: DataTypes.CHAR(36), allowNull: true },
       maintenance_record_id: { type: DataTypes.CHAR(36), allowNull: true },

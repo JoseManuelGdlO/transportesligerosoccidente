@@ -20,18 +20,24 @@ import {
 } from "@/components/ui/dialog";
 import { apiFetch, readJson } from "@/lib/api";
 import {
-  downloadCartaPortePdf,
-  downloadCartaPorteXml,
+  cancelarCartaPorte,
+  createCartaPorte,
+  downloadCartaPortePdfById,
+  downloadCartaPorteXmlById,
+  fetchCartaPorte,
+  fetchCartasPorte,
   fetchDriver,
+  fetchTrip,
   fetchTruck,
   fetchTenantUbicaciones,
   lookupSatClaveProducto,
   normalizeTrip,
-  putTripCfdiConceptos,
+  patchCartaPorteComentariosById,
+  patchCartaPorteFolioById,
+  previewCartaPorte,
+  putCartaPorteConceptos,
   putTripUbicaciones,
-  patchCartaPorteComentarios,
-  fetchCartaPorte,
-  patchCartaPorteFolio,
+  timbrarCartaPorte,
 } from "@/lib/tloApi";
 import { formatTripRoute, fmtMXNDecimal } from "@/lib/format";
 import { keepFilledFiscal } from "@/lib/fiscalPrefill";
@@ -47,7 +53,16 @@ import {
   firstErrorSection,
 } from "@/lib/cartaPorteIssues";
 import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
-import type { ClientUbicacion, Driver, SatClaveProducto, Trip, TripCfdiConcepto, TripMercancia, Truck } from "@/types/tlo";
+import type {
+  CartaPorteRecord,
+  ClientUbicacion,
+  Driver,
+  SatClaveProducto,
+  Trip,
+  TripCfdiConcepto,
+  TripMercancia,
+  Truck,
+} from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { driverById, truckById } from "@/lib/calc";
@@ -66,7 +81,7 @@ import {
   Ban,
 } from "lucide-react";
 import { toast } from "sonner";
-import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
+import { tripIsClosed, tripIsOpen, tripTieneCartaTimbrada } from "@/lib/tripStatus";
 import { SatClaveProductoCombobox } from "@/components/tlo/SatClaveProductoCombobox";
 
 /** c_ClaveProdServCP (Carta Porte) por defecto: Varilla corrugada. No usar 781018xx (CFDI servicio de transporte). 
@@ -77,7 +92,38 @@ const DEFAULT_CFDI_CLAVE_PROD_SERV = "78101802";
 const DEFAULT_CFDI_CLAVE_UNIDAD = "E54";
 const DEFAULT_CFDI_UNIDAD = "Viaje";
 
-function seedCfdiConceptos(trip: Trip, truck?: Truck): TripCfdiConcepto[] {
+function cartasDeTrip(trip: Trip): CartaPorteRecord[] {
+  if (trip.cartas_porte?.length) return trip.cartas_porte;
+  return trip.carta_porte ? [trip.carta_porte] : [];
+}
+
+function pickDefaultCartaId(cartas: CartaPorteRecord[]): string | undefined {
+  const borrador = [...cartas].reverse().find((c) => c.estatus === "borrador" || c.estatus === "error");
+  if (borrador) return borrador.id;
+  const timbradas = cartas.filter((c) => c.estatus === "timbrada");
+  return timbradas[timbradas.length - 1]?.id ?? cartas[cartas.length - 1]?.id;
+}
+
+function cartaLabel(carta: CartaPorteRecord): string {
+  return `Folio ${carta.folio_cfdi?.trim() || "sin folio"} · ${carta.estatus}`;
+}
+
+function mergeCartaIntoTrip(trip: Trip, record: CartaPorteRecord): Trip {
+  const existing = cartasDeTrip(trip);
+  const cartas_porte = existing.some((c) => c.id === record.id)
+    ? existing.map((c) => (c.id === record.id ? { ...c, ...record } : c))
+    : [...existing, record];
+  return {
+    ...trip,
+    cartas_porte,
+    carta_porte: trip.carta_porte?.id === record.id ? { ...trip.carta_porte, ...record } : trip.carta_porte,
+  };
+}
+
+function seedCfdiConceptos(trip: Trip, truck?: Truck, carta?: CartaPorteRecord): TripCfdiConcepto[] {
+  if (carta?.cfdi_conceptos && carta.cfdi_conceptos.length > 0) {
+    return carta.cfdi_conceptos.map((c) => ({ ...c }));
+  }
   if (trip.cfdi_conceptos && trip.cfdi_conceptos.length > 0) {
     return trip.cfdi_conceptos.map((c) => ({ ...c }));
   }
@@ -273,11 +319,15 @@ export function TripCartaPorte({
   const canCancelar = hasPermission("cartaporte.cancelar");
   const canViewCartaPorte = hasPermission("cartaporte.ver");
   const canEditCatalog = hasPermission("catalogos.editar");
-  const cp = trip.carta_porte;
+  const cartas = useMemo(() => cartasDeTrip(trip), [trip]);
+  const [cartaId, setCartaId] = useState<string | undefined>(() => pickDefaultCartaId(cartasDeTrip(trip)));
+  const [creatingCarta, setCreatingCarta] = useState(false);
+  const cp = cartas.find((c) => c.id === cartaId) ?? cartas[0];
   const cpTimbrada = cp?.estatus === "timbrada";
+  const tripTieneTimbrada = tripTieneCartaTimbrada(trip);
   const tripFiscalReady = tripIsOpen(trip) || tripIsClosed(trip);
   const canFiscalEdit =
-    !cpTimbrada &&
+    !tripTieneTimbrada &&
     tripFiscalReady &&
     (hasPermission("viajes.crear") || hasPermission("cartaporte.timbrar"));
   const canCatalogEdit = hasPermission("catalogos.editar");
@@ -316,8 +366,46 @@ export function TripCartaPorte({
   });
 
   useEffect(() => {
+    if (cartaId && cartas.some((c) => c.id === cartaId)) return;
+    setCartaId(pickDefaultCartaId(cartas));
+  }, [cartas, cartaId]);
+
+  useEffect(() => {
+    if (cartas.length > 0 || trip.carta_porte) return;
+    let cancelled = false;
+    void fetchCartaPorte(trip.id)
+      .then(async () => {
+        if (cancelled) return;
+        const r = await apiFetch(`/trips/${trip.id}`);
+        const j = await readJson<Record<string, unknown>>(r);
+        onTripUpdated(normalizeTrip(j));
+      })
+      .catch(() => {
+        // El usuario puede crear la primera factura con el botón.
+      });
+    return () => {
+      cancelled = true;
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- bootstrap una sola vez por viaje sin cartas
+  }, [trip.id]);
+
+  useEffect(() => {
     setComentarios(cp?.comentarios ?? "");
-  }, [trip.id, cp?.comentarios]);
+  }, [trip.id, cp?.id, cp?.comentarios]);
+
+  useEffect(() => {
+    if (cp?.tipo_comprobante === "ingreso" || cp?.tipo_comprobante === "traslado") {
+      setTipoTimbrado(cp.tipo_comprobante);
+      return;
+    }
+    setTipoTimbrado("ingreso");
+    setUsoCfdi("G03");
+    setMoneda("MXN");
+    setTipoCambio("");
+    setMetodoPago("PPD");
+    setFormaPago("99");
+    setCondicionesPago("");
+  }, [cp?.id, cp?.tipo_comprobante]);
 
   useEffect(() => {
     folioTouched.current = false;
@@ -326,11 +414,18 @@ export function TripCartaPorte({
       setFolio(propio);
       return;
     }
+    if (cp?.folio_sugerido != null) {
+      setFolio(String(cp.folio_sugerido));
+      return;
+    }
+    setFolio("");
+    if (!cp) return;
     let cancelled = false;
-    void fetchCartaPorte(trip.id)
-      .then((record) => {
+    void fetchCartasPorte(trip.id)
+      .then((rows) => {
         if (cancelled || folioTouched.current) return;
-        if (record.folio_sugerido != null) setFolio(String(record.folio_sugerido));
+        const row = rows.find((r) => r.id === cp.id);
+        if (row?.folio_sugerido != null) setFolio(String(row.folio_sugerido));
       })
       .catch(() => {
         // El preview pide el folio si el campo sigue vacío.
@@ -338,17 +433,17 @@ export function TripCartaPorte({
     return () => {
       cancelled = true;
     };
-  }, [trip.id, cp?.folio_cfdi]);
+  }, [trip.id, cp?.id, cp?.folio_cfdi, cp?.folio_sugerido]);
 
   const saveComentarios = async () => {
-    if (!canTimbrar) return;
+    if (!canTimbrar || !cp) return;
     const next = comentarios.replace(/\|/g, " ").replace(/\s+/g, " ").trim().slice(0, 100);
-    if (next === (cp?.comentarios ?? "")) return;
+    if (next === (cp.comentarios ?? "")) return;
     setSavingComentarios(true);
     try {
-      const record = await patchCartaPorteComentarios(trip.id, next);
+      const record = await patchCartaPorteComentariosById(trip.id, cp.id, next);
       setComentarios(record.comentarios ?? "");
-      onTripUpdated({ ...trip, carta_porte: record });
+      onTripUpdated(mergeCartaIntoTrip(trip, record));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar los comentarios");
     } finally {
@@ -357,14 +452,14 @@ export function TripCartaPorte({
   };
 
   const saveFolio = async (): Promise<boolean> => {
-    if (!canTimbrar || cpTimbrada) return true;
+    if (!canTimbrar || cpTimbrada || !cp) return true;
     const next = folio.trim();
-    if (next === (cp?.folio_cfdi ?? "")) return true;
+    if (next === (cp.folio_cfdi ?? "")) return true;
     setSavingFolio(true);
     try {
-      const record = await patchCartaPorteFolio(trip.id, next);
+      const record = await patchCartaPorteFolioById(trip.id, cp.id, next);
       setFolio(record.folio_cfdi ?? next);
-      onTripUpdated({ ...trip, carta_porte: record });
+      onTripUpdated(mergeCartaIntoTrip(trip, record));
       return true;
     } catch (e) {
       const sugerido =
@@ -376,6 +471,21 @@ export function TripCartaPorte({
       return false;
     } finally {
       setSavingFolio(false);
+    }
+  };
+
+  const handleNuevaFactura = async () => {
+    if (!canTimbrar) return;
+    setCreatingCarta(true);
+    try {
+      const record = await createCartaPorte(trip.id);
+      onTripUpdated(mergeCartaIntoTrip(trip, record));
+      setCartaId(record.id);
+      toast.success("Factura creada");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo crear la factura");
+    } finally {
+      setCreatingCarta(false);
     }
   };
 
@@ -477,22 +587,28 @@ export function TripCartaPorte({
   });
 
   const [cfdiConceptos, setCfdiConceptos] = useState<TripCfdiConcepto[]>(() =>
-    seedCfdiConceptos(trip, truckProp),
+    seedCfdiConceptos(trip, truckProp, cartasDeTrip(trip).find((c) => c.id === cartaId)),
   );
   const [savingConceptos, setSavingConceptos] = useState(false);
-  const savedConceptosSnapshotRef = useRef(conceptosSnapshot(seedCfdiConceptos(trip, truckProp)));
+  const savedConceptosSnapshotRef = useRef(
+    conceptosSnapshot(seedCfdiConceptos(trip, truckProp, cartasDeTrip(trip).find((c) => c.id === cartaId))),
+  );
 
   useEffect(() => {
-    const next = seedCfdiConceptos(trip, truckLive);
+    const next = seedCfdiConceptos(trip, truckLive, cp);
     setCfdiConceptos(next);
     savedConceptosSnapshotRef.current = conceptosSnapshot(
-      trip.cfdi_conceptos && trip.cfdi_conceptos.length > 0 ? trip.cfdi_conceptos : next,
+      cp?.cfdi_conceptos && cp.cfdi_conceptos.length > 0
+        ? cp.cfdi_conceptos
+        : trip.cfdi_conceptos && trip.cfdi_conceptos.length > 0
+          ? trip.cfdi_conceptos
+          : next,
     );
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- solo resincronizar al cambiar viaje o conceptos persistidos
-  }, [trip.id, trip.cfdi_conceptos]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- resincronizar al cambiar viaje, carta o conceptos persistidos
+  }, [trip.id, cp?.id, cp?.cfdi_conceptos, trip.cfdi_conceptos]);
 
   const conceptosDirty =
-    !trip.cfdi_conceptos?.length ||
+    !(cp?.cfdi_conceptos?.length || trip.cfdi_conceptos?.length) ||
     conceptosSnapshot(cfdiConceptos) !== savedConceptosSnapshotRef.current;
   const conceptosSuma = useMemo(
     () =>
@@ -516,7 +632,7 @@ export function TripCartaPorte({
   };
 
   const persistCfdiConceptos = async (): Promise<boolean> => {
-    if (!canTimbrar || cpTimbrada) return false;
+    if (!canTimbrar || cpTimbrada || !cp) return false;
     const invalid = cfdiConceptos.find(
       (c) => !c.descripcion.trim() || !c.clave_prod_serv.trim() || Number(c.valor_unitario) < 0,
     );
@@ -530,10 +646,11 @@ export function TripCartaPorte({
     }
     setSavingConceptos(true);
     try {
-      const updated = await putTripCfdiConceptos(trip.id, cfdiConceptos);
-      savedConceptosSnapshotRef.current = conceptosSnapshot(updated.cfdi_conceptos ?? cfdiConceptos);
+      const record = await putCartaPorteConceptos(trip.id, cp.id, cfdiConceptos);
+      savedConceptosSnapshotRef.current = conceptosSnapshot(record.cfdi_conceptos ?? cfdiConceptos);
+      const updated = await fetchTrip(trip.id);
       onTripUpdated(updated);
-      toast.success("Conceptos CFDI guardados (tarifa actualizada)");
+      toast.success("Conceptos CFDI guardados");
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar los conceptos");
@@ -1020,8 +1137,9 @@ export function TripCartaPorte({
   );
 
   const handleDownloadXml = async (serie?: string, folioCfdi?: string) => {
+    if (!cp) return;
     try {
-      await downloadCartaPorteXml(trip.id, suggestedXmlFilename(serie, folioCfdi));
+      await downloadCartaPorteXmlById(trip.id, cp.id, suggestedXmlFilename(serie, folioCfdi));
       toast.success("XML descargado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el XML");
@@ -1029,8 +1147,9 @@ export function TripCartaPorte({
   };
 
   const handleDownloadPdf = async (serie?: string, folioCfdi?: string) => {
+    if (!cp) return;
     try {
-      await downloadCartaPortePdf(trip.id, suggestedPdfFilename(serie, folioCfdi));
+      await downloadCartaPortePdfById(trip.id, cp.id, suggestedPdfFilename(serie, folioCfdi));
       toast.success("PDF descargado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF");
@@ -1038,7 +1157,7 @@ export function TripCartaPorte({
   };
 
   const handleTimbrar = async () => {
-    if (!canTimbrar) return;
+    if (!canTimbrar || !cp) return;
     setLoading(true);
     try {
       // Forzar persist para que el preview/backend valide el estado actual del formulario
@@ -1049,16 +1168,12 @@ export function TripCartaPorte({
       const folioOk = await saveFolio();
       if (!folioOk) return;
 
-      if (tipoTimbrado === "ingreso" && (conceptosDirty || !trip.cfdi_conceptos?.length)) {
+      if (tipoTimbrado === "ingreso" && (conceptosDirty || !cp.cfdi_conceptos?.length)) {
         const ok = await persistCfdiConceptos();
         if (!ok) return;
       }
 
-      const previewRes = await apiFetch(`/trips/${trip.id}/carta-porte/preview`, {
-        method: "POST",
-        body: JSON.stringify(timbradoBody()),
-      });
-      const preview = await readJson<{ valid: boolean; issues: string[] }>(previewRes);
+      const preview = await previewCartaPorte(trip.id, cp.id, timbradoBody());
       const issues = preview.issues || [];
       setPreviewIssues(issues);
 
@@ -1069,50 +1184,44 @@ export function TripCartaPorte({
       }
 
       setValidationAttempted(false);
-      const r = await apiFetch(`/trips/${trip.id}/carta-porte/timbrar`, {
-        method: "POST",
-        body: JSON.stringify(timbradoBody()),
-      });
-      if (!r.ok) {
-        const j = (await r.json().catch(() => ({}))) as { error?: unknown; folio_sugerido?: unknown };
-        if (r.status === 409 && typeof j.folio_sugerido === "number") {
-          setFolio(String(j.folio_sugerido));
+      try {
+        const timbrado = await timbrarCartaPorte(trip.id, cp.id, timbradoBody());
+        toast.success("Carta porte timbrada");
+        const notice = cxcSyncNotice(timbrado.cxc_sync_error);
+        if (notice) toast.error(`Factura timbrada, pero no se registró en Cuentas: ${notice}`);
+        try {
+          await downloadCartaPortePdfById(
+            trip.id,
+            cp.id,
+            suggestedPdfFilename(timbrado.serie, timbrado.folio_cfdi),
+          );
+        } catch (e) {
+          toast.warning(
+            e instanceof Error ? e.message : "Timbrado correcto, pero no se pudo descargar el PDF",
+          );
         }
-        toast.error(typeof j.error === "string" ? j.error : "Error al timbrar");
+        setPreviewIssues([]);
+        await reloadTrip();
+      } catch (e) {
+        const sugerido =
+          e instanceof Error && "folio_sugerido" in e
+            ? (e as Error & { folio_sugerido?: number }).folio_sugerido
+            : undefined;
+        if (typeof sugerido === "number") setFolio(String(sugerido));
+        toast.error(e instanceof Error ? e.message : "Error al timbrar");
         try {
           await reloadTrip();
         } catch {
           // El toast ya mostró el mensaje de este intento.
         }
-        return;
       }
-      const timbrado = await readJson<{
-        serie?: string;
-        folio_cfdi?: string;
-        cxc_sync_error?: string | null;
-      }>(r);
-      toast.success("Carta porte timbrada");
-      const notice = cxcSyncNotice(timbrado.cxc_sync_error);
-      if (notice) toast.error(`Factura timbrada, pero no se registró en Cuentas: ${notice}`);
-      try {
-        await downloadCartaPortePdf(
-          trip.id,
-          suggestedPdfFilename(timbrado.serie, timbrado.folio_cfdi),
-        );
-      } catch (e) {
-        toast.warning(
-          e instanceof Error ? e.message : "Timbrado correcto, pero no se pudo descargar el PDF",
-        );
-      }
-      setPreviewIssues([]);
-      await reloadTrip();
     } finally {
       setLoading(false);
     }
   };
 
   const handleCancelar = async () => {
-    if (!canCancelar || !cpTimbrada) return;
+    if (!canCancelar || !cpTimbrada || !cp) return;
     if (!motivoCancelacion) {
       toast.error("Selecciona el motivo de cancelación");
       return;
@@ -1120,19 +1229,11 @@ export function TripCartaPorte({
     setCancelling(true);
     setCancelError(null);
     try {
-      const folio = folioSustitucion.trim();
-      const r = await apiFetch(`/trips/${trip.id}/carta-porte/cancelar`, {
-        method: "POST",
-        body: JSON.stringify({
-          motivo: motivoCancelacion,
-          ...(folio ? { folio_sustitucion: folio } : {}),
-        }),
+      const folioSust = folioSustitucion.trim();
+      await cancelarCartaPorte(trip.id, cp.id, {
+        motivo: motivoCancelacion,
+        ...(folioSust ? { folio_sustitucion: folioSust } : {}),
       });
-      if (!r.ok) {
-        const j = (await r.json().catch(() => ({}))) as { error?: unknown };
-        setCancelError(typeof j.error === "string" && j.error.trim() ? j.error : "Error al cancelar la factura");
-        return;
-      }
       toast.success("Factura cancelada");
       setCancelOpen(false);
       setFolioSustitucion("");
@@ -1189,11 +1290,39 @@ export function TripCartaPorte({
   return (
     <div className="space-y-4">
       <Card className="tlo-shadow-md">
-        <CardHeader className="flex flex-row items-center justify-between">
+        <CardHeader className="flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
           <CardTitle className="text-base flex items-center gap-2">
             <FileCheck className="h-4 w-4" /> Carta Porte SAT
           </CardTitle>
-          {statusBadge()}
+          <div className="flex flex-wrap items-center gap-2">
+            {cartas.length > 0 && (
+              <Select value={cp?.id} onValueChange={setCartaId}>
+                <SelectTrigger className="w-[220px] h-8 text-xs">
+                  <SelectValue placeholder="Selecciona factura" />
+                </SelectTrigger>
+                <SelectContent>
+                  {cartas.map((c) => (
+                    <SelectItem key={c.id} value={c.id}>
+                      {cartaLabel(c)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            )}
+            {canTimbrar && (
+              <Button
+                type="button"
+                size="sm"
+                variant="outline"
+                disabled={creatingCarta || loading}
+                onClick={() => void handleNuevaFactura()}
+              >
+                {creatingCarta ? <Loader2 className="h-4 w-4 animate-spin" /> : <Plus className="h-4 w-4" />}
+                Nueva factura
+              </Button>
+            )}
+            {statusBadge()}
+          </div>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
           {issueFlags.hasEmpresaIssues && validationAttempted && (
@@ -1339,7 +1468,7 @@ export function TripCartaPorte({
                       <div>
                         <Label>Conceptos de factura</Label>
                         <p className="text-xs text-muted-foreground">
-                          Al guardar, la tarifa del viaje se actualiza a la suma de importes.
+                          Las líneas se guardan en esta factura.
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -1467,7 +1596,7 @@ export function TripCartaPorte({
                       </Table>
                     </div>
                     <p className="text-sm">
-                      <span className="text-muted-foreground">Suma / nueva tarifa:</span>{" "}
+                      <span className="text-muted-foreground">Suma:</span>{" "}
                       <span className="font-medium">{fmtMXNDecimal(conceptosSuma)}</span>
                       {conceptosDirty ? (
                         <span className="text-amber-700 dark:text-amber-400 text-xs ml-2">

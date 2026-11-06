@@ -47,6 +47,7 @@ import {
   openTripByDriverId,
   openTripByTruckId,
   tripIsClosed,
+  tripTieneCartaTimbrada,
 } from "@/lib/tripStatus";
 import { isoToDatetimeLocalValue } from "@/lib/format";
 import { useAuth } from "@/context/AuthContext";
@@ -126,7 +127,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   const apiMode = hasApiConfigured();
   const isClosed = tripIsClosed(trip);
   const canEditKm = user?.role === "admin";
-  const paradasLocked = trip.carta_porte?.estatus === "timbrada";
+  const paradasLocked = tripTieneCartaTimbrada(trip);
 
   const [form, setForm] = useState<TripForm>(() => tripToForm(trip));
   const [paradas, setParadas] = useState<ParadaDraft[]>(() => tripToParadas(trip));

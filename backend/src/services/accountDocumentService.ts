@@ -410,6 +410,7 @@ export interface CreateDocumentInput {
   monto_original: number;
   origen?: AccountDocumentOrigen;
   trip_id?: string | null;
+  carta_porte_id?: string | null;
   fuel_ticket_id?: string | null;
   fuel_load_id?: string | null;
   maintenance_record_id?: string | null;
@@ -492,6 +493,7 @@ export async function createDocument(
       estatus: "abierta",
       origen: input.origen ?? "manual",
       trip_id: input.trip_id ?? null,
+      carta_porte_id: input.carta_porte_id ?? null,
       fuel_ticket_id: input.fuel_ticket_id ?? null,
       fuel_load_id: input.fuel_load_id ?? null,
       maintenance_record_id: input.maintenance_record_id ?? null,
@@ -718,9 +720,7 @@ async function syncDocumentToSource(
       where: { id: doc.trip_id, tenant_id: doc.tenant_id },
     });
     if (!trip) return;
-    const carta = await CartaPorte.findOne({
-      where: { tenant_id: doc.tenant_id, trip_id: trip.id },
-    });
+    const carta = await cartaPorteDelDocumento(doc);
     const omitirMontoYFolio = viajeSyncOmiteMontoYFolio(carta);
     const tripPatch: Record<string, unknown> = {};
     if (!omitirMontoYFolio && patch.monto_original !== undefined) {
@@ -761,13 +761,9 @@ export async function addPayment(
   if (doc.estatus === "cancelada") throw httpError("Documento cancelado", 400);
 
   if (doc.origen === "viaje" && doc.tipo === "cxc" && doc.trip_id) {
-    const carta = await CartaPorte.findOne({
-      where: {
-        tenant_id: tenantId,
-        trip_id: doc.trip_id,
-        estatus: "timbrada",
-        tipo_comprobante: "ingreso",
-      },
+    const carta = await cartaPorteDelDocumento(doc, {
+      estatus: "timbrada",
+      tipo_comprobante: "ingreso",
     });
     if (carta?.xml_timbrado) {
       const snap = parseInvoiceTaxSnapshot(carta.xml_timbrado);
@@ -868,10 +864,26 @@ async function resolveFuelTicketParty(ticket: FuelTicket): Promise<{
   return { supplierId: null, nombre: estacion, plazo: null };
 }
 
+async function cartaPorteDelDocumento(
+  doc: { tenant_id: string; trip_id?: string | null; carta_porte_id?: string | null },
+  extraWhere?: WhereOptions,
+): Promise<CartaPorte | null> {
+  if (doc.carta_porte_id) {
+    return CartaPorte.findOne({
+      where: { tenant_id: doc.tenant_id, id: doc.carta_porte_id, ...extraWhere },
+    });
+  }
+  if (!doc.trip_id) return null;
+  return CartaPorte.findOne({
+    where: { tenant_id: doc.tenant_id, trip_id: doc.trip_id, ...extraWhere },
+  });
+}
+
 async function upsertBySource(
   tenantId: string,
   sourceField:
     | "trip_id"
+    | "carta_porte_id"
     | "fuel_ticket_id"
     | "fuel_load_id"
     | "maintenance_record_id"
@@ -932,6 +944,7 @@ async function upsertBySource(
       fecha_vencimiento: venc,
       monto_original: String(roundMoney(input.monto_original)),
       estatus: "abierta",
+      ...(input.trip_id !== undefined ? { trip_id: input.trip_id ?? null } : {}),
     } as never, { transaction: t });
     await refreshDocumentStatus(existing, payments, t);
     return toDocumentDto(existing, payments);
@@ -1054,6 +1067,7 @@ export function viajeSyncOmiteMontoYFolio(
 export async function upsertFromStampedIngreso(
   trip: Trip,
   carta: {
+    id: string;
     estatus: string;
     tipo_comprobante: string | null;
     timbrado_at: Date | null;
@@ -1081,7 +1095,7 @@ export async function upsertFromStampedIngreso(
     : trip.fecha_salida
       ? localDateStr(new Date(trip.fecha_salida))
       : localDateStr();
-  return upsertBySource(trip.tenant_id, "trip_id", trip.id, {
+  return upsertBySource(trip.tenant_id, "carta_porte_id", carta.id, {
     tipo: "cxc",
     client_id: trip.client_id,
     entidad_nombre: client?.razon_social,
@@ -1094,6 +1108,7 @@ export async function upsertFromStampedIngreso(
     plazo_credito_dias: plazo,
     monto_original: monto,
     origen: "viaje",
+    trip_id: trip.id,
     preserveCobranzaIfSet: true,
   });
 }
@@ -1333,34 +1348,35 @@ export async function backfillTenant(tenantId: string): Promise<{
 
   const trips = await Trip.findAll({ where: { tenant_id: tenantId } });
   for (const trip of trips) {
-    const carta = await CartaPorte.findOne({
+    const cartas = await CartaPorte.findAll({
       where: { tenant_id: tenantId, trip_id: trip.id },
     });
-    if (!carta) continue;
-    const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
-    if (
-      !debeSincronizarCxc({
-        estatus: carta.estatus,
-        tipo_comprobante: carta.tipo_comprobante,
-        monto,
-      })
-    ) {
-      continue;
+    for (const carta of cartas) {
+      const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
+      if (
+        !debeSincronizarCxc({
+          estatus: carta.estatus,
+          tipo_comprobante: carta.tipo_comprobante,
+          monto,
+        })
+      ) {
+        continue;
+      }
+      const existente = await AccountDocument.findOne({
+        where: {
+          tenant_id: tenantId,
+          carta_porte_id: carta.id,
+          origen: "viaje",
+          tipo: "cxc",
+        },
+      });
+      if (existente && backfillOmiteCxcExistente(true)) {
+        if (await alinearMontoCxc(existente, monto)) cxc += 1;
+        continue;
+      }
+      const r = await upsertFromStampedIngreso(trip, carta);
+      if (r) cxc += 1;
     }
-    const existente = await AccountDocument.findOne({
-      where: {
-        tenant_id: tenantId,
-        trip_id: trip.id,
-        origen: "viaje",
-        tipo: "cxc",
-      },
-    });
-    if (existente && backfillOmiteCxcExistente(true)) {
-      if (await alinearMontoCxc(existente, monto)) cxc += 1;
-      continue;
-    }
-    const r = await upsertFromStampedIngreso(trip, carta);
-    if (r) cxc += 1;
   }
 
   const tickets = await FuelTicket.findAll({ where: { tenant_id: tenantId } });

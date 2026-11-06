@@ -1,9 +1,10 @@
 import { randomUUID } from "node:crypto";
-import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia } from "../models";
+import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia, CartaPorte } from "../models";
 import type { UbicacionTipo } from "../models/TripUbicacion";
 import { getTripOrThrow, assertTripAllowsFiscalEdit } from "./tripService";
 import { listTripStops } from "./tripStopService";
 import { resolveMercanciaCatalog } from "./satCatalogService";
+import { algunaCartaTimbrada } from "./cartaPorteSelection";
 
 /** Carta Porte 3.1: IDUbicacion = (OR|DE) + 6 dígitos. */
 export const SAT_ID_UBICACION_PATTERN = /^(OR|DE)[0-9]{6}$/;
@@ -93,6 +94,12 @@ export async function listUbicaciones(tenantId: string, tripId: string) {
 
 /** Prefill trip ubicaciones from client fiscal address when missing. */
 export async function ensureUbicacionesFromClient(tenantId: string, tripId: string) {
+  const cartas = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    attributes: ["estatus"],
+  });
+  if (algunaCartaTimbrada(cartas)) return;
+
   const stops = await listTripStops(tenantId, tripId);
   if (stops.length >= 2) {
     await syncUbicacionesFromTripStops(tenantId, tripId);
