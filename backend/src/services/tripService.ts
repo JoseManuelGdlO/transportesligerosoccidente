@@ -35,7 +35,7 @@ import {
   DEFAULT_CFDI_CLAVE_UNIDAD,
   DEFAULT_CFDI_UNIDAD,
 } from "../types/tripCfdiConcepto";
-import { cartaVisible } from "./cartaPorteSelection";
+import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -207,6 +207,15 @@ export async function assertTripOpen(trip: Trip) {
 export async function assertTripAllowsFiscalEdit(trip: Trip) {
   if (!tripHasStatusSlug(trip, "en_curso") && !tripHasStatusSlug(trip, "cerrado")) {
     const err = new Error("El viaje no permite editar datos fiscales de carta porte");
+    (err as Error & { status?: number }).status = 400;
+    throw err;
+  }
+  const rows = await CartaPorte.findAll({
+    where: { tenant_id: trip.tenant_id, trip_id: trip.id },
+    attributes: ["estatus"],
+  });
+  if (algunaCartaTimbrada(rows)) {
+    const err = new Error("No se pueden modificar ubicaciones o mercancías: la carta porte ya está timbrada");
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
