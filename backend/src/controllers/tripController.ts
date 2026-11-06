@@ -6,6 +6,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import { tripToJson, fuelToJson, expenseToJson } from "../utils/serialize";
 import * as tripService from "../services/tripService";
 import * as maintenanceService from "../services/maintenanceService";
+import { applyModalidadPersistencia, MODALIDADES_COBRO } from "../types/modalidadCobro";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -58,10 +59,23 @@ const createSchema = z
     viaticos_entregados: z.number().optional(),
     num_factura: z.string().optional(),
     tipo_viaje: z.enum(["local", "foraneo"]).optional(),
+    modalidad_cobro: z.enum(MODALIDADES_COBRO).optional(),
+    comision_override: z.number().nullable().optional(),
     notas: z.string().max(5000).optional(),
   })
   .refine((d) => d.route_id || d.paradas || (d.origen && d.destino), {
     message: "Indica route_id, paradas (mín. 2) u origen y destino",
+  })
+  .superRefine((d, ctx) => {
+    const persist = applyModalidadPersistencia({
+      modalidad: d.modalidad_cobro ?? "factura",
+      tarifa: d.tarifa,
+      comision_override: d.comision_override,
+      num_factura: d.num_factura,
+    });
+    if (persist.error) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, message: persist.error });
+    }
   });
 
 export const createTrip = asyncHandler(async (req: Request, res: Response) => {
@@ -90,6 +104,7 @@ const patchSchema = z
     comision_override: z.number().nullable().optional(),
     num_factura: z.string().optional(),
     tipo_viaje: z.enum(["local", "foraneo"]).optional(),
+    modalidad_cobro: z.enum(MODALIDADES_COBRO).optional(),
     km_final: z.number().int().optional(),
     fecha_llegada: z.string().optional(),
     notas: z.string().max(5000).nullable().optional(),

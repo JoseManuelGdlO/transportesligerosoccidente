@@ -1,8 +1,10 @@
 import assert from "node:assert/strict";
 import { describe, it } from "node:test";
 import {
+  computeCommission,
   computeNetoPagar,
   computeSettlementTotals,
+  computeTrip,
   previewAccountInstallments,
   viaticosAFavor,
   viaticosNoComprobado,
@@ -38,6 +40,71 @@ const tripWithExpenses = (
       },
     ],
   }) as never;
+
+describe("computeCommission por modalidad", () => {
+  const trip = (overrides: Record<string, unknown> = {}) =>
+    ({
+      tarifa: 1000,
+      tipo_viaje: "local",
+      modalidad_cobro: "factura",
+      ...overrides,
+    }) as Trip;
+
+  it("en sin comisión es 0 aunque haya tasa o override", () => {
+    assert.equal(
+      computeCommission(trip({ modalidad_cobro: "sin_comision", comision_override: 400 }), driver),
+      0,
+    );
+  });
+
+  it("en sin cobro usa solo el override", () => {
+    assert.equal(
+      computeCommission(trip({ modalidad_cobro: "sin_cobro", tarifa: 0, comision_override: 350 }), driver),
+      350,
+    );
+  });
+
+  it("en efectivo usa la tasa del operador", () => {
+    assert.equal(computeCommission(trip({ modalidad_cobro: "efectivo" }), driver), 100);
+  });
+});
+
+describe("computeTrip ingreso por modalidad", () => {
+  it("en sin cobro no suma la tarifa al ingreso", () => {
+    const fin = computeTrip(
+      {
+        tarifa: 5000,
+        modalidad_cobro: "sin_cobro",
+        comision_override: 200,
+        tipo_viaje: "local",
+        km_inicial: 0,
+        km_final: 10,
+        fuel: [],
+        expenses: [],
+      } as never,
+      driver,
+    );
+    assert.equal(fin.ingreso, 0);
+    assert.equal(fin.comision, 200);
+  });
+
+  it("en efectivo sí cuenta la tarifa como ingreso", () => {
+    const fin = computeTrip(
+      {
+        tarifa: 1000,
+        modalidad_cobro: "efectivo",
+        tipo_viaje: "local",
+        km_inicial: 0,
+        km_final: 10,
+        fuel: [],
+        expenses: [],
+      } as never,
+      driver,
+    );
+    assert.equal(fin.ingreso, 1000);
+    assert.equal(fin.comision, 100);
+  });
+});
 
 describe("computeNetoPagar", () => {
   it("suma saldo_viaticos positivo al neto", () => {

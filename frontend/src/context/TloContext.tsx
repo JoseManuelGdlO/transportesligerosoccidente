@@ -40,7 +40,7 @@ interface TloState {
   removeFuel: (tripId: string, fuelId: string) => Promise<void>;
   addExpense: (tripId: string, e: Omit<Expense, "id">) => Promise<void>;
   removeExpense: (tripId: string, eid: string) => void;
-  closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string; notas?: string }) => Promise<void>;
+  closeTrip: (id: string, data: { km_final: number; fecha_llegada: string; num_factura?: string; notas?: string }) => Promise<void>;
   /** Marca la unidad como baja (no borra el registro en base de datos). */
   deleteTruck: (id: string) => Promise<void>;
   /** Marca el operador como inactivo / baja lógica (no borra el registro). */
@@ -466,6 +466,8 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
             tarifa: data.tarifa,
             viaticos_entregados: data.viaticos_entregados ?? 0,
             tipo_viaje: data.tipo_viaje ?? "local",
+            modalidad_cobro: data.modalidad_cobro ?? "factura",
+            ...(data.comision_override != null ? { comision_override: data.comision_override } : {}),
             ...(data.num_factura?.trim() ? { num_factura: data.num_factura.trim() } : {}),
             ...(data.notas?.trim() ? { notas: data.notas.trim() } : {}),
             ...(data.route_id ? { route_id: data.route_id } : {}),
@@ -508,6 +510,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
         fuel: [],
         expenses: [],
         tipo_viaje: data.tipo_viaje ?? "local",
+        modalidad_cobro: data.modalidad_cobro ?? "factura",
         statuses: [SYSTEM_STATUS_EN_CURSO],
       };
       setTrips((prev) => [trip, ...prev]);
@@ -692,14 +695,14 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   );
 
   const closeTrip = useCallback(
-    async (id: string, data: { km_final: number; fecha_llegada: string; num_factura: string; notas?: string }) => {
+    async (id: string, data: { km_final: number; fecha_llegada: string; num_factura?: string; notas?: string }) => {
       if (apiLive) {
         try {
           const body: Record<string, unknown> = {
             km_final: data.km_final,
             fecha_llegada: data.fecha_llegada,
-            num_factura: data.num_factura,
           };
+          if (data.num_factura?.trim()) body.num_factura = data.num_factura.trim();
           if (data.notas !== undefined) body.notas = data.notas;
           const r = await apiFetch(`/trips/${id}/close`, {
             method: "POST",
@@ -721,7 +724,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
                 ...t,
                 km_final: data.km_final,
                 fecha_llegada: data.fecha_llegada,
-                num_factura: data.num_factura,
+                ...(data.num_factura !== undefined ? { num_factura: data.num_factura } : {}),
                 ...(data.notas !== undefined ? { notas: data.notas.trim() || undefined } : {}),
                 statuses: t.statuses
                   .filter((s) => s.slug !== "en_curso")

@@ -20,6 +20,7 @@ import type {
   AccountDocumentTipo,
 } from "../models/AccountDocument";
 import { roundMoney } from "./calc";
+import { generaCxcAutomatica, parseModalidadCobro, type ModalidadCobro } from "../types/modalidadCobro";
 import { parseInvoiceTaxSnapshot } from "./paymentComplement/invoiceTaxSnapshot";
 import { documentoRequiereComplemento } from "./paymentComplement/paymentComplementService";
 import { num } from "../utils/numbers";
@@ -72,6 +73,7 @@ export interface AccountDocumentDto {
   aging_bucket?: AgingBucket | null;
   origen: AccountDocumentOrigen;
   trip_id?: string;
+  modalidad_cobro?: ModalidadCobro;
   fuel_ticket_id?: string;
   fuel_load_id?: string;
   maintenance_record_id?: string;
@@ -101,6 +103,19 @@ function httpError(message: string, status: number) {
 
 function paidTotal(payments: { monto: unknown }[]): number {
   return roundMoney(payments.reduce((a, p) => a + num(p.monto), 0));
+}
+
+async function modalidadByTripIds(
+  tenantId: string,
+  tripIds: Array<string | null | undefined>,
+): Promise<Map<string, ModalidadCobro>> {
+  const ids = [...new Set(tripIds.filter((id): id is string => Boolean(id)))];
+  if (!ids.length) return new Map();
+  const trips = await Trip.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: ids } },
+    attributes: ["id", "modalidad_cobro"],
+  });
+  return new Map(trips.map((t) => [t.id, t.modalidad_cobro]));
 }
 
 export function daysBetween(fromIso: string, toIso: string): number {
@@ -181,6 +196,7 @@ export function toDocumentDto(
   doc: AccountDocument,
   payments: AccountDocumentPayment[] = [],
   today = localDateStr(),
+  extras?: { modalidad_cobro?: ModalidadCobro | null },
 ): AccountDocumentDto {
   const monto = num(doc.monto_original);
   const abonos = paidTotal(payments);
@@ -211,6 +227,7 @@ export function toDocumentDto(
     aging_bucket: bucket,
     origen: doc.origen,
     trip_id: doc.trip_id ?? undefined,
+    modalidad_cobro: extras?.modalidad_cobro ?? undefined,
     fuel_ticket_id: doc.fuel_ticket_id ?? undefined,
     fuel_load_id: doc.fuel_load_id ?? undefined,
     maintenance_record_id: doc.maintenance_record_id ?? undefined,
@@ -320,8 +337,16 @@ export async function listDocuments(
     tenantId,
     rows.map((r) => r.id),
   );
+  const modalidadMap = await modalidadByTripIds(
+    tenantId,
+    rows.map((r) => r.trip_id),
+  );
   const today = localDateStr();
-  let dtos = rows.map((r) => toDocumentDto(r, paymentsMap.get(r.id) ?? [], today));
+  let dtos = rows.map((r) =>
+    toDocumentDto(r, paymentsMap.get(r.id) ?? [], today, {
+      modalidad_cobro: r.trip_id ? modalidadMap.get(r.trip_id) : undefined,
+    }),
+  );
   if (opts.bucket) {
     dtos = dtos.filter((d) => d.aging_bucket === opts.bucket);
   }
@@ -341,7 +366,10 @@ export async function getDocument(
       ["created_at", "ASC"],
     ],
   });
-  return toDocumentDto(doc, payments);
+  const modalidadMap = await modalidadByTripIds(tenantId, [doc.trip_id]);
+  return toDocumentDto(doc, payments, localDateStr(), {
+    modalidad_cobro: doc.trip_id ? modalidadMap.get(doc.trip_id) : undefined,
+  });
 }
 
 /** Totales de cartera. Canceladas no entran. Vencido es el saldo de las abiertas ya vencidas. */
@@ -1153,6 +1181,162 @@ export async function upsertFromFuelLoad(
     monto_original: monto,
     origen: "combustible",
   });
+}
+
+export type CxcModalidadSyncPlan =
+  | { action: "noop" }
+  | { action: "crear" }
+  | { action: "actualizar" }
+  | { action: "cancelar" }
+  | { action: "reject"; message: string };
+
+export function planCxcPorModalidad(opts: {
+  modalidad: ModalidadCobro;
+  tarifa: number;
+  existingAuto: { estatus: string; carta_porte_id?: string | null } | null;
+  abonado: number;
+  paymentCount: number;
+  hasStampedCxc: boolean;
+}): CxcModalidadSyncPlan {
+  const linked =
+    opts.existingAuto && opts.existingAuto.estatus !== "cancelada" ? opts.existingAuto : null;
+
+  if (generaCxcAutomatica(opts.modalidad)) {
+    if (opts.hasStampedCxc) {
+      return { action: "reject", message: "Ya hay una cuenta por cobrar timbrada para este viaje" };
+    }
+    const monto = roundMoney(opts.tarifa);
+    if (!linked) {
+      return monto > 0 ? { action: "crear" } : { action: "noop" };
+    }
+    if (monto <= 0) {
+      if (opts.paymentCount > 0 || opts.abonado > 0) {
+        return { action: "reject", message: "No se puede dejar en 0/negativo una CXC con abonos" };
+      }
+      return { action: "cancelar" };
+    }
+    if (monto < opts.abonado) {
+      return { action: "reject", message: "El monto no puede ser menor a los abonos realizados" };
+    }
+    return { action: "actualizar" };
+  }
+
+  if (!linked) return { action: "noop" };
+  if (opts.paymentCount > 0 || opts.abonado > 0) {
+    return {
+      action: "reject",
+      message: "No se puede cambiar la modalidad: la cuenta ya tiene abonos",
+    };
+  }
+  return { action: "cancelar" };
+}
+
+export async function syncCxcPorModalidad(
+  trip: Trip,
+  t?: Transaction,
+): Promise<AccountDocumentDto | null> {
+  const modalidad = parseModalidadCobro(trip.modalidad_cobro);
+  const existingAuto = await AccountDocument.findOne({
+    where: {
+      tenant_id: trip.tenant_id,
+      trip_id: trip.id,
+      origen: "viaje",
+      tipo: "cxc",
+      carta_porte_id: null,
+    },
+    transaction: t,
+    lock: t ? t.LOCK.UPDATE : undefined,
+  });
+  const stamped = await AccountDocument.findOne({
+    where: {
+      tenant_id: trip.tenant_id,
+      trip_id: trip.id,
+      origen: "viaje",
+      tipo: "cxc",
+      carta_porte_id: { [Op.ne]: null },
+      estatus: { [Op.ne]: "cancelada" },
+    },
+    transaction: t,
+  });
+  const payments = existingAuto
+    ? await AccountDocumentPayment.findAll({
+        where: { tenant_id: trip.tenant_id, document_id: existingAuto.id },
+        transaction: t,
+      })
+    : [];
+  const plan = planCxcPorModalidad({
+    modalidad,
+    tarifa: num(trip.tarifa),
+    existingAuto: existingAuto
+      ? { estatus: existingAuto.estatus, carta_porte_id: existingAuto.carta_porte_id }
+      : null,
+    abonado: paidTotal(payments),
+    paymentCount: payments.length,
+    hasStampedCxc: Boolean(stamped),
+  });
+  if (plan.action === "reject") throw httpError(plan.message, 400);
+  if (plan.action === "noop") return null;
+  if (plan.action === "cancelar") {
+    if (!existingAuto) return null;
+    await existingAuto.update({ estatus: "cancelada" } as never, { transaction: t });
+    return toDocumentDto(existingAuto, payments);
+  }
+
+  const client = await Client.findOne({
+    where: { id: trip.client_id, tenant_id: trip.tenant_id },
+    transaction: t,
+  });
+  const plazo = client?.dias_credito ?? null;
+  const emision = trip.fecha_llegada
+    ? localDateStr(new Date(trip.fecha_llegada))
+    : trip.fecha_salida
+      ? localDateStr(new Date(trip.fecha_salida))
+      : localDateStr();
+  const monto = roundMoney(num(trip.tarifa));
+  const concepto = `Servicio de transporte ${tripRouteLabelFromModel(trip)}`;
+  const folio = trip.folio;
+  const venc = resolveDueDate(emision, plazo);
+
+  if (existingAuto) {
+    await existingAuto.update(
+      {
+        client_id: trip.client_id,
+        entidad_nombre: client?.razon_social ?? existingAuto.entidad_nombre,
+        folio,
+        concepto,
+        conceptos: [{ descripcion: concepto, precio: monto }],
+        fecha_emision: emision,
+        plazo_credito_dias: plazo,
+        fecha_vencimiento: venc,
+        monto_original: String(monto),
+        estatus: "abierta",
+        origen: "viaje",
+        trip_id: trip.id,
+        carta_porte_id: null,
+      } as never,
+      { transaction: t },
+    );
+    await refreshDocumentStatus(existingAuto, payments, t);
+    return toDocumentDto(existingAuto, payments);
+  }
+
+  return createDocument(
+    trip.tenant_id,
+    {
+      tipo: "cxc",
+      client_id: trip.client_id,
+      entidad_nombre: client?.razon_social,
+      folio,
+      concepto,
+      fecha_emision: emision,
+      plazo_credito_dias: plazo,
+      monto_original: monto,
+      origen: "viaje",
+      trip_id: trip.id,
+      carta_porte_id: null,
+    },
+    t,
+  );
 }
 
 export type MaintenanceCxpSyncPlan =

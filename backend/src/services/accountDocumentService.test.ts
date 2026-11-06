@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
-import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier } from "../models";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier, Trip } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
@@ -22,6 +22,7 @@ import {
   listDocuments,
   viajeSyncOmiteMontoYFolio,
   nextDueDate,
+  planCxcPorModalidad,
   planMaintenanceCxpSync,
   resolveDueDate,
   toDocumentDto,
@@ -199,6 +200,16 @@ describe("accountDocumentService aging/saldo", () => {
     assert.equal(first.saldo_pendiente, second.saldo_pendiente);
   });
 
+  it("toDocumentDto expone modalidad_cobro del viaje", () => {
+    const dto = toDocumentDto(
+      stubDoc({ origen: "viaje" } as never),
+      [],
+      "2026-02-01",
+      { modalidad_cobro: "efectivo" },
+    );
+    assert.equal(dto.modalidad_cobro, "efectivo");
+  });
+
   it("toDocumentDto expone fecha_ingreso_cobranza", () => {
     const dto = toDocumentDto(
       stubDoc({ fecha_ingreso_cobranza: "2026-02-01" } as never),
@@ -206,6 +217,147 @@ describe("accountDocumentService aging/saldo", () => {
       "2026-02-01",
     );
     assert.equal(dto.fecha_ingreso_cobranza, "2026-02-01");
+  });
+});
+
+describe("planCxcPorModalidad", () => {
+  const abierta = { estatus: "abierta" as const, carta_porte_id: null };
+
+  it("crea CXC en efectivo si no hay documento", () => {
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "efectivo",
+        tarifa: 1500,
+        existingAuto: null,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "crear" },
+    );
+  });
+
+  it("en sin comisión no crea CXC", () => {
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "sin_comision",
+        tarifa: 1500,
+        existingAuto: null,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "noop" },
+    );
+  });
+
+  it("actualiza la CXC automática si la tarifa cubre los abonos", () => {
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "efectivo",
+        tarifa: 2000,
+        existingAuto: abierta,
+        abonado: 500,
+        paymentCount: 1,
+        hasStampedCxc: false,
+      }),
+      { action: "actualizar" },
+    );
+  });
+
+  it("rechaza bajar la tarifa por debajo de los abonos", () => {
+    const plan = planCxcPorModalidad({
+      modalidad: "efectivo",
+      tarifa: 100,
+      existingAuto: abierta,
+      abonado: 500,
+      paymentCount: 1,
+      hasStampedCxc: false,
+    });
+    assert.equal(plan.action, "reject");
+    if (plan.action === "reject") {
+      assert.match(plan.message, /menor a los abonos/);
+    }
+  });
+
+  it("rechaza pasar a efectivo si ya hay CXC timbrada", () => {
+    const plan = planCxcPorModalidad({
+      modalidad: "efectivo",
+      tarifa: 1500,
+      existingAuto: null,
+      abonado: 0,
+      paymentCount: 0,
+      hasStampedCxc: true,
+    });
+    assert.equal(plan.action, "reject");
+    if (plan.action === "reject") {
+      assert.match(plan.message, /timbrad/i);
+    }
+  });
+
+  it("en factura, sin comisión o sin cobro cancela la CXC automática sin abonos", () => {
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "factura",
+        tarifa: 1500,
+        existingAuto: abierta,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "cancelar" },
+    );
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "sin_comision",
+        tarifa: 1500,
+        existingAuto: abierta,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "cancelar" },
+    );
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "sin_cobro",
+        tarifa: 0,
+        existingAuto: abierta,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "cancelar" },
+    );
+  });
+
+  it("rechaza salir de efectivo si la CXC automática ya tiene abonos", () => {
+    const plan = planCxcPorModalidad({
+      modalidad: "factura",
+      tarifa: 1500,
+      existingAuto: abierta,
+      abonado: 200,
+      paymentCount: 1,
+      hasStampedCxc: false,
+    });
+    assert.equal(plan.action, "reject");
+    if (plan.action === "reject") {
+      assert.match(plan.message, /abonos/);
+    }
+  });
+
+  it("no toca nada en factura si no hay CXC automática", () => {
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "factura",
+        tarifa: 1500,
+        existingAuto: null,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "noop" },
+    );
   });
 });
 
@@ -831,6 +983,7 @@ describe("búsqueda de cuentas por UUID", () => {
 
   it("incluye factura, complemento y el id del documento", async () => {
     mock.method(Client, "findAll", async () => [] as never);
+    mock.method(Trip, "findAll", async () => [{ id: "trip-1", modalidad_cobro: "factura" }] as never);
     mock.method(CartaPorte, "findAll", async () => [{ trip_id: "trip-1" }] as never);
     mock.method(CfdiPago, "findAll", async () => [{ id: "pago-1" }] as never);
     mock.method(AccountDocumentPayment, "findAll", async (opts: { where?: { cfdi_pago_id?: unknown } }) => {

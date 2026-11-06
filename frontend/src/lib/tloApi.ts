@@ -252,6 +252,13 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     num_factura: raw.num_factura != null ? String(raw.num_factura) : undefined,
     comision_override: raw.comision_override != null ? Number(raw.comision_override) : undefined,
     tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : "local",
+    modalidad_cobro:
+      raw.modalidad_cobro === "efectivo" ||
+      raw.modalidad_cobro === "sin_comision" ||
+      raw.modalidad_cobro === "sin_cobro" ||
+      raw.modalidad_cobro === "factura"
+        ? raw.modalidad_cobro
+        : "factura",
     settlement_id: raw.settlement_id != null ? String(raw.settlement_id) : undefined,
     cfdi_conceptos: normalizeCfdiConceptos(raw.cfdi_conceptos),
     notas: raw.notas != null && String(raw.notas).trim() ? String(raw.notas) : undefined,
@@ -434,6 +441,13 @@ export function normalizeAccountDocument(
     aging_bucket: bucket,
     origen,
     trip_id: raw.trip_id != null ? String(raw.trip_id) : undefined,
+    modalidad_cobro:
+      raw.modalidad_cobro === "efectivo" ||
+      raw.modalidad_cobro === "sin_comision" ||
+      raw.modalidad_cobro === "sin_cobro" ||
+      raw.modalidad_cobro === "factura"
+        ? raw.modalidad_cobro
+        : undefined,
     fuel_ticket_id: raw.fuel_ticket_id != null ? String(raw.fuel_ticket_id) : undefined,
     fuel_load_id: raw.fuel_load_id != null ? String(raw.fuel_load_id) : undefined,
     maintenance_record_id:
@@ -911,6 +925,7 @@ export type CartaPorteTimbrarBody = {
   condiciones_pago?: string;
   comentarios?: string;
   folio?: string | number;
+  email?: string;
 };
 
 export async function previewCartaPorte(
