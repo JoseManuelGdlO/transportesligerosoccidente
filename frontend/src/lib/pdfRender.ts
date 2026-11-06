@@ -361,14 +361,14 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
     (s, m) => s + (m.peso_kg || 0) * (m.cantidad || 1),
     0,
   );
-  const cartas = (trip.carta_porte
-    ? [
-        [trip.carta_porte.serie, trip.carta_porte.folio_cfdi]
-          .filter(Boolean)
-          .join("-"),
-      ]
-    : []
-  ).filter(Boolean) as string[];
+  const cartasFuente = trip.cartas_porte?.length
+    ? trip.cartas_porte
+    : trip.carta_porte
+      ? [trip.carta_porte]
+      : [];
+  const cartas = cartasFuente
+    .map((c) => [c.serie, c.folio_cfdi].filter(Boolean).join("-"))
+    .filter(Boolean);
 
   const leftRows: Array<[string, string]> = [
     ["Folio", `AT-${trip.folio}`],

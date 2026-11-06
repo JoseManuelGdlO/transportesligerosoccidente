@@ -17,6 +17,7 @@ import type {
   ReportsOverview,
   FuelImportPreviewResult,
   Trip,
+  TripCfdiConcepto,
   TripMercancia,
   TripUbicacion,
   Truck,
@@ -151,6 +152,19 @@ export function normalizeTripMercancia(raw: Record<string, unknown>): TripMercan
   };
 }
 
+export function normalizeCfdiConceptos(raw: unknown): TripCfdiConcepto[] | undefined {
+  if (!Array.isArray(raw)) return undefined;
+  return (raw as Record<string, unknown>[]).map((c) => ({
+    clave_prod_serv: String(c.clave_prod_serv ?? ""),
+    cantidad: Number(c.cantidad ?? 1),
+    clave_unidad: String(c.clave_unidad ?? ""),
+    unidad: String(c.unidad ?? ""),
+    descripcion: String(c.descripcion ?? ""),
+    valor_unitario: Number(c.valor_unitario ?? 0),
+    objeto_imp: c.objeto_imp === "01" || c.objeto_imp === "02" ? c.objeto_imp : undefined,
+  }));
+}
+
 export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRecord {
   const estatus = raw.estatus;
   const e: CartaPorteRecord["estatus"] =
@@ -176,6 +190,7 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
         : undefined,
     comentarios: raw.comentarios != null ? String(raw.comentarios) : undefined,
     folio_sugerido: typeof raw.folio_sugerido === "number" ? raw.folio_sugerido : undefined,
+    cfdi_conceptos: normalizeCfdiConceptos(raw.cfdi_conceptos),
   };
 }
 
@@ -238,17 +253,7 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     comision_override: raw.comision_override != null ? Number(raw.comision_override) : undefined,
     tipo_viaje: raw.tipo_viaje === "foraneo" ? "foraneo" : "local",
     settlement_id: raw.settlement_id != null ? String(raw.settlement_id) : undefined,
-    cfdi_conceptos: Array.isArray(raw.cfdi_conceptos)
-      ? (raw.cfdi_conceptos as Record<string, unknown>[]).map((c) => ({
-          clave_prod_serv: String(c.clave_prod_serv ?? ""),
-          cantidad: Number(c.cantidad ?? 1),
-          clave_unidad: String(c.clave_unidad ?? ""),
-          unidad: String(c.unidad ?? ""),
-          descripcion: String(c.descripcion ?? ""),
-          valor_unitario: Number(c.valor_unitario ?? 0),
-          objeto_imp: c.objeto_imp === "01" || c.objeto_imp === "02" ? c.objeto_imp : undefined,
-        }))
-      : undefined,
+    cfdi_conceptos: normalizeCfdiConceptos(raw.cfdi_conceptos),
     notas: raw.notas != null && String(raw.notas).trim() ? String(raw.notas) : undefined,
     statuses,
     fuel,
@@ -256,6 +261,9 @@ export function normalizeTrip(raw: Record<string, unknown>): Trip {
     ubicaciones,
     mercancias,
     carta_porte,
+    cartas_porte: Array.isArray(raw.cartas_porte)
+      ? (raw.cartas_porte as Record<string, unknown>[]).map(normalizeCartaPorte)
+      : undefined,
   };
 }
 
@@ -819,7 +827,7 @@ export async function patchTrip(tripId: string, patch: Record<string, unknown>):
 
 export async function putTripCfdiConceptos(
   tripId: string,
-  conceptos: import("@/types/tlo").TripCfdiConcepto[],
+  conceptos: TripCfdiConcepto[],
 ): Promise<Trip> {
   const res = await apiFetch(`/trips/${tripId}/cfdi-conceptos`, {
     method: "PUT",
@@ -844,11 +852,10 @@ export async function fetchCartaPorte(tripId: string): Promise<CartaPorteRecord>
   return normalizeCartaPorte(raw);
 }
 
-export async function patchCartaPorteFolio(tripId: string, folio: string): Promise<CartaPorteRecord> {
-  const res = await apiFetch(`/trips/${tripId}/carta-porte/folio`, {
-    method: "PATCH",
-    body: JSON.stringify({ folio }),
-  });
+async function readCartaPorteWithFolioError(
+  res: Response,
+  fallbackMessage: string,
+): Promise<CartaPorteRecord & { cxc_sync_error?: string | null }> {
   const text = await res.text();
   let raw: Record<string, unknown> = {};
   try {
@@ -857,11 +864,121 @@ export async function patchCartaPorteFolio(tripId: string, folio: string): Promi
     raw = {};
   }
   if (!res.ok) {
-    const message = typeof raw.error === "string" ? raw.error : "No se pudo guardar el folio";
+    const message = typeof raw.error === "string" ? raw.error : fallbackMessage;
     const error = new Error(message) as Error & { folio_sugerido?: number };
     if (typeof raw.folio_sugerido === "number") error.folio_sugerido = raw.folio_sugerido;
     throw error;
   }
+  return {
+    ...normalizeCartaPorte(raw),
+    cxc_sync_error: raw.cxc_sync_error != null ? String(raw.cxc_sync_error) : raw.cxc_sync_error === null ? null : undefined,
+  };
+}
+
+export async function patchCartaPorteFolio(tripId: string, folio: string): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/carta-porte/folio`, {
+    method: "PATCH",
+    body: JSON.stringify({ folio }),
+  });
+  return readCartaPorteWithFolioError(res, "No se pudo guardar el folio");
+}
+
+export async function fetchCartasPorte(tripId: string): Promise<CartaPorteRecord[]> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte`);
+  const rows = await readJson<unknown[]>(res);
+  return Array.isArray(rows) ? rows.map((x) => normalizeCartaPorte(x as Record<string, unknown>)) : [];
+}
+
+export async function createCartaPorte(tripId: string): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte`, { method: "POST" });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
+export type CartaPorteTimbrarBody = {
+  tipo?: "ingreso" | "traslado";
+  moneda?: string;
+  tipo_cambio?: number;
+  uso_cfdi?: string;
+  metodo_pago?: string;
+  forma_pago?: string;
+  condiciones_pago?: string;
+  comentarios?: string;
+  folio?: string | number;
+};
+
+export async function previewCartaPorte(
+  tripId: string,
+  cartaId: string,
+  body: CartaPorteTimbrarBody,
+): Promise<{ valid: boolean; issues: string[] }> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/preview`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readJson<{ valid: boolean; issues: string[] }>(res);
+}
+
+export async function timbrarCartaPorte(
+  tripId: string,
+  cartaId: string,
+  body: CartaPorteTimbrarBody,
+): Promise<CartaPorteRecord & { cxc_sync_error?: string | null }> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/timbrar`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readCartaPorteWithFolioError(res, "Error al timbrar");
+}
+
+export async function patchCartaPorteFolioById(
+  tripId: string,
+  cartaId: string,
+  folio: string,
+): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/folio`, {
+    method: "PATCH",
+    body: JSON.stringify({ folio }),
+  });
+  return readCartaPorteWithFolioError(res, "No se pudo guardar el folio");
+}
+
+export async function patchCartaPorteComentariosById(
+  tripId: string,
+  cartaId: string,
+  comentarios: string,
+): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/comentarios`, {
+    method: "PATCH",
+    body: JSON.stringify({ comentarios }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
+export async function cancelarCartaPorte(
+  tripId: string,
+  cartaId: string,
+  body: { motivo: string; folio_sustitucion?: string },
+): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/cancelar`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
+export async function putCartaPorteConceptos(
+  tripId: string,
+  cartaId: string,
+  conceptos: TripCfdiConcepto[],
+): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/conceptos`, {
+    method: "PUT",
+    body: JSON.stringify({ conceptos }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
   return normalizeCartaPorte(raw);
 }
 
@@ -1244,17 +1361,22 @@ export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> 
   window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
 }
 
-export async function downloadCartaPorteXml(tripId: string, suggestedName?: string): Promise<void> {
-  const res = await apiFetch(`/trips/${tripId}/carta-porte/xml`);
+async function downloadCartaPorteFile(
+  path: string,
+  fallbackError: string,
+  fallbackName: string,
+  suggestedName?: string,
+): Promise<void> {
+  const res = await apiFetch(path);
   if (!res.ok) {
     const j = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(typeof j.error === "string" ? j.error : "No se pudo descargar el XML");
+    throw new Error(typeof j.error === "string" ? j.error : fallbackError);
   }
   const blob = await res.blob();
   const filename =
     parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
     suggestedName ||
-    `carta-porte-${tripId}.xml`;
+    fallbackName;
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
@@ -1263,23 +1385,48 @@ export async function downloadCartaPorteXml(tripId: string, suggestedName?: stri
   URL.revokeObjectURL(url);
 }
 
+export async function downloadCartaPorteXml(tripId: string, suggestedName?: string): Promise<void> {
+  await downloadCartaPorteFile(
+    `/trips/${tripId}/carta-porte/xml`,
+    "No se pudo descargar el XML",
+    `carta-porte-${tripId}.xml`,
+    suggestedName,
+  );
+}
+
 export async function downloadCartaPortePdf(tripId: string, suggestedName?: string): Promise<void> {
-  const res = await apiFetch(`/trips/${tripId}/carta-porte/pdf`);
-  if (!res.ok) {
-    const j = (await res.json().catch(() => ({}))) as { error?: string };
-    throw new Error(typeof j.error === "string" ? j.error : "No se pudo descargar el PDF");
-  }
-  const blob = await res.blob();
-  const filename =
-    parseContentDispositionFilename(res.headers.get("Content-Disposition")) ||
-    suggestedName ||
-    `carta-porte-${tripId}.pdf`;
-  const url = URL.createObjectURL(blob);
-  const a = document.createElement("a");
-  a.href = url;
-  a.download = filename;
-  a.click();
-  URL.revokeObjectURL(url);
+  await downloadCartaPorteFile(
+    `/trips/${tripId}/carta-porte/pdf`,
+    "No se pudo descargar el PDF",
+    `carta-porte-${tripId}.pdf`,
+    suggestedName,
+  );
+}
+
+export async function downloadCartaPorteXmlById(
+  tripId: string,
+  cartaId: string,
+  suggestedName?: string,
+): Promise<void> {
+  await downloadCartaPorteFile(
+    `/trips/${tripId}/cartas-porte/${cartaId}/xml`,
+    "No se pudo descargar el XML",
+    `carta-porte-${cartaId}.xml`,
+    suggestedName,
+  );
+}
+
+export async function downloadCartaPortePdfById(
+  tripId: string,
+  cartaId: string,
+  suggestedName?: string,
+): Promise<void> {
+  await downloadCartaPorteFile(
+    `/trips/${tripId}/cartas-porte/${cartaId}/pdf`,
+    "No se pudo descargar el PDF",
+    `carta-porte-${cartaId}.pdf`,
+    suggestedName,
+  );
 }
 
 export async function fetchRoutes(opts?: { client_id?: string; all?: boolean }): Promise<

@@ -17,6 +17,7 @@ import {
   customStatusesFromTrip,
   tripIsLiquidated,
   tripIsProrated,
+  tripTieneCartaTimbrada,
 } from "@/lib/tripStatus";
 import type { Trip, TripStatusRef } from "@/types/tlo";
 import { toast } from "sonner";
@@ -52,7 +53,24 @@ export const TripStatusChip = ({ status }: { status: TripStatusRef }) => (
 const TripFinanceBadges = ({ trip }: { trip: Trip }) => {
   const liquidado = tripIsLiquidated(trip);
   const prorrateado = tripIsProrated(trip);
-  const cpTimbrada = FEATURE_CARTA_PORTE && trip.carta_porte?.estatus === "timbrada";
+  const cpTimbrada = FEATURE_CARTA_PORTE && tripTieneCartaTimbrada(trip);
+  const timbradas = (trip.cartas_porte?.length
+    ? trip.cartas_porte
+    : trip.carta_porte
+      ? [trip.carta_porte]
+      : []
+  ).filter((c) => c.estatus === "timbrada");
+  const foliosTimbrados = timbradas
+    .map((c) =>
+      c.serie && c.folio_cfdi
+        ? `CFDI ${c.serie}-${c.folio_cfdi}`
+        : c.folio_cfdi
+          ? `CFDI ${c.folio_cfdi}`
+          : c.uuid
+            ? `UUID ${c.uuid}`
+            : null,
+    )
+    .filter((v): v is string => Boolean(v));
   if (!liquidado && !prorrateado && !cpTimbrada) return null;
   return (
     <>
@@ -72,16 +90,10 @@ const TripFinanceBadges = ({ trip }: { trip: Trip }) => {
       {cpTimbrada && (
         <Badge
           variant="outline"
-          title={
-            trip.carta_porte?.serie && trip.carta_porte?.folio_cfdi
-              ? `CFDI ${trip.carta_porte.serie}-${trip.carta_porte.folio_cfdi}`
-              : trip.carta_porte?.uuid
-                ? `UUID ${trip.carta_porte.uuid}`
-                : undefined
-          }
+          title={foliosTimbrados.length > 0 ? foliosTimbrados.join(", ") : undefined}
           className="font-medium text-[10px] bg-success/10 text-success border-success/30"
         >
-          Timbrada
+          {foliosTimbrados.length > 1 ? foliosTimbrados.join(" · ") : "Timbrada"}
         </Badge>
       )}
     </>

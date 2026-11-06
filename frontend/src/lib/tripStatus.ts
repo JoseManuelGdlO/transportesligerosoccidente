@@ -49,9 +49,15 @@ export function tripIsProrated(trip: Trip): boolean {
   return (trip.fuel ?? []).some((f) => Boolean(f.fuel_ticket_id));
 }
 
+/** Alguna carta porte del viaje está timbrada ante el SAT. */
+export function tripTieneCartaTimbrada(trip: Trip): boolean {
+  if (trip.cartas_porte?.some((c) => c.estatus === "timbrada")) return true;
+  return trip.carta_porte?.estatus === "timbrada";
+}
+
 /** Carta porte timbrada ante el SAT. */
 export function tripIsTimbrado(trip: Trip): boolean {
-  return trip.carta_porte?.estatus === "timbrada";
+  return tripTieneCartaTimbrada(trip);
 }
 
 export function tripHasStatusId(trip: Trip, id: string): boolean {
