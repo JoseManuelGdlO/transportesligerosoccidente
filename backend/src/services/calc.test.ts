@@ -48,7 +48,7 @@ describe("computeCommission por modalidad", () => {
       tipo_viaje: "local",
       modalidad_cobro: "factura",
       ...overrides,
-    }) as Trip;
+    }) as never;
 
   it("en sin comisión es 0 aunque haya tasa o override", () => {
     assert.equal(
