@@ -262,6 +262,7 @@ function correoStamp(email?: string | null, mensaje?: string | null): {
 
 function payloadBody(input: {
   folio: string;
+  serie: string;
   cpFiscal: string;
   formaPagoP: string;
   fechaPago: string;
@@ -278,6 +279,7 @@ function payloadBody(input: {
   const correo = correoStamp(input.email, input.emailMensaje);
   const payload = buildPagos40Payload({
     folio: Number(input.folio),
+    serie: input.serie,
     fechaCfdi: localDateTimeSatStr(),
     lugarExpedicion: input.cpFiscal,
     formaPagoP: input.formaPagoP,
@@ -583,6 +585,7 @@ async function runComplement(
   const fechaPagoPayload = `${input.fechaPago}T12:00:00`;
   const body = payloadBody({
     folio: prepared.folio,
+    serie: fiscal.serie,
     cpFiscal: fiscal.cpFiscal,
     formaPagoP: input.formaPagoP,
     fechaPago: fechaPagoPayload,
@@ -710,6 +713,7 @@ export async function retryPaymentComplement(tenantId: string, id: string): Prom
   const fechaPago = fechaPagoPayload(pago.fecha_pago);
   const body = payloadBody({
     folio: String(pago.folio),
+    serie: fiscal.serie,
     cpFiscal: fiscal.cpFiscal,
     formaPagoP: pago.forma_pago_p,
     fechaPago,

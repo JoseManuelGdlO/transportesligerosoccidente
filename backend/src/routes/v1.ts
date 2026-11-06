@@ -152,7 +152,8 @@ r.patch("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gestio
 r.delete("/suppliers/:id", authenticateJwt, requirePermission("proveedores.gestionar"), supplierC.deleteSupplier);
 
 r.get("/account-documents/aging", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.getAging);
-r.post("/account-documents/backfill", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postBackfill);
+  r.post("/account-documents/backfill", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postBackfill);
+  r.post("/account-documents/cobranza", authenticateJwt, requirePermission("cuentas.gestionar"), accountDocC.postCobranzaMasiva);
 r.get("/account-documents", authenticateJwt, requirePermission("cuentas.ver"), accountDocC.listAccountDocuments);
 r.post("/account-documents/payment-complements", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postPaymentComplement);
 r.post("/account-documents/payment-complements/from-payments", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postPaymentComplementFromPayments);

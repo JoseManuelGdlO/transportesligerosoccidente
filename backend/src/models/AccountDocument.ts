@@ -45,6 +45,8 @@ export class AccountDocument extends Model<
   declare fuel_load_id: CreationOptional<string | null>;
   declare maintenance_record_id: CreationOptional<string | null>;
   declare expense_id: CreationOptional<string | null>;
+  declare categoria: CreationOptional<string | null>;
+  declare unidad: CreationOptional<string | null>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 
@@ -84,6 +86,8 @@ export function initAccountDocument(sequelize: Sequelize) {
       fuel_load_id: { type: DataTypes.CHAR(36), allowNull: true },
       maintenance_record_id: { type: DataTypes.CHAR(36), allowNull: true },
       expense_id: { type: DataTypes.CHAR(36), allowNull: true },
+      categoria: { type: DataTypes.STRING(32), allowNull: true },
+      unidad: { type: DataTypes.STRING(64), allowNull: true },
     } as never,
     { sequelize, tableName: "account_documents", underscored: true },
   );

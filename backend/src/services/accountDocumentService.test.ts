@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
-import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier, Trip } from "../models";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier, Trip, Truck } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
@@ -21,6 +21,7 @@ import {
   folioCxcTimbrado,
   listDocuments,
   viajeSyncOmiteMontoYFolio,
+  cobranzaAsignada,
   nextDueDate,
   planCxcPorModalidad,
   planMaintenanceCxpSync,
@@ -217,6 +218,31 @@ describe("accountDocumentService aging/saldo", () => {
       "2026-02-01",
     );
     assert.equal(dto.fecha_ingreso_cobranza, "2026-02-01");
+  });
+});
+
+describe("cobranzaAsignada", () => {
+  it("recalcula cada vencimiento con el plazo del documento", () => {
+    assert.deepEqual(cobranzaAsignada({ plazoDocumento: 15, plazoCliente: 30, fecha: "2026-11-01" }), {
+      fecha_ingreso_cobranza: "2026-11-01",
+      plazo_credito_dias: 15,
+      fecha_vencimiento: "2026-11-16",
+    });
+  });
+
+  it("toma el plazo del cliente si la factura nació sin plazo", () => {
+    assert.deepEqual(cobranzaAsignada({ plazoDocumento: null, plazoCliente: 30, fecha: "2026-11-01" }), {
+      fecha_ingreso_cobranza: "2026-11-01",
+      plazo_credito_dias: 30,
+      fecha_vencimiento: "2026-12-01",
+    });
+  });
+
+  it("deja el vencimiento vacío si nadie definió plazo", () => {
+    assert.equal(
+      cobranzaAsignada({ plazoDocumento: null, plazoCliente: null, fecha: "2026-11-01" }).fecha_vencimiento,
+      null,
+    );
   });
 });
 
@@ -871,6 +897,37 @@ describe("CXP sin proveedor de catálogo", () => {
     } as Expense);
     assert.equal(created[0]?.supplier_id, null);
     assert.equal(dto?.entidad_nombre, "Caseta Lagos");
+  });
+
+  it("el check de cuenta por cobrar crea CXC con categoría, unidad y plazo del cliente", async () => {
+    const created = mockCreate();
+    mock.method(Trip, "findOne", async () => ({ id: "trip-1", client_id: "cli-1", truck_id: "trk-1" }));
+    mock.method(Truck, "findByPk", async () => ({ numero_economico: "TLO-01" }));
+    mock.method(Client, "findOne", async () => ({
+      id: "cli-1",
+      razon_social: "Cliente Demo",
+      dias_credito: 20,
+    }));
+    await upsertFromExpense({
+      id: "exp-cxc",
+      tenant_id: "t1",
+      trip_id: "trip-1",
+      tipo: "gasto",
+      categoria: "casetas",
+      descripcion: "Caseta Lagos",
+      monto: "120",
+      fecha: new Date("2026-04-06T12:00:00Z"),
+      supplier_id: null,
+      pagado: true,
+      genera_cxc: true,
+    } as Expense);
+    assert.equal(created.length, 1);
+    assert.equal(created[0]?.tipo, "cxc");
+    assert.equal(created[0]?.categoria, "casetas");
+    assert.equal(created[0]?.unidad, "TLO-01");
+    assert.equal(created[0]?.plazo_credito_dias, 20);
+    assert.equal(created[0]?.client_id, "cli-1");
+    assert.equal(created[0]?.entidad_nombre, "Cliente Demo");
   });
 
   it("gasto ya pagado no genera CXP", async () => {

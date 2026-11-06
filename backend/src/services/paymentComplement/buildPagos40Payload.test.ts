@@ -100,7 +100,7 @@ describe("buildPagos40Payload", () => {
     assert.equal(datos.Total, 0);
     assert.equal(datos.MetodoPago, "PUE");
     assert.equal(datos.FormadePago, "03");
-    assert.equal("Serie" in datos, false);
+    assert.equal(datos.Serie, "P");
     assert.equal(doctos[0].Serie, "A");
     assert.equal(datos.Folio, 12);
     assert.equal(receptor.UsoCfdi, "CP01");
@@ -139,6 +139,15 @@ describe("buildPagos40Payload", () => {
 
     assert.equal(doctos[0].ImpuestosDR, null);
     assert.equal(doctos[0].ObjetoImpDR, "01");
+  });
+
+  it("usa la serie del complemento y no la de la factura relacionada", () => {
+    const payload = buildPagos40Payload({ ...input(), serie: " RP " });
+    const datos = payload.DatosCFDI as Record<string, unknown>;
+    const pagos = payload.Pagos as { CFDIPagos40: Array<Record<string, unknown>> };
+    const doctos = pagos.CFDIPagos40[0].DoctoRelacionado as Array<Record<string, unknown>>;
+    assert.equal(datos.Serie, "RP");
+    assert.equal(doctos[0].Serie, "A");
   });
 
   it("pone correo y mensaje cuando hay destinatario", () => {

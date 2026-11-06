@@ -83,6 +83,7 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
     supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : null,
     pagado: tipo === "gasto" ? Boolean(raw.pagado) : false,
     forma_pago: tipo === "gasto" && raw.forma_pago != null ? String(raw.forma_pago) : null,
+    genera_cxc: tipo === "gasto" ? Boolean(raw.genera_cxc) : false,
   };
 }
 
@@ -453,6 +454,8 @@ export function normalizeAccountDocument(
     maintenance_record_id:
       raw.maintenance_record_id != null ? String(raw.maintenance_record_id) : undefined,
     expense_id: raw.expense_id != null ? String(raw.expense_id) : undefined,
+    categoria: raw.categoria != null ? String(raw.categoria) : null,
+    unidad: raw.unidad != null ? String(raw.unidad) : null,
     payments: paymentsRaw.map((p) => {
       const row = p as Record<string, unknown>;
       return {
@@ -2044,6 +2047,17 @@ export async function cancelAccountDocumentApi(
 ): Promise<import("@/types/tlo").AccountDocument> {
   const res = await apiFetch(`/account-documents/${id}/cancel`, { method: "POST" });
   return normalizeAccountDocument(await readJson(res));
+}
+
+export async function assignFechaCobranzaApi(body: {
+  ids: string[];
+  fecha_ingreso_cobranza: string;
+}): Promise<{ updated: number }> {
+  const res = await apiFetch("/account-documents/cobranza", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  return readJson(res);
 }
 
 export async function backfillAccountDocumentsApi(): Promise<{ cxc: number; cxp: number }> {

@@ -193,6 +193,25 @@ export const postCancel = asyncHandler(async (req: Request, res: Response) => {
   res.json(row);
 });
 
+const cobranzaMasivaSchema = z.object({
+  ids: z.array(z.string().uuid()).min(1).max(200),
+  fecha_ingreso_cobranza: dateOnly,
+});
+
+export const postCobranzaMasiva = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = cobranzaMasivaSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const result = await accountDocumentService.assignFechaCobranza(
+    tid(req),
+    parsed.data.ids,
+    parsed.data.fecha_ingreso_cobranza,
+  );
+  res.json(result);
+});
+
 export const postBackfill = asyncHandler(async (req: Request, res: Response) => {
   const result = await accountDocumentService.backfillTenant(tid(req));
   res.json(result);

@@ -222,6 +222,7 @@ const expenseSchema = z
     supplier_id: z.string().uuid().optional().nullable(),
     pagado: z.boolean().optional().default(false),
     forma_pago: z.enum(FORMAS_PAGO_GASTO).optional().nullable(),
+    genera_cxc: z.boolean().optional().default(false),
   })
   .refine((d) => d.monto_comprobado <= d.monto, {
     message: "monto_comprobado no puede ser mayor que monto",

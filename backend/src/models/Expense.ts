@@ -21,6 +21,7 @@ export class Expense extends Model<InferAttributes<Expense>, InferCreationAttrib
   declare supplier_id: CreationOptional<string | null>;
   declare pagado: CreationOptional<boolean>;
   declare forma_pago: CreationOptional<string | null>;
+  declare genera_cxc: CreationOptional<boolean>;
   declare readonly createdAt: CreationOptional<Date>;
   declare readonly updatedAt: CreationOptional<Date>;
 }
@@ -48,6 +49,7 @@ export function initExpense(sequelize: Sequelize) {
       supplier_id: { type: DataTypes.CHAR(36), allowNull: true },
       pagado: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
       forma_pago: { type: DataTypes.STRING(2), allowNull: true },
+      genera_cxc: { type: DataTypes.BOOLEAN, allowNull: false, defaultValue: false },
     } as never,
     { sequelize, tableName: "expenses", underscored: true },
   );

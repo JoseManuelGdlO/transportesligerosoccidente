@@ -882,6 +882,8 @@ export interface AccountDocument {
   fuel_load_id?: string;
   maintenance_record_id?: string;
   expense_id?: string;
+  categoria?: string | null;
+  unidad?: string | null;
   payments?: AccountDocumentPayment[];
   complemento_disponible?: boolean;
   metodo_pago?: string;
@@ -955,6 +957,7 @@ export interface Expense {
   supplier_id?: string | null;
   pagado?: boolean;
   forma_pago?: string | null;
+  genera_cxc?: boolean;
 }
 
 export interface TripStatusRef {

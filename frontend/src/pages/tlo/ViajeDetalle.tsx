@@ -43,6 +43,7 @@ type ExpForm = {
   supplier_id: string;
   pagado: boolean;
   forma_pago: string;
+  genera_cxc: boolean;
 };
 
 const FORMAS_PAGO_GASTO = [
@@ -66,6 +67,7 @@ const defaultExpForm = (): ExpForm => ({
   supplier_id: "",
   pagado: false,
   forma_pago: "",
+  genera_cxc: false,
 });
 
 export default function ViajeDetalle() {
@@ -364,6 +366,7 @@ export default function ViajeDetalle() {
       visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
       pagado: exp.tipo === "gasto" ? exp.pagado : false,
       forma_pago: exp.tipo === "gasto" ? exp.forma_pago || null : null,
+      genera_cxc: exp.tipo === "gasto" ? exp.genera_cxc : false,
       fecha: new Date().toISOString(),
     };
     try {
@@ -373,9 +376,11 @@ export default function ViajeDetalle() {
       toast.success(
         exp.tipo === "ingreso"
           ? "Ingreso registrado"
-          : exp.pagado
-            ? "Gasto registrado. No se generó cuenta por pagar."
-            : "Gasto registrado",
+          : exp.genera_cxc
+            ? "Gasto registrado. Se generó la cuenta por cobrar."
+            : exp.pagado
+              ? "Gasto registrado. No se generó cuenta por pagar."
+              : "Gasto registrado",
       );
       await reloadTrip();
     } catch (err) {
@@ -432,6 +437,9 @@ export default function ViajeDetalle() {
               {formaPagoLabel(e.forma_pago) || "Por pagar"}
             </span>
           )}
+          {e.genera_cxc ? (
+            <Badge variant="outline" className="ml-2">CXC</Badge>
+          ) : null}
         </TableCell>
         <TableCell className={`text-right font-semibold ${montoClassName}`}>{fmtMXN(e.monto)}</TableCell>
         <TableCell className="text-right">
@@ -1004,6 +1012,7 @@ export default function ViajeDetalle() {
                     visible_en_liquidacion: v === "ingreso" ? exp.visible_en_liquidacion : false,
                     pagado: v === "gasto" ? exp.pagado : false,
                     forma_pago: v === "gasto" ? exp.forma_pago : "",
+                    genera_cxc: v === "gasto" ? exp.genera_cxc : false,
                   });
                 }}
                 className="justify-start"
@@ -1074,6 +1083,21 @@ export default function ViajeDetalle() {
                     No se generará cuenta por pagar.
                   </p>
                 )}
+                <div className="rounded-md border p-3 space-y-2">
+                  <p className="text-sm text-muted-foreground">
+                    Unidad: {truckById(trucks, trip.truck_id)?.numero_economico || "—"}
+                  </p>
+                  <label className="flex items-center gap-2 text-sm cursor-pointer">
+                    <Checkbox
+                      checked={exp.genera_cxc}
+                      onCheckedChange={(c) => setExp({ ...exp, genera_cxc: !!c })}
+                    />
+                    Generar cuenta por cobrar
+                  </label>
+                  <p className="text-xs text-muted-foreground">
+                    Al habilitarlo se crea una cuenta por cobrar al cliente, con esta categoría y la unidad del viaje. El plazo sale de los días de crédito del cliente.
+                  </p>
+                </div>
               </>
             )}
             {exp.tipo === "ingreso" && (

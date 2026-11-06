@@ -47,6 +47,7 @@ import {
   downloadPaymentComplementFile,
   fetchAccountAging,
   fetchAccountDocument,
+  assignFechaCobranzaApi,
   fetchAccountDocuments,
   fetchSuppliers,
   patchAccountDocumentApi,
@@ -148,6 +149,14 @@ const ORIGEN_LABELS: Record<string, string> = {
   gasto: "Gasto",
 };
 
+const CATEGORIA_LABEL: Record<string, string> = {
+  casetas: "Casetas",
+  refacciones: "Refacciones",
+  hospedaje: "Hospedaje",
+  comidas: "Comidas",
+  otros: "Otros",
+};
+
 export default function Cuentas() {
   const { hasPermission } = useAuth();
   const { clients } = useTlo();
@@ -166,6 +175,9 @@ export default function Cuentas() {
   const [fechaHasta, setFechaHasta] = useState("");
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
+  const [cobranzaIds, setCobranzaIds] = useState<string[]>([]);
+  const [cobranzaFecha, setCobranzaFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [cobranzaSaving, setCobranzaSaving] = useState(false);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -309,6 +321,10 @@ export default function Cuentas() {
   useEffect(() => {
     setPage(1);
   }, [q, bucket, estatus, fechaDesde, fechaHasta, tipo, pageSize]);
+
+  useEffect(() => {
+    setCobranzaIds([]);
+  }, [tipo]);
 
   const listedDocs = useMemo(() => {
     if (estatus === "al_dia") return docs.filter((d) => d.estatus_display === "Al día");
@@ -822,14 +838,84 @@ export default function Cuentas() {
             </div>
           </div>
 
+          {tipo === "cxc" && canManage && (
+            <div className="flex flex-col gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
+              <p className="text-sm sm:mr-auto sm:mb-2">
+                {cobranzaIds.length
+                  ? `${cobranzaIds.length} seleccionadas. Cada vencimiento se recalcula con el plazo de esa factura.`
+                  : "Selecciona facturas para asignarles la misma fecha de ingreso a cobranza."}
+              </p>
+              <div className="space-y-1.5">
+                <Label className="text-xs text-muted-foreground">Fecha de ingreso a cobranza</Label>
+                <Input
+                  type="date"
+                  value={cobranzaFecha}
+                  onChange={(e) => setCobranzaFecha(e.target.value)}
+                  className="w-full sm:w-[180px] bg-background"
+                />
+              </div>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9"
+                disabled={!cobranzaIds.length || !cobranzaFecha || cobranzaSaving}
+                onClick={async () => {
+                  setCobranzaSaving(true);
+                  try {
+                    const result = await assignFechaCobranzaApi({
+                      ids: cobranzaIds,
+                      fecha_ingreso_cobranza: cobranzaFecha,
+                    });
+                    toast.success(
+                      `Fecha aplicada a ${result.updated} cuentas. Se recalculó el vencimiento de cada una.`,
+                    );
+                    setCobranzaIds([]);
+                    await load();
+                  } catch (e) {
+                    toast.error(e instanceof Error ? e.message : "No se pudo asignar la fecha");
+                  } finally {
+                    setCobranzaSaving(false);
+                  }
+                }}
+              >
+                {cobranzaSaving ? "Aplicando…" : "Aplicar y recalcular"}
+              </Button>
+            </div>
+          )}
+
           <Card className="overflow-x-auto">
             <Table>
               <TableHeader>
                 <TableRow>
+                  {tipo === "cxc" && canManage && (
+                    <TableHead className="w-10">
+                      <Checkbox
+                        checked={
+                          pageData.slice.some((d) => d.estatus !== "cancelada") &&
+                          pageData.slice
+                            .filter((d) => d.estatus !== "cancelada")
+                            .every((d) => cobranzaIds.includes(d.id))
+                        }
+                        onCheckedChange={(checked) => {
+                          const ids = pageData.slice
+                            .filter((d) => d.estatus !== "cancelada")
+                            .map((d) => d.id);
+                          setCobranzaIds((prev) => {
+                            if (checked === true) return [...new Set([...prev, ...ids])];
+                            const drop = new Set(ids);
+                            return prev.filter((id) => !drop.has(id));
+                          });
+                        }}
+                        aria-label="Seleccionar facturas de esta página"
+                      />
+                    </TableHead>
+                  )}
                   <TableHead>Entidad</TableHead>
                   <TableHead>Folio</TableHead>
                   <TableHead>Tipo</TableHead>
                   <TableHead>Concepto</TableHead>
+                  <TableHead>Categoría</TableHead>
+                  <TableHead>Unidad</TableHead>
                   <TableHead>Emisión</TableHead>
                   <TableHead>Cobranza</TableHead>
                   <TableHead>Plazo</TableHead>
@@ -848,12 +934,28 @@ export default function Cuentas() {
                     className="cursor-pointer"
                     onClick={() => openDetail(d)}
                   >
+                    {tipo === "cxc" && canManage && (
+                      <TableCell onClick={(e) => e.stopPropagation()}>
+                        <Checkbox
+                          checked={cobranzaIds.includes(d.id)}
+                          disabled={d.estatus === "cancelada"}
+                          onCheckedChange={(checked) => {
+                            setCobranzaIds((prev) =>
+                              checked === true ? [...prev, d.id] : prev.filter((id) => id !== d.id),
+                            );
+                          }}
+                          aria-label={`Seleccionar ${d.folio}`}
+                        />
+                      </TableCell>
+                    )}
                     <TableCell className="font-medium">{d.entidad_nombre}</TableCell>
                     <TableCell>{d.folio}</TableCell>
                     <TableCell>
                       {d.tipo === "cxc" ? tipoDoctoSaldos(d.modalidad_cobro) : ORIGEN_LABELS[d.origen] ?? d.origen}
                     </TableCell>
                     <TableCell className="max-w-[200px] truncate">{d.concepto}</TableCell>
+                    <TableCell>{d.categoria ? CATEGORIA_LABEL[d.categoria] ?? d.categoria : "—"}</TableCell>
+                    <TableCell>{d.unidad || "—"}</TableCell>
                     <TableCell>{d.fecha_emision}</TableCell>
                     <TableCell>{d.fecha_ingreso_cobranza || "—"}</TableCell>
                     <TableCell>
@@ -885,7 +987,7 @@ export default function Cuentas() {
                 ))}
                 {!pageData.total && (
                   <TableRow>
-                    <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={tipo === "cxc" && canManage ? 16 : 15} className="text-center text-muted-foreground py-8">
                       Sin documentos
                     </TableCell>
                   </TableRow>
@@ -1218,6 +1320,14 @@ export default function Cuentas() {
                   <div>
                     <p className="text-muted-foreground">Ingreso a cobranza</p>
                     <p>{selected.fecha_ingreso_cobranza || "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Categoría</p>
+                    <p>{selected.categoria ? CATEGORIA_LABEL[selected.categoria] ?? selected.categoria : "—"}</p>
+                  </div>
+                  <div>
+                    <p className="text-muted-foreground">Unidad</p>
+                    <p>{selected.unidad || "—"}</p>
                   </div>
                   <div>
                     <p className="text-muted-foreground">Vencimiento</p>

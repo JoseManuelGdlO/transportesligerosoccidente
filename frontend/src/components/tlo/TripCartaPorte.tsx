@@ -54,6 +54,7 @@ import {
 } from "@/lib/cartaPorteIssues";
 import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
 import { correoComplementoBody } from "@/lib/paymentComplement";
+import { condicionesPagoDesdeDias } from "@/lib/condicionesPago";
 import type {
   CartaPorteRecord,
   ClientUbicacion,
@@ -340,6 +341,7 @@ export function TripCartaPorte({
   const [metodoPago, setMetodoPago] = useState("PPD");
   const [formaPago, setFormaPago] = useState("99");
   const [condicionesPago, setCondicionesPago] = useState("");
+  const condicionesTouched = useRef(false);
   const [comentarios, setComentarios] = useState(cp?.comentarios ?? "");
   const [savingComentarios, setSavingComentarios] = useState(false);
   const [folio, setFolio] = useState(cp?.folio_cfdi ?? "");
@@ -356,6 +358,13 @@ export function TripCartaPorte({
     () => clients.find((c) => c.id === clientId)?.email?.trim() ?? "",
     [clients, clientId],
   );
+  const clienteDiasCredito = clients.find((c) => c.id === clientId)?.dias_credito;
+
+  useEffect(() => {
+    if (condicionesTouched.current) return;
+    const texto = condicionesPagoDesdeDias(clienteDiasCredito);
+    if (texto) setCondicionesPago(texto);
+  }, [clienteDiasCredito]);
 
   const timbradoBody = () => {
     const correo =
@@ -1482,7 +1491,10 @@ export function TripCartaPorte({
                     <Label>Condiciones de pago</Label>
                     <Input
                       value={condicionesPago}
-                      onChange={(e) => setCondicionesPago(e.target.value)}
+                      onChange={(e) => {
+                        condicionesTouched.current = true;
+                        setCondicionesPago(e.target.value);
+                      }}
                       placeholder="CREDITO 30 DIAS"
                     />
                   </div>

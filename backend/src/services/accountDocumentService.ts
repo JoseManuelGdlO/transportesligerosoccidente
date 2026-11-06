@@ -13,6 +13,7 @@ import {
   Supplier,
   Tenant,
   Trip,
+  Truck,
 } from "../models";
 import type {
   AccountDocumentEstatus,
@@ -78,6 +79,8 @@ export interface AccountDocumentDto {
   fuel_load_id?: string;
   maintenance_record_id?: string;
   expense_id?: string;
+  categoria?: string | null;
+  unidad?: string | null;
   payments?: AccountPaymentDto[];
 }
 
@@ -169,6 +172,30 @@ export function nextDueDate(input: {
   return resolveDueDate(input.fechaCobranza || input.fechaEmision, input.plazo);
 }
 
+/** Misma fecha de ingreso a cobranza; cada documento conserva su plazo y recalcula su vencimiento. */
+export function cobranzaAsignada(input: {
+  plazoDocumento: number | null | undefined;
+  plazoCliente: number | null | undefined;
+  fecha: string;
+}): {
+  fecha_ingreso_cobranza: string;
+  plazo_credito_dias: number | null;
+  fecha_vencimiento: string | null;
+} {
+  const propio = input.plazoDocumento;
+  const plazo =
+    propio != null && Number.isFinite(Number(propio))
+      ? Math.floor(Number(propio))
+      : input.plazoCliente != null && Number.isFinite(Number(input.plazoCliente))
+        ? Math.floor(Number(input.plazoCliente))
+        : null;
+  return {
+    fecha_ingreso_cobranza: input.fecha,
+    plazo_credito_dias: plazo,
+    fecha_vencimiento: resolveDueDate(input.fecha, plazo),
+  };
+}
+
 export function cobranzaAConservar(
   actual: string | null | undefined,
   incoming: string | null | undefined,
@@ -232,6 +259,8 @@ export function toDocumentDto(
     fuel_load_id: doc.fuel_load_id ?? undefined,
     maintenance_record_id: doc.maintenance_record_id ?? undefined,
     expense_id: doc.expense_id ?? undefined,
+    categoria: doc.categoria ?? null,
+    unidad: doc.unidad ?? null,
     payments: payments.map(toPaymentDto),
   };
 }
@@ -443,6 +472,8 @@ export interface CreateDocumentInput {
   fuel_load_id?: string | null;
   maintenance_record_id?: string | null;
   expense_id?: string | null;
+  categoria?: string | null;
+  unidad?: string | null;
 }
 
 async function resolveEntityName(
@@ -526,6 +557,8 @@ export async function createDocument(
       fuel_load_id: input.fuel_load_id ?? null,
       maintenance_record_id: input.maintenance_record_id ?? null,
       expense_id: input.expense_id ?? null,
+      categoria: input.categoria ?? null,
+      unidad: input.unidad ?? null,
     } as never,
     { transaction: t },
   );
@@ -857,9 +890,14 @@ async function entidadSinProveedor(
   sourceId: string,
   fallback: string,
   t?: Transaction,
+  tipo?: AccountDocumentTipo,
 ): Promise<string> {
   const existing = await AccountDocument.findOne({
-    where: { tenant_id: tenantId, [sourceField]: sourceId },
+    where: {
+      tenant_id: tenantId,
+      [sourceField]: sourceId,
+      ...(tipo ? { tipo } : {}),
+    },
     attributes: ["entidad_nombre"],
     transaction: t,
   });
@@ -924,7 +962,7 @@ async function upsertBySource(
   t?: Transaction,
 ): Promise<AccountDocumentDto | null> {
   const existing = await AccountDocument.findOne({
-    where: { tenant_id: tenantId, [sourceField]: sourceId },
+    where: { tenant_id: tenantId, [sourceField]: sourceId, tipo: input.tipo },
     transaction: t,
     lock: t ? t.LOCK.UPDATE : undefined,
   });
@@ -973,6 +1011,8 @@ async function upsertBySource(
       monto_original: String(roundMoney(input.monto_original)),
       estatus: "abierta",
       ...(input.trip_id !== undefined ? { trip_id: input.trip_id ?? null } : {}),
+      ...(input.categoria !== undefined ? { categoria: input.categoria } : {}),
+      ...(input.unidad !== undefined ? { unidad: input.unidad } : {}),
     } as never, { transaction: t });
     await refreshDocumentStatus(existing, payments, t);
     return toDocumentDto(existing, payments);
@@ -1295,9 +1335,11 @@ export async function syncCxcPorModalidad(
   const monto = roundMoney(num(trip.tarifa));
   const concepto = `Servicio de transporte ${tripRouteLabelFromModel(trip)}`;
   const folio = trip.folio;
-  const venc = resolveDueDate(emision, plazo);
 
   if (existingAuto) {
+    const cobranza = existingAuto.fecha_ingreso_cobranza
+      ? String(existingAuto.fecha_ingreso_cobranza).slice(0, 10)
+      : emision;
     await existingAuto.update(
       {
         client_id: trip.client_id,
@@ -1306,8 +1348,9 @@ export async function syncCxcPorModalidad(
         concepto,
         conceptos: [{ descripcion: concepto, precio: monto }],
         fecha_emision: emision,
+        fecha_ingreso_cobranza: cobranza,
         plazo_credito_dias: plazo,
-        fecha_vencimiento: venc,
+        fecha_vencimiento: resolveDueDate(cobranza, plazo),
         monto_original: String(monto),
         estatus: "abierta",
         origen: "viaje",
@@ -1329,6 +1372,7 @@ export async function syncCxcPorModalidad(
       folio,
       concepto,
       fecha_emision: emision,
+      fecha_ingreso_cobranza: emision,
       plazo_credito_dias: plazo,
       monto_original: monto,
       origen: "viaje",
@@ -1461,13 +1505,58 @@ export async function upsertFromMaintenance(
   );
 }
 
+async function unidadDelViaje(
+  tenantId: string,
+  tripId: string | null | undefined,
+): Promise<{ trip: Trip | null; unidad: string | null }> {
+  if (!tripId) return { trip: null, unidad: null };
+  const trip = await Trip.findOne({
+    where: { id: tripId, tenant_id: tenantId },
+    attributes: ["id", "client_id", "truck_id", "tenant_id"],
+  });
+  if (!trip?.truck_id) return { trip, unidad: null };
+  const truck = await Truck.findByPk(trip.truck_id, { attributes: ["numero_economico"] });
+  return { trip, unidad: truck?.numero_economico?.trim() || null };
+}
+
 export async function upsertFromExpense(
   expense: Expense,
 ): Promise<AccountDocumentDto | null> {
   if (expense.tipo !== "gasto") return null;
-  if (expense.pagado) return null;
   const monto = num(expense.monto);
   if (monto <= 0) return null;
+  const emision = localDateStr(new Date(expense.fecha));
+  const concepto = `${expense.categoria}: ${expense.descripcion}`.slice(0, 512);
+
+  let unidad: string | null = null;
+  let cxc: AccountDocumentDto | null = null;
+  if (expense.genera_cxc) {
+    const ctx = await unidadDelViaje(expense.tenant_id, expense.trip_id);
+    unidad = ctx.unidad;
+    if (!ctx.trip?.client_id) throw httpError("El viaje no tiene cliente para la cuenta por cobrar", 400);
+    const client = await Client.findOne({
+      where: { id: ctx.trip.client_id, tenant_id: expense.tenant_id },
+    });
+    cxc = await upsertBySource(expense.tenant_id, "expense_id", expense.id, {
+      tipo: "cxc",
+      client_id: ctx.trip.client_id,
+      entidad_nombre: client?.razon_social,
+      folio: `CXC-${expense.id.slice(0, 8).toUpperCase()}`,
+      concepto,
+      fecha_emision: emision,
+      fecha_ingreso_cobranza: emision,
+      plazo_credito_dias: client?.dias_credito ?? null,
+      monto_original: monto,
+      origen: "gasto",
+      trip_id: expense.trip_id,
+      categoria: expense.categoria,
+      unidad,
+      preserveCobranzaIfSet: true,
+    });
+  }
+
+  if (expense.pagado) return cxc;
+
   let supplierId = expense.supplier_id;
   let nombre = expense.descripcion?.trim() || `Gasto ${expense.categoria}`;
   let plazo: number | null = null;
@@ -1479,21 +1568,66 @@ export async function upsertFromExpense(
     }
   } else {
     supplierId = null;
-    nombre = await entidadSinProveedor(expense.tenant_id, "expense_id", expense.id, nombre);
+    nombre = await entidadSinProveedor(
+      expense.tenant_id,
+      "expense_id",
+      expense.id,
+      nombre,
+      undefined,
+      "cxp",
+    );
   }
-  const emision = localDateStr(new Date(expense.fecha));
-  const folio = `GASTO-${expense.id.slice(0, 8).toUpperCase()}`;
-  return upsertBySource(expense.tenant_id, "expense_id", expense.id, {
+  const cxp = await upsertBySource(expense.tenant_id, "expense_id", expense.id, {
     tipo: "cxp",
     supplier_id: supplierId,
     entidad_nombre: nombre,
-    folio,
-    concepto: `${expense.categoria}: ${expense.descripcion}`.slice(0, 512),
+    folio: `GASTO-${expense.id.slice(0, 8).toUpperCase()}`,
+    concepto,
     fecha_emision: emision,
     plazo_credito_dias: plazo,
     monto_original: monto,
     origen: "gasto",
+    trip_id: expense.trip_id,
+    categoria: expense.categoria,
+    unidad,
   });
+  return cxp ?? cxc;
+}
+
+export async function assignFechaCobranza(
+  tenantId: string,
+  ids: string[],
+  fecha: string,
+): Promise<{ updated: number }> {
+  const unique = [...new Set(ids)];
+  const docs = await AccountDocument.findAll({
+    where: {
+      tenant_id: tenantId,
+      id: { [Op.in]: unique },
+      tipo: "cxc",
+      estatus: { [Op.ne]: "cancelada" },
+    },
+  });
+  if (!docs.length) throw httpError("No hay cuentas por cobrar para actualizar", 400);
+  const clientIds = [
+    ...new Set(docs.map((doc) => doc.client_id).filter((id): id is string => Boolean(id))),
+  ];
+  const clients = clientIds.length
+    ? await Client.findAll({
+        where: { tenant_id: tenantId, id: { [Op.in]: clientIds } },
+        attributes: ["id", "dias_credito"],
+      })
+    : [];
+  const plazos = new Map(clients.map((client) => [client.id, client.dias_credito ?? null]));
+  for (const doc of docs) {
+    const patch = cobranzaAsignada({
+      plazoDocumento: doc.plazo_credito_dias,
+      plazoCliente: doc.client_id ? (plazos.get(doc.client_id) ?? null) : null,
+      fecha,
+    });
+    await doc.update(patch as never);
+  }
+  return { updated: docs.length };
 }
 
 /** Corrige el monto de una CXC ya creada para que coincida con el total fiscal. No reabre canceladas. */

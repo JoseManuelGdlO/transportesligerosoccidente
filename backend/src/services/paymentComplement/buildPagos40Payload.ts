@@ -46,6 +46,8 @@ function doctoRelacionado(linea: DraftLine) {
 
 export function buildPagos40Payload(input: {
   folio: number;
+  /** Serie del complemento. Si viene vacía, se usa P. No aplica a facturas de ingreso. */
+  serie?: string | null;
   fechaCfdi: string;
   lugarExpedicion: string;
   formaPagoP: string;
@@ -68,6 +70,7 @@ export function buildPagos40Payload(input: {
 
   return {
     DatosCFDI: {
+      Serie: input.serie?.trim() || "P",
       Folio: input.folio,
       Fecha: input.fechaCfdi,
       FormadePago: input.formaPagoP,

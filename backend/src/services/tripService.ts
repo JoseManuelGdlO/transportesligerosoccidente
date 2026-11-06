@@ -464,6 +464,7 @@ export async function addExpense(
     supplier_id?: string | null;
     pagado?: boolean;
     forma_pago?: string | null;
+    genera_cxc?: boolean;
   },
 ) {
   await getTripOrThrow(tenantId, tripId, false);
@@ -471,6 +472,7 @@ export async function addExpense(
   const visible_en_liquidacion =
     tipo === "ingreso" ? Boolean(body.visible_en_liquidacion) : false;
   const pagado = tipo === "gasto" ? Boolean(body.pagado) : false;
+  const genera_cxc = tipo === "gasto" ? Boolean(body.genera_cxc) : false;
   const expense = await Expense.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -485,14 +487,15 @@ export async function addExpense(
     supplier_id: body.supplier_id ?? null,
     pagado,
     forma_pago: tipo === "gasto" ? body.forma_pago ?? null : null,
+    genera_cxc,
   } as never);
-  if (!pagado) {
+  if (tipo === "gasto" && (!pagado || genera_cxc)) {
     try {
       const { upsertFromExpense } = await import("./accountDocumentService");
       await upsertFromExpense(expense);
     } catch (syncErr) {
       console.warn(
-        "[trip] Gasto creado pero falló sync de documento CXP:",
+        "[trip] Gasto creado pero falló sync de cuenta:",
         syncErr instanceof Error ? syncErr.message : syncErr,
       );
     }

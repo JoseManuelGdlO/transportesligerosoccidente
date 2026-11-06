@@ -645,6 +645,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               supplier_id: e.tipo === "gasto" ? e.supplier_id || null : null,
               pagado: e.tipo === "gasto" ? Boolean(e.pagado) : false,
               forma_pago: e.tipo === "gasto" ? e.forma_pago || null : null,
+              genera_cxc: e.tipo === "gasto" ? Boolean(e.genera_cxc) : false,
             }),
           });
           const j = await readJson<Record<string, unknown>>(r);
