@@ -560,9 +560,11 @@ async function runCaso(
     timbradoOpts?: TimbradoOpts;
   },
 ): Promise<ResultEntry> {
+  const cp = await cartaPorteService.getCartaPorteForTrip(tenantId, entry.tripId);
   const preview = await cartaPorteService.previewCartaPorte(
     tenantId,
     entry.tripId,
+    cp.id,
     entry.tipo,
     entry.timbradoOpts,
   );
@@ -594,14 +596,15 @@ async function runCaso(
 
   if (TIMBRAR && preview.valid) {
     try {
-      const { carta: cp } = await cartaPorteService.timbrarCartaPorte(
+      const { carta } = await cartaPorteService.timbrarCartaPorte(
         tenantId,
         entry.tripId,
+        cp.id,
         entry.tipo,
         entry.timbradoOpts,
       );
-      result.timbrado = { uuid: cp.uuid ?? undefined };
-      console.log(`  Timbrado OK: UUID=${cp.uuid} serie=${cp.serie} folio=${cp.folio_cfdi}`);
+      result.timbrado = { uuid: carta.uuid ?? undefined };
+      console.log(`  Timbrado OK: UUID=${carta.uuid} serie=${carta.serie} folio=${carta.folio_cfdi}`);
     } catch (e) {
       const msg = e instanceof Error ? e.message : String(e);
       result.timbrado = { error: msg };

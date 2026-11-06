@@ -34,7 +34,7 @@ import { esTransporteInternacionalSat } from "../utils/cartaPorteSat";
 import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
-import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
+import { cartaVisible } from "./cartaPorteSelection";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
@@ -124,10 +124,6 @@ export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
 
 export async function crearCartaPorteAdicional(tenantId: string, tripId: string): Promise<CartaPorte> {
   await getTripOrThrow(tenantId, tripId, false);
-  const rows = await listCartasPorte(tenantId, tripId);
-  if (!algunaCartaTimbrada(rows)) {
-    throw err("Debe existir una carta porte timbrada para agregar otra");
-  }
   return CartaPorte.create({
     id: randomUUID(),
     tenant_id: tenantId,
