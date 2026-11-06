@@ -53,6 +53,7 @@ import {
   firstErrorSection,
 } from "@/lib/cartaPorteIssues";
 import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
+import { correoComplementoBody } from "@/lib/paymentComplement";
 import type {
   CartaPorteRecord,
   ClientUbicacion,
@@ -314,7 +315,7 @@ export function TripCartaPorte({
   onTripUpdated,
 }: Props) {
   const { hasPermission } = useAuth();
-  const { drivers, trucks, upsertDriver, upsertTruck } = useTlo();
+  const { drivers, trucks, clients, upsertDriver, upsertTruck } = useTlo();
   const canTimbrar = hasPermission("cartaporte.timbrar");
   const canCancelar = hasPermission("cartaporte.cancelar");
   const canViewCartaPorte = hasPermission("cartaporte.ver");
@@ -349,21 +350,34 @@ export function TripCartaPorte({
   const [folioSustitucion, setFolioSustitucion] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
+  const [enviarCorreo, setEnviarCorreo] = useState(false);
+  const [correoEmail, setCorreoEmail] = useState("");
+  const clienteCorreo = useMemo(
+    () => clients.find((c) => c.id === clientId)?.email?.trim() ?? "",
+    [clients, clientId],
+  );
 
-  const timbradoBody = () => ({
-    tipo: tipoTimbrado,
-    uso_cfdi: tipoTimbrado === "ingreso" ? usoCfdi : undefined,
-    moneda: tipoTimbrado === "ingreso" ? moneda : undefined,
-    tipo_cambio:
-      tipoTimbrado === "ingreso" && moneda !== "MXN" && tipoCambio
-        ? Number(tipoCambio)
-        : undefined,
-    metodo_pago: tipoTimbrado === "ingreso" ? metodoPago : undefined,
-    forma_pago: tipoTimbrado === "ingreso" ? formaPago : undefined,
-    condiciones_pago: tipoTimbrado === "ingreso" && condicionesPago ? condicionesPago : undefined,
-    comentarios,
-    folio: folio.trim() || undefined,
-  });
+  const timbradoBody = () => {
+    const correo =
+      tipoTimbrado === "ingreso"
+        ? correoComplementoBody(enviarCorreo, correoEmail, "")
+        : { ok: true as const, fields: {} };
+    return {
+      tipo: tipoTimbrado,
+      uso_cfdi: tipoTimbrado === "ingreso" ? usoCfdi : undefined,
+      moneda: tipoTimbrado === "ingreso" ? moneda : undefined,
+      tipo_cambio:
+        tipoTimbrado === "ingreso" && moneda !== "MXN" && tipoCambio
+          ? Number(tipoCambio)
+          : undefined,
+      metodo_pago: tipoTimbrado === "ingreso" ? metodoPago : undefined,
+      forma_pago: tipoTimbrado === "ingreso" ? formaPago : undefined,
+      condiciones_pago: tipoTimbrado === "ingreso" && condicionesPago ? condicionesPago : undefined,
+      comentarios,
+      folio: folio.trim() || undefined,
+      ...(correo.ok ? correo.fields : {}),
+    };
+  };
 
   useEffect(() => {
     if (cartaId && cartas.some((c) => c.id === cartaId)) return;
@@ -394,6 +408,8 @@ export function TripCartaPorte({
   }, [trip.id, cp?.id, cp?.comentarios]);
 
   useEffect(() => {
+    setEnviarCorreo(false);
+    setCorreoEmail("");
     if (cp?.tipo_comprobante === "ingreso" || cp?.tipo_comprobante === "traslado") {
       setTipoTimbrado(cp.tipo_comprobante);
       return;
@@ -1158,6 +1174,13 @@ export function TripCartaPorte({
 
   const handleTimbrar = async () => {
     if (!canTimbrar || !cp) return;
+    if (tipoTimbrado === "ingreso" && enviarCorreo) {
+      const correo = correoComplementoBody(true, correoEmail, "");
+      if (!correo.ok) {
+        toast.error(correo.error);
+        return;
+      }
+    }
     setLoading(true);
     try {
       // Forzar persist para que el preview/backend valide el estado actual del formulario
@@ -1462,6 +1485,34 @@ export function TripCartaPorte({
                       onChange={(e) => setCondicionesPago(e.target.value)}
                       placeholder="CREDITO 30 DIAS"
                     />
+                  </div>
+                  <div className="sm:col-span-2 space-y-2">
+                    <label className="flex items-center gap-2 text-sm">
+                      <Checkbox
+                        id="cp-enviar-correo"
+                        checked={enviarCorreo}
+                        disabled={loading}
+                        onCheckedChange={(checked) => {
+                          const on = checked === true;
+                          setEnviarCorreo(on);
+                          if (on && !correoEmail.trim()) setCorreoEmail(clienteCorreo);
+                        }}
+                      />
+                      Enviar por correo
+                    </label>
+                    {enviarCorreo && (
+                      <div>
+                        <Label htmlFor="cp-correo">Correo</Label>
+                        <Input
+                          id="cp-correo"
+                          type="email"
+                          value={correoEmail}
+                          disabled={loading}
+                          placeholder="cliente@empresa.com"
+                          onChange={(e) => setCorreoEmail(e.target.value)}
+                        />
+                      </div>
+                    )}
                   </div>
                   <div className="sm:col-span-2 space-y-2 pt-2 border-t">
                     <div className="flex flex-wrap items-center justify-between gap-2">

@@ -105,6 +105,8 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
     }
   }
 
+  const emailDestino = isTraslado ? null : opts.email?.trim() || null;
+
   const usoCfdi = isTraslado
     ? "S01"
     : publicoGeneral
@@ -141,7 +143,7 @@ export function buildFactura40Payload(ctx: TimbradoContext): Factura40PayloadBod
       DomicilioFiscalReceptor: receptorCp,
       RegimenFiscalReceptor: receptorRegimen,
       NoCliente: null,
-      Email: isTraslado ? null : (client.email ?? null),
+      Email: emailDestino,
       Calle: null,
       NumExt: null,
       NumInt: null,

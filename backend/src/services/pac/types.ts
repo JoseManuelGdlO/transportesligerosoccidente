@@ -42,6 +42,8 @@ export interface TimbradoOpts {
   comentarios?: string;
   /** Folio entero que Sicofi debe timbrar. La serie no se envía. */
   folio?: number | string;
+  /** Correo al que Sicofi envía el PDF y el XML. Vacío: no se envía. */
+  email?: string;
 }
 
 /**

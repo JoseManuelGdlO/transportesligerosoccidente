@@ -925,6 +925,7 @@ export type CartaPorteTimbrarBody = {
   condiciones_pago?: string;
   comentarios?: string;
   folio?: string | number;
+  email?: string;
 };
 
 export async function previewCartaPorte(

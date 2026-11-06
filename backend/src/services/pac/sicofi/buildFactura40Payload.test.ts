@@ -194,6 +194,43 @@ describe("buildFactura40Payload", () => {
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].Unidad, "Viaje");
     assert.equal(payload.ConceptosCFDI40.Conceptos[0].NoIdentificacion, undefined);
     assert.equal(payload.DatosCFDI40.MensajePDF, "");
+    assert.equal(payload.ReceptorCFDI40.Email, null);
+  });
+
+  it("ingreso manda solo el correo capturado al timbrar, no el del catálogo", () => {
+    const sinCorreo = buildFactura40Payload(
+      baseCtx({
+        tipo: "ingreso",
+        client: {
+          rfc: "CLI010101AAA",
+          razon_social: "Cliente SA",
+          cp: "44100",
+          regimen_fiscal: "601",
+          email: "catalogo@cliente.com",
+        } as TimbradoContext["client"],
+      }),
+    );
+    assert.equal(sinCorreo.ReceptorCFDI40.Email, null);
+
+    const conCorreo = buildFactura40Payload(
+      baseCtx({
+        tipo: "ingreso",
+        opts: { email: "otro@cliente.com" },
+        client: {
+          rfc: "CLI010101AAA",
+          razon_social: "Cliente SA",
+          cp: "44100",
+          regimen_fiscal: "601",
+          email: "catalogo@cliente.com",
+        } as TimbradoContext["client"],
+      }),
+    );
+    assert.equal(conCorreo.ReceptorCFDI40.Email, "otro@cliente.com");
+  });
+
+  it("traslado no manda correo aunque el timbrado traiga uno", () => {
+    const payload = buildFactura40Payload(baseCtx({ opts: { email: "otro@cliente.com" } }));
+    assert.equal(payload.ReceptorCFDI40.Email, null);
   });
 
   it("envía el comentario en MensajePDF y no en NoIdentificacion", () => {
