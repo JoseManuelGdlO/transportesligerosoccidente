@@ -242,6 +242,56 @@ r.delete("/trips/:id/fuel/:fuelId", authenticateJwt, requirePermission("viajes.c
 r.post("/trips/:id/expenses", authenticateJwt, requirePermission("viajes.crear"), tripC.postExpense);
 r.delete("/trips/:id/expenses/:expenseId", authenticateJwt, requirePermission("viajes.crear"), tripC.deleteExpense);
 
+r.get(
+  "/trips/:id/cartas-porte/:cartaId/xml",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  cartaPorteC.getCartaPorteXml,
+);
+r.get(
+  "/trips/:id/cartas-porte/:cartaId/pdf",
+  authenticateJwt,
+  requirePermission("cartaporte.ver"),
+  cartaPorteC.getCartaPortePdf,
+);
+r.post(
+  "/trips/:id/cartas-porte/:cartaId/preview",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.postPreview,
+);
+r.post(
+  "/trips/:id/cartas-porte/:cartaId/timbrar",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.postTimbrar,
+);
+r.patch(
+  "/trips/:id/cartas-porte/:cartaId/folio",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.patchFolio,
+);
+r.patch(
+  "/trips/:id/cartas-porte/:cartaId/comentarios",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.patchComentarios,
+);
+r.post(
+  "/trips/:id/cartas-porte/:cartaId/cancelar",
+  authenticateJwt,
+  requirePermission("cartaporte.cancelar"),
+  cartaPorteC.postCancelar,
+);
+r.get("/trips/:id/cartas-porte", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.listCartas);
+r.post(
+  "/trips/:id/cartas-porte",
+  authenticateJwt,
+  requirePermission("cartaporte.timbrar"),
+  cartaPorteC.postCrear,
+);
+
 r.get("/trips/:id/carta-porte", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPorte);
 r.get("/trips/:id/carta-porte/xml", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPorteXml);
 r.get("/trips/:id/carta-porte/pdf", authenticateJwt, requirePermission("cartaporte.ver"), cartaPorteC.getCartaPortePdf);
