@@ -665,7 +665,7 @@ async function draftFromStored(tenantId: string, rows: CfdiPagoDocumento[]): Pro
   const drafts: DraftLine[] = [];
   for (const row of rows) {
     const carta = await CartaPorte.findOne({
-      where: { id: row.carta_porte_id, tenant_id: tenantId, estatus: "timbrada", tipo_comprobante: "ingreso" },
+      where: { id: row.carta_porte_id, tenant_id: tenantId },
     });
     if (!carta?.xml_timbrado) throw new ComplementError("La factura no tiene XML timbrado", 400);
     const snap = parseInvoiceTaxSnapshot(carta.xml_timbrado);
