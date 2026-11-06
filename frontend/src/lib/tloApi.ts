@@ -80,6 +80,8 @@ export function normalizeExpense(raw: Record<string, unknown>): Expense {
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(raw.visible_en_liquidacion) : false,
     fecha: String(raw.fecha ?? new Date().toISOString()),
     supplier_id: raw.supplier_id != null ? String(raw.supplier_id) : null,
+    pagado: tipo === "gasto" ? Boolean(raw.pagado) : false,
+    forma_pago: tipo === "gasto" && raw.forma_pago != null ? String(raw.forma_pago) : null,
   };
 }
 

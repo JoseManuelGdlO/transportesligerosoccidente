@@ -640,6 +640,8 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
               visible_en_liquidacion: e.tipo === "ingreso" ? e.visible_en_liquidacion : false,
               fecha: e.fecha,
               supplier_id: e.tipo === "gasto" ? e.supplier_id || null : null,
+              pagado: e.tipo === "gasto" ? Boolean(e.pagado) : false,
+              forma_pago: e.tipo === "gasto" ? e.forma_pago || null : null,
             }),
           });
           const j = await readJson<Record<string, unknown>>(r);

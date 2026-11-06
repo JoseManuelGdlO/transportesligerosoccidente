@@ -720,6 +720,24 @@ describe("CXP sin proveedor de catálogo", () => {
     assert.equal(created[0]?.supplier_id, null);
     assert.equal(dto?.entidad_nombre, "Caseta Lagos");
   });
+
+  it("gasto ya pagado no genera CXP", async () => {
+    const created = mockCreate();
+    const dto = await upsertFromExpense({
+      id: "exp-pagado",
+      tenant_id: "t1",
+      tipo: "gasto",
+      categoria: "comidas",
+      descripcion: "Comida pagada",
+      monto: "80",
+      fecha: new Date("2026-04-06T12:00:00Z"),
+      supplier_id: null,
+      pagado: true,
+      forma_pago: "01",
+    } as Expense);
+    assert.equal(dto, null);
+    assert.equal(created.length, 0);
+  });
 });
 
 const PPD_XML = `<?xml version="1.0"?>

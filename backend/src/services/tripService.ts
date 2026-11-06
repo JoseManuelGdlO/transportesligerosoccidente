@@ -432,12 +432,15 @@ export async function addExpense(
     visible_en_liquidacion?: boolean;
     fecha?: string;
     supplier_id?: string | null;
+    pagado?: boolean;
+    forma_pago?: string | null;
   },
 ) {
   await getTripOrThrow(tenantId, tripId, false);
   const tipo = body.tipo ?? "gasto";
   const visible_en_liquidacion =
     tipo === "ingreso" ? Boolean(body.visible_en_liquidacion) : false;
+  const pagado = tipo === "gasto" ? Boolean(body.pagado) : false;
   const expense = await Expense.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -450,15 +453,19 @@ export async function addExpense(
     visible_en_liquidacion,
     fecha: body.fecha ? new Date(body.fecha) : new Date(),
     supplier_id: body.supplier_id ?? null,
+    pagado,
+    forma_pago: tipo === "gasto" ? body.forma_pago ?? null : null,
   } as never);
-  try {
-    const { upsertFromExpense } = await import("./accountDocumentService");
-    await upsertFromExpense(expense);
-  } catch (syncErr) {
-    console.warn(
-      "[trip] Gasto creado pero falló sync de documento CXP:",
-      syncErr instanceof Error ? syncErr.message : syncErr,
-    );
+  if (!pagado) {
+    try {
+      const { upsertFromExpense } = await import("./accountDocumentService");
+      await upsertFromExpense(expense);
+    } catch (syncErr) {
+      console.warn(
+        "[trip] Gasto creado pero falló sync de documento CXP:",
+        syncErr instanceof Error ? syncErr.message : syncErr,
+      );
+    }
   }
   return expense;
 }

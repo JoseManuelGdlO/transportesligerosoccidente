@@ -1098,4 +1098,40 @@ describe("addExpense", () => {
       docCreate.mock.restore();
     }
   });
+
+  it("no genera CXP cuando el gasto ya está pagado", async () => {
+    const tripFindOne = mock.method(Trip, "findOne", async () => ({ id: tripId }) as never);
+    const expenseCreate = mock.method(
+      Expense,
+      "create",
+      async (values: Record<string, unknown>) => values as never,
+    );
+    const docCreate = mock.method(AccountDocument, "create", async () => {
+      throw new Error("no debía crear cuenta por pagar");
+    });
+
+    try {
+      await addExpense(tenantId, tripId, {
+        categoria: "casetas",
+        tipo: "gasto",
+        descripcion: "Caseta pagada en efectivo",
+        monto: 80,
+        monto_comprobado: 80,
+        supplier_id: null,
+        pagado: true,
+        forma_pago: "01",
+      });
+      const row = expenseCreate.mock.calls[0]?.arguments[0] as {
+        pagado?: boolean;
+        forma_pago?: string | null;
+      };
+      assert.equal(row.pagado, true);
+      assert.equal(row.forma_pago, "01");
+      assert.equal(docCreate.mock.callCount(), 0);
+    } finally {
+      tripFindOne.mock.restore();
+      expenseCreate.mock.restore();
+      docCreate.mock.restore();
+    }
+  });
 });

@@ -1266,6 +1266,7 @@ export async function upsertFromExpense(
   expense: Expense,
 ): Promise<AccountDocumentDto | null> {
   if (expense.tipo !== "gasto") return null;
+  if (expense.pagado) return null;
   const monto = num(expense.monto);
   if (monto <= 0) return null;
   let supplierId = expense.supplier_id;

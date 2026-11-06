@@ -40,7 +40,20 @@ type ExpForm = {
   monto_comprobado: number;
   visible_en_liquidacion: boolean;
   supplier_id: string;
+  pagado: boolean;
+  forma_pago: string;
 };
+
+const FORMAS_PAGO_GASTO = [
+  ["01", "Efectivo"],
+  ["02", "Cheque nominativo"],
+  ["03", "Transferencia electrónica de fondos"],
+  ["04", "Tarjeta de crédito"],
+  ["28", "Tarjeta de débito"],
+] as const;
+
+const formaPagoLabel = (code?: string | null) =>
+  FORMAS_PAGO_GASTO.find(([value]) => value === code)?.[1] ?? code ?? "";
 
 const defaultExpForm = (): ExpForm => ({
   tipo: "gasto",
@@ -50,6 +63,8 @@ const defaultExpForm = (): ExpForm => ({
   monto_comprobado: 0,
   visible_en_liquidacion: false,
   supplier_id: "",
+  pagado: false,
+  forma_pago: "",
 });
 
 export default function ViajeDetalle() {
@@ -320,22 +335,44 @@ export default function ViajeDetalle() {
   };
 
   const onAddExp = async () => {
+    const descripcion = exp.descripcion.trim();
+    if (!descripcion) {
+      toast.error(
+        exp.tipo === "ingreso"
+          ? "Falta la descripción. Escribe de qué se trata este ingreso para poder identificarlo."
+          : "Falta la descripción. Escribe en qué se usó este gasto para poder identificarlo.",
+      );
+      return;
+    }
     if (exp.monto <= 0) { toast.error("Captura el monto"); return; }
     if (exp.monto_comprobado < 0 || exp.monto_comprobado > exp.monto) {
       toast.error("El monto comprobado debe estar entre 0 y el monto total");
       return;
     }
+    if (exp.tipo === "gasto" && exp.pagado && !exp.forma_pago) {
+      toast.error("Selecciona el método de pago");
+      return;
+    }
     const payload: Omit<Expense, "id"> = {
       ...exp,
+      descripcion,
       supplier_id: exp.tipo === "gasto" ? exp.supplier_id || null : null,
       visible_en_liquidacion: exp.tipo === "ingreso" ? exp.visible_en_liquidacion : false,
+      pagado: exp.tipo === "gasto" ? exp.pagado : false,
+      forma_pago: exp.tipo === "gasto" ? exp.forma_pago || null : null,
       fecha: new Date().toISOString(),
     };
     try {
       await addExpense(trip.id, payload);
       setExp(defaultExpForm());
       setExpOpen(false);
-      toast.success(exp.tipo === "ingreso" ? "Ingreso registrado" : "Gasto registrado");
+      toast.success(
+        exp.tipo === "ingreso"
+          ? "Ingreso registrado"
+          : exp.pagado
+            ? "Gasto registrado. No se generó cuenta por pagar."
+            : "Gasto registrado",
+      );
       await reloadTrip();
     } catch (err) {
       toast.error(err instanceof Error ? err.message : "Error al registrar gasto");
@@ -379,6 +416,17 @@ export default function ViajeDetalle() {
         <TableCell><Badge variant="outline">{catLabel[e.categoria]}</Badge></TableCell>
         <TableCell className="text-sm">{e.descripcion}</TableCell>
         <TableCell className="text-sm">{fmtMXN(e.monto_comprobado)}</TableCell>
+        <TableCell className="text-sm">
+          {e.pagado ? (
+            <Badge variant="outline" className="bg-success/10 text-success border-success/30">
+              Pagado{formaPagoLabel(e.forma_pago) ? ` · ${formaPagoLabel(e.forma_pago)}` : ""}
+            </Badge>
+          ) : (
+            <span className="text-muted-foreground">
+              {formaPagoLabel(e.forma_pago) || "Por pagar"}
+            </span>
+          )}
+        </TableCell>
         <TableCell className={`text-right font-semibold ${montoClassName}`}>{fmtMXN(e.monto)}</TableCell>
         <TableCell className="text-right">
           <Button variant="ghost" size="sm" onClick={async () => { removeExpense(trip.id, e.id); await reloadTrip(); }}>
@@ -697,6 +745,7 @@ export default function ViajeDetalle() {
                       <TableHead>Categoría</TableHead>
                       <TableHead>Descripción</TableHead>
                       <TableHead>Monto comprobado</TableHead>
+                      <TableHead>Pago</TableHead>
                       <TableHead className="text-right">Monto</TableHead>
                       <TableHead />
                     </TableRow>
@@ -704,7 +753,7 @@ export default function ViajeDetalle() {
                   <TableBody>
                     {gastosList.length === 0 && (
                       <TableRow>
-                        <TableCell colSpan={6} className="text-center text-muted-foreground py-6">
+                        <TableCell colSpan={7} className="text-center text-muted-foreground py-6">
                           Sin gastos registrados
                         </TableCell>
                       </TableRow>
@@ -941,6 +990,8 @@ export default function ViajeDetalle() {
                     ...exp,
                     tipo: v,
                     visible_en_liquidacion: v === "ingreso" ? exp.visible_en_liquidacion : false,
+                    pagado: v === "gasto" ? exp.pagado : false,
+                    forma_pago: v === "gasto" ? exp.forma_pago : "",
                   });
                 }}
                 className="justify-start"
@@ -986,6 +1037,33 @@ export default function ViajeDetalle() {
                 onChange={e => setExp({ ...exp, monto_comprobado: +e.target.value })}
               />
             </div>
+            {exp.tipo === "gasto" && (
+              <>
+                <div>
+                  <Label>Método de pago</Label>
+                  <Select value={exp.forma_pago || undefined} onValueChange={(v) => setExp({ ...exp, forma_pago: v })}>
+                    <SelectTrigger><SelectValue placeholder="Selecciona…" /></SelectTrigger>
+                    <SelectContent>
+                      {FORMAS_PAGO_GASTO.map(([value, label]) => (
+                        <SelectItem key={value} value={value}>{label}</SelectItem>
+                      ))}
+                    </SelectContent>
+                  </Select>
+                </div>
+                <label className="flex items-center gap-2 text-sm cursor-pointer">
+                  <Checkbox
+                    checked={exp.pagado}
+                    onCheckedChange={(c) => setExp({ ...exp, pagado: !!c })}
+                  />
+                  Ya está pagado
+                </label>
+                {exp.pagado && (
+                  <p className="text-xs text-muted-foreground">
+                    No se generará cuenta por pagar.
+                  </p>
+                )}
+              </>
+            )}
             {exp.tipo === "ingreso" && (
               <label className="flex items-center gap-2 text-sm cursor-pointer">
                 <Checkbox

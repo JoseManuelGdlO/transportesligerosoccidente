@@ -168,20 +168,53 @@ export const deleteFuel = asyncHandler(async (req: Request, res: Response) => {
   res.status(204).send();
 });
 
+const FORMAS_PAGO_GASTO = [
+  "01",
+  "02",
+  "03",
+  "04",
+  "05",
+  "06",
+  "08",
+  "12",
+  "13",
+  "14",
+  "15",
+  "17",
+  "23",
+  "24",
+  "25",
+  "26",
+  "27",
+  "28",
+  "29",
+  "30",
+  "31",
+] as const;
+
 const expenseSchema = z
   .object({
     categoria: z.enum(["casetas", "refacciones", "hospedaje", "comidas", "otros"]),
     tipo: z.enum(["gasto", "ingreso"]).optional().default("gasto"),
-    descripcion: z.string().min(1),
+    descripcion: z
+      .string()
+      .trim()
+      .min(1, "Falta la descripción. Escribe de qué se trata para poder identificarlo."),
     monto: z.number().positive(),
     monto_comprobado: z.number().min(0),
     visible_en_liquidacion: z.boolean().optional().default(false),
     fecha: z.string().optional(),
     supplier_id: z.string().uuid().optional().nullable(),
+    pagado: z.boolean().optional().default(false),
+    forma_pago: z.enum(FORMAS_PAGO_GASTO).optional().nullable(),
   })
   .refine((d) => d.monto_comprobado <= d.monto, {
     message: "monto_comprobado no puede ser mayor que monto",
     path: ["monto_comprobado"],
+  })
+  .refine((d) => d.tipo !== "gasto" || !d.pagado || Boolean(d.forma_pago), {
+    message: "Indica el método de pago cuando el gasto ya está pagado",
+    path: ["forma_pago"],
   });
 
 export const postExpense = asyncHandler(async (req: Request, res: Response) => {

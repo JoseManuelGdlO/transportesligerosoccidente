@@ -950,6 +950,8 @@ export interface Expense {
   visible_en_liquidacion: boolean;
   fecha: string;
   supplier_id?: string | null;
+  pagado?: boolean;
+  forma_pago?: string | null;
 }
 
 export interface TripStatusRef {

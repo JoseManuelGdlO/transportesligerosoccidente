@@ -95,6 +95,8 @@ export function expenseToJson(e: Expense): Record<string, unknown> {
     visible_en_liquidacion: tipo === "ingreso" ? Boolean(p.visible_en_liquidacion) : false,
     fecha: iso(p.fecha),
     supplier_id: p.supplier_id ?? undefined,
+    pagado: tipo === "gasto" ? Boolean(p.pagado) : false,
+    forma_pago: tipo === "gasto" && p.forma_pago ? String(p.forma_pago) : undefined,
   };
 }
 
