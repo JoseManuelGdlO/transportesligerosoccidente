@@ -52,6 +52,9 @@ export function ClientUbicacionDialog({
     setForm({
       ...emptyClientUbicacionForm(),
       ...initialValues,
+      nombre: (initialValues?.nombre ?? "").toUpperCase(),
+      razon_social: (initialValues?.razon_social ?? "").toUpperCase(),
+      ...(initialValues?.calle != null ? { calle: initialValues.calle.toUpperCase() } : {}),
     });
   }, [open, initialValues, editingId]);
 
@@ -112,7 +115,7 @@ export function ClientUbicacionDialog({
               aria-invalid={!!fieldErrors.nombre}
               className={cn(fieldErrors.nombre && "border-destructive")}
               onChange={(e) => {
-                setForm({ ...form, nombre: e.target.value });
+                setForm({ ...form, nombre: e.target.value.toUpperCase() });
                 clearFieldError("nombre");
               }}
             />
@@ -145,7 +148,7 @@ export function ClientUbicacionDialog({
                 aria-invalid={!!fieldErrors.razon_social}
                 className={cn(fieldErrors.razon_social && "border-destructive")}
                 onChange={(e) => {
-                  setForm({ ...form, razon_social: e.target.value });
+                  setForm({ ...form, razon_social: e.target.value.toUpperCase() });
                   clearFieldError("razon_social");
                 }}
               />
@@ -190,7 +193,13 @@ export function ClientUbicacionDialog({
           <DomicilioSatFields
             idPrefix="ubic"
             value={form}
-            onChange={(patch) => setForm({ ...form, ...patch })}
+            onChange={(patch) =>
+              setForm({
+                ...form,
+                ...patch,
+                ...(patch.calle !== undefined ? { calle: patch.calle.toUpperCase() } : {}),
+              })
+            }
             cpError={fieldErrors.cp}
             paisError={fieldErrors.pais}
             estadoError={fieldErrors.estado}

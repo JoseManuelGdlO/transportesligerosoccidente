@@ -376,11 +376,12 @@ export function clientUbicacionToJson(
   return {
     id: p.id,
     client_id: p.client_id,
-    nombre: p.nombre,
+    nombre: typeof p.nombre === "string" ? p.nombre.trim().toUpperCase() : p.nombre,
     rfc: p.rfc ?? undefined,
-    razon_social: p.razon_social ?? undefined,
+    razon_social:
+      typeof p.razon_social === "string" ? p.razon_social.trim().toUpperCase() : p.razon_social ?? undefined,
     tipo: p.tipo,
-    calle: p.calle ?? undefined,
+    calle: typeof p.calle === "string" ? p.calle.trim().toUpperCase() : p.calle ?? undefined,
     numero_exterior: p.numero_exterior ?? undefined,
     numero_interior: p.numero_interior ?? undefined,
     colonia: p.colonia ?? undefined,

@@ -661,7 +661,8 @@ export function TripCartaPorte({
 
   const catalogUbicacionLabel = (u: ClientUbicacion) => {
     const owner = u.razon_social || u.client_razon_social;
-    return owner ? `${u.nombre} — ${owner}` : u.nombre;
+    const label = owner ? `${u.nombre} — ${owner}` : u.nombre;
+    return label.trim().toUpperCase();
   };
 
   const reloadTrip = async () => {

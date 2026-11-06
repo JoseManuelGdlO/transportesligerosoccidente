@@ -7,6 +7,22 @@ import { clientUbicacionToJson } from "../utils/serialize";
 
 const tid = (req: Request) => req.user!.tenantId;
 
+function upperText(value: string | undefined): string | undefined {
+  if (value == null) return value;
+  return value.trim().toUpperCase();
+}
+
+function normalizeUbicacionText<T extends { nombre?: string; razon_social?: string; calle?: string }>(
+  data: T,
+): T {
+  return {
+    ...data,
+    ...(data.nombre !== undefined ? { nombre: upperText(data.nombre) } : {}),
+    ...(data.razon_social !== undefined ? { razon_social: upperText(data.razon_social) } : {}),
+    ...(data.calle !== undefined ? { calle: upperText(data.calle) } : {}),
+  };
+}
+
 const bodySchema = z.object({
   nombre: z.string().min(1),
   rfc: z.string().max(13).optional(),
@@ -65,13 +81,14 @@ export const createClientUbicacion = asyncHandler(async (req: Request, res: Resp
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
+  const data = normalizeUbicacionText(parsed.data);
   const row = await ClientUbicacion.create({
     id: randomUUID(),
     tenant_id: tid(req),
     client_id: client.id,
-    ...parsed.data,
-    tipo: parsed.data.tipo ?? "Ambos",
-    estatus: parsed.data.estatus ?? "activo",
+    ...data,
+    tipo: data.tipo ?? "Ambos",
+    estatus: data.estatus ?? "activo",
   } as never);
   res.status(201).json(clientUbicacionToJson(row));
 });
@@ -91,7 +108,7 @@ export const updateClientUbicacion = asyncHandler(async (req: Request, res: Resp
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  await row.update(parsed.data as never);
+  await row.update(normalizeUbicacionText(parsed.data) as never);
   res.json(clientUbicacionToJson(row));
 });
 
