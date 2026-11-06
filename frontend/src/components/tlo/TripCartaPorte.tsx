@@ -27,6 +27,7 @@ import {
   fetchCartaPorte,
   fetchCartasPorte,
   fetchDriver,
+  fetchTrip,
   fetchTruck,
   fetchTenantUbicaciones,
   lookupSatClaveProducto,
@@ -647,8 +648,9 @@ export function TripCartaPorte({
     try {
       const record = await putCartaPorteConceptos(trip.id, cp.id, cfdiConceptos);
       savedConceptosSnapshotRef.current = conceptosSnapshot(record.cfdi_conceptos ?? cfdiConceptos);
-      onTripUpdated(mergeCartaIntoTrip(trip, record));
-      toast.success("Conceptos CFDI guardados (tarifa actualizada)");
+      const updated = await fetchTrip(trip.id);
+      onTripUpdated(updated);
+      toast.success("Conceptos CFDI guardados");
       return true;
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudieron guardar los conceptos");
@@ -1466,7 +1468,7 @@ export function TripCartaPorte({
                       <div>
                         <Label>Conceptos de factura</Label>
                         <p className="text-xs text-muted-foreground">
-                          Al guardar, la tarifa del viaje se actualiza a la suma de importes.
+                          Las líneas se guardan en esta factura.
                         </p>
                       </div>
                       <div className="flex gap-2">
@@ -1594,7 +1596,7 @@ export function TripCartaPorte({
                       </Table>
                     </div>
                     <p className="text-sm">
-                      <span className="text-muted-foreground">Suma / nueva tarifa:</span>{" "}
+                      <span className="text-muted-foreground">Suma:</span>{" "}
                       <span className="font-medium">{fmtMXNDecimal(conceptosSuma)}</span>
                       {conceptosDirty ? (
                         <span className="text-amber-700 dark:text-amber-400 text-xs ml-2">
