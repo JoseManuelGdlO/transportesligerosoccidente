@@ -177,6 +177,70 @@ function splitPacError(message: string): { origin: "SAT" | "Sicofi" | null; text
   return { origin: null, text: message };
 }
 
+type UbicacionDomicilioForm = {
+  calle: string;
+  estado: string;
+  municipio: string;
+  municipio_clave: string;
+  localidad: string;
+  localidad_clave: string;
+};
+
+/** Calle, municipio y localidad son opcionales. Municipio y localidad usan el estado ya resuelto (catálogo o C.P.). */
+function UbicacionDomicilioFields({
+  idPrefix,
+  form,
+  disabled,
+  onPatch,
+  onBlur,
+}: {
+  idPrefix: string;
+  form: UbicacionDomicilioForm;
+  disabled: boolean;
+  onPatch: (patch: Partial<UbicacionDomicilioForm>) => void;
+  onBlur: () => void;
+}) {
+  return (
+    <>
+      <div>
+        <Label htmlFor={`${idPrefix}-calle`}>Calle</Label>
+        <Input
+          id={`${idPrefix}-calle`}
+          value={form.calle}
+          onChange={(e) => onPatch({ calle: e.target.value })}
+          onBlur={onBlur}
+          disabled={disabled}
+          placeholder="Opcional"
+        />
+      </div>
+      <div>
+        <Label>Municipio</Label>
+        <SatUbicacionCombobox
+          kind="municipio"
+          value={form.municipio_clave}
+          descriptionHint={form.municipio}
+          estado={form.estado}
+          disabled={disabled}
+          onSelect={(item) => onPatch({ municipio_clave: item.clave, municipio: item.descripcion })}
+          onClear={() => onPatch({ municipio_clave: "", municipio: "" })}
+        />
+      </div>
+      <div>
+        <Label>Localidad</Label>
+        <SatUbicacionCombobox
+          kind="localidad"
+          value={form.localidad_clave}
+          descriptionHint={form.localidad}
+          estado={form.estado}
+          disabled={disabled}
+          onSelect={(item) => onPatch({ localidad_clave: item.clave, localidad: item.descripcion })}
+          onClear={() => onPatch({ localidad_clave: "", localidad: "" })}
+        />
+      </div>
+    </>
+  );
+}
+
 function CartaPorteErrorNotice({ message }: { message: string }) {
   const { origin, text } = splitPacError(message);
   return (
@@ -622,6 +686,8 @@ export function TripCartaPorte({
         colonia_clave: u.colonia_clave || prev.colonia_clave,
         municipio: u.municipio || prev.municipio,
         municipio_clave: u.municipio_clave || prev.municipio_clave,
+        localidad: u.localidad || prev.localidad,
+        localidad_clave: u.localidad_clave || prev.localidad_clave,
         estado: u.estado || prev.estado,
         cp: u.cp || prev.cp,
         numero_exterior: u.numero_exterior || prev.numero_exterior,
@@ -723,14 +789,17 @@ export function TripCartaPorte({
     await persistUbicaciones(opts);
   }, [persistUbicaciones]);
 
+  const persistUbicacionesRef = useRef(persistUbicaciones);
+  persistUbicacionesRef.current = persistUbicaciones;
+
   const schedulePersistUbicaciones = useCallback(() => {
     if (!canFiscalEdit) return;
     if (persistTimerRef.current) clearTimeout(persistTimerRef.current);
     persistTimerRef.current = setTimeout(() => {
       persistTimerRef.current = null;
-      void persistUbicaciones();
+      void persistUbicacionesRef.current();
     }, AUTOSAVE_MS);
-  }, [canFiscalEdit, persistUbicaciones]);
+  }, [canFiscalEdit]);
 
   const onUbicFieldBlur = () => {
     void flushPendingSaves();
@@ -769,8 +838,8 @@ export function TripCartaPorte({
       colonia_clave: u.colonia_clave || "",
       municipio: u.municipio || "",
       municipio_clave: u.municipio_clave || "",
-      localidad: "",
-      localidad_clave: "",
+      localidad: u.localidad || "",
+      localidad_clave: u.localidad_clave || "",
       estado: u.estado || "",
       cp: u.cp || "",
       numero_exterior: u.numero_exterior || "",
@@ -1737,6 +1806,13 @@ export function TripCartaPorte({
                 className={fh(issueFlags.origen.cp)}
               />
             </div>
+            <UbicacionDomicilioFields
+              idPrefix="origen"
+              form={origenForm}
+              disabled={!canFiscalEdit}
+              onPatch={patchOrigen}
+              onBlur={onUbicFieldBlur}
+            />
             <div>
               <Label>Colonia</Label>
               <SatUbicacionCombobox
@@ -1856,6 +1932,13 @@ export function TripCartaPorte({
                 className={fh(issueFlags.stops[fiscalStopCount]?.cp ?? false)}
               />
             </div>
+            <UbicacionDomicilioFields
+              idPrefix="destino"
+              form={destinoForm}
+              disabled={!canFiscalEdit}
+              onPatch={patchDestino}
+              onBlur={onUbicFieldBlur}
+            />
             <div>
               <Label>Colonia</Label>
               <SatUbicacionCombobox
