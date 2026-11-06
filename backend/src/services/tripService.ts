@@ -168,7 +168,7 @@ export async function getTripOrThrow(
       { association: "paradas" },
       { association: "ubicaciones" },
       { association: "mercancias" },
-      { association: "cartaPorte" },
+      { association: "cartasPorte" },
     );
   } else if (withNested) {
     include.push({ association: "paradas" });
