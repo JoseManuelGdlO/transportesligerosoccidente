@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type { Transaction } from "sequelize";
 import { TripStop, CartaPorte } from "../models";
+import { algunaCartaTimbrada } from "./cartaPorteSelection";
 
 export type ParadaInput = {
   etiqueta: string;
@@ -86,8 +87,11 @@ export async function listTripStops(tenantId: string, tripId: string, t?: Transa
 }
 
 export async function assertParadasEditable(tenantId: string, tripId: string) {
-  const cp = await CartaPorte.findOne({ where: { tenant_id: tenantId, trip_id: tripId } });
-  if (cp?.estatus === "timbrada") {
+  const rows = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    attributes: ["estatus"],
+  });
+  if (algunaCartaTimbrada(rows)) {
     const err = new Error("No se pueden modificar paradas: la carta porte ya está timbrada");
     (err as Error & { status?: number }).status = 400;
     throw err;

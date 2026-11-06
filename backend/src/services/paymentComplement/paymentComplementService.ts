@@ -418,12 +418,9 @@ async function draftFromDocuments(
     }
 
     const carta = await CartaPorte.findOne({
-      where: {
-        tenant_id: tenantId,
-        trip_id: doc.trip_id,
-        estatus: "timbrada",
-        tipo_comprobante: "ingreso",
-      },
+      where: doc.carta_porte_id
+        ? { id: doc.carta_porte_id, tenant_id: tenantId, estatus: "timbrada", tipo_comprobante: "ingreso" }
+        : { tenant_id: tenantId, trip_id: doc.trip_id, estatus: "timbrada", tipo_comprobante: "ingreso" },
       transaction,
     });
     if (!carta?.xml_timbrado) {
@@ -668,7 +665,7 @@ async function draftFromStored(tenantId: string, rows: CfdiPagoDocumento[]): Pro
   const drafts: DraftLine[] = [];
   for (const row of rows) {
     const carta = await CartaPorte.findOne({
-      where: { id: row.carta_porte_id, tenant_id: tenantId },
+      where: { id: row.carta_porte_id, tenant_id: tenantId, estatus: "timbrada", tipo_comprobante: "ingreso" },
     });
     if (!carta?.xml_timbrado) throw new ComplementError("La factura no tiene XML timbrado", 400);
     const snap = parseInvoiceTaxSnapshot(carta.xml_timbrado);
@@ -769,12 +766,9 @@ export async function complementSnapshot(tenantId: string, docId: string): Promi
   if (!doc?.trip_id) return null;
 
   const carta = await CartaPorte.findOne({
-    where: {
-      tenant_id: tenantId,
-      trip_id: doc.trip_id,
-      estatus: "timbrada",
-      tipo_comprobante: "ingreso",
-    },
+    where: doc.carta_porte_id
+      ? { id: doc.carta_porte_id, tenant_id: tenantId, estatus: "timbrada", tipo_comprobante: "ingreso" }
+      : { tenant_id: tenantId, trip_id: doc.trip_id, estatus: "timbrada", tipo_comprobante: "ingreso" },
   });
   if (!carta?.xml_timbrado) return null;
 
