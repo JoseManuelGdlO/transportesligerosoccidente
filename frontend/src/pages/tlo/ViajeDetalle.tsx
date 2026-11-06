@@ -30,6 +30,7 @@ import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
 import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
+import { MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
 
 type ExpForm = {
@@ -72,11 +73,14 @@ export default function ViajeDetalle() {
   const nav = useNavigate();
   const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip, replaceTrip } = useTlo();
   const { tenant, hasPermission } = useAuth();
-  const showCartaPorte = FEATURE_CARTA_PORTE && hasPermission("cartaporte.ver");
   const canViewCuentas = hasPermission("cuentas.ver");
   const tripCtx = trips.find(t => t.id === id);
   const [tripOverride, setTripOverride] = useState<Trip | null>(null);
   const trip = tripOverride ?? tripCtx;
+  const showCartaPorte =
+    FEATURE_CARTA_PORTE &&
+    hasPermission("cartaporte.ver") &&
+    permiteTimbrar(parseModalidadCobro(trip?.modalidad_cobro));
   const [cxcDoc, setCxcDoc] = useState<AccountDocument | null>(null);
   useEffect(() => {
     setTripOverride(null);
@@ -383,7 +387,7 @@ export default function ViajeDetalle() {
       toast.error("El km final debe ser mayor al inicial");
       return;
     }
-    if (!closeData.num_factura) {
+    if (permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && !closeData.num_factura) {
       toast.error("Captura número de factura");
       return;
     }
@@ -391,7 +395,9 @@ export default function ViajeDetalle() {
       await closeTrip(trip.id, {
         km_final: +closeData.km_final,
         fecha_llegada: new Date(closeData.fecha_llegada).toISOString(),
-        num_factura: closeData.num_factura,
+        ...(permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro))
+          ? { num_factura: closeData.num_factura }
+          : {}),
         notas: closeData.notas.trim() || undefined,
       });
       setCloseOpen(false);
@@ -449,6 +455,7 @@ export default function ViajeDetalle() {
               <h2 className="text-xl font-bold font-mono">{trip.folio}</h2>
               <TripStatusesBadges statuses={trip.statuses ?? []} trip={trip} />
               <Badge variant="outline">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</Badge>
+              <Badge variant="outline">{MODALIDAD_COBRO_LABEL[parseModalidadCobro(trip.modalidad_cobro)]}</Badge>
             </div>
             <p className="text-sm text-muted-foreground flex items-center gap-1">
               <MapPin className="h-3 w-3" /> {formatTripRoute(trip)}
@@ -579,9 +586,14 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Operador</p><p className="font-medium">{tripDriverNombre(trip, drivers)}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
+                <div><p className="text-xs uppercase text-muted-foreground">Modalidad de cobro</p><p className="font-medium">{MODALIDAD_COBRO_LABEL[parseModalidadCobro(trip.modalidad_cobro)]}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>
-                <div><p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p><p className="font-medium">{fmtMXN(trip.tarifa)}</p></div>
-                {!isClosed && (
+                {parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? (
+                  <div><p className="text-xs uppercase text-muted-foreground">Comisión del operador</p><p className="font-medium">{fmtMXN(trip.comision_override ?? 0)}</p></div>
+                ) : (
+                  <div><p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p><p className="font-medium">{fmtMXN(trip.tarifa)}</p></div>
+                )}
+                {!isClosed && permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && (
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Número de factura</p>
                     <p className="font-medium font-mono">{trip.num_factura || "—"}</p>
@@ -622,7 +634,7 @@ export default function ViajeDetalle() {
                   <p className="text-xs uppercase text-muted-foreground">Ruta</p>
                   <p className="font-medium">{formatTripRoute(trip)}</p>
                 </div>
-                {isClosed && (
+                {isClosed && permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && (
                   <div>
                     <Label>Número de factura</Label>
                     <Input
@@ -1126,14 +1138,16 @@ export default function ViajeDetalle() {
                     onChange={(e) => setCloseData({ ...closeData, fecha_llegada: e.target.value })}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Número de factura</Label>
-                  <Input
-                    value={closeData.num_factura}
-                    onChange={(e) => setCloseData({ ...closeData, num_factura: e.target.value })}
-                    placeholder="F-8826"
-                  />
-                </div>
+                {permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) ? (
+                  <div className="space-y-1.5">
+                    <Label>Número de factura</Label>
+                    <Input
+                      value={closeData.num_factura}
+                      onChange={(e) => setCloseData({ ...closeData, num_factura: e.target.value })}
+                      placeholder="F-8826"
+                    />
+                  </div>
+                ) : null}
               </div>
             </TripFormSection>
 

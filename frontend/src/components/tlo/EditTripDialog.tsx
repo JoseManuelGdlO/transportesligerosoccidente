@@ -41,7 +41,9 @@ import {
   type KmFinalCascadePreview,
   type KmInicialCascadePreview,
 } from "@/lib/tripOdometer";
-import type { RouteCatalog, Trip, TripType, TruckOdometerReset } from "@/types/tlo";
+import type { ModalidadCobro, RouteCatalog, Trip, TripType, TruckOdometerReset } from "@/types/tlo";
+import { parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
+import { ModalidadCobroSelect } from "@/components/tlo/ModalidadCobroSelect";
 import {
   assertNoOpenTripConflictLocal,
   openTripByDriverId,
@@ -65,6 +67,8 @@ type TripForm = {
   tarifa: number;
   viaticos_entregados: number;
   tipo_viaje: TripType;
+  modalidad_cobro: ModalidadCobro;
+  comision_override: number;
   km_final: number;
   fecha_llegada: string;
   notas: string;
@@ -98,6 +102,8 @@ function tripToForm(trip: Trip): TripForm {
     tarifa: trip.tarifa,
     viaticos_entregados: trip.viaticos_entregados,
     tipo_viaje: trip.tipo_viaje ?? "local",
+    modalidad_cobro: parseModalidadCobro(trip.modalidad_cobro),
+    comision_override: trip.comision_override ?? 0,
     km_final: trip.km_final ?? trip.km_inicial,
     fecha_llegada: isoToDatetimeLocalValue(trip.fecha_llegada),
     notas: trip.notas ?? "",
@@ -203,6 +209,17 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
   };
 
   const persist = async (confirmedCascade: CascadeConfirmState | null = null) => {
+    if (form.modalidad_cobro === "sin_cobro" && !(form.comision_override > 0)) {
+      toast.error("Captura la comisión del operador");
+      return;
+    }
+    if (
+      (form.modalidad_cobro === "efectivo" || form.modalidad_cobro === "sin_comision") &&
+      !(form.tarifa > 0)
+    ) {
+      toast.error("La tarifa debe ser mayor a 0");
+      return;
+    }
     const validParadas = paradas.filter((p) => p.etiqueta.trim());
     const stops = paradasLocked ? undefined : paradasToTripStops(validParadas);
     const patch: Record<string, unknown> = {
@@ -211,10 +228,17 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
       client_id: form.client_id,
       fecha_salida: new Date(form.fecha_salida).toISOString(),
       km_inicial: +form.km_inicial,
-      tarifa: +form.tarifa,
+      tarifa: form.modalidad_cobro === "sin_cobro" ? 0 : +form.tarifa,
       viaticos_entregados: +form.viaticos_entregados,
       tipo_viaje: form.tipo_viaje,
-      num_factura: form.num_factura.trim() || undefined,
+      modalidad_cobro: form.modalidad_cobro,
+      comision_override:
+        form.modalidad_cobro === "sin_cobro"
+          ? +form.comision_override
+          : form.modalidad_cobro === "sin_comision"
+            ? null
+            : undefined,
+      num_factura: permiteTimbrar(form.modalidad_cobro) ? form.num_factura.trim() || undefined : "",
       notas: form.notas.trim() || null,
       route_id: selectedRouteId !== "__custom__" ? selectedRouteId : null,
     };
@@ -271,10 +295,17 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
         route_id: selectedRouteId !== "__custom__" ? selectedRouteId : undefined,
         fecha_salida: new Date(form.fecha_salida).toISOString(),
         km_inicial: +form.km_inicial,
-        tarifa: +form.tarifa,
+        tarifa: form.modalidad_cobro === "sin_cobro" ? 0 : +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
-        num_factura: form.num_factura.trim() || undefined,
+        modalidad_cobro: form.modalidad_cobro,
+        comision_override:
+          form.modalidad_cobro === "sin_cobro"
+            ? +form.comision_override
+            : form.modalidad_cobro === "sin_comision"
+              ? null
+              : trip.comision_override,
+        num_factura: permiteTimbrar(form.modalidad_cobro) ? form.num_factura.trim() || undefined : undefined,
         notas: form.notas.trim() || undefined,
         ...(isClosed
           ? {
@@ -540,13 +571,37 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                   ) : null}
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Tarifa pactada (MXN)</Label>
-                  <Input
-                    type="number"
-                    value={form.tarifa}
-                    onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+                  <Label>Modalidad de cobro</Label>
+                  <ModalidadCobroSelect
+                    value={form.modalidad_cobro}
+                    onChange={(v) =>
+                      setForm({
+                        ...form,
+                        modalidad_cobro: v as ModalidadCobro,
+                        num_factura: v === "factura" ? form.num_factura : "",
+                      })
+                    }
                   />
                 </div>
+                {form.modalidad_cobro !== "sin_cobro" ? (
+                  <div className="space-y-1.5">
+                    <Label>Tarifa pactada (MXN)</Label>
+                    <Input
+                      type="number"
+                      value={form.tarifa}
+                      onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Comisión del operador (MXN)</Label>
+                    <Input
+                      type="number"
+                      value={form.comision_override}
+                      onChange={(e) => setForm({ ...form, comision_override: +e.target.value })}
+                    />
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label>Tipo de viaje</Label>
                   <Select
@@ -570,14 +625,16 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                     onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Número de factura</Label>
-                  <Input
-                    value={form.num_factura}
-                    onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
-                    placeholder="F-8826 (opcional)"
-                  />
-                </div>
+                {permiteTimbrar(form.modalidad_cobro) ? (
+                  <div className="space-y-1.5">
+                    <Label>Número de factura</Label>
+                    <Input
+                      value={form.num_factura}
+                      onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
+                      placeholder="F-8826 (opcional)"
+                    />
+                  </div>
+                ) : null}
               </div>
             </TripFormSection>
 

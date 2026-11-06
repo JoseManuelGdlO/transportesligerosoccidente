@@ -4,6 +4,7 @@ export type TripLifecycleSlug = "en_curso" | "cerrado";
 /** @deprecated Use TripStatusRef for catalog entries */
 export type TripStatus = TripLifecycleSlug;
 export type TripType = "local" | "foraneo";
+export type ModalidadCobro = "factura" | "efectivo" | "sin_comision" | "sin_cobro";
 export type CommissionType = "porcentaje" | "fijo";
 export type MaintenanceType = "preventivo" | "menor" | "intermedio" | "mayor" | "correctivo";
 export type DiscountType =
@@ -876,6 +877,7 @@ export interface AccountDocument {
   aging_bucket?: AgingBucket | null;
   origen: AccountDocumentOrigen;
   trip_id?: string;
+  modalidad_cobro?: ModalidadCobro;
   fuel_ticket_id?: string;
   fuel_load_id?: string;
   maintenance_record_id?: string;
@@ -1000,6 +1002,7 @@ export interface Trip {
   num_factura?: string;
   comision_override?: number | null; // si admin lo edita
   tipo_viaje: TripType;
+  modalidad_cobro?: ModalidadCobro;
   settlement_id?: string;
   cfdi_conceptos?: TripCfdiConcepto[];
   /** Notas internas del viaje (texto libre). */

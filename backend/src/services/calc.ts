@@ -1,5 +1,6 @@
 import type { Trip } from "../models/Trip";
 import type { Driver } from "../models/Driver";
+import { parseModalidadCobro } from "../types/modalidadCobro";
 import { num } from "../utils/numbers";
 
 export interface TripFinancials {
@@ -28,9 +29,12 @@ export function driverCommissionRate(driver: Driver, trip: Trip): number {
 }
 
 export function computeCommission(trip: Trip, driver?: Driver | null): number {
+  const modalidad = parseModalidadCobro(trip.modalidad_cobro);
+  if (modalidad === "sin_comision") return 0;
   if (trip.comision_override != null && String(trip.comision_override) !== "") {
     return num(trip.comision_override);
   }
+  if (modalidad === "sin_cobro") return 0;
   if (!driver) return 0;
   const rate = driverCommissionRate(driver, trip);
   if (driver.comision_tipo === "porcentaje") {
@@ -69,7 +73,8 @@ export function computeTrip(
   const gastoRows = expRows.filter((e) => e.tipo !== "ingreso");
   const ingresoRows = expRows.filter((e) => e.tipo === "ingreso");
   const ingresos_extra = ingresoRows.reduce((a, e) => a + num(e.monto), 0);
-  const ingreso = num(trip.tarifa) + ingresos_extra;
+  const tarifaCobra = parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? 0 : num(trip.tarifa);
+  const ingreso = tarifaCobra + ingresos_extra;
   const gastos_comprobados = gastoRows.reduce((a, e) => a + clampMontoComprobado(e), 0);
   const gastos_no_comprobados = gastoRows.reduce((a, e) => a + (num(e.monto) - clampMontoComprobado(e)), 0);
   const gastos_total = gastos_comprobados;

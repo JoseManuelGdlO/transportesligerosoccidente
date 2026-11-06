@@ -33,6 +33,7 @@ export class Trip extends Model<InferAttributes<Trip>, InferCreationAttributes<T
   declare num_factura: CreationOptional<string | null>;
   declare comision_override: CreationOptional<string | null>;
   declare tipo_viaje: CreationOptional<"local" | "foraneo">;
+  declare modalidad_cobro: CreationOptional<"factura" | "efectivo" | "sin_comision" | "sin_cobro">;
   declare route_id: CreationOptional<string | null>;
   declare settlement_id: CreationOptional<string | null>;
   declare cfdi_conceptos: CreationOptional<TripCfdiConcepto[] | null>;
@@ -68,6 +69,11 @@ export function initTrip(sequelize: Sequelize) {
       num_factura: { type: DataTypes.STRING(64), allowNull: true },
       comision_override: { type: DataTypes.DECIMAL(14, 2), allowNull: true },
       tipo_viaje: { type: DataTypes.ENUM("local", "foraneo"), allowNull: false, defaultValue: "local" },
+      modalidad_cobro: {
+        type: DataTypes.ENUM("factura", "efectivo", "sin_comision", "sin_cobro"),
+        allowNull: false,
+        defaultValue: "factura",
+      },
       route_id: { type: DataTypes.CHAR(36), allowNull: true },
       settlement_id: { type: DataTypes.CHAR(36), allowNull: true },
       cfdi_conceptos: { type: DataTypes.JSON, allowNull: true },

@@ -3,6 +3,7 @@ import {
   computeCommission,
   computeNetoPagar,
   computeSettlement,
+  computeTrip,
   outstandingDebtsForSettlement,
   previewAccountInstallments,
   viaticosAFavor,
@@ -54,6 +55,29 @@ const tripWithExpenses = (viaticos_entregados: number, monto_comprobado: number)
 });
 
 describe("computeCommission", () => {
+  it("en sin comisión es 0 aunque haya override", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.modalidad_cobro = "sin_comision";
+    trip.comision_override = 760;
+    expect(computeCommission(trip, driver)).toBe(0);
+  });
+
+  it("en sin cobro usa solo el override", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.modalidad_cobro = "sin_cobro";
+    trip.tarifa = 5000;
+    trip.comision_override = 350;
+    expect(computeCommission(trip, driver)).toBe(350);
+  });
+
+  it("en sin cobro no suma la tarifa al ingreso", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.modalidad_cobro = "sin_cobro";
+    trip.tarifa = 5000;
+    trip.comision_override = 350;
+    expect(computeTrip(trip, driver).ingreso).toBe(0);
+  });
+
   it("usa el monto manual y no el porcentaje del operador", () => {
     const trip = tripWithExpenses(0, 0);
     trip.comision_override = 760;

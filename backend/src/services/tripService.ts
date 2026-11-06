@@ -36,6 +36,13 @@ import {
   DEFAULT_CFDI_UNIDAD,
 } from "../types/tripCfdiConcepto";
 import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
+import {
+  applyModalidadPersistencia,
+  parseModalidadCobro,
+  type ModalidadCobro,
+} from "../types/modalidadCobro";
+import { syncCxcPorModalidad } from "./accountDocumentService";
+import { num } from "../utils/numbers";
 
 function round2(n: number): number {
   return Math.round(n * 100) / 100;
@@ -233,11 +240,15 @@ export async function closeTrip(
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
+  const modalidad = parseModalidadCobro(trip.modalidad_cobro);
   const factura = (data.num_factura?.trim() || trip.num_factura?.trim() || "");
-  if (!factura) {
+  if (modalidad === "factura" && !factura) {
     const err = new Error("Número de factura requerido");
     (err as Error & { status?: number }).status = 400;
     throw err;
+  }
+  if (modalidad !== "factura" && data.num_factura?.trim()) {
+    throw httpError("Esta modalidad no admite número de factura", 400);
   }
   const fechaLlegada = new Date(data.fecha_llegada);
   await assertTripScheduleAndOdometer(tenantId, {
@@ -252,8 +263,8 @@ export async function closeTrip(
   const closePatch: Record<string, unknown> = {
     km_final: data.km_final,
     fecha_llegada: fechaLlegada,
-    num_factura: factura,
   };
+  if (modalidad === "factura") closePatch.num_factura = factura;
   if (data.notas !== undefined) {
     const n = data.notas.trim();
     closePatch.notas = n || null;
@@ -512,10 +523,22 @@ const PATCH_TRIP_FIELDS = [
   "viaticos_entregados",
   "fecha_salida",
   "tipo_viaje",
+  "modalidad_cobro",
   "num_factura",
   "comision_override",
   "notas",
 ] as const;
+
+function persistModalidadFields(input: {
+  modalidad: ModalidadCobro;
+  tarifa?: number;
+  comision_override?: number | null;
+  num_factura?: string | null;
+}): { tarifa?: number; comision_override?: number | null; num_factura?: string | null } {
+  const persist = applyModalidadPersistencia(input);
+  if (persist.error) throw httpError(persist.error, 400);
+  return persist;
+}
 
 export async function patchTrip(
   tenantId: string,
@@ -576,6 +599,26 @@ export async function patchTrip(
   }
   if (patch.comision_override === null) data.comision_override = null;
   else if (patch.comision_override !== undefined) data.comision_override = patch.comision_override;
+
+  const modalidad = parseModalidadCobro(
+    (data.modalidad_cobro as string | undefined) ?? trip.modalidad_cobro,
+  );
+  const persist = persistModalidadFields({
+    modalidad,
+    tarifa: data.tarifa !== undefined ? Number(data.tarifa) : num(trip.tarifa),
+    comision_override:
+      data.comision_override !== undefined
+        ? (data.comision_override as number | null)
+        : trip.comision_override != null
+          ? num(trip.comision_override)
+          : null,
+    num_factura:
+      data.num_factura !== undefined ? (data.num_factura as string | null) : trip.num_factura,
+  });
+  data.modalidad_cobro = modalidad;
+  if (persist.tarifa !== undefined) data.tarifa = persist.tarifa;
+  if (persist.comision_override !== undefined) data.comision_override = persist.comision_override;
+  if (persist.num_factura !== undefined) data.num_factura = persist.num_factura;
 
   if (isClosed) {
     if (patch.km_final !== undefined) data.km_final = patch.km_final;
@@ -700,6 +743,8 @@ export async function patchTrip(
 
   await sequelize.transaction(async (t) => {
     await trip.update(data as never, { transaction: t });
+    const updatedForCxc = await getTripOrThrow(tenantId, id, true, t, true);
+    await syncCxcPorModalidad(updatedForCxc, t);
     if (nextCascade) {
       const [affected] = await Trip.update(
         { km_inicial: nextCascade.newKmInicial },
@@ -774,6 +819,8 @@ export async function createTrip(
     viaticos_entregados?: number;
     num_factura?: string;
     tipo_viaje?: "local" | "foraneo";
+    modalidad_cobro?: ModalidadCobro;
+    comision_override?: number | null;
     notas?: string;
   },
 ) {
@@ -811,6 +858,13 @@ export async function createTrip(
     );
     const folio = await nextFolio(tenantId, data.truck_id, t);
     const tripId = randomUUID();
+    const modalidad = parseModalidadCobro(data.modalidad_cobro);
+    const persist = persistModalidadFields({
+      modalidad,
+      tarifa: data.tarifa,
+      comision_override: data.comision_override,
+      num_factura: data.num_factura,
+    });
     const created = await Trip.create(
       {
         id: tripId,
@@ -824,10 +878,12 @@ export async function createTrip(
         destino,
         fecha_salida: fechaSalida,
         km_inicial: data.km_inicial,
-        tarifa: data.tarifa,
+        tarifa: persist.tarifa ?? data.tarifa,
         viaticos_entregados: data.viaticos_entregados ?? 0,
-        num_factura: data.num_factura?.trim() || null,
+        num_factura: persist.num_factura ?? null,
+        comision_override: persist.comision_override ?? null,
         tipo_viaje: data.tipo_viaje ?? "local",
+        modalidad_cobro: modalidad,
         notas: data.notas?.trim() || null,
       } as never,
       { transaction: t },
@@ -835,7 +891,9 @@ export async function createTrip(
     await assignEnCursoOnCreate(tenantId, created.id, t);
     await saveTripStops(tenantId, created.id, paradas, t);
     await syncUbicacionesFromTripStops(tenantId, created.id);
-    return getTripOrThrow(tenantId, created.id, true, t, true);
+    const full = await getTripOrThrow(tenantId, created.id, true, t, true);
+    await syncCxcPorModalidad(full, t);
+    return full;
   });
 }
 

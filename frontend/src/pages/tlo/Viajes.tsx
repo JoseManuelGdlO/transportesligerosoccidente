@@ -42,7 +42,9 @@ import { hasApiConfigured } from "@/lib/api";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { tripBeforeLastError } from "@/lib/tripOdometer";
 import { slicePage } from "@/lib/tableFilters";
-import type { RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
+import type { ModalidadCobro, RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
+import { MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
+import { ModalidadCobroSelect } from "@/components/tlo/ModalidadCobroSelect";
 import {
   findStatusIdBySlug,
   tripHasStatusId,
@@ -92,6 +94,8 @@ type NewTripForm = {
   tarifa: number;
   viaticos_entregados: number;
   tipo_viaje: TripType;
+  modalidad_cobro: ModalidadCobro;
+  comision_override: number;
   notas: string;
 };
 
@@ -105,6 +109,8 @@ const defaultForm = (): NewTripForm => ({
   tarifa: 0,
   viaticos_entregados: 0,
   tipo_viaje: "local",
+  modalidad_cobro: "factura",
+  comision_override: 0,
   notas: "",
 });
 
@@ -134,6 +140,7 @@ type StoredFilters = {
   truck?: string;
   client?: string;
   tipoViaje?: string;
+  modalidadCobro?: string;
   fechaDesde?: string;
   fechaHasta?: string;
 };
@@ -291,6 +298,9 @@ export default function Viajes() {
   const [filterClient, setFilterClient] = useState<string>(storedFilters.client ?? FILTER_TODOS);
   const [filterTipoViaje, setFilterTipoViaje] = useState<string>(
     storedFilters.tipoViaje ?? FILTER_TODOS,
+  );
+  const [filterModalidadCobro, setFilterModalidadCobro] = useState<string>(
+    storedFilters.modalidadCobro ?? FILTER_TODOS,
   );
   const [filterFechaDesde, setFilterFechaDesde] = useState(storedFilters.fechaDesde ?? "");
   const [filterFechaHasta, setFilterFechaHasta] = useState(storedFilters.fechaHasta ?? "");
@@ -524,6 +534,7 @@ export default function Viajes() {
     if (filterStatus !== FILTER_TODOS && filterStatus !== defaultStatus) count++;
     if (filterClient !== FILTER_TODOS) count++;
     if (filterTipoViaje !== FILTER_TODOS) count++;
+    if (filterModalidadCobro !== FILTER_TODOS) count++;
     if (filterFechaDesde || filterFechaHasta) count++;
     if (filterDriver !== FILTER_TODOS) count++;
     if (filterTruck !== FILTER_TODOS) count++;
@@ -532,6 +543,7 @@ export default function Viajes() {
     filterStatus,
     filterClient,
     filterTipoViaje,
+    filterModalidadCobro,
     filterFechaDesde,
     filterFechaHasta,
     filterDriver,
@@ -547,6 +559,7 @@ export default function Viajes() {
       truck: filterTruck,
       client: filterClient,
       tipoViaje: filterTipoViaje,
+      modalidadCobro: filterModalidadCobro,
       fechaDesde: filterFechaDesde,
       fechaHasta: filterFechaHasta,
     };
@@ -561,6 +574,7 @@ export default function Viajes() {
     filterTruck,
     filterClient,
     filterTipoViaje,
+    filterModalidadCobro,
     filterFechaDesde,
     filterFechaHasta,
   ]);
@@ -571,6 +585,11 @@ export default function Viajes() {
       .filter((t) => filterClient === FILTER_TODOS || t.client_id === filterClient)
       .filter(
         (t) => filterTipoViaje === FILTER_TODOS || t.tipo_viaje === filterTipoViaje,
+      )
+      .filter(
+        (t) =>
+          filterModalidadCobro === FILTER_TODOS ||
+          parseModalidadCobro(t.modalidad_cobro) === filterModalidadCobro,
       )
       .filter((t) => {
         if (!filterFechaDesde && !filterFechaHasta) return true;
@@ -607,6 +626,7 @@ export default function Viajes() {
     filterStatus,
     filterClient,
     filterTipoViaje,
+    filterModalidadCobro,
     filterFechaDesde,
     filterFechaHasta,
     filterDriver,
@@ -631,6 +651,7 @@ export default function Viajes() {
     filterStatus,
     filterClient,
     filterTipoViaje,
+    filterModalidadCobro,
     filterFechaDesde,
     filterFechaHasta,
     filterDriver,
@@ -650,6 +671,17 @@ export default function Viajes() {
   const submit = async () => {
     if (!form.truck_id || !form.driver_id || !form.client_id) {
       toast.error("Selecciona camión, operador y cliente");
+      return;
+    }
+    if (form.modalidad_cobro === "sin_cobro" && !(form.comision_override > 0)) {
+      toast.error("Captura la comisión del operador");
+      return;
+    }
+    if (
+      (form.modalidad_cobro === "efectivo" || form.modalidad_cobro === "sin_comision") &&
+      !(form.tarifa > 0)
+    ) {
+      toast.error("La tarifa debe ser mayor a 0");
       return;
     }
     const validParadas = paradas.filter((p) => p.etiqueta.trim());
@@ -681,12 +713,17 @@ export default function Viajes() {
         destino: stops[stops.length - 1].etiqueta,
         paradas: stops,
         route_id: selectedRouteId !== "__custom__" ? selectedRouteId : undefined,
-        num_factura: form.num_factura.trim() || undefined,
         fecha_salida: fechaSalidaIso,
         km_inicial: +form.km_inicial,
-        tarifa: +form.tarifa,
+        tarifa: form.modalidad_cobro === "sin_cobro" ? 0 : +form.tarifa,
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
+        modalidad_cobro: form.modalidad_cobro,
+        comision_override:
+          form.modalidad_cobro === "sin_cobro" ? +form.comision_override : undefined,
+        num_factura: permiteTimbrar(form.modalidad_cobro)
+          ? form.num_factura.trim() || undefined
+          : undefined,
         notas: form.notas.trim() || undefined,
       });
       toast.success(`Viaje ${t.folio} abierto`);
@@ -848,6 +885,14 @@ export default function Viajes() {
                       <SelectItem value="foraneo">Foráneo</SelectItem>
                     </SelectContent>
                   </Select>
+                </div>
+                <div className="space-y-1.5">
+                  <Label className="text-xs text-muted-foreground">Modalidad de cobro</Label>
+                  <ModalidadCobroSelect
+                    value={filterModalidadCobro}
+                    onChange={setFilterModalidadCobro}
+                    includeTodas
+                  />
                 </div>
                 <div className="space-y-1.5 sm:col-span-2">
                   <Label className="text-xs text-muted-foreground">Cliente</Label>
@@ -1058,7 +1103,14 @@ export default function Viajes() {
                   className="cursor-pointer hover:bg-muted/40 transition-colors"
                   onClick={() => nav(`/viajes/${t.id}`)}
                 >
-                  <TableCell className="font-mono font-semibold whitespace-nowrap">{t.folio}</TableCell>
+                  <TableCell className="font-mono font-semibold whitespace-nowrap">
+                    <div className="flex flex-col gap-1">
+                      <span>{t.folio}</span>
+                      <Badge variant="outline" className="w-fit font-sans font-normal">
+                        {MODALIDAD_COBRO_LABEL[parseModalidadCobro(t.modalidad_cobro)]}
+                      </Badge>
+                    </div>
+                  </TableCell>
                   <TableCell className="text-sm whitespace-nowrap">
                     {closed ? (
                       <div className="leading-tight space-y-1">
@@ -1338,13 +1390,33 @@ export default function Viajes() {
                   />
                 </div>
                 <div className="space-y-1.5">
-                  <Label>Tarifa pactada (MXN)</Label>
-                  <Input
-                    type="number"
-                    value={form.tarifa}
-                    onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+                  <Label>Modalidad de cobro</Label>
+                  <ModalidadCobroSelect
+                    value={form.modalidad_cobro}
+                    onChange={(v) =>
+                      setForm({ ...form, modalidad_cobro: v as ModalidadCobro, num_factura: v === "factura" ? form.num_factura : "" })
+                    }
                   />
                 </div>
+                {form.modalidad_cobro !== "sin_cobro" ? (
+                  <div className="space-y-1.5">
+                    <Label>Tarifa pactada (MXN)</Label>
+                    <Input
+                      type="number"
+                      value={form.tarifa}
+                      onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
+                    />
+                  </div>
+                ) : (
+                  <div className="space-y-1.5">
+                    <Label>Comisión del operador (MXN)</Label>
+                    <Input
+                      type="number"
+                      value={form.comision_override}
+                      onChange={(e) => setForm({ ...form, comision_override: +e.target.value })}
+                    />
+                  </div>
+                )}
                 <div className="space-y-1.5">
                   <Label>Tipo de viaje</Label>
                   <Select
@@ -1368,14 +1440,16 @@ export default function Viajes() {
                     onChange={(e) => setForm({ ...form, viaticos_entregados: +e.target.value })}
                   />
                 </div>
-                <div className="space-y-1.5">
-                  <Label>Número de factura</Label>
-                  <Input
-                    value={form.num_factura}
-                    onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
-                    placeholder="F-8826 (opcional)"
-                  />
-                </div>
+                {permiteTimbrar(form.modalidad_cobro) ? (
+                  <div className="space-y-1.5">
+                    <Label>Número de factura</Label>
+                    <Input
+                      value={form.num_factura}
+                      onChange={(e) => setForm({ ...form, num_factura: e.target.value })}
+                      placeholder="F-8826 (opcional)"
+                    />
+                  </div>
+                ) : null}
               </div>
             </TripFormSection>
 

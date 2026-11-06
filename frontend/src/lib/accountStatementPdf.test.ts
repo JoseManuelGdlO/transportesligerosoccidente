@@ -5,8 +5,10 @@ import {
   diasAtraso,
   empresaLineasParaSaldos,
   groupSaldos,
+  rowFromAccountDocument,
   type AccountStatementRow,
 } from "./accountStatementPdf";
+import type { AccountDocument } from "@/types/tlo";
 import { DEFAULT_TEMPLATE_SETTLEMENT, DEFAULT_TEMPLATE_TRIP, type PdfTemplatesConfig } from "@/types/pdfTemplate";
 
 function pdfText(doc: jsPDF): string {
@@ -41,6 +43,34 @@ function row(partial: Partial<AccountStatementRow> & Pick<AccountStatementRow, "
     ...partial,
   };
 }
+
+function cxc(partial: Partial<AccountDocument> = {}): AccountDocument {
+  return {
+    id: "d1",
+    tipo: "cxc",
+    entidad_nombre: "LATEX MEXICANA",
+    folio: "RA-1",
+    concepto: "Servicio",
+    conceptos: [],
+    fecha_emision: "2026-09-24",
+    monto_original: 100,
+    abonos: 0,
+    saldo_pendiente: 100,
+    estatus: "abierta",
+    estatus_display: "Al día",
+    origen: "viaje",
+    ...partial,
+  };
+}
+
+describe("rowFromAccountDocument", () => {
+  it("pone FACTURA, EFECTIVO o SIN COMISION según la modalidad del viaje", () => {
+    expect(rowFromAccountDocument(cxc()).tipo_docto).toBe("FACTURA");
+    expect(rowFromAccountDocument(cxc({ modalidad_cobro: "factura" })).tipo_docto).toBe("FACTURA");
+    expect(rowFromAccountDocument(cxc({ modalidad_cobro: "efectivo" })).tipo_docto).toBe("EFECTIVO");
+    expect(rowFromAccountDocument(cxc({ modalidad_cobro: "sin_comision" })).tipo_docto).toBe("SIN COMISION");
+  });
+});
 
 describe("diasAtraso", () => {
   it("sin vencimiento es 0", () => {

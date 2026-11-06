@@ -2,6 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable, type CellInput } from "jspdf-autotable";
 import type { AccountDocument, AccountDocumentOrigen } from "@/types/tlo";
 import type { PdfTemplate, PdfTemplatesConfig } from "@/types/pdfTemplate";
+import { tipoDoctoSaldos } from "./modalidadCobro";
 import { fmtNumber, parseDateOnlyLocal } from "./format";
 
 /** Texto de ejemplo del bloque fiscal. Si no se personalizó, no se imprime un RFC falso. */
@@ -115,7 +116,7 @@ export function rowFromAccountDocument(doc: AccountDocument): AccountStatementRo
   return {
     entidad_id: entidadKey(doc),
     entidad_nombre: doc.entidad_nombre,
-    tipo_docto: doc.tipo === "cxc" ? "FACTURA" : (CXP_TIPO[doc.origen] ?? "DOCUMENTO"),
+    tipo_docto: doc.tipo === "cxc" ? tipoDoctoSaldos(doc.modalidad_cobro) : (CXP_TIPO[doc.origen] ?? "DOCUMENTO"),
     folio: doc.folio,
     fecha_emision: doc.fecha_emision,
     fecha_ingreso_cobranza: doc.fecha_ingreso_cobranza ?? null,

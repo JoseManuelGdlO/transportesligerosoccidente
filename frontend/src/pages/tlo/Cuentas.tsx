@@ -61,6 +61,7 @@ import type {
   AgingSummary,
   Supplier,
 } from "@/types/tlo";
+import { tipoDoctoSaldos } from "@/lib/modalidadCobro";
 import { toast } from "sonner";
 
 /** Catálogo SAT c_FormaPago usable en complemento (99 “Por definir” no aplica). */
@@ -827,6 +828,7 @@ export default function Cuentas() {
                 <TableRow>
                   <TableHead>Entidad</TableHead>
                   <TableHead>Folio</TableHead>
+                  <TableHead>Tipo</TableHead>
                   <TableHead>Concepto</TableHead>
                   <TableHead>Emisión</TableHead>
                   <TableHead>Cobranza</TableHead>
@@ -848,6 +850,9 @@ export default function Cuentas() {
                   >
                     <TableCell className="font-medium">{d.entidad_nombre}</TableCell>
                     <TableCell>{d.folio}</TableCell>
+                    <TableCell>
+                      {d.tipo === "cxc" ? tipoDoctoSaldos(d.modalidad_cobro) : ORIGEN_LABELS[d.origen] ?? d.origen}
+                    </TableCell>
                     <TableCell className="max-w-[200px] truncate">{d.concepto}</TableCell>
                     <TableCell>{d.fecha_emision}</TableCell>
                     <TableCell>{d.fecha_ingreso_cobranza || "—"}</TableCell>
@@ -880,7 +885,7 @@ export default function Cuentas() {
                 ))}
                 {!pageData.total && (
                   <TableRow>
-                    <TableCell colSpan={12} className="text-center text-muted-foreground py-8">
+                    <TableCell colSpan={13} className="text-center text-muted-foreground py-8">
                       Sin documentos
                     </TableCell>
                   </TableRow>
@@ -1082,6 +1087,7 @@ export default function Cuentas() {
               <div className="flex flex-wrap items-center justify-between gap-2">
                 <AccountStatusBadge display={selected.estatus_display} />
                 <span className="text-xs text-muted-foreground">
+                  {selected.tipo === "cxc" ? `Tipo: ${tipoDoctoSaldos(selected.modalidad_cobro)}. ` : ""}
                   Origen: {ORIGEN_LABELS[selected.origen] ?? selected.origen}
                   {selected.origen === "viaje"
                     ? ". El cambio de cliente se guarda en el viaje; si la factura de ingreso está timbrada, el monto y el folio no cambian la tarifa, y si el viaje no tiene esa factura, el monto y el folio sí se guardan en el viaje."

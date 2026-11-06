@@ -35,11 +35,18 @@ import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
 import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
+import { parseModalidadCobro, permiteTimbrar } from "../types/modalidadCobro";
 
 function err(msg: string, status = 400): Error {
   const e = new Error(msg);
   (e as Error & { status?: number }).status = status;
   return e;
+}
+
+function assertModalidadPermiteFactura(trip: { modalidad_cobro?: string | null }) {
+  if (!permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro))) {
+    throw err("Esta modalidad de cobro no admite factura ni carta porte");
+  }
 }
 
 /**
@@ -125,6 +132,8 @@ export async function putConceptosCarta(
 }
 
 export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  assertModalidadPermiteFactura(trip);
   await ensureUbicacionesFromClient(tenantId, tripId);
   const rows = await listCartasPorte(tenantId, tripId);
   const visible = cartaVisible(rows);
@@ -144,7 +153,8 @@ export async function getOrCreateCartaPorte(tenantId: string, tripId: string) {
 }
 
 export async function crearCartaPorteAdicional(tenantId: string, tripId: string): Promise<CartaPorte> {
-  await getTripOrThrow(tenantId, tripId, false);
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  assertModalidadPermiteFactura(trip);
   return CartaPorte.create({
     id: randomUUID(),
     tenant_id: tenantId,
@@ -523,6 +533,7 @@ export async function previewCartaPorte(
     await updateCartaPorteComentarios(tenantId, tripId, cartaId, opts.comentarios);
   }
   const { trip, tenant, cartaPorte } = await loadTripContext(tenantId, tripId, cartaId);
+  assertModalidadPermiteFactura(trip);
   const truck = (trip as Trip & { Truck?: Truck }).Truck;
   const driver = (trip as Trip & { Driver?: Driver }).Driver;
   const client = (trip as Trip & { Client?: Client }).Client;
@@ -591,6 +602,8 @@ export async function timbrarCartaPorte(
   tipo: "ingreso" | "traslado" = "traslado",
   opts?: TimbradoOpts,
 ) {
+  const tripForModalidad = await getTripOrThrow(tenantId, tripId, false);
+  assertModalidadPermiteFactura(tripForModalidad);
   const preview = await previewCartaPorte(tenantId, tripId, cartaId, tipo, opts);
   if (!preview.valid) {
     throw err(preview.issues.join("; ") || "Datos incompletos para timbrar");

@@ -18,6 +18,8 @@ import {
 } from "@/lib/accountStatementPdf";
 import { isoDay } from "@/lib/format";
 import { loadPdfLogoDataUrl } from "@/lib/settlementPdf";
+import { ModalidadCobroSelect } from "@/components/tlo/ModalidadCobroSelect";
+import { parseModalidadCobro } from "@/lib/modalidadCobro";
 import { fetchAccountDocuments } from "@/lib/tloApi";
 import type { AccountDocument, AccountDocumentTipo } from "@/types/tlo";
 import { toast } from "sonner";
@@ -37,6 +39,7 @@ export function AccountStatementPdfDialog({
 }: AccountStatementPdfDialogProps) {
   const { tenant } = useAuth();
   const [alcance, setAlcance] = useState<SaldosAlcance>("activos");
+  const [modalidadFilter, setModalidadFilter] = useState("todos");
   const [fechaCorte, setFechaCorte] = useState(() => isoDay(new Date()));
   const [remote, setRemote] = useState<AccountDocument[]>([]);
   const [loading, setLoading] = useState(false);
@@ -46,6 +49,7 @@ export function AccountStatementPdfDialog({
     setSeenOpen(open);
     if (open) {
       setAlcance("activos");
+      setModalidadFilter("todos");
       setFechaCorte(isoDay(new Date()));
       setRemote([]);
       setLoading(true);
@@ -86,10 +90,11 @@ export function AccountStatementPdfDialog({
   }, [open, alcance, tipo]);
 
   const source = alcance === "pantalla" ? listedDocs : remote;
-  const pool = useMemo(
-    () => (alcance === "activos" ? docsConSaldo(source) : source),
-    [alcance, source],
-  );
+  const pool = useMemo(() => {
+    const byAlcance = alcance === "activos" ? docsConSaldo(source) : source;
+    if (tipo !== "cxc" || modalidadFilter === "todos") return byAlcance;
+    return byAlcance.filter((doc) => parseModalidadCobro(doc.modalidad_cobro) === modalidadFilter);
+  }, [alcance, source, tipo, modalidadFilter]);
 
   const entities = useMemo(() => {
     const map = new Map<string, string>();
@@ -175,6 +180,16 @@ export function AccountStatementPdfDialog({
               </SelectContent>
             </Select>
           </div>
+          {tipo === "cxc" ? (
+            <div>
+              <Label>Modalidad de cobro</Label>
+              <ModalidadCobroSelect
+                value={modalidadFilter}
+                onChange={setModalidadFilter}
+                includeTodas
+              />
+            </div>
+          ) : null}
           <div className="space-y-2">
             <Label>{tipo === "cxc" ? "Clientes" : "Proveedores"}</Label>
             {alcance !== "pantalla" && loading ? (
