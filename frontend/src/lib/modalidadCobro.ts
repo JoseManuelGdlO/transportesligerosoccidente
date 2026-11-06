@@ -22,7 +22,7 @@ export function parseModalidadCobro(value: unknown): ModalidadCobro {
 }
 
 export function generaCxcAutomatica(modalidad: ModalidadCobro): boolean {
-  return modalidad === "efectivo" || modalidad === "sin_comision";
+  return modalidad === "efectivo";
 }
 
 export function permiteTimbrar(modalidad: ModalidadCobro): boolean {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  generaCxcAutomatica,
   parseModalidadCobro,
   permiteTimbrar,
   tipoDoctoSaldos,
@@ -10,6 +11,15 @@ describe("parseModalidadCobro", () => {
     expect(parseModalidadCobro(undefined)).toBe("factura");
     expect(parseModalidadCobro("otro")).toBe("factura");
     expect(parseModalidadCobro("efectivo")).toBe("efectivo");
+  });
+});
+
+describe("generaCxcAutomatica", () => {
+  it("solo efectivo crea saldo al guardar el viaje", () => {
+    expect(generaCxcAutomatica("factura")).toBe(false);
+    expect(generaCxcAutomatica("efectivo")).toBe(true);
+    expect(generaCxcAutomatica("sin_comision")).toBe(false);
+    expect(generaCxcAutomatica("sin_cobro")).toBe(false);
   });
 });
 

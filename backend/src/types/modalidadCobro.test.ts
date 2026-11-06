@@ -7,10 +7,10 @@ import {
 } from "./modalidadCobro";
 
 describe("generaCxcAutomatica", () => {
-  it("solo efectivo y sin comisión crean saldo al guardar el viaje", () => {
+  it("solo efectivo crea saldo al guardar el viaje", () => {
     assert.equal(generaCxcAutomatica("factura"), false);
     assert.equal(generaCxcAutomatica("efectivo"), true);
-    assert.equal(generaCxcAutomatica("sin_comision"), true);
+    assert.equal(generaCxcAutomatica("sin_comision"), false);
     assert.equal(generaCxcAutomatica("sin_cobro"), false);
   });
 });

@@ -223,7 +223,7 @@ describe("accountDocumentService aging/saldo", () => {
 describe("planCxcPorModalidad", () => {
   const abierta = { estatus: "abierta" as const, carta_porte_id: null };
 
-  it("crea CXC en efectivo o sin comisión si no hay documento", () => {
+  it("crea CXC en efectivo si no hay documento", () => {
     assert.deepEqual(
       planCxcPorModalidad({
         modalidad: "efectivo",
@@ -235,6 +235,9 @@ describe("planCxcPorModalidad", () => {
       }),
       { action: "crear" },
     );
+  });
+
+  it("en sin comisión no crea CXC", () => {
     assert.deepEqual(
       planCxcPorModalidad({
         modalidad: "sin_comision",
@@ -244,7 +247,7 @@ describe("planCxcPorModalidad", () => {
         paymentCount: 0,
         hasStampedCxc: false,
       }),
-      { action: "crear" },
+      { action: "noop" },
     );
   });
 
@@ -292,10 +295,21 @@ describe("planCxcPorModalidad", () => {
     }
   });
 
-  it("en factura o sin cobro cancela la CXC automática sin abonos", () => {
+  it("en factura, sin comisión o sin cobro cancela la CXC automática sin abonos", () => {
     assert.deepEqual(
       planCxcPorModalidad({
         modalidad: "factura",
+        tarifa: 1500,
+        existingAuto: abierta,
+        abonado: 0,
+        paymentCount: 0,
+        hasStampedCxc: false,
+      }),
+      { action: "cancelar" },
+    );
+    assert.deepEqual(
+      planCxcPorModalidad({
+        modalidad: "sin_comision",
         tarifa: 1500,
         existingAuto: abierta,
         abonado: 0,

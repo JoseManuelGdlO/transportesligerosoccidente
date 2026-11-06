@@ -10,7 +10,7 @@ export function parseModalidadCobro(value: unknown): ModalidadCobro {
 }
 
 export function generaCxcAutomatica(modalidad: ModalidadCobro): boolean {
-  return modalidad === "efectivo" || modalidad === "sin_comision";
+  return modalidad === "efectivo";
 }
 
 export function permiteTimbrar(modalidad: ModalidadCobro): boolean {
@@ -41,7 +41,7 @@ export function applyModalidadPersistencia(input: {
     return { tarifa: 0, comision_override: override, num_factura: null };
   }
 
-  if (generaCxcAutomatica(input.modalidad)) {
+  if (input.modalidad === "sin_comision" || generaCxcAutomatica(input.modalidad)) {
     const tarifa = input.tarifa ?? 0;
     if (!(tarifa > 0)) {
       return { error: "La tarifa debe ser mayor a 0" };
