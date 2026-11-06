@@ -168,10 +168,10 @@ export function buildSettlementSheet(summary: SettlementSummary): SettlementShee
     { label: "Compensaciones", amount: compensaciones, kind: "add" },
     { label: "Viáticos entregados", amount: viaticosEntregados, kind: "note" },
     { label: "Viáticos comprobados", amount: viaticosComprobados, kind: "note" },
+    { label: "Viáticos no comprobados", amount: viaticosNoComprobado(saldoViaticos), kind: "sub" },
     { label: "Viáticos a favor", amount: viaticosAFavor(saldoViaticos), kind: "add" },
     ...discountSheetLines(summary, descuentos),
     { label: "Anticipos", amount: anticipos, kind: "sub" },
-    { label: "Viáticos no comprobados", amount: viaticosNoComprobado(saldoViaticos), kind: "sub" },
     { label: "Subtotal", amount: subtotal, kind: "subtotal" },
     { label: "Abono a cuenta", amount: adeudo.abono, kind: "sub" },
   ];
