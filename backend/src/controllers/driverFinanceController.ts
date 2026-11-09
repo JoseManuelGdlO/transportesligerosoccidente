@@ -18,6 +18,7 @@ import {
   cancelAccountItem,
   updateAccountItem,
 } from "../services/driverAccountService";
+import { syncExtraViaticoComprobadoInSnapshot } from "../services/settlementService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -331,6 +332,7 @@ export const patchExtraViatico = asyncHandler(async (req: Request, res: Response
     return;
   }
   await row.update({ monto_comprobado: parsed.data.monto_comprobado } as never);
+  await syncExtraViaticoComprobadoInSnapshot(tid(req), row);
   res.json({
     id: row.id,
     fecha: row.fecha,
