@@ -11,6 +11,7 @@ import { resolveSettlementDriver, snapshotToPdfSummary, applyTripInclusions, app
 import { apiFetch, readJson } from "@/lib/api";
 import type { Driver, DiscountType, CompensationType, SettlementRecord, SettlementSummaryApi, WeekSettlementSummaryApi, WeekSettlementEstado, WeekSettlementRow } from "@/types/tlo";
 import { SettlementSummaryPanel } from "@/components/tlo/SettlementSummaryPanel";
+import { WeekSummaryExportDialog } from "@/components/tlo/WeekSummaryExportDialog";
 import { DriverAccountPanel } from "@/components/tlo/DriverAccountPanel";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { Card, CardContent } from "@/components/ui/card";
@@ -37,7 +38,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
-import { FileText, Lock, Eye, Trash2, CircleDollarSign, Wallet, TrendingUp, Truck as TruckIcon, Users } from "lucide-react";
+import { FileText, Lock, Eye, Trash2, CircleDollarSign, Wallet, TrendingUp, Truck as TruckIcon, Users, Download } from "lucide-react";
 import { toast } from "sonner";
 
 type SettlementTab = "resumen" | "actual" | "borradores" | "historico";
@@ -91,6 +92,7 @@ export default function Liquidaciones() {
   const [tripInclusions, setTripInclusions] = useState<Record<string, boolean>>({});
   const [fleteLiquidacion, setFleteLiquidacion] = useState<Record<string, number | null>>({});
   const [accountOpen, setAccountOpen] = useState(false);
+  const [weekExportOpen, setWeekExportOpen] = useState(false);
   const [usarAlias, setUsarAlias] = useState(false);
 
   const defaultFechaEnPeriodo = () => clampDate(isoDay(today), inicio, fin);
@@ -756,6 +758,17 @@ export default function Liquidaciones() {
                 />
               </div>
 
+              <div className="flex justify-end">
+                <Button
+                  variant="outline"
+                  disabled={countedWeekRows.length === 0}
+                  onClick={() => setWeekExportOpen(true)}
+                >
+                  <Download className="h-4 w-4 mr-2" />
+                  Descargar resumen
+                </Button>
+              </div>
+
               <Card>
                 <Table>
                   <TableHeader>
@@ -1080,6 +1093,14 @@ export default function Liquidaciones() {
           )}
         </DialogContent>
       </Dialog>
+
+      <WeekSummaryExportDialog
+        open={weekExportOpen}
+        onOpenChange={setWeekExportOpen}
+        inicio={inicio}
+        fin={fin}
+        driverIds={countedWeekRows.map((row) => row.driver_id)}
+      />
 
       <Dialog open={viewingHistory !== null} onOpenChange={(open) => !open && setViewingHistory(null)}>
         <DialogContent className="max-w-5xl max-h-[90vh] overflow-y-auto sm:max-w-5xl">

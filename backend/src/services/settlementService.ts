@@ -5,6 +5,7 @@ import {
   Driver,
   Trip,
   Settlement,
+  Truck,
   DriverAdvance,
   DriverDiscount,
   DriverCompensation,
@@ -26,6 +27,13 @@ import {
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr } from "../utils/localDates";
+import {
+  conceptsFromSnapshot,
+  predominantUnitType,
+  type WeekExportFuente,
+  type WeekExportOmitido,
+  type WeekExportRow,
+} from "./weekSummaryWorkbook";
 
 export type TripInclusion = { id: string; included: boolean };
 
@@ -448,6 +456,93 @@ export async function weekSettlementSummary(
     },
     rows,
   };
+}
+
+const SIN_PRELIQUIDACION =
+  "No tienen preliquidación guardada y sus viajes ya están en una liquidación. No se usó el cierre para no mezclar fuentes.";
+
+function snapshotRecord(value: unknown): Record<string, unknown> | null {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return null;
+  return value as Record<string, unknown>;
+}
+
+/**
+ * Filas del Excel de resumen.
+ * Liquidación usa el cierre; si no hay, el cálculo en vivo (no el borrador).
+ * Preliquidación usa el borrador; si el operador ya está cerrado y no hay borrador, se omite.
+ */
+export async function weekSettlementExportRows(
+  tenantId: string,
+  inicioStr: string,
+  finStr: string,
+  fuente: WeekExportFuente,
+  driverIds: string[],
+): Promise<{ rows: WeekExportRow[]; omitidos: WeekExportOmitido[] }> {
+  const wanted = [...new Set(driverIds)];
+  const drivers = await Driver.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: wanted } },
+    order: [["nombre", "ASC"]],
+  });
+  const trucks = await Truck.findAll({
+    where: { tenant_id: tenantId },
+    attributes: ["id", "modelo"],
+  });
+  const trucksById = new Map(trucks.map((truck) => [String(truck.id), truck.modelo ?? ""]));
+
+  const settlements = await Settlement.findAll({
+    where: {
+      tenant_id: tenantId,
+      fecha_inicio: inicioStr,
+      fecha_fin: { [Op.in]: [finStr, addDaysToDateStr(finStr, 1)] },
+      driver_id: { [Op.in]: wanted },
+    },
+  });
+  const byDriver = new Map<string, Settlement[]>();
+  for (const settlement of settlements) {
+    const list = byDriver.get(settlement.driver_id) ?? [];
+    list.push(settlement);
+    byDriver.set(settlement.driver_id, list);
+  }
+
+  const rows: WeekExportRow[] = [];
+  const omitidos: WeekExportOmitido[] = [];
+  for (const driver of drivers) {
+    const list = settlementsForWeekEnd(byDriver.get(driver.id) ?? [], finStr);
+    const closed = list.find((settlement) => settlement.cerrado);
+    const draft = list.find((settlement) => !settlement.cerrado);
+    const closedSnapshot = snapshotRecord(closed?.snapshot);
+    const draftSnapshot = snapshotRecord(draft?.snapshot);
+
+    let snapshot: Record<string, unknown> | null = null;
+    let origen: WeekExportRow["origen"] = "vivo";
+    if (fuente === "liquidacion") {
+      if (closedSnapshot) {
+        snapshot = closedSnapshot;
+        origen = "liquidacion";
+      }
+    } else if (draftSnapshot) {
+      snapshot = draftSnapshot;
+      origen = "preliquidacion";
+    } else if (closedSnapshot) {
+      omitidos.push({ driver_nombre: driver.nombre, motivo: SIN_PRELIQUIDACION });
+      continue;
+    }
+
+    if (!snapshot) {
+      snapshot = await settlementSummary(tenantId, driver.id, inicioStr, finStr);
+      origen = "vivo";
+    }
+
+    const fromTrips = predominantUnitType(snapshot.trips, trucksById);
+    const assigned = driver.truck_id ? (trucksById.get(String(driver.truck_id)) ?? "").trim().toUpperCase() : "";
+    rows.push({
+      driver_nombre: driver.nombre,
+      origen,
+      concepts: conceptsFromSnapshot(snapshot, fromTrips || assigned),
+    });
+  }
+
+  return { rows, omitidos };
 }
 
 export async function listSettlements(tenantId: string, driverId?: string) {

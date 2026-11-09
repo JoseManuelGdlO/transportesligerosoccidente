@@ -3,6 +3,7 @@ import type { Request, Response } from "express";
 import { asyncHandler } from "../utils/asyncHandler";
 import * as settlementService from "../services/settlementService";
 import { settlementToJson } from "../utils/serialize";
+import { buildWeekSummaryWorkbook, WEEK_EXPORT_CONCEPTS, WEEK_EXPORT_EXTRAS } from "../services/weekSummaryWorkbook";
 
 const summaryQuery = z.object({
   driver_id: z.string().min(1),
@@ -13,6 +14,17 @@ const summaryQuery = z.object({
 const weekSummaryQuery = z.object({
   inicio: z.string().min(1),
   fin: z.string().min(1),
+});
+
+const isoDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/);
+
+const weekExportBody = z.object({
+  inicio: isoDay,
+  fin: isoDay,
+  fuente: z.enum(["preliquidacion", "liquidacion"]),
+  conceptos: z.array(z.enum(WEEK_EXPORT_CONCEPTS)).min(1),
+  adicionales: z.array(z.enum(WEEK_EXPORT_EXTRAS)).max(WEEK_EXPORT_EXTRAS.length).default([]),
+  driver_ids: z.array(z.string().min(1)).min(1).max(500),
 });
 
 const tripInclusionsSchema = z
@@ -56,6 +68,31 @@ export const getWeekSummary = asyncHandler(async (req: Request, res: Response) =
   const { inicio, fin } = parsed.data;
   const data = await settlementService.weekSettlementSummary(req.user!.tenantId, inicio, fin);
   res.json(data);
+});
+
+export const postWeekSummaryExport = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = weekExportBody.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: "Revisa el periodo, la fuente y los conceptos del resumen" });
+    return;
+  }
+  const { inicio, fin, fuente, conceptos, adicionales, driver_ids } = parsed.data;
+  const data = await settlementService.weekSettlementExportRows(
+    req.user!.tenantId,
+    inicio,
+    fin,
+    fuente,
+    driver_ids,
+  );
+  if (data.rows.length === 0 && data.omitidos.length === 0) {
+    res.status(400).json({ error: "No hay operadores para el resumen" });
+    return;
+  }
+  const buffer = await buildWeekSummaryWorkbook({ inicio, fin, fuente, conceptos, adicionales, ...data });
+  const filename = `resumen-liquidaciones-${inicio}-al-${fin}.xlsx`;
+  res.setHeader("Content-Type", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
+  res.setHeader("Content-Disposition", `attachment; filename="${filename}"`);
+  res.send(buffer);
 });
 
 export const listSettlements = asyncHandler(async (req: Request, res: Response) => {

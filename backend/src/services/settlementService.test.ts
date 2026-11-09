@@ -12,6 +12,7 @@ import {
   DriverAccount,
   DriverAccountItem,
   DriverAccountMovement,
+  Truck,
 } from "../models";
 import {
   createDraftSettlement,
@@ -19,6 +20,7 @@ import {
   deleteDraftSettlement,
   settlementSummary,
   weekSettlementSummary,
+  weekSettlementExportRows,
   closeSettlement,
   closeSettlementById,
   cancelSettlement,
@@ -1360,5 +1362,80 @@ describe("weekSettlementSummary", () => {
     driverFindAll.mock.restore();
     settlementFindAll.mock.restore();
     restoreSummaryDeps(deps);
+  });
+});
+
+describe("weekSettlementExportRows", () => {
+  const snapshot = (facturacion: number) => ({
+    total_ingresos: facturacion,
+    total_comisiones: 100,
+    viaticos_entregados: 50,
+    viaticos_comprobados: 20,
+    total_descuentos: 10,
+    total_anticipos: 0,
+    total_compensaciones: 0,
+    discounts: [{ tipo: "multa", monto: 10, en_periodo: true }],
+    trips: [{ id: "t1", included: true, truck_id: "truck-1" }],
+  });
+
+  it("toma la liquidación y no el borrador cuando la fuente es liquidación", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () => [{ id: "driver-1", nombre: "Ana" }] as never);
+    const truckFindAll = mock.method(Truck, "findAll", async () => [{ id: "truck-1", modelo: "Torton" }] as never);
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        { id: "closed", driver_id: "driver-1", cerrado: true, fecha_fin: fechaFin, snapshot: snapshot(9000) },
+        { id: "draft", driver_id: "driver-1", cerrado: false, fecha_fin: fechaFin, snapshot: snapshot(1000) },
+      ] as never,
+    );
+
+    const result = await weekSettlementExportRows(tenantId, fechaInicio, fechaFin, "liquidacion", ["driver-1"]);
+
+    assert.equal(result.rows.length, 1);
+    assert.equal(result.rows[0].origen, "liquidacion");
+    assert.equal(result.rows[0].concepts.facturacion, 9000);
+    assert.equal(result.rows[0].concepts.tipo_unidad, "TORTON");
+    assert.equal(result.omitidos.length, 0);
+
+    driverFindAll.mock.restore();
+    truckFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+  });
+
+  it("omite al operador cerrado si se pide preliquidación y no hay borrador", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () => [{ id: "driver-1", nombre: "Ana" }] as never);
+    const truckFindAll = mock.method(Truck, "findAll", async () => [] as never);
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [{ id: "closed", driver_id: "driver-1", cerrado: true, fecha_fin: fechaFin, snapshot: snapshot(9000) }] as never,
+    );
+
+    const result = await weekSettlementExportRows(tenantId, fechaInicio, fechaFin, "preliquidacion", ["driver-1"]);
+
+    assert.equal(result.rows.length, 0);
+    assert.equal(result.omitidos.length, 1);
+    assert.equal(result.omitidos[0].driver_nombre, "Ana");
+
+    driverFindAll.mock.restore();
+    truckFindAll.mock.restore();
+    settlementFindAll.mock.restore();
+  });
+
+  it("usa el borrador cuando la fuente es preliquidación", async () => {
+    const driverFindAll = mock.method(Driver, "findAll", async () => [{ id: "driver-1", nombre: "Ana" }] as never);
+    const truckFindAll = mock.method(Truck, "findAll", async () => [] as never);
+    const settlementFindAll = mock.method(Settlement, "findAll", async () =>
+      [
+        { id: "closed", driver_id: "driver-1", cerrado: true, fecha_fin: fechaFin, snapshot: snapshot(9000) },
+        { id: "draft", driver_id: "driver-1", cerrado: false, fecha_fin: fechaFin, snapshot: snapshot(1000) },
+      ] as never,
+    );
+
+    const result = await weekSettlementExportRows(tenantId, fechaInicio, fechaFin, "preliquidacion", ["driver-1"]);
+
+    assert.equal(result.rows[0].origen, "preliquidacion");
+    assert.equal(result.rows[0].concepts.facturacion, 1000);
+
+    driverFindAll.mock.restore();
+    truckFindAll.mock.restore();
+    settlementFindAll.mock.restore();
   });
 });
