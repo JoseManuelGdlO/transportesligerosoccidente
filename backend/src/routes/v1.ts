@@ -508,6 +508,31 @@ r.delete(
 );
 
 r.get(
+  "/drivers/:id/extra-viaticos",
+  authenticateJwt,
+  requirePermission("liquidaciones.ver"),
+  driverFinanceC.listExtraViaticos,
+);
+r.post(
+  "/drivers/:id/extra-viaticos",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.createExtraViatico,
+);
+r.patch(
+  "/drivers/:id/extra-viaticos/:extraId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.patchExtraViatico,
+);
+r.delete(
+  "/drivers/:id/extra-viaticos/:extraId",
+  authenticateJwt,
+  requirePermission("liquidaciones.cerrar"),
+  driverFinanceC.deleteExtraViatico,
+);
+
+r.get(
   "/drivers/:id/account",
   authenticateJwt,
   requirePermission("liquidaciones.ver"),
