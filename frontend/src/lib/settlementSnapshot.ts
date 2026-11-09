@@ -6,6 +6,7 @@ import {
   roundMoney,
   type SettlementSummary,
 } from "@/lib/calc";
+import { applyExtraViaticosToTotals } from "@/lib/extraViaticos";
 import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
 
 export type TripInclusionPayload = { id: string; included: boolean };
@@ -189,16 +190,18 @@ export function applyTripInclusions(
     viaticos_entregados += t.viaticos_entregados || 0;
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
-  const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
+  const extraViaticos = (summary.extra_viaticos ?? []).filter((extra) => extra.en_periodo !== false);
+  const viaticos = applyExtraViaticosToTotals(
+    { viaticos_entregados, viaticos_comprobados },
+    extraViaticos,
+  );
   const base = {
     ...summary,
     trips,
     total_ingresos,
     total_comisiones,
     total_km,
-    viaticos_entregados,
-    viaticos_comprobados,
-    saldo_viaticos,
+    ...viaticos,
   };
   const account = withAccountInstallments(base);
 
@@ -250,15 +253,17 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     viaticos_entregados += t.viaticos_entregados || 0;
     viaticos_comprobados += f.gastos_comprobados + ingresosComprobadosLiquidacion(t);
   }
-  const saldo_viaticos = viaticos_comprobados - viaticos_entregados;
+  const extraViaticos = (snapshot.extra_viaticos ?? []).filter((extra) => extra.en_periodo !== false);
+  const viaticos = applyExtraViaticosToTotals(
+    { viaticos_entregados, viaticos_comprobados },
+    extraViaticos,
+  );
   const account = withAccountInstallments({
     ...snapshot,
     total_ingresos,
     total_comisiones,
     total_km,
-    viaticos_entregados,
-    viaticos_comprobados,
-    saldo_viaticos,
+    ...viaticos,
   });
 
   return {
@@ -266,9 +271,7 @@ export function snapshotToPdfSummary(snapshot: SettlementSummaryApi): Settlement
     total_ingresos,
     total_comisiones,
     total_km,
-    viaticos_entregados,
-    viaticos_comprobados,
-    saldo_viaticos,
+    ...viaticos,
     total_descuentos: snapshot.total_descuentos,
     total_anticipos: snapshot.total_anticipos,
     total_compensaciones: snapshot.total_compensaciones ?? 0,

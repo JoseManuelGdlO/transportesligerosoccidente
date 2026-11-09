@@ -22,6 +22,7 @@ import { CartaPorte, initCartaPorte } from "./CartaPorte";
 import { DriverAdvance, initDriverAdvance } from "./DriverAdvance";
 import { DriverDiscount, initDriverDiscount } from "./DriverDiscount";
 import { DriverCompensation, initDriverCompensation } from "./DriverCompensation";
+import { DriverExtraViatico, initDriverExtraViatico } from "./DriverExtraViatico";
 import { DriverAccount, initDriverAccount } from "./DriverAccount";
 import { DriverAccountItem, initDriverAccountItem } from "./DriverAccountItem";
 import { DriverAccountMovement, initDriverAccountMovement } from "./DriverAccountMovement";
@@ -78,6 +79,7 @@ export function initModels() {
   initDriverAdvance(sequelize);
   initDriverDiscount(sequelize);
   initDriverCompensation(sequelize);
+  initDriverExtraViatico(sequelize);
   initDriverAccount(sequelize);
   initDriverAccountItem(sequelize);
   initDriverAccountMovement(sequelize);
@@ -207,9 +209,12 @@ export function initModels() {
   DriverDiscount.belongsTo(Driver, { foreignKey: "driver_id" });
   Driver.hasMany(DriverCompensation, { foreignKey: "driver_id", as: "compensations" });
   DriverCompensation.belongsTo(Driver, { foreignKey: "driver_id" });
+  Driver.hasMany(DriverExtraViatico, { foreignKey: "driver_id", as: "extraViaticos" });
+  DriverExtraViatico.belongsTo(Driver, { foreignKey: "driver_id" });
   Settlement.hasMany(DriverAdvance, { foreignKey: "settlement_id" });
   Settlement.hasMany(DriverDiscount, { foreignKey: "settlement_id" });
   Settlement.hasMany(DriverCompensation, { foreignKey: "settlement_id" });
+  Settlement.hasMany(DriverExtraViatico, { foreignKey: "settlement_id" });
 
   Driver.hasOne(DriverAccount, { foreignKey: "driver_id", as: "account" });
   DriverAccount.belongsTo(Driver, { foreignKey: "driver_id" });
@@ -334,6 +339,7 @@ export {
   DriverAdvance,
   DriverDiscount,
   DriverCompensation,
+  DriverExtraViatico,
   DriverAccount,
   DriverAccountItem,
   DriverAccountMovement,

@@ -1,7 +1,14 @@
 import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
-import { Driver, DriverAdvance, DriverDiscount, DriverCompensation } from "../models";
+import {
+  Driver,
+  DriverAdvance,
+  DriverDiscount,
+  DriverCompensation,
+  DriverExtraViatico,
+  sequelize,
+} from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { num } from "../utils/numbers";
 import {
@@ -12,6 +19,7 @@ import {
   cancelAccountItem,
   updateAccountItem,
 } from "../services/driverAccountService";
+import { syncExtraViaticoComprobadoInSnapshot } from "../services/settlementService";
 
 const tid = (req: Request) => req.user!.tenantId;
 
@@ -47,6 +55,17 @@ const compensationSchema = z.object({
   monto: z.number().positive(),
   fecha: z.string().min(1),
   descripcion: z.string().optional(),
+});
+
+const extraViaticoSchema = z.object({
+  fecha: z.string().min(1),
+  descripcion: z.string().optional(),
+  monto_entregado: z.number().positive(),
+  monto_comprobado: z.number().min(0).optional(),
+});
+
+const extraViaticoPatchSchema = z.object({
+  monto_comprobado: z.number().min(0),
 });
 
 const accountItemSchema = z.object({
@@ -249,6 +268,94 @@ export const deleteCompensation = asyncHandler(async (req: Request, res: Respons
   }
   if (row.settlement_id) {
     res.status(400).json({ error: "Compensación ya aplicada en liquidación" });
+    return;
+  }
+  await row.destroy();
+  res.status(204).send();
+});
+
+export const listExtraViaticos = asyncHandler(async (req: Request, res: Response) => {
+  await assertDriver(tid(req), req.params.id);
+  const pending = req.query.pending === "true";
+  const where: Record<string, unknown> = { tenant_id: tid(req), driver_id: req.params.id };
+  if (pending) where.settlement_id = null;
+  const rows = await DriverExtraViatico.findAll({ where, order: [["fecha", "DESC"]] });
+  res.json(
+    rows.map((r) => ({
+      id: r.id,
+      fecha: r.fecha,
+      descripcion: r.descripcion,
+      monto_entregado: num(r.monto_entregado),
+      monto_comprobado: num(r.monto_comprobado),
+      settlement_id: r.settlement_id ?? undefined,
+    })),
+  );
+});
+
+export const createExtraViatico = asyncHandler(async (req: Request, res: Response) => {
+  await assertDriver(tid(req), req.params.id);
+  const parsed = extraViaticoSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await DriverExtraViatico.create({
+    id: randomUUID(),
+    tenant_id: tid(req),
+    driver_id: req.params.id,
+    fecha: parsed.data.fecha,
+    descripcion: parsed.data.descripcion?.trim() || "Viático extra",
+    monto_entregado: parsed.data.monto_entregado,
+    monto_comprobado: parsed.data.monto_comprobado ?? 0,
+    settlement_id: null,
+  } as never);
+  res.status(201).json({
+    id: row.id,
+    fecha: row.fecha,
+    descripcion: row.descripcion,
+    monto_entregado: num(row.monto_entregado),
+    monto_comprobado: num(row.monto_comprobado),
+    settlement_id: row.settlement_id ?? undefined,
+  });
+});
+
+export const patchExtraViatico = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = extraViaticoPatchSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const row = await DriverExtraViatico.findOne({
+    where: { id: req.params.extraId, driver_id: req.params.id, tenant_id: tid(req) },
+  });
+  if (!row) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  await sequelize.transaction(async (t) => {
+    await row.update({ monto_comprobado: parsed.data.monto_comprobado } as never, { transaction: t });
+    await syncExtraViaticoComprobadoInSnapshot(tid(req), row, { transaction: t });
+  });
+  res.json({
+    id: row.id,
+    fecha: row.fecha,
+    descripcion: row.descripcion,
+    monto_entregado: num(row.monto_entregado),
+    monto_comprobado: num(row.monto_comprobado),
+    settlement_id: row.settlement_id ?? undefined,
+  });
+});
+
+export const deleteExtraViatico = asyncHandler(async (req: Request, res: Response) => {
+  const row = await DriverExtraViatico.findOne({
+    where: { id: req.params.extraId, driver_id: req.params.id, tenant_id: tid(req) },
+  });
+  if (!row) {
+    res.status(404).json({ error: "No encontrado" });
+    return;
+  }
+  if (row.settlement_id) {
+    res.status(400).json({ error: "Viático extra ya aplicado en liquidación" });
     return;
   }
   await row.destroy();

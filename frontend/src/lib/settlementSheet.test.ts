@@ -125,6 +125,17 @@ describe("buildSettlementSheet descuentos", () => {
     expect(lines.find((line) => line.label === "Subtotal")?.amount).toBe(6902.8);
   });
 
+  it("no agrega una línea separada para viáticos extra ya incluidos en los totales", () => {
+    const lines = labels({
+      viaticos_entregados: 3000,
+      viaticos_comprobados: 2150,
+      saldo_viaticos: -850,
+      neto_pagar: 6752.8,
+    });
+
+    expect(lines.map((line) => line.label)).not.toContain("Viáticos extra");
+  });
+
   it("usa el tipo cuando la descripción está vacía o es el texto automático", () => {
     const lines = labels({
       total_descuentos: 300,

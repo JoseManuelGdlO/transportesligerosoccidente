@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
 import {
   sequelize,
   Driver,
@@ -9,6 +9,7 @@ import {
   DriverAdvance,
   DriverDiscount,
   DriverCompensation,
+  DriverExtraViatico,
 } from "../models";
 import {
   computeSettlementTotals,
@@ -24,6 +25,7 @@ import {
   createSettlementCarryoverItem,
   revertSettlementCarryoverItem,
 } from "./driverAccountService";
+import { applyExtraViaticosToTotals, resolveSnapshotNetoCarryover, sumExtraViaticos } from "./extraViaticos";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr } from "../utils/localDates";
@@ -99,7 +101,7 @@ async function pendingAdvancesDiscountsAndCompensations(
   inicioStr: string,
   finStr: string,
 ) {
-  const [allAdvances, allDiscounts, allCompensations] = await Promise.all([
+  const [allAdvances, allDiscounts, allCompensations, allExtraViaticos] = await Promise.all([
     DriverAdvance.findAll({
       where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
       order: [["fecha", "DESC"]],
@@ -112,7 +114,14 @@ async function pendingAdvancesDiscountsAndCompensations(
       where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
       order: [["fecha", "DESC"]],
     }),
+    DriverExtraViatico.findAll({
+      where: { tenant_id: tenantId, driver_id: driverId, settlement_id: null },
+      order: [["fecha", "DESC"]],
+    }),
   ]);
+  const extraViaticosInPeriod = allExtraViaticos.filter((r) =>
+    fechaEnPeriodo(String(r.fecha), inicioStr, finStr),
+  );
   const advancesInPeriod = allAdvances.filter((r) => fechaEnPeriodo(String(r.fecha), inicioStr, finStr));
   const discountsInPeriod = allDiscounts.filter((r) => fechaEnPeriodo(String(r.fecha), inicioStr, finStr));
   const compensationsInPeriod = allCompensations.filter((r) =>
@@ -125,6 +134,8 @@ async function pendingAdvancesDiscountsAndCompensations(
     advances: allAdvances,
     discounts: allDiscounts,
     compensations: allCompensations,
+    extraViaticos: allExtraViaticos,
+    extraViaticosInPeriod,
     advancesInPeriod,
     discountsInPeriod,
     compensationsInPeriod,
@@ -161,8 +172,16 @@ export async function settlementSummary(
       { association: "Route", attributes: ["id", "nombre"], required: false },
     ],
   });
-  const { advances, discounts, compensations, total_anticipos, total_descuentos, total_compensaciones } =
-    await pendingAdvancesDiscountsAndCompensations(tenantId, driverId, inicioStr, finStr);
+  const {
+    advances,
+    discounts,
+    compensations,
+    extraViaticos,
+    extraViaticosInPeriod,
+    total_anticipos,
+    total_descuentos,
+    total_compensaciones,
+  } = await pendingAdvancesDiscountsAndCompensations(tenantId, driverId, inicioStr, finStr);
 
   const eligible = filterEligibleSettlementTrips(driver, trips, inicio, fin);
   const inclusionMap = inclusionMapFromList(
@@ -174,12 +193,24 @@ export async function settlementSummary(
     .filter((e) => inclusionMap.get(String(e.trip.id)) !== false)
     .map((e) => e.trip);
 
-  const baseTotals = computeSettlementTotals(driver, includedTrips, {
+  const tripTotals = computeSettlementTotals(driver, includedTrips, {
     total_anticipos,
     total_descuentos,
     total_compensaciones,
     total_cuenta_abonos: 0,
   });
+  // Solo los extras dentro del periodo suman; los demás se listan con en_periodo=false.
+  const viaticosMerged = applyExtraViaticosToTotals(
+    {
+      viaticos_entregados: tripTotals.viaticos_entregados,
+      viaticos_comprobados: tripTotals.viaticos_comprobados,
+    },
+    extraViaticosInPeriod.map((r) => ({
+      monto_entregado: num(r.monto_entregado),
+      monto_comprobado: num(r.monto_comprobado),
+    })),
+  );
+  const baseTotals = { ...tripTotals, ...viaticosMerged };
   const netoBase = computeNetoPagar({
     total_comisiones: baseTotals.total_comisiones,
     saldo_viaticos: baseTotals.saldo_viaticos,
@@ -230,6 +261,14 @@ export async function settlementSummary(
       fecha: String(c.fecha).slice(0, 10),
       descripcion: c.descripcion,
       en_periodo: fechaEnPeriodo(String(c.fecha), inicioStr, finStr),
+    })),
+    extra_viaticos: extraViaticos.map((r) => ({
+      id: r.id,
+      fecha: String(r.fecha).slice(0, 10),
+      descripcion: r.descripcion,
+      monto_entregado: num(r.monto_entregado),
+      monto_comprobado: num(r.monto_comprobado),
+      en_periodo: fechaEnPeriodo(String(r.fecha), inicioStr, finStr),
     })),
     trips: eligible.map(({ trip, en_periodo }) => {
       const id = String(trip.id);
@@ -853,7 +892,7 @@ export async function closeSettlement(
       );
     }
 
-    const { advancesInPeriod, discountsInPeriod, compensationsInPeriod } =
+    const { advancesInPeriod, discountsInPeriod, compensationsInPeriod, extraViaticosInPeriod } =
       await pendingAdvancesDiscountsAndCompensations(tenantId, driverId, fechaInicio, fechaFin);
     for (const a of advancesInPeriod) {
       await a.update({ settlement_id: sid } as never, { transaction: t });
@@ -863,6 +902,9 @@ export async function closeSettlement(
     }
     for (const c of compensationsInPeriod) {
       await c.update({ settlement_id: sid } as never, { transaction: t });
+    }
+    for (const e of extraViaticosInPeriod) {
+      await e.update({ settlement_id: sid } as never, { transaction: t });
     }
 
     await applySettlementAccountInstallments(tenantId, driverId, sid, fechaFin, freshPreview.applications, t);
@@ -983,6 +1025,10 @@ export async function cancelSettlement(tenantId: string, settlementId: string) {
       { settlement_id: null },
       { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
     );
+    await DriverExtraViatico.update(
+      { settlement_id: null },
+      { where: { tenant_id: tenantId, settlement_id: locked.id }, transaction: t },
+    );
 
     await revertSettlementAccountInstallments(tenantId, locked.id, t);
     await revertSettlementCarryoverItem(tenantId, locked.id, t);
@@ -1007,4 +1053,79 @@ export async function cancelSettlement(tenantId: string, settlementId: string) {
   );
   await row.update({ snapshot: summary } as never);
   return row;
+}
+
+type SnapshotExtraViatico = {
+  id?: string;
+  monto_entregado?: unknown;
+  monto_comprobado?: unknown;
+  en_periodo?: boolean;
+};
+
+/**
+ * Cuando se edita el comprobado de un extra ya ligado a una liquidación, el snapshot
+ * (que es lo que ven el panel y el PDF) debe reflejarlo. Los viajes del snapshot son JSON
+ * serializado y no se pueden recalcular con `computeSettlementTotals`, así que se resta
+ * la aportación previa de los extras en periodo para obtener la base de viajes y se
+ * vuelve a sumar con el valor nuevo. El neto se recalcula con las demás partidas del
+ * snapshot y el `total_cuenta_abonos` ya aplicado (las cuotas de cuenta no se reaplican).
+ */
+export async function syncExtraViaticoComprobadoInSnapshot(
+  tenantId: string,
+  row: { id: string; settlement_id?: string | null; monto_comprobado: unknown },
+  options: { transaction?: Transaction } = {},
+): Promise<void> {
+  if (!row.settlement_id) return;
+  const settlement = await Settlement.findOne({
+    where: { id: row.settlement_id, tenant_id: tenantId },
+    transaction: options.transaction,
+  });
+  if (!settlement || !settlement.cerrado) return;
+  const current = settlement.snapshot as Record<string, unknown> | null | undefined;
+  if (!current || !Array.isArray(current.extra_viaticos)) return;
+
+  const oldExtras = current.extra_viaticos as SnapshotExtraViatico[];
+  if (!oldExtras.some((e) => e.id === row.id)) return;
+
+  const newExtras = oldExtras.map((e) =>
+    e.id === row.id ? { ...e, monto_comprobado: num(row.monto_comprobado) } : { ...e },
+  );
+  const toAmounts = (list: SnapshotExtraViatico[]) =>
+    list
+      .filter((e) => e.en_periodo !== false)
+      .map((e) => ({ monto_entregado: num(e.monto_entregado), monto_comprobado: num(e.monto_comprobado) }));
+
+  const prev = sumExtraViaticos(toAmounts(oldExtras));
+  const merged = applyExtraViaticosToTotals(
+    {
+      viaticos_entregados: roundMoney(num(current.viaticos_entregados) - prev.entregados),
+      viaticos_comprobados: roundMoney(num(current.viaticos_comprobados) - prev.comprobados),
+    },
+    toAmounts(newExtras),
+  );
+
+  const netoCalculado = computeNetoPagar({
+    total_comisiones: num(current.total_comisiones),
+    saldo_viaticos: merged.saldo_viaticos,
+    total_compensaciones: num(current.total_compensaciones),
+    total_descuentos: num(current.total_descuentos),
+    total_anticipos: num(current.total_anticipos),
+    total_cuenta_abonos: num(current.total_cuenta_abonos),
+  });
+  const decision = resolveSnapshotNetoCarryover(num(current.pendiente_arrastrado), netoCalculado);
+  if (!decision.ok) {
+    const err = new Error(decision.reason);
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
+
+  const snapshot: Record<string, unknown> = {
+    ...current,
+    ...merged,
+    extra_viaticos: newExtras,
+    neto_calculado: netoCalculado,
+    neto_pagar: decision.neto_pagar,
+    pendiente_arrastrado: decision.pendiente_arrastrado,
+  };
+  await settlement.update({ snapshot } as never, { transaction: options.transaction });
 }

@@ -1030,6 +1030,16 @@ export interface DriverAdvance {
   en_periodo?: boolean;
 }
 
+export interface DriverExtraViatico {
+  id: string;
+  fecha: string;
+  descripcion: string;
+  monto_entregado: number;
+  monto_comprobado: number;
+  settlement_id?: string;
+  en_periodo?: boolean;
+}
+
 export interface DriverDiscount {
   id: string;
   tipo: DiscountType;
@@ -1129,6 +1139,7 @@ export interface SettlementSummaryApi {
   pendiente_arrastrado?: number;
   pendiente_item_id?: string;
   advances: DriverAdvance[];
+  extra_viaticos?: DriverExtraViatico[];
   discounts: DriverDiscount[];
   compensations: DriverCompensation[];
   account_items?: AccountItemBalance[];

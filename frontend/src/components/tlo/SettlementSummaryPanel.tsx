@@ -6,6 +6,7 @@ import type {
   Client,
   Driver,
   DriverAdvance,
+  DriverExtraViatico,
   DriverDiscount,
   DriverCompensation,
   DiscountType,
@@ -27,6 +28,13 @@ import { Wallet, Receipt, TrendingUp, Truck as TruckIcon, Plus, Trash2, Pencil, 
 
 export interface AdvanceFormState {
   monto: number;
+  fecha: string;
+  descripcion: string;
+}
+
+export interface ExtraViaticoFormState {
+  monto_entregado: number;
+  monto_comprobado: number;
   fecha: string;
   descripcion: string;
 }
@@ -92,6 +100,45 @@ function FleteLiquidacionInput({
   );
 }
 
+function ExtraComprobadoInput({
+  extraId,
+  descripcion,
+  value,
+  onCommit,
+}: {
+  extraId: string;
+  descripcion: string;
+  value: number;
+  onCommit: (id: string, monto: number) => void;
+}) {
+  const [draft, setDraft] = useState<string | null>(null);
+  const shown = draft ?? String(value);
+
+  return (
+    <div className="ml-auto w-28">
+      <Input
+        type="number"
+        min={0}
+        step="0.01"
+        inputMode="decimal"
+        className="h-8 text-right tabular-nums"
+        aria-label={`Monto comprobado del viático extra ${descripcion}`}
+        value={shown}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={() => {
+          const raw = (draft ?? String(value)).trim();
+          setDraft(null);
+          if (raw === "") return;
+          const monto = Number(raw);
+          if (!Number.isFinite(monto) || monto < 0) return;
+          if (roundMoney(monto) === roundMoney(value)) return;
+          onCommit(extraId, roundMoney(monto));
+        }}
+      />
+    </div>
+  );
+}
+
 interface SettlementSummaryPanelProps {
   summary: SettlementSummaryApi;
   driver: Driver;
@@ -100,9 +147,15 @@ interface SettlementSummaryPanelProps {
   advForm?: AdvanceFormState;
   discForm?: DiscountFormState;
   compForm?: CompensationFormState;
+  extraForm?: ExtraViaticoFormState;
   onAdvFormChange?: (form: AdvanceFormState) => void;
   onDiscFormChange?: (form: DiscountFormState) => void;
   onCompFormChange?: (form: CompensationFormState) => void;
+  onExtraFormChange?: (form: ExtraViaticoFormState) => void;
+  onAddExtraViatico?: () => void;
+  onRemoveExtraViatico?: (id: string) => void;
+  /** Editable también en histórico (readOnly) si el padre lo cablea y hay permiso de finanzas. */
+  onPatchExtraViaticoComprobado?: (id: string, monto_comprobado: number) => void;
   onAddAdvance?: () => void;
   onAddDiscount?: () => void;
   onAddCompensation?: () => void;
@@ -127,9 +180,14 @@ export function SettlementSummaryPanel({
   advForm,
   discForm,
   compForm,
+  extraForm,
   onAdvFormChange,
   onDiscFormChange,
   onCompFormChange,
+  onExtraFormChange,
+  onAddExtraViatico,
+  onRemoveExtraViatico,
+  onPatchExtraViaticoComprobado,
   onAddAdvance,
   onAddDiscount,
   onAddCompensation,
@@ -214,6 +272,8 @@ export function SettlementSummaryPanel({
   const advances = (summary.advances ?? []).filter((a) => periodOnly(a.en_periodo));
   const discounts = (summary.discounts ?? []).filter((d) => periodOnly(d.en_periodo));
   const compensations = (summary.compensations ?? []).filter((c) => periodOnly(c.en_periodo));
+  const extraViaticos = (summary.extra_viaticos ?? []).filter((x) => periodOnly(x.en_periodo));
+  const canEditExtraComprobado = canEditFinance && Boolean(onPatchExtraViaticoComprobado);
   const emptyFinanceMsg = (kind: "anticipos" | "descuentos" | "compensaciones") =>
     readOnly ? `Sin ${kind} en el periodo` : `Sin ${kind} pendientes de liquidar`;
 
@@ -459,6 +519,109 @@ export function SettlementSummaryPanel({
                           <Button variant="ghost" size="sm" onClick={() => onRemoveCompensation(c.id)}>
                             <Trash2 className="h-4 w-4 text-destructive" />
                           </Button>
+                        </TableCell>
+                      )}
+                    </TableRow>
+                  ))}
+                </TableBody>
+              </Table>
+            </div>
+          </CardContent>
+        </Card>
+
+        <Card className="tlo-shadow-md md:col-span-2">
+          <CardHeader>
+            <CardTitle className="text-base">Viáticos extra</CardTitle>
+            <p className="text-xs text-muted-foreground">
+              No afectan la utilidad del viaje; se suman a viáticos de esta liquidación.
+            </p>
+          </CardHeader>
+          <CardContent className="space-y-3">
+            {showFinanceForms && extraForm && onExtraFormChange && onAddExtraViatico && (
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                <Input
+                  type="date"
+                  aria-label="Fecha del viático extra"
+                  value={extraForm.fecha}
+                  onChange={(e) => onExtraFormChange({ ...extraForm, fecha: e.target.value })}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Entregado"
+                  aria-label="Monto entregado del viático extra"
+                  value={extraForm.monto_entregado || ""}
+                  onChange={(e) => onExtraFormChange({ ...extraForm, monto_entregado: +e.target.value })}
+                />
+                <Input
+                  type="number"
+                  min={0}
+                  step="0.01"
+                  placeholder="Comprobado"
+                  aria-label="Monto comprobado del viático extra"
+                  value={extraForm.monto_comprobado || ""}
+                  onChange={(e) => onExtraFormChange({ ...extraForm, monto_comprobado: +e.target.value })}
+                />
+                <Button size="sm" className="h-10" onClick={onAddExtraViatico}>
+                  <Plus className="h-4 w-4" />
+                </Button>
+                <Input
+                  className="col-span-2 sm:col-span-4"
+                  placeholder="Descripción"
+                  value={extraForm.descripcion}
+                  onChange={(e) => onExtraFormChange({ ...extraForm, descripcion: e.target.value })}
+                />
+              </div>
+            )}
+            <div className="overflow-x-auto">
+              <Table>
+                <TableHeader>
+                  <TableRow className="bg-secondary/50">
+                    <TableHead>Fecha</TableHead>
+                    <TableHead>Descripción</TableHead>
+                    <TableHead className="text-right">Entregado</TableHead>
+                    <TableHead className="text-right">Comprobado</TableHead>
+                    {showFinanceForms ? <TableHead className="w-10" /> : null}
+                  </TableRow>
+                </TableHeader>
+                <TableBody>
+                  {extraViaticos.length === 0 && (
+                    <TableRow>
+                      <TableCell colSpan={showFinanceForms ? 5 : 4} className="text-center text-muted-foreground py-4 text-sm">
+                        {readOnly ? "Sin viáticos extra en el periodo" : "Sin viáticos extra pendientes de liquidar"}
+                      </TableCell>
+                    </TableRow>
+                  )}
+                  {extraViaticos.map((x: DriverExtraViatico) => (
+                    <TableRow key={x.id}>
+                      <TableCell className="whitespace-nowrap">{fmtDate(x.fecha)}</TableCell>
+                      <TableCell className="text-sm">
+                        {x.descripcion}
+                        {x.en_periodo === false && (
+                          <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
+                        )}
+                      </TableCell>
+                      <TableCell className="text-right whitespace-nowrap">{fmtMXN(x.monto_entregado)}</TableCell>
+                      <TableCell className="text-right whitespace-nowrap">
+                        {canEditExtraComprobado && onPatchExtraViaticoComprobado ? (
+                          <ExtraComprobadoInput
+                            extraId={x.id}
+                            descripcion={x.descripcion}
+                            value={x.monto_comprobado}
+                            onCommit={onPatchExtraViaticoComprobado}
+                          />
+                        ) : (
+                          fmtMXN(x.monto_comprobado)
+                        )}
+                      </TableCell>
+                      {showFinanceForms && (
+                        <TableCell>
+                          {!x.settlement_id && onRemoveExtraViatico && (
+                            <Button variant="ghost" size="sm" onClick={() => onRemoveExtraViatico(x.id)}>
+                              <Trash2 className="h-4 w-4 text-destructive" />
+                            </Button>
+                          )}
                         </TableCell>
                       )}
                     </TableRow>

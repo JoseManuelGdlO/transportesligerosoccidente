@@ -86,6 +86,47 @@ describe("overlayLiveComisionOverrides", () => {
 });
 
 describe("snapshotToPdfSummary", () => {
+  it("conserva viáticos extra del periodo al recalcular viajes excluidos", () => {
+    const included = trip("a", 1000, true);
+    included.viaticos_entregados = 1000;
+    included.expenses = [{
+      id: "expense-1",
+      categoria: "otros",
+      tipo: "gasto",
+      descripcion: "Gasto comprobado",
+      monto: 1000,
+      monto_comprobado: 1000,
+      visible_en_liquidacion: true,
+      fecha: "2026-06-02",
+    }];
+    const snapshot = snapshotWithTrips([included, trip("b", 5000, false)], {
+      viaticos_entregados: 1200,
+      viaticos_comprobados: 1050,
+      saldo_viaticos: -150,
+      extra_viaticos: [{
+        id: "extra-1",
+        fecha: "2026-06-03",
+        descripcion: "Viáticos adicionales",
+        monto_entregado: 200,
+        monto_comprobado: 50,
+        en_periodo: true,
+      }, {
+        id: "extra-out",
+        fecha: "2026-05-31",
+        descripcion: "Fuera del periodo",
+        monto_entregado: 900,
+        monto_comprobado: 900,
+        en_periodo: false,
+      }],
+    });
+
+    const pdf = snapshotToPdfSummary(snapshot);
+
+    expect(pdf.viaticos_entregados).toBe(1200);
+    expect(pdf.viaticos_comprobados).toBe(1050);
+    expect(pdf.saldo_viaticos).toBe(-150);
+  });
+
   it("recalcula pendiente_arrastrado al excluir viajes, no conserva el del snapshot", () => {
     // Snapshot guardado como si ambos viajes contaran: comisión 600 − descuento 400 = 200
     const snapshot = snapshotWithTrips(
@@ -203,6 +244,47 @@ describe("buildLiveTripInclusionsFromTrips", () => {
 });
 
 describe("applyTripInclusions", () => {
+  it("conserva viáticos extra del periodo al reaplicar inclusiones", () => {
+    const included = trip("a", 1000);
+    included.viaticos_entregados = 1000;
+    included.expenses = [{
+      id: "expense-1",
+      categoria: "otros",
+      tipo: "gasto",
+      descripcion: "Gasto comprobado",
+      monto: 1000,
+      monto_comprobado: 1000,
+      visible_en_liquidacion: true,
+      fecha: "2026-06-02",
+    }];
+    const summary = snapshotWithTrips([included], {
+      viaticos_entregados: 1200,
+      viaticos_comprobados: 1050,
+      saldo_viaticos: -150,
+      extra_viaticos: [{
+        id: "extra-1",
+        fecha: "2026-06-03",
+        descripcion: "Viáticos adicionales",
+        monto_entregado: 200,
+        monto_comprobado: 50,
+        en_periodo: true,
+      }, {
+        id: "extra-out",
+        fecha: "2026-05-31",
+        descripcion: "Fuera del periodo",
+        monto_entregado: 900,
+        monto_comprobado: 900,
+        en_periodo: false,
+      }],
+    });
+
+    const next = applyTripInclusions(summary, driver, { a: true });
+
+    expect(next.viaticos_entregados).toBe(1200);
+    expect(next.viaticos_comprobados).toBe(1050);
+    expect(next.saldo_viaticos).toBe(-150);
+  });
+
   it("actualiza pendiente_arrastrado junto con el neto al excluir un viaje", () => {
     const summary = snapshotWithTrips([trip("a", 1000), trip("b", 5000)]);
 

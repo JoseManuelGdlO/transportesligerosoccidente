@@ -9,6 +9,7 @@ import {
   DriverAdvance,
   DriverDiscount,
   DriverCompensation,
+  DriverExtraViatico,
   DriverAccount,
   DriverAccountItem,
   DriverAccountMovement,
@@ -24,6 +25,7 @@ import {
   closeSettlement,
   closeSettlementById,
   cancelSettlement,
+  syncExtraViaticoComprobadoInSnapshot,
 } from "./settlementService";
 
 const tenantId = "tenant-1";
@@ -49,6 +51,7 @@ function mockSummaryDeps() {
   const advanceFindAll = mock.method(DriverAdvance, "findAll", async () => [] as never);
   const discountFindAll = mock.method(DriverDiscount, "findAll", async () => [] as never);
   const compensationFindAll = mock.method(DriverCompensation, "findAll", async () => [] as never);
+  const extraViaticoFindAll = mock.method(DriverExtraViatico, "findAll", async () => [] as never);
   const accountFindOne = mock.method(DriverAccount, "findOne", async () => null);
   const accountItemFindAll = mock.method(DriverAccountItem, "findAll", async () => [] as never);
   const accountItemFindOne = mock.method(DriverAccountItem, "findOne", async () => null);
@@ -59,6 +62,7 @@ function mockSummaryDeps() {
     advanceFindAll,
     discountFindAll,
     compensationFindAll,
+    extraViaticoFindAll,
     accountFindOne,
     accountItemFindAll,
     accountItemFindOne,
@@ -72,6 +76,7 @@ function restoreSummaryDeps(deps: ReturnType<typeof mockSummaryDeps>) {
   deps.advanceFindAll.mock.restore();
   deps.discountFindAll.mock.restore();
   deps.compensationFindAll.mock.restore();
+  deps.extraViaticoFindAll.mock.restore();
   deps.accountFindOne.mock.restore();
   deps.accountItemFindAll.mock.restore();
   deps.accountItemFindOne.mock.restore();
@@ -381,6 +386,194 @@ describe("settlementSummary compensations", () => {
     assert.equal(compensations[0]?.en_periodo, true);
 
     restoreSummaryDeps(deps);
+  });
+});
+
+describe("settlementSummary viáticos extra", () => {
+  const extraRow = (id: string, fecha: string, entregado: string, comprobado: string) => ({
+    id,
+    fecha,
+    descripcion: "Caseta extra",
+    monto_entregado: entregado,
+    monto_comprobado: comprobado,
+    settlement_id: null,
+  });
+
+  it("suma al viático del viaje solo los extras dentro del periodo y lista todos", async () => {
+    const deps = mockSummaryDeps();
+    const trip = mockTrip({ id: "trip-1", tarifa: 1000, viaticos_entregados: 300 });
+    deps.tripFindAll.mock.mockImplementation(async () => [trip] as never);
+    deps.extraViaticoFindAll.mock.mockImplementation(
+      async () =>
+        [
+          extraRow("ex-1", "2026-06-04", "500", "200"),
+          extraRow("ex-2", "2026-05-20", "999", "0"),
+        ] as never,
+    );
+
+    const summary = await settlementSummary(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(summary.viaticos_entregados, 800);
+    assert.equal(summary.viaticos_comprobados, 200);
+    assert.equal(summary.saldo_viaticos, -600);
+    // comisión 10% de 1000 = 100; neto = 100 + saldo_viaticos
+    assert.equal(summary.neto_pagar, -500);
+    const extras = summary.extra_viaticos as { id: string; en_periodo: boolean; fecha: string }[];
+    assert.equal(extras.length, 2);
+    assert.deepEqual(
+      extras.map((e) => [e.id, e.en_periodo, e.fecha]),
+      [
+        ["ex-1", true, "2026-06-04"],
+        ["ex-2", false, "2026-05-20"],
+      ],
+    );
+
+    restoreSummaryDeps(deps);
+  });
+});
+
+describe("closeSettlement viáticos extra", () => {
+  it("marca settlement_id solo en extras del periodo", async () => {
+    const deps = mockSummaryDeps();
+    const inPeriod = { ...{ id: "ex-1", fecha: "2026-06-04", descripcion: "x", monto_entregado: "100", monto_comprobado: "0" }, update: mock.fn(async (_d?: unknown) => {}) };
+    const outPeriod = { ...{ id: "ex-2", fecha: "2026-05-20", descripcion: "y", monto_entregado: "50", monto_comprobado: "0" }, update: mock.fn(async (_d?: unknown) => {}) };
+    deps.extraViaticoFindAll.mock.mockImplementation(async () => [inPeriod, outPeriod] as never);
+    deps.tripFindAll.mock.mockImplementation(async () => [mockTrip({ id: "trip-1", tarifa: 5000 })] as never);
+
+    const transaction = mockTransaction();
+    const tripUpdate = mock.method(Trip, "update", async () => [1] as never);
+    const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
+    const settlementFindOne = mock.method(Settlement, "findOne", async () => null);
+    const settlementCreate = mock.method(Settlement, "create", async (data: unknown) => ({
+      ...(data as object),
+      id: "settlement-1",
+    }) as never);
+
+    await closeSettlement(tenantId, driverId, fechaInicio, fechaFin);
+
+    assert.equal(inPeriod.update.mock.callCount(), 1);
+    assert.deepEqual(inPeriod.update.mock.calls[0].arguments[0], { settlement_id: "settlement-1" });
+    assert.equal(outPeriod.update.mock.callCount(), 0);
+    const created = settlementCreate.mock.calls[0].arguments[0] as { snapshot: { viaticos_entregados: number } };
+    assert.equal(created.snapshot.viaticos_entregados, 100);
+
+    restoreSummaryDeps(deps);
+    transaction.mock.restore();
+    tripUpdate.mock.restore();
+    movementFindAll.mock.restore();
+    settlementFindOne.mock.restore();
+    settlementCreate.mock.restore();
+  });
+});
+
+describe("syncExtraViaticoComprobadoInSnapshot", () => {
+  it("actualiza extra, viáticos y neto del snapshot sin tocar la base de viajes", async () => {
+    const update = mock.fn(async (_d?: unknown) => {});
+    const settlement = {
+      id: "settlement-1",
+      cerrado: true,
+      snapshot: {
+        total_comisiones: 100,
+        total_compensaciones: 0,
+        total_descuentos: 0,
+        total_anticipos: 0,
+        total_cuenta_abonos: 0,
+        viaticos_entregados: 800,
+        viaticos_comprobados: 200,
+        saldo_viaticos: -600,
+        pendiente_arrastrado: 0,
+        neto_pagar: -500,
+        extra_viaticos: [
+          { id: "ex-1", monto_entregado: 500, monto_comprobado: 0, en_periodo: true },
+          { id: "ex-2", monto_entregado: 999, monto_comprobado: 0, en_periodo: false },
+        ],
+      },
+      update,
+    };
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+
+    await syncExtraViaticoComprobadoInSnapshot(tenantId, {
+      id: "ex-1",
+      settlement_id: "settlement-1",
+      monto_comprobado: "500",
+    });
+
+    assert.equal(update.mock.callCount(), 1);
+    const saved = (update.mock.calls[0].arguments[0] as { snapshot: Record<string, unknown> }).snapshot;
+    assert.equal(saved.viaticos_entregados, 800);
+    assert.equal(saved.viaticos_comprobados, 700);
+    assert.equal(saved.saldo_viaticos, -100);
+    assert.equal(saved.neto_pagar, 0);
+    assert.equal(saved.neto_calculado, 0);
+    const extras = saved.extra_viaticos as { id: string; monto_comprobado: number }[];
+    assert.equal(extras.find((e) => e.id === "ex-1")?.monto_comprobado, 500);
+
+    findOne.mock.restore();
+  });
+
+  function closedSettlementWithPendiente(pendiente: number, netoPagar: number) {
+    const update = mock.fn(async (_d?: unknown, _o?: unknown) => {});
+    return {
+      update,
+      settlement: {
+        id: "settlement-1",
+        cerrado: true,
+        snapshot: {
+          total_comisiones: 100,
+          total_compensaciones: 0,
+          total_descuentos: 0,
+          total_anticipos: 0,
+          total_cuenta_abonos: 0,
+          viaticos_entregados: 500,
+          viaticos_comprobados: 0,
+          saldo_viaticos: -500,
+          pendiente_arrastrado: pendiente,
+          neto_pagar: netoPagar,
+          extra_viaticos: [{ id: "ex-1", monto_entregado: 500, monto_comprobado: 0, en_periodo: true }],
+        },
+        update,
+      },
+    };
+  }
+
+  it("responde 409 si el neto cruza a positivo con arrastre previo y no persiste", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(400, 0);
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await assert.rejects(
+      syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 500 }),
+      (e: Error & { status?: number }) => e.status === 409,
+    );
+    assert.equal(update.mock.callCount(), 0);
+    findOne.mock.restore();
+  });
+
+  it("responde 409 si el neto cruza a negativo sin arrastre previo y no persiste", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(0, 0);
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await assert.rejects(
+      syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 0 }),
+      (e: Error & { status?: number }) => e.status === 409,
+    );
+    assert.equal(update.mock.callCount(), 0);
+    findOne.mock.restore();
+  });
+
+  it("no hace nada si la liquidación no está cerrada", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(0, 0);
+    (settlement as { cerrado: boolean }).cerrado = false;
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 500 });
+    assert.equal(update.mock.callCount(), 0);
+    findOne.mock.restore();
+  });
+
+  it("no hace nada si el extra no está ligado a una liquidación", async () => {
+    const findOne = mock.method(Settlement, "findOne", async () => {
+      throw new Error("no debe consultar");
+    });
+    await syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: null, monto_comprobado: 1 });
+    assert.equal(findOne.mock.callCount(), 0);
+    findOne.mock.restore();
   });
 });
 
@@ -797,6 +990,7 @@ describe("cancelSettlement", () => {
     const advanceUpdate = mock.method(DriverAdvance, "update", async () => [0] as never);
     const discountUpdate = mock.method(DriverDiscount, "update", async () => [0] as never);
     const compensationUpdate = mock.method(DriverCompensation, "update", async () => [0] as never);
+    const extraViaticoUpdate = mock.method(DriverExtraViatico, "update", async () => [0] as never);
     const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
 
     const row = await cancelSettlement(tenantId, "settlement-1");
@@ -806,6 +1000,8 @@ describe("cancelSettlement", () => {
     assert.equal(advanceUpdate.mock.callCount(), 1);
     assert.equal(discountUpdate.mock.callCount(), 1);
     assert.equal(compensationUpdate.mock.callCount(), 1);
+    assert.equal(extraViaticoUpdate.mock.callCount(), 1);
+    assert.deepEqual(extraViaticoUpdate.mock.calls[0].arguments[0], { settlement_id: null });
     assert.ok(update.mock.callCount() >= 1);
     const reopenArgs = update.mock.calls[0].arguments[0] as { cerrado: boolean; cerrado_at: null };
     assert.equal(reopenArgs.cerrado, false);
@@ -824,6 +1020,7 @@ describe("cancelSettlement", () => {
     advanceUpdate.mock.restore();
     discountUpdate.mock.restore();
     compensationUpdate.mock.restore();
+    extraViaticoUpdate.mock.restore();
     movementFindAll.mock.restore();
   });
 
@@ -1064,6 +1261,7 @@ describe("cancelSettlement pendiente generado", () => {
     const advanceUpdate = mock.method(DriverAdvance, "update", async () => [0] as never);
     const discountUpdate = mock.method(DriverDiscount, "update", async () => [0] as never);
     const compensationUpdate = mock.method(DriverCompensation, "update", async () => [0] as never);
+    const extraViaticoUpdate = mock.method(DriverExtraViatico, "update", async () => [0] as never);
     const movementFindAll = mock.method(DriverAccountMovement, "findAll", async () => [] as never);
 
     await cancelSettlement(tenantId, "settlement-1");
@@ -1078,6 +1276,7 @@ describe("cancelSettlement pendiente generado", () => {
     advanceUpdate.mock.restore();
     discountUpdate.mock.restore();
     compensationUpdate.mock.restore();
+    extraViaticoUpdate.mock.restore();
     movementFindAll.mock.restore();
   });
 });
