@@ -125,7 +125,15 @@ export default function Liquidaciones() {
     setSummarySource("live");
   }, []);
 
+  const [extraForm, setExtraForm] = useState({
+    monto_entregado: 0,
+    monto_comprobado: 0,
+    fecha: defaultFechaEnPeriodo(),
+    descripcion: "",
+  });
+
   useEffect(() => {
+    setExtraForm((x) => ({ ...x, fecha: clampDate(x.fecha, inicio, fin) }));
     setAdvForm((a) => ({ ...a, fecha: clampDate(a.fecha, inicio, fin) }));
     setDiscForm((d) => ({ ...d, fecha: clampDate(d.fecha, inicio, fin) }));
     setCompForm((c) => ({ ...c, fecha: clampDate(c.fecha, inicio, fin) }));
@@ -416,6 +424,116 @@ export default function Liquidaciones() {
       await loadSummary();
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al registrar compensación");
+    }
+  };
+
+  const addExtraViatico = async () => {
+    if (!driverId) return;
+    if (extraForm.monto_entregado <= 0) {
+      toast.error("Captura un monto entregado mayor a cero");
+      return;
+    }
+    if (extraForm.monto_comprobado < 0) {
+      toast.error("El monto comprobado no puede ser negativo");
+      return;
+    }
+    const fecha = clampDate(extraForm.fecha, inicio, fin);
+    try {
+      const res = await apiFetch(`/drivers/${driverId}/extra-viaticos`, {
+        method: "POST",
+        body: JSON.stringify({
+          monto_entregado: extraForm.monto_entregado,
+          monto_comprobado: extraForm.monto_comprobado,
+          fecha,
+          descripcion: extraForm.descripcion.trim() || "Viático extra",
+        }),
+      });
+      await readJson(res);
+      setExtraForm({
+        monto_entregado: 0,
+        monto_comprobado: 0,
+        fecha: clampDate(isoDay(today), inicio, fin),
+        descripcion: "",
+      });
+      toast.success("Viático extra registrado");
+      setSummarySource("live");
+      await loadSummary();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "Error al registrar viático extra");
+    }
+  };
+
+  const removeExtraViatico = async (id: string) => {
+    try {
+      await apiFetch(`/drivers/${driverId}/extra-viaticos/${id}`, { method: "DELETE" });
+      setSummarySource("live");
+      await loadSummary();
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo eliminar");
+    }
+  };
+
+  /**
+   * PATCH del comprobado. El backend actualiza el snapshot solo si el extra ya está ligado a una
+   * liquidación cerrada; en una pre-liquidación (snapshot sin settlement_id) hay que regenerar el
+   * snapshot con el mismo PATCH /draft que usa openDraft para que los KPI no queden viejos.
+   */
+  const patchExtraViaticoComprobado = async (id: string, monto_comprobado: number) => {
+    if (!driverId) return;
+    try {
+      const res = await apiFetch(`/drivers/${driverId}/extra-viaticos/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ monto_comprobado }),
+      });
+      await readJson(res);
+      if (summarySource === "snapshot" && activeDraftId && summary) {
+        const draftRes = await apiFetch(`/settlements/${activeDraftId}/draft`, {
+          method: "PATCH",
+          body: JSON.stringify({
+            trip_inclusions: tripInclusionsPayload(buildTripInclusionsFromTrips(summary.trips)),
+            flete_liquidacion: fleteLiquidacionPayload(summary.trips, fleteLiquidacion),
+          }),
+        });
+        const row = await readJson<SettlementRecord>(draftRes);
+        if (row.snapshot) {
+          setSummary(row.snapshot);
+          setTripInclusions(buildTripInclusionsFromTrips(row.snapshot.trips));
+          setFleteLiquidacion(buildFleteLiquidacionFromTrips(row.snapshot.trips));
+        }
+        await loadLists();
+      } else if (summarySource === "live") {
+        await loadSummary();
+      }
+      toast.success("Comprobado actualizado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo actualizar el comprobado");
+      if (summarySource === "live") await loadSummary();
+    }
+  };
+
+  /** Releer /settlements y reasignar el registro abierto en el diálogo de histórico. */
+  const refreshViewingHistory = async () => {
+    if (!viewingHistory) return;
+    const res = await apiFetch("/settlements");
+    const all = await readJson<SettlementRecord[]>(res);
+    setHistory(all.filter((s) => s.cerrado));
+    setDrafts(all.filter((s) => !s.cerrado && s.driver_id === driverId));
+    const fresh = all.find((s) => s.id === viewingHistory.id);
+    if (fresh) setViewingHistory(fresh);
+  };
+
+  const patchHistoryExtraViaticoComprobado = async (id: string, monto_comprobado: number) => {
+    if (!viewingHistory) return;
+    try {
+      const res = await apiFetch(`/drivers/${viewingHistory.driver_id}/extra-viaticos/${id}`, {
+        method: "PATCH",
+        body: JSON.stringify({ monto_comprobado }),
+      });
+      await readJson(res);
+      await refreshViewingHistory();
+      toast.success("Comprobado actualizado");
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo actualizar el comprobado");
     }
   };
 
@@ -936,9 +1054,14 @@ export default function Liquidaciones() {
                 advForm={advForm}
                 discForm={discForm}
                 compForm={compForm}
+                extraForm={extraForm}
                 onAdvFormChange={setAdvForm}
                 onDiscFormChange={setDiscForm}
                 onCompFormChange={setCompForm}
+                onExtraFormChange={setExtraForm}
+                onAddExtraViatico={addExtraViatico}
+                onRemoveExtraViatico={removeExtraViatico}
+                onPatchExtraViaticoComprobado={canClose ? patchExtraViaticoComprobado : undefined}
                 onAddAdvance={addAdvance}
                 onAddDiscount={addDiscount}
                 onAddCompensation={addCompensation}
@@ -1127,6 +1250,8 @@ export default function Liquidaciones() {
                 clients={clients}
                 usarAlias={usarAlias}
                 readOnly
+                canEditFinance={canClose}
+                onPatchExtraViaticoComprobado={canClose ? patchHistoryExtraViaticoComprobado : undefined}
               />
               <div className="flex justify-end pt-2">
                 <Button variant="outline" onClick={() => void downloadPdfForRecord(viewingHistory)}>
