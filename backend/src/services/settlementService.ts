@@ -1,5 +1,5 @@
 import { randomUUID } from "node:crypto";
-import { Op } from "sequelize";
+import { Op, type Transaction } from "sequelize";
 import {
   sequelize,
   Driver,
@@ -25,7 +25,7 @@ import {
   createSettlementCarryoverItem,
   revertSettlementCarryoverItem,
 } from "./driverAccountService";
-import { applyExtraViaticosToTotals, sumExtraViaticos } from "./extraViaticos";
+import { applyExtraViaticosToTotals, resolveSnapshotNetoCarryover, sumExtraViaticos } from "./extraViaticos";
 import { tripToJson } from "../utils/serialize";
 import { num } from "../utils/numbers";
 import { addDaysToDateStr } from "../utils/localDates";
@@ -1073,13 +1073,16 @@ type SnapshotExtraViatico = {
 export async function syncExtraViaticoComprobadoInSnapshot(
   tenantId: string,
   row: { id: string; settlement_id?: string | null; monto_comprobado: unknown },
+  options: { transaction?: Transaction } = {},
 ): Promise<void> {
   if (!row.settlement_id) return;
   const settlement = await Settlement.findOne({
     where: { id: row.settlement_id, tenant_id: tenantId },
+    transaction: options.transaction,
   });
-  const current = settlement?.snapshot as Record<string, unknown> | null | undefined;
-  if (!settlement || !current || !Array.isArray(current.extra_viaticos)) return;
+  if (!settlement || !settlement.cerrado) return;
+  const current = settlement.snapshot as Record<string, unknown> | null | undefined;
+  if (!current || !Array.isArray(current.extra_viaticos)) return;
 
   const oldExtras = current.extra_viaticos as SnapshotExtraViatico[];
   if (!oldExtras.some((e) => e.id === row.id)) return;
@@ -1109,14 +1112,20 @@ export async function syncExtraViaticoComprobadoInSnapshot(
     total_anticipos: num(current.total_anticipos),
     total_cuenta_abonos: num(current.total_cuenta_abonos),
   });
-  const pendiente = roundMoney(num(current.pendiente_arrastrado));
+  const decision = resolveSnapshotNetoCarryover(num(current.pendiente_arrastrado), netoCalculado);
+  if (!decision.ok) {
+    const err = new Error(decision.reason);
+    (err as Error & { status?: number }).status = 409;
+    throw err;
+  }
 
   const snapshot: Record<string, unknown> = {
     ...current,
     ...merged,
     extra_viaticos: newExtras,
     neto_calculado: netoCalculado,
-    neto_pagar: pendiente > 0 ? 0 : netoCalculado,
+    neto_pagar: decision.neto_pagar,
+    pendiente_arrastrado: decision.pendiente_arrastrado,
   };
-  await settlement.update({ snapshot } as never);
+  await settlement.update({ snapshot } as never, { transaction: options.transaction });
 }

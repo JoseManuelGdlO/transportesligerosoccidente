@@ -7,6 +7,7 @@ import {
   DriverDiscount,
   DriverCompensation,
   DriverExtraViatico,
+  sequelize,
 } from "../models";
 import { asyncHandler } from "../utils/asyncHandler";
 import { num } from "../utils/numbers";
@@ -331,8 +332,10 @@ export const patchExtraViatico = asyncHandler(async (req: Request, res: Response
     res.status(404).json({ error: "No encontrado" });
     return;
   }
-  await row.update({ monto_comprobado: parsed.data.monto_comprobado } as never);
-  await syncExtraViaticoComprobadoInSnapshot(tid(req), row);
+  await sequelize.transaction(async (t) => {
+    await row.update({ monto_comprobado: parsed.data.monto_comprobado } as never, { transaction: t });
+    await syncExtraViaticoComprobadoInSnapshot(tid(req), row, { transaction: t });
+  });
   res.json({
     id: row.id,
     fecha: row.fecha,

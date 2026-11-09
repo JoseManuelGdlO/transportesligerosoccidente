@@ -465,7 +465,8 @@ export default function Liquidaciones() {
 
   const removeExtraViatico = async (id: string) => {
     try {
-      await apiFetch(`/drivers/${driverId}/extra-viaticos/${id}`, { method: "DELETE" });
+      const res = await apiFetch(`/drivers/${driverId}/extra-viaticos/${id}`, { method: "DELETE" });
+      await readJson(res);
       setSummarySource("live");
       await loadSummary();
     } catch (e) {

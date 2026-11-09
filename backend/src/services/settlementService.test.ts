@@ -471,6 +471,7 @@ describe("syncExtraViaticoComprobadoInSnapshot", () => {
     const update = mock.fn(async (_d?: unknown) => {});
     const settlement = {
       id: "settlement-1",
+      cerrado: true,
       snapshot: {
         total_comisiones: 100,
         total_compensaciones: 0,
@@ -507,6 +508,62 @@ describe("syncExtraViaticoComprobadoInSnapshot", () => {
     const extras = saved.extra_viaticos as { id: string; monto_comprobado: number }[];
     assert.equal(extras.find((e) => e.id === "ex-1")?.monto_comprobado, 500);
 
+    findOne.mock.restore();
+  });
+
+  function closedSettlementWithPendiente(pendiente: number, netoPagar: number) {
+    const update = mock.fn(async (_d?: unknown, _o?: unknown) => {});
+    return {
+      update,
+      settlement: {
+        id: "settlement-1",
+        cerrado: true,
+        snapshot: {
+          total_comisiones: 100,
+          total_compensaciones: 0,
+          total_descuentos: 0,
+          total_anticipos: 0,
+          total_cuenta_abonos: 0,
+          viaticos_entregados: 500,
+          viaticos_comprobados: 0,
+          saldo_viaticos: -500,
+          pendiente_arrastrado: pendiente,
+          neto_pagar: netoPagar,
+          extra_viaticos: [{ id: "ex-1", monto_entregado: 500, monto_comprobado: 0, en_periodo: true }],
+        },
+        update,
+      },
+    };
+  }
+
+  it("responde 409 si el neto cruza a positivo con arrastre previo y no persiste", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(400, 0);
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await assert.rejects(
+      syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 500 }),
+      (e: Error & { status?: number }) => e.status === 409,
+    );
+    assert.equal(update.mock.callCount(), 0);
+    findOne.mock.restore();
+  });
+
+  it("responde 409 si el neto cruza a negativo sin arrastre previo y no persiste", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(0, 0);
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await assert.rejects(
+      syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 0 }),
+      (e: Error & { status?: number }) => e.status === 409,
+    );
+    assert.equal(update.mock.callCount(), 0);
+    findOne.mock.restore();
+  });
+
+  it("no hace nada si la liquidación no está cerrada", async () => {
+    const { settlement, update } = closedSettlementWithPendiente(0, 0);
+    (settlement as { cerrado: boolean }).cerrado = false;
+    const findOne = mock.method(Settlement, "findOne", async () => settlement as never);
+    await syncExtraViaticoComprobadoInSnapshot(tenantId, { id: "ex-1", settlement_id: "settlement-1", monto_comprobado: 500 });
+    assert.equal(update.mock.callCount(), 0);
     findOne.mock.restore();
   });
 

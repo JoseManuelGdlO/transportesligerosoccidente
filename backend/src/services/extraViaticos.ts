@@ -25,3 +25,32 @@ export function applyExtraViaticosToTotals(
     saldo_viaticos: roundMoney(viaticos_comprobados - viaticos_entregados),
   };
 }
+
+export type SnapshotNetoDecision =
+  | { ok: true; neto_pagar: number; pendiente_arrastrado: number }
+  | { ok: false; reason: string };
+
+/**
+ * Decide si un snapshot cerrado puede absorber un nuevo `neto_calculado` sin tocar el
+ * arrastre ya registrado en la cuenta del operador. Si el neto cruza el cero respecto al
+ * pendiente previo (o el monto del pendiente cambiaría), no es seguro editar el snapshot:
+ * hay que reabrir y volver a cerrar la liquidación.
+ */
+export function resolveSnapshotNetoCarryover(
+  pendientePrevio: number,
+  netoCalculado: number,
+): SnapshotNetoDecision {
+  const pendiente = roundMoney(pendientePrevio);
+  const neto = roundMoney(netoCalculado);
+  const reopen = "Reabre la liquidación y vuelve a cerrarla para recalcular el arrastre";
+
+  if (pendiente > 0) {
+    if (neto > 0) return { ok: false, reason: `El neto pasó a positivo con arrastre previo. ${reopen}` };
+    if (roundMoney(-neto) !== pendiente) {
+      return { ok: false, reason: `El monto pendiente cambiaría. ${reopen}` };
+    }
+    return { ok: true, neto_pagar: 0, pendiente_arrastrado: pendiente };
+  }
+  if (neto < 0) return { ok: false, reason: `El neto pasó a negativo y requeriría un arrastre nuevo. ${reopen}` };
+  return { ok: true, neto_pagar: neto, pendiente_arrastrado: 0 };
+}
