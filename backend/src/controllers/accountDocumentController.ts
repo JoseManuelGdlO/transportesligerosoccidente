@@ -19,6 +19,8 @@ const conceptoLineSchema = z.object({
   precio: z.number().min(0),
 });
 
+const categoriaSchema = z.enum(["casetas", "refacciones", "hospedaje", "comidas", "otros"]);
+
 const createSchema = z
   .object({
     tipo: z.enum(["cxc", "cxp"]),
@@ -33,6 +35,8 @@ const createSchema = z
     plazo_credito_dias: z.number().int().nonnegative().optional().nullable(),
     fecha_vencimiento: dateOnly.optional().nullable(),
     monto_original: z.number().positive().optional(),
+    categoria: categoriaSchema.optional().nullable(),
+    unidad: z.string().trim().max(64).optional().nullable(),
   })
   .superRefine((data, ctx) => {
     if (data.conceptos?.length) return;

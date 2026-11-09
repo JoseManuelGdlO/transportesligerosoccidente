@@ -159,7 +159,7 @@ const CATEGORIA_LABEL: Record<string, string> = {
 
 export default function Cuentas() {
   const { hasPermission } = useAuth();
-  const { clients } = useTlo();
+  const { clients, trucks } = useTlo();
   const canView = hasPermission("cuentas.ver");
   const canManage = hasPermission("cuentas.gestionar");
   const [searchParams, setSearchParams] = useSearchParams();
@@ -218,6 +218,8 @@ export default function Cuentas() {
     fecha_emision: new Date().toISOString().slice(0, 10),
     fecha_ingreso_cobranza: new Date().toISOString().slice(0, 10),
     plazo_credito_dias: "" as string,
+    categoria: "" as string,
+    unidad: "" as string,
   });
   const [createConceptos, setCreateConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
   const [editConceptos, setEditConceptos] = useState<DocumentConcepto[]>([emptyConcepto()]);
@@ -394,6 +396,8 @@ export default function Cuentas() {
       fecha_emision: hoy,
       fecha_ingreso_cobranza: hoy,
       plazo_credito_dias: "",
+      categoria: "",
+      unidad: "",
     });
     setCreateConceptos([emptyConcepto()]);
     setCreateOpen(true);
@@ -422,6 +426,8 @@ export default function Cuentas() {
         fecha_emision: form.fecha_emision,
         fecha_ingreso_cobranza: form.fecha_ingreso_cobranza || null,
         plazo_credito_dias: form.plazo_credito_dias === "" ? null : Number(form.plazo_credito_dias),
+        categoria: form.categoria || null,
+        unidad: form.unidad.trim() || null,
       });
       toast.success("Documento registrado");
       setCreateOpen(false);
@@ -1166,6 +1172,52 @@ export default function Cuentas() {
                   value={form.plazo_credito_dias}
                   onChange={(e) => setForm({ ...form, plazo_credito_dias: e.target.value })}
                 />
+              </div>
+              <div>
+                <Label>Categoría</Label>
+                <Select
+                  value={form.categoria || "__none__"}
+                  onValueChange={(v) =>
+                    setForm({ ...form, categoria: v === "__none__" ? "" : v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Opcional" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {Object.entries(CATEGORIA_LABEL).map(([value, label]) => (
+                      <SelectItem key={value} value={value}>
+                        {label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+              <div>
+                <Label>Unidad</Label>
+                <Select
+                  value={form.unidad || "__none__"}
+                  onValueChange={(v) =>
+                    setForm({ ...form, unidad: v === "__none__" ? "" : v })
+                  }
+                >
+                  <SelectTrigger>
+                    <SelectValue placeholder="Opcional" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="__none__">—</SelectItem>
+                    {[...trucks]
+                      .map((t) => t.numero_economico?.trim())
+                      .filter((n): n is string => Boolean(n))
+                      .sort((a, b) => a.localeCompare(b, "es"))
+                      .map((n) => (
+                        <SelectItem key={n} value={n}>
+                          {n}
+                        </SelectItem>
+                      ))}
+                  </SelectContent>
+                </Select>
               </div>
             </div>
             <ConceptosEditor value={createConceptos} onChange={setCreateConceptos} />

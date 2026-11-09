@@ -947,6 +947,29 @@ describe("CXP sin proveedor de catálogo", () => {
     assert.equal(dto, null);
     assert.equal(created.length, 0);
   });
+
+  it("CXP de gasto guarda unidad del viaje aunque no genere CXC", async () => {
+    const created = mockCreate();
+    mock.method(Trip, "findOne", async () => ({ id: "trip-2", client_id: "cli-1", truck_id: "trk-2" }));
+    mock.method(Truck, "findByPk", async () => ({ numero_economico: "TLO-22" }));
+    const dto = await upsertFromExpense({
+      id: "exp-cxp-unidad",
+      tenant_id: "t1",
+      trip_id: "trip-2",
+      tipo: "gasto",
+      categoria: "hospedaje",
+      descripcion: "Hotel",
+      monto: "500",
+      fecha: new Date("2026-04-06T12:00:00Z"),
+      supplier_id: null,
+      pagado: false,
+      genera_cxc: false,
+    } as Expense);
+    assert.equal(dto?.tipo, "cxp");
+    assert.equal(created[0]?.tipo, "cxp");
+    assert.equal(created[0]?.categoria, "hospedaje");
+    assert.equal(created[0]?.unidad, "TLO-22");
+  });
 });
 
 const PPD_XML = `<?xml version="1.0"?>

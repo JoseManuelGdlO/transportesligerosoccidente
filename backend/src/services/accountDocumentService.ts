@@ -1528,11 +1528,10 @@ export async function upsertFromExpense(
   const emision = localDateStr(new Date(expense.fecha));
   const concepto = `${expense.categoria}: ${expense.descripcion}`.slice(0, 512);
 
-  let unidad: string | null = null;
+  const ctx = await unidadDelViaje(expense.tenant_id, expense.trip_id);
+  const unidad = ctx.unidad;
   let cxc: AccountDocumentDto | null = null;
   if (expense.genera_cxc) {
-    const ctx = await unidadDelViaje(expense.tenant_id, expense.trip_id);
-    unidad = ctx.unidad;
     if (!ctx.trip?.client_id) throw httpError("El viaje no tiene cliente para la cuenta por cobrar", 400);
     const client = await Client.findOne({
       where: { id: ctx.trip.client_id, tenant_id: expense.tenant_id },
