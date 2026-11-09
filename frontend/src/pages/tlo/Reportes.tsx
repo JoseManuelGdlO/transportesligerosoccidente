@@ -1,10 +1,20 @@
-import { Fragment, useCallback, useEffect, useMemo, useState } from "react";
+import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { fetchFuelSummary, fetchMaintenanceReports, fetchReportsOverview } from "@/lib/tloApi";
-import { exportCsv, exportCsvSections } from "@/lib/exportCsv";
+import { downloadWorkbook } from "@/lib/exportXlsx";
 import { fmtMXN, fmtNumber, fmtPct, fmtDate, isoDay, startOfWeek, endOfWeek } from "@/lib/format";
+import {
+  buildReportDownload,
+  buildRouteBreakdownDownload,
+  routeKey,
+  sortRouteTrips,
+  tripUtilidadPorKm,
+  type ReportDownload,
+  type ReportTab,
+  type RouteTripSort,
+} from "@/lib/reportesWorkbook";
 import type {
   ExpenseCategory,
   FuelSummaryRow,
@@ -58,19 +68,6 @@ import {
 import { toast } from "sonner";
 
 type DateRange = { desde: string; hasta: string };
-type ReportTab =
-  | "resumen"
-  | "viajes"
-  | "negativos"
-  | "camion"
-  | "mensual"
-  | "operador"
-  | "cliente"
-  | "rutas"
-  | "gastos"
-  | "combustible"
-  | "mantenimientos";
-type RouteTripSort = "margen" | "utilidad" | "utilidad_km";
 
 const MAINTENANCE_TIPO_LABEL: Record<MaintenanceType, string> = {
   preventivo: "Preventivo",
@@ -79,23 +76,6 @@ const MAINTENANCE_TIPO_LABEL: Record<MaintenanceType, string> = {
   mayor: "Mayor",
   correctivo: "Correctivo",
 };
-
-function routeKey(row: { ruta: string; origen: string; destino: string }): string {
-  return row.ruta || `${row.origen} → ${row.destino}`;
-}
-
-function tripUtilidadPorKm(t: ReportsTripRow): number {
-  return t.km > 0 ? t.utilidad / t.km : 0;
-}
-
-function sortRouteTrips(trips: ReportsTripRow[], criterion: RouteTripSort): ReportsTripRow[] {
-  const score = (t: ReportsTripRow) => {
-    if (criterion === "utilidad") return t.utilidad;
-    if (criterion === "utilidad_km") return tripUtilidadPorKm(t);
-    return t.margen;
-  };
-  return [...trips].sort((a, b) => score(b) - score(a) || a.folio.localeCompare(b.folio));
-}
 
 const EXPENSE_LABELS: Record<ExpenseCategory, string> = {
   casetas: "Casetas",
@@ -153,27 +133,6 @@ function previousWeek(): DateRange {
   prev.setDate(prev.getDate() - 7);
   return { desde: isoDay(startOfWeek(prev)), hasta: isoDay(endOfWeek(prev)) };
 }
-
-const VIAJES_CSV_COLUMNS: { key: keyof ReportsTripRow | string; label: string }[] = [
-  { key: "folio", label: "Folio" },
-  { key: "fecha_ref", label: "Fecha" },
-  { key: "fecha_salida", label: "Fecha salida" },
-  { key: "fecha_llegada", label: "Fecha llegada" },
-  { key: "ruta", label: "Ruta" },
-  { key: "origen", label: "Origen" },
-  { key: "destino", label: "Destino" },
-  { key: "razon_social", label: "Cliente" },
-  { key: "operador", label: "Operador" },
-  { key: "numero_economico", label: "Unidad" },
-  { key: "ingreso", label: "Ingreso" },
-  { key: "diesel_total", label: "Diesel" },
-  { key: "gastos_total", label: "Gastos" },
-  { key: "comision", label: "Comisión" },
-  { key: "costo_total", label: "Costo total" },
-  { key: "utilidad", label: "Utilidad" },
-  { key: "margen", label: "Margen %" },
-  { key: "km", label: "Km" },
-];
 
 function formatIsoDateEs(iso: string): string {
   const [y, m, d] = iso.split("-");
@@ -239,6 +198,7 @@ export default function Reportes() {
   const [fuelLoading, setFuelLoading] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [exporting, setExporting] = useState(false);
   const [activeTab, setActiveTab] = useState<ReportTab>("resumen");
   const [expandedRuta, setExpandedRuta] = useState<string | null>(null);
   const [expandedFuelTruck, setExpandedFuelTruck] = useState<string | null>(null);
@@ -317,333 +277,37 @@ export default function Reportes() {
     void loadMaintenance(range);
   }, [apiMode, hasPermission, range, activeTab, loadMaintenance]);
 
+  const exportingRef = useRef(false);
+  const runDownload = async (built: ReportDownload) => {
+    if ("error" in built) {
+      toast.error(built.error);
+      return;
+    }
+    if (exportingRef.current) return;
+    exportingRef.current = true;
+    setExporting(true);
+    try {
+      await downloadWorkbook(built.filename, built.sheets);
+      toast.success("Exportado a Excel");
+    } catch (downloadError) {
+      toast.error(downloadError instanceof Error ? downloadError.message : "No se pudo exportar el Excel");
+    } finally {
+      exportingRef.current = false;
+      setExporting(false);
+    }
+  };
+
   const handleExport = () => {
-    const filename = `reportes_${range.desde}_${range.hasta}`;
-
-    if (activeTab === "mantenimientos") {
-      if (!maintenanceSummary) {
-        toast.error("No hay datos para exportar");
-        return;
-      }
-      const periodLabel = `${formatIsoDateEs(range.desde)} – ${formatIsoDateEs(range.hasta)}`;
-      exportCsvSections(
-        [
-          {
-            title: "KPIs mantenimiento",
-            lines: [
-              `Periodo,${periodLabel}`,
-              `Registros,${maintenanceSummary.totales.registros}`,
-              `Costo total,${maintenanceSummary.totales.costo}`,
-              `Unidades,${maintenanceSummary.by_truck.length}`,
-              `Proveedores,${maintenanceSummary.by_supplier.length}`,
-            ],
-          },
-          {
-            title: "Por unidad",
-            lines: [
-              "Unidad,Placas,Registros,Costo",
-              ...maintenanceSummary.by_truck.map(
-                (r) => `${r.numero_economico},${r.placas},${r.registros},${r.costo}`,
-              ),
-            ],
-          },
-          {
-            title: "Por proveedor",
-            lines: [
-              "Proveedor,Visitas,Costo",
-              ...maintenanceSummary.by_supplier.map(
-                (r) => `"${r.nombre.replace(/"/g, '""')}",${r.registros},${r.costo}`,
-              ),
-            ],
-          },
-          {
-            title: "Timeline",
-            lines: [
-              "Fecha,Unidad,Proveedor,Tipo,Km,Costo,Descripcion",
-              ...maintenanceSummary.timeline.map(
-                (r) =>
-                  `${r.fecha},${r.numero_economico},"${r.proveedor.replace(/"/g, '""')}",${MAINTENANCE_TIPO_LABEL[r.tipo]},${r.km_odometro},${r.costo},"${r.descripcion.replace(/"/g, '""')}"`,
-              ),
-            ],
-          },
-        ],
-        filename,
-      );
-      toast.success("Exportado a CSV");
-      return;
-    }
-
-    if (!overview) {
-      toast.error("No hay datos para exportar");
-      return;
-    }
-    const { totales, variacion } = overview;
-    const periodLabel = `${formatIsoDateEs(range.desde)} – ${formatIsoDateEs(range.hasta)}`;
-    const kpiLines = [
-      `Periodo,${periodLabel}`,
-      `Viajes,${totales.viajes}`,
-      `Ingresos,${totales.ingreso}`,
-      `Costos,${totales.costo_total}`,
-      `Utilidad,${totales.utilidad}`,
-      `Utilidad/km,${totales.utilidad_por_km}`,
-      `Gasto mantenimiento,${totales.gasto_mantenimiento}`,
-      `Costo mnto/km,${totales.costo_mnto_por_km}`,
-      `Utilidad post-operación,${totales.utilidad_despues_operacion}`,
-      `Margen %,${totales.margen.toFixed(2)}`,
-      `Km,${totales.km}`,
-      `Viajes negativos,${totales.viajes_negativos}`,
-    ];
-    if (variacion) {
-      kpiLines.push(
-        `Var ingreso %,${variacion.ingreso_pct ?? ""}`,
-        `Var utilidad %,${variacion.utilidad_pct ?? ""}`,
-        `Var margen %,${variacion.margen_pct ?? ""}`,
-      );
-    }
-
-    if (activeTab === "viajes") {
-      const rows = overview.by_trip ?? [];
-      const { totales, cost_breakdown } = overview;
-      const totalsRow: ReportsTripRow = {
-        trip_id: "",
-        folio: "TOTALES",
-        fecha_salida: "",
-        fecha_llegada: null,
-        fecha_ref: "",
-        origen: "",
-        destino: "",
-        ruta: "",
-        razon_social: null,
-        operador: "",
-        numero_economico: String(totales.viajes),
-        ingreso: totales.ingreso,
-        diesel_total: totales.diesel_total,
-        gastos_total: cost_breakdown.gastos,
-        comision: totales.comision_total,
-        costo_total: totales.costo_total,
-        utilidad: totales.utilidad,
-        margen: totales.margen,
-        km: totales.km,
-      };
-      exportCsv(`viajes_${range.desde}_${range.hasta}`, VIAJES_CSV_COLUMNS, [...rows, totalsRow]);
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "negativos") {
-      exportCsv(filename, [
-        { key: "folio", label: "Folio" },
-        { key: "fecha_salida", label: "Fecha salida" },
-        { key: "ruta", label: "Ruta" },
-        { key: "origen", label: "Origen" },
-        { key: "destino", label: "Destino" },
-        { key: "razon_social", label: "Cliente" },
-        { key: "operador", label: "Operador" },
-        { key: "numero_economico", label: "Unidad" },
-        { key: "ingreso", label: "Ingreso" },
-        { key: "costo_total", label: "Costo" },
-        { key: "utilidad", label: "Utilidad" },
-        { key: "margen", label: "Margen %" },
-        { key: "km", label: "Km" },
-      ], overview.negative_trips ?? []);
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "camion") {
-      exportCsv(filename, [
-        { key: "numero_economico", label: "No. económico" },
-        { key: "marca", label: "Marca" },
-        { key: "viajes", label: "Viajes" },
-        { key: "km", label: "Km" },
-        { key: "ingreso", label: "Ingreso" },
-        { key: "diesel_total", label: "Diesel" },
-        { key: "utilidad", label: "Utilidad" },
-        { key: "utilidad_por_km", label: "Utilidad/km" },
-        { key: "gasto_mantenimiento", label: "Gasto mnto" },
-        { key: "costo_mnto_por_km", label: "Costo mnto/km" },
-        { key: "utilidad_despues_operacion", label: "Utilidad post-op" },
-        { key: "margen", label: "Margen %" },
-        { key: "costo_por_km", label: "Costo/km" },
-        { key: "ingreso_por_km", label: "Ingreso/km" },
-      ], overview.by_truck.filter((r) => r.viajes > 0 || r.gasto_mantenimiento > 0));
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "mensual") {
-      exportCsvSections(
-        [
-          {
-            title: "Por mes",
-            lines: [
-              "Mes,Viajes,Km,Facturación,Utilidad,Gasto mnto,Utilidad post-op,Utilidad/km,Costo mnto/km",
-              ...(overview.by_month ?? []).map(
-                (r) =>
-                  `${r.mes},${r.viajes},${r.km},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion},${r.utilidad_por_km},${r.costo_mnto_por_km}`,
-              ),
-            ],
-          },
-          {
-            title: "Por unidad y mes",
-            lines: [
-              "Mes,No. económico,Viajes,Km,Facturación,Utilidad,Gasto mnto,Utilidad post-op,Utilidad/km,Costo mnto/km",
-              ...(overview.by_month_truck ?? []).map(
-                (r) =>
-                  `${r.mes},${r.numero_economico},${r.viajes},${r.km},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion},${r.utilidad_por_km},${r.costo_mnto_por_km}`,
-              ),
-            ],
-          },
-        ],
-        filename,
-      );
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "operador") {
-      exportCsv(filename, [
-        { key: "nombre", label: "Operador" },
-        { key: "viajes", label: "Viajes" },
-        { key: "km", label: "Km" },
-        { key: "ingreso", label: "Ingreso" },
-        { key: "comision", label: "Comisiones" },
-        { key: "utilidad", label: "Utilidad" },
-        { key: "margen", label: "Margen %" },
-      ], overview.by_driver.filter((r) => r.viajes > 0));
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "cliente") {
-      exportCsv(filename, [
-        { key: "razon_social", label: "Cliente" },
-        { key: "viajes", label: "Viajes" },
-        { key: "km", label: "Km" },
-        { key: "ingreso", label: "Ingreso" },
-        { key: "utilidad", label: "Utilidad" },
-        { key: "margen", label: "Margen %" },
-      ], overview.by_client.filter((r) => r.viajes > 0));
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "rutas") {
-      exportCsv(filename, [
-        { key: "ruta", label: "Ruta" },
-        { key: "origen", label: "Origen" },
-        { key: "destino", label: "Destino" },
-        { key: "viajes", label: "Viajes" },
-        { key: "km", label: "Km" },
-        { key: "ingreso", label: "Ingreso" },
-        { key: "utilidad", label: "Utilidad" },
-        { key: "margen", label: "Margen %" },
-      ], overview.by_route);
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "gastos") {
-      exportCsv(filename, [
-        { key: "categoria", label: "Categoría", format: (v) => EXPENSE_LABELS[v as ExpenseCategory] ?? String(v) },
-        { key: "monto", label: "Monto" },
-        { key: "pct", label: "% del total" },
-      ], overview.by_expense_category.filter((r) => r.monto > 0));
-      toast.success("Exportado a CSV");
-      return;
-    }
-    if (activeTab === "combustible") {
-      const csvRows = fuelSummary
-        .filter((r) => r.viajes > 0 || r.litros > 0)
-        .flatMap((r) => {
-          const base = {
-            numero_economico: r.numero_economico,
-            placas: r.placas,
-            viajes: r.viajes,
-            km_recorridos: r.km_recorridos,
-            litros: r.litros,
-            rendimiento: r.rendimiento,
-            litros_local: r.litros_local,
-            rendimiento_local: r.rendimiento_local,
-            litros_foraneo: r.litros_foraneo,
-            rendimiento_foraneo: r.rendimiento_foraneo,
-          };
-          const cargas = r.cargas ?? [];
-          if (cargas.length === 0) {
-            return [{
-              ...base,
-              folio: "",
-              fecha: "",
-              ubicacion: "",
-              tipo: "",
-              litros_carga: "",
-              km_carga: "",
-              rendimiento_carga: "",
-            }];
-          }
-          return cargas.map((c) => ({
-            ...base,
-            folio: c.folio ?? "",
-            fecha: c.fecha,
-            ubicacion: c.ubicacion,
-            tipo: c.tipo === "foraneo" ? "Foráneo" : "Local",
-            litros_carga: c.litros,
-            km_carga: c.km,
-            rendimiento_carga: c.rendimiento,
-          }));
-        });
-      exportCsv(filename, [
-        { key: "numero_economico", label: "Unidad" },
-        { key: "placas", label: "Placas" },
-        { key: "viajes", label: "Viajes" },
-        { key: "km_recorridos", label: "Km" },
-        { key: "litros", label: "Litros total" },
-        { key: "rendimiento", label: "Rendimiento total km/L" },
-        { key: "litros_local", label: "Litros local" },
-        { key: "rendimiento_local", label: "Rendimiento local km/L" },
-        { key: "litros_foraneo", label: "Litros foráneo" },
-        { key: "rendimiento_foraneo", label: "Rendimiento foráneo km/L" },
-        { key: "folio", label: "Folio carga" },
-        { key: "fecha", label: "Fecha carga" },
-        { key: "ubicacion", label: "Ubicación" },
-        { key: "tipo", label: "Tipo" },
-        { key: "litros_carga", label: "Litros carga" },
-        { key: "km_carga", label: "Km carga" },
-        { key: "rendimiento_carga", label: "Rendimiento carga km/L" },
-      ], csvRows);
-      toast.success("Exportado a CSV");
-      return;
-    }
-
-    exportCsvSections(
-      [
-        { title: "KPIs", lines: kpiLines },
-        {
-          title: "Por tipo de viaje",
-          lines: [
-            "Tipo,Viajes,Ingreso,Utilidad,Margen %,Km",
-            ...overview.by_tipo_viaje.map(
-              (r) => `${r.tipo_viaje},${r.viajes},${r.ingreso},${r.utilidad},${r.margen.toFixed(2)},${r.km}`,
-            ),
-          ],
-        },
-        {
-          title: "Desglose de costos",
-          lines: [
-            "Concepto,Monto",
-            `Diesel,${overview.cost_breakdown.diesel}`,
-            `Comisiones,${overview.cost_breakdown.comisiones}`,
-            `Gastos,${overview.cost_breakdown.gastos}`,
-            `Mantenimiento,${overview.totales.gasto_mantenimiento}`,
-          ],
-        },
-        {
-          title: "Por mes",
-          lines: [
-            "Mes,Facturación,Utilidad,Gasto mnto,Utilidad post-op",
-            ...(overview.by_month ?? []).map(
-              (r) =>
-                `${r.mes},${r.ingreso},${r.utilidad},${r.gasto_mantenimiento},${r.utilidad_despues_operacion}`,
-            ),
-          ],
-        },
-      ],
-      filename,
+    void runDownload(
+      buildReportDownload({
+        tab: activeTab,
+        range,
+        criterio: criterioFecha,
+        overview,
+        maintenance: maintenanceSummary,
+        fuel: fuelSummary,
+      }),
     );
-    toast.success("Exportado a CSV");
   };
 
   const handleExportRutasDesglose = () => {
@@ -651,67 +315,7 @@ export default function Reportes() {
       toast.error("No hay datos para exportar");
       return;
     }
-    const rows: {
-      ruta: string;
-      origen: string;
-      destino: string;
-      folio: string;
-      fecha: string;
-      cliente: string;
-      operador: string;
-      unidad: string;
-      ingreso: number;
-      diesel: number;
-      gastos: number;
-      comision: number;
-      utilidad: number;
-      margen: number;
-      km: number;
-      utilidad_km: number | "";
-    }[] = [];
-    for (const r of overview.by_route) {
-      const key = routeKey(r);
-      const trips = sortRouteTrips(tripsByRuta.get(key) ?? [], routeTripSort);
-      for (const t of trips) {
-        rows.push({
-          ruta: key,
-          origen: r.origen || t.origen,
-          destino: r.destino || t.destino,
-          folio: t.folio,
-          fecha: t.fecha_ref,
-          cliente: t.razon_social ?? "",
-          operador: t.operador,
-          unidad: t.numero_economico,
-          ingreso: t.ingreso,
-          diesel: t.diesel_total,
-          gastos: t.gastos_total,
-          comision: t.comision,
-          utilidad: t.utilidad,
-          margen: t.margen,
-          km: t.km,
-          utilidad_km: t.km > 0 ? tripUtilidadPorKm(t) : "",
-        });
-      }
-    }
-    exportCsv(`rutas_desglose_${range.desde}_${range.hasta}`, [
-      { key: "ruta", label: "Ruta" },
-      { key: "origen", label: "Origen" },
-      { key: "destino", label: "Destino" },
-      { key: "folio", label: "Folio" },
-      { key: "fecha", label: "Fecha" },
-      { key: "cliente", label: "Cliente" },
-      { key: "operador", label: "Operador" },
-      { key: "unidad", label: "Unidad" },
-      { key: "ingreso", label: "Ingreso" },
-      { key: "diesel", label: "Diesel" },
-      { key: "gastos", label: "Gastos" },
-      { key: "comision", label: "Comisión" },
-      { key: "utilidad", label: "Utilidad" },
-      { key: "margen", label: "Margen %" },
-      { key: "km", label: "Km" },
-      { key: "utilidad_km", label: "Utilidad/km" },
-    ], rows);
-    toast.success("Exportado a CSV");
+    void runDownload(buildRouteBreakdownDownload(range, overview, routeTripSort));
   };
 
   if (!hasPermission("reportes.ver")) {
@@ -801,12 +405,15 @@ export default function Reportes() {
               variant="outline"
               onClick={handleExport}
               disabled={
-                activeTab === "mantenimientos"
+                exporting ||
+                (activeTab === "mantenimientos"
                   ? !maintenanceSummary || maintenanceLoading
-                  : !overview || loading
+                  : activeTab === "combustible"
+                    ? !overview || loading || fuelLoading
+                    : !overview || loading)
               }
             >
-              <Download className="h-4 w-4 mr-2" /> Exportar CSV
+              <Download className="h-4 w-4 mr-2" /> {exporting ? "Exportando…" : "Exportar Excel"}
             </Button>
           </div>
         </CardContent>
@@ -1410,10 +1017,10 @@ export default function Reportes() {
                 size="sm"
                 className="h-8 text-xs gap-1.5"
                 onClick={handleExportRutasDesglose}
-                disabled={!overview || loading}
+                disabled={!overview || loading || exporting}
               >
                 <Download className="h-3.5 w-3.5" />
-                CSV desglosado
+                {exporting ? "Exportando…" : "Excel desglosado"}
               </Button>
             </div>
           </div>
