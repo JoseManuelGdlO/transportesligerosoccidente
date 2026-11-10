@@ -55,8 +55,9 @@ export function groupCatalogUbicaciones(rows: ClientUbicacion[]) {
     .map(([key, list]) => {
       const cp = (list[0].cp ?? "").trim() || "SIN CP";
       const client = (list[0].client_razon_social || list[0].razon_social || "SIN CLIENTE").trim().toUpperCase();
-      const bases = [...new Set(list.map((row) => calleBase(row.calle, row.numero_exterior)).filter(Boolean))];
-      const header = bases.length === 1 ? `${bases[0].toUpperCase()} ${cp} - ${client}` : `${cp} - ${client}`;
+      const bases = list.map((row) => calleBase(row.calle, row.numero_exterior));
+      const shared = bases.every((base) => base && base === bases[0]) ? bases[0] : "";
+      const header = shared ? `${shared.toUpperCase()} ${cp} - ${client}` : `${cp} - ${client}`;
       const items = list
         .map((row) => ({ id: row.id, label: sublocationLabel(row) }))
         .sort((a, b) => a.label.localeCompare(b.label, "es"));

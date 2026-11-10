@@ -40,6 +40,35 @@ describe("selector de ubicaciones", () => {
     ]);
   });
 
+  it("no muestra calle en el encabezado si alguna fila no tiene calle", () => {
+    const groups = groupCatalogUbicaciones([
+      u({ id: "1", nombre: "JALISCO", calle: "AV. JALISCO", numero_exterior: "10" }),
+      u({ id: "2", nombre: "SIN CALLE" }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].header).toBe("47829 - CLIENTE ACEROS HH");
+  });
+
+  it("excluye el número final de la calle compartida", () => {
+    const groups = groupCatalogUbicaciones([u({ id: "1", nombre: "LOMAS", calle: "LAS LOMAS 1395", numero_exterior: "" })]);
+    expect(groups[0].header).toBe("LAS LOMAS 47829 - CLIENTE ACEROS HH");
+  });
+
+  it("no reescribe una letra C suelta como CALLE", () => {
+    const groups = groupCatalogUbicaciones([u({ id: "1", nombre: "LOTE", calle: "LOTE 19 C", numero_exterior: "" })]);
+    expect(groups[0].header).toContain("LOTE 19 C");
+    expect(groups[0].header).not.toContain("CALLE");
+  });
+
+  it("unifica BLVD y BULEVAR en un solo grupo", () => {
+    const groups = groupCatalogUbicaciones([
+      u({ id: "1", nombre: "HIDALGO", calle: "BLVD. HIDALGO", numero_exterior: "10" }),
+      u({ id: "2", nombre: "HIDALGO", calle: "BULEVAR HIDALGO", numero_exterior: "10" }),
+    ]);
+    expect(groups).toHaveLength(1);
+    expect(groups[0].header.startsWith("BOULEVARD HIDALGO")).toBe(true);
+  });
+
   it("agrega la localidad a la sububicación", () => {
     expect(
       sublocationLabel({
