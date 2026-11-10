@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { Client, ClientUbicacion } from "../models";
-import { identityChanged, matchActiveUbicacion } from "../services/clientUbicacionCatalog";
+import { identityChanged, matchActiveUbicacion, widenTipo } from "../services/clientUbicacionCatalog";
 import { asyncHandler } from "../utils/asyncHandler";
 import { clientUbicacionToJson } from "../utils/serialize";
 
@@ -91,12 +91,24 @@ export const createClientUbicacion = asyncHandler(async (req: Request, res: Resp
     return;
   }
   if (match && "match" in match) {
-    const current = await ClientUbicacion.findByPk(match.match.id!);
-    if (current && Object.keys(match.patch).length > 0) {
-      await current.update(match.patch as never);
+    const current = match.match.id
+      ? await ClientUbicacion.findOne({
+          where: { id: match.match.id, tenant_id: tid(req), client_id: client.id },
+        })
+      : null;
+    if (current) {
+      const patch: Record<string, unknown> = { ...match.patch };
+      // `tipo` no se rellena: solo se ensancha (Origen + Destino → Ambos), nunca se estrecha.
+      if (data.tipo !== undefined) {
+        const widened = widenTipo(current.tipo, data.tipo);
+        if (widened !== current.tipo) patch.tipo = widened;
+      }
+      if (Object.keys(patch).length > 0) {
+        await current.update(patch as never);
+      }
+      res.status(200).json({ ...clientUbicacionToJson(current), reused: true });
+      return;
     }
-    res.status(200).json({ ...clientUbicacionToJson(current!), reused: true });
-    return;
   }
   const row = await ClientUbicacion.create({
     id: randomUUID(),

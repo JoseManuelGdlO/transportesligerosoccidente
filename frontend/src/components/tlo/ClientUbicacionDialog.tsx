@@ -31,7 +31,8 @@ type ClientUbicacionDialogProps = {
   clientId: string;
   initialValues?: Partial<Omit<ClientUbicacion, "id" | "client_id">>;
   editingId?: string | null;
-  onSaved: (ubicacion: ClientUbicacion) => void;
+  /** `reused` es true cuando el servidor devolvió una ubicación que ya existía. */
+  onSaved: (ubicacion: ClientUbicacion, reused: boolean) => void;
 };
 
 export function ClientUbicacionDialog({
@@ -91,7 +92,7 @@ export function ClientUbicacionDialog({
         editingId ? "Ubicación actualizada" : reused ? "Se usó la ubicación que ya existía" : "Ubicación registrada",
       );
       handleOpenChange(false);
-      onSaved(ubicacion);
+      onSaved(ubicacion, reused);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al guardar ubicación");
     } finally {

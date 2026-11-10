@@ -15,9 +15,37 @@ function identityValue(value: string | null | undefined): string {
   return (value ?? "").trim();
 }
 
-/** True when a domicilio field differs after trim. Null and "" are the same; no case-fold. */
+/** `calle` se guarda con trim + mayúsculas (ver el controller); se compara igual. */
+function identityComparable(field: (typeof IDENTITY_FIELDS)[number], row: UbicacionIdentityRow): string {
+  const value = identityValue(row[field]);
+  return field === "calle" ? value.toUpperCase() : value;
+}
+
+/**
+ * True when a domicilio field differs after trim. Null and "" are the same.
+ * `calle` ignora mayúsculas/minúsculas; el resto de campos solo recorta.
+ */
 export function identityChanged(before: UbicacionIdentityRow, after: UbicacionIdentityRow): boolean {
-  return IDENTITY_FIELDS.some((field) => identityValue(before[field]) !== identityValue(after[field]));
+  return IDENTITY_FIELDS.some((field) => identityComparable(field, before) !== identityComparable(field, after));
+}
+
+export type UbicacionTipo = "Origen" | "Destino" | "Ambos";
+
+/**
+ * Al reutilizar una ubicación el tipo solo se ensancha, nunca se estrecha:
+ * Origen + Destino (en cualquier orden) → Ambos; si un lado ya es Ambos, queda Ambos.
+ */
+export function widenTipo(
+  existing: string | null | undefined,
+  incoming: string | null | undefined,
+): UbicacionTipo {
+  const a = existing?.trim();
+  const b = incoming?.trim();
+  if (!a && !b) return "Ambos";
+  if (!a) return b as UbicacionTipo;
+  if (!b) return a as UbicacionTipo;
+  if (a === b) return a as UbicacionTipo;
+  return "Ambos";
 }
 
 export async function matchActiveUbicacion(

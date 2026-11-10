@@ -14,6 +14,7 @@ export type UbicacionIdentityRow = {
   id?: string;
   client_id: string;
   nombre?: string | null;
+  tipo?: string | null;
   rfc?: string | null;
   razon_social?: string | null;
   calle?: string | null;

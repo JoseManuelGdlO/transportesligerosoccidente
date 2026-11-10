@@ -581,6 +581,7 @@ export function TripCartaPorte({
     fecha_hora: destino?.fecha_hora?.slice(0, 16) || defaultFechaSalida,
   });
   const [catalogUbicaciones, setCatalogUbicaciones] = useState<ClientUbicacion[]>([]);
+  const skipCatalogEnrichRef = useRef(false);
   const [ubicDialogOpen, setUbicDialogOpen] = useState(false);
   const [ubicDialogTipo, setUbicDialogTipo] = useState<"origen" | "destino">("origen");
   const [ubicDialogInitialValues, setUbicDialogInitialValues] = useState<
@@ -813,6 +814,10 @@ export function TripCartaPorte({
   }, []);
 
   useEffect(() => {
+    if (skipCatalogEnrichRef.current) {
+      skipCatalogEnrichRef.current = false;
+      return;
+    }
     if (!catalogUbicaciones.length) return;
     const enrichFromCatalog = (
       prev: typeof origenForm,
@@ -1029,8 +1034,20 @@ export function TripCartaPorte({
     setUbicDialogOpen(true);
   };
 
-  const onUbicacionCatalogSaved = async (ubicacion: ClientUbicacion) => {
+  const onUbicacionCatalogSaved = async (ubicacion: ClientUbicacion, reused = false) => {
     const refreshed = await fetchTenantUbicaciones();
+    if (reused) {
+      // La fila ya existía: se enlaza el id pero se conserva lo que el usuario escribió.
+      // El efecto de enriquecimiento pisaría esos campos con el catálogo, así que se omite una vez.
+      skipCatalogEnrichRef.current = true;
+      setCatalogUbicaciones(refreshed);
+      const link = (prev: typeof origenForm) => ({ ...prev, client_ubicacion_id: ubicacion.id });
+      if (ubicDialogTipo === "origen") setOrigenForm(link);
+      else setDestinoForm(link);
+      // El autoguardado usa el formulario ya enlazado (el cierre actual aún no lo ve).
+      schedulePersistUbicaciones();
+      return;
+    }
     setCatalogUbicaciones(refreshed);
     applyCatalogUbicacion(ubicDialogTipo, ubicacion.id, refreshed);
     await flushPendingSaves();
@@ -2280,7 +2297,7 @@ export function TripCartaPorte({
           onOpenChange={setUbicDialogOpen}
           clientId={clientId}
           initialValues={ubicDialogInitialValues}
-          onSaved={(ubicacion) => void onUbicacionCatalogSaved(ubicacion)}
+          onSaved={(ubicacion, reused) => void onUbicacionCatalogSaved(ubicacion, reused)}
         />
       ) : null}
 
