@@ -2,7 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { Client, ClientUbicacion } from "../models";
-import { matchActiveUbicacion } from "../services/clientUbicacionCatalog";
+import { identityChanged, matchActiveUbicacion } from "../services/clientUbicacionCatalog";
 import { asyncHandler } from "../utils/asyncHandler";
 import { clientUbicacionToJson } from "../utils/serialize";
 
@@ -125,15 +125,18 @@ export const updateClientUbicacion = asyncHandler(async (req: Request, res: Resp
     return;
   }
   const data = normalizeUbicacionText(parsed.data);
+  const stored = { ...row.get({ plain: true }), client_id: client.id };
   const next = {
-    ...row.get({ plain: true }),
+    ...stored,
     ...data,
     client_id: client.id,
   };
-  const collision = await matchActiveUbicacion(tid(req), client.id, next, row.id);
-  if (collision && ("match" in collision || "ambiguous" in collision)) {
-    res.status(409).json({ error: "Esa ubicación ya existe" });
-    return;
+  if (identityChanged(stored, next)) {
+    const collision = await matchActiveUbicacion(tid(req), client.id, next, row.id);
+    if (collision && ("match" in collision || "ambiguous" in collision)) {
+      res.status(409).json({ error: "Esa ubicación ya existe" });
+      return;
+    }
   }
   await row.update(data as never);
   res.json(clientUbicacionToJson(row));
