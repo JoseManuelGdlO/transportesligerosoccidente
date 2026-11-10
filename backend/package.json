@@ -12,6 +12,7 @@
     "db:seed:undo": "sequelize-cli db:seed:undo:all",
     "db:import:sat-claves": "tsx scripts/import-sat-claves-productos.ts",
     "db:import:sat-ubicaciones": "tsx scripts/import-sat-ubicaciones.ts",
+    "db:dedupe:ubicaciones": "tsx scripts/dedupe-client-ubicaciones.ts",
     "job:fuel-sync": "tsx src/scripts/runFuelSync.ts",
     "job:reapply-fuel-tanks": "tsx src/scripts/reapplyFuelTanks.ts",
     "lint": "eslint .",

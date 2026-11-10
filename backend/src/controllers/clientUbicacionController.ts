@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { Client, ClientUbicacion } from "../models";
+import { identityChanged, matchActiveUbicacion, widenTipo } from "../services/clientUbicacionCatalog";
 import { asyncHandler } from "../utils/asyncHandler";
 import { clientUbicacionToJson } from "../utils/serialize";
 
@@ -82,6 +83,33 @@ export const createClientUbicacion = asyncHandler(async (req: Request, res: Resp
     return;
   }
   const data = normalizeUbicacionText(parsed.data);
+  const match = await matchActiveUbicacion(tid(req), client.id, { ...data, client_id: client.id });
+  if (match && "ambiguous" in match) {
+    res.status(409).json({
+      error: "Hay varias ubicaciones con esa calle y ese CP. Indica la colonia para no duplicar.",
+    });
+    return;
+  }
+  if (match && "match" in match) {
+    const current = match.match.id
+      ? await ClientUbicacion.findOne({
+          where: { id: match.match.id, tenant_id: tid(req), client_id: client.id },
+        })
+      : null;
+    if (current) {
+      const patch: Record<string, unknown> = { ...match.patch };
+      // `tipo` no se rellena: solo se ensancha (Origen + Destino → Ambos), nunca se estrecha.
+      if (data.tipo !== undefined) {
+        const widened = widenTipo(current.tipo, data.tipo);
+        if (widened !== current.tipo) patch.tipo = widened;
+      }
+      if (Object.keys(patch).length > 0) {
+        await current.update(patch as never);
+      }
+      res.status(200).json({ ...clientUbicacionToJson(current), reused: true });
+      return;
+    }
+  }
   const row = await ClientUbicacion.create({
     id: randomUUID(),
     tenant_id: tid(req),
@@ -108,7 +136,21 @@ export const updateClientUbicacion = asyncHandler(async (req: Request, res: Resp
     res.status(400).json({ error: parsed.error.flatten() });
     return;
   }
-  await row.update(normalizeUbicacionText(parsed.data) as never);
+  const data = normalizeUbicacionText(parsed.data);
+  const stored = { ...row.get({ plain: true }), client_id: client.id };
+  const next = {
+    ...stored,
+    ...data,
+    client_id: client.id,
+  };
+  if (identityChanged(stored, next)) {
+    const collision = await matchActiveUbicacion(tid(req), client.id, next, row.id);
+    if (collision && ("match" in collision || "ambiguous" in collision)) {
+      res.status(409).json({ error: "Esa ubicación ya existe" });
+      return;
+    }
+  }
+  await row.update(data as never);
   res.json(clientUbicacionToJson(row));
 });
 

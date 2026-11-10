@@ -11,6 +11,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Plus, Pencil, Search, Trash2 } from "lucide-react";
 import type { Client, ClientUbicacion } from "@/types/tlo";
+import { sublocationLabel } from "@/lib/groupClientUbicaciones";
 import { deleteClientUbicacion, fetchClientUbicaciones } from "@/lib/tloApi";
 import {
   CLIENT_FORM_DOMICILIO_REQUIRED_TOAST,
@@ -257,6 +258,7 @@ export default function Clientes() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Nombre</TableHead>
+                        <TableHead>Domicilio</TableHead>
                         <TableHead>RFC</TableHead>
                         <TableHead>Razón social</TableHead>
                         <TableHead>Tipo</TableHead>
@@ -268,6 +270,7 @@ export default function Clientes() {
                       {ubicaciones.map((u) => (
                         <TableRow key={u.id}>
                           <TableCell>{u.nombre}</TableCell>
+                          <TableCell>{sublocationLabel(u)}</TableCell>
                           <TableCell className="font-mono text-sm">{u.rfc || "—"}</TableCell>
                           <TableCell>{u.razon_social || "—"}</TableCell>
                           <TableCell>{u.tipo}</TableCell>

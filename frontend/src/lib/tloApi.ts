@@ -1027,13 +1027,16 @@ export async function fetchTenantUbicaciones(): Promise<ClientUbicacion[]> {
 export async function createClientUbicacion(
   clientId: string,
   body: Omit<ClientUbicacion, "id" | "client_id">,
-): Promise<ClientUbicacion> {
+): Promise<{ ubicacion: ClientUbicacion; reused: boolean }> {
   const res = await apiFetch(`/clients/${clientId}/ubicaciones`, {
     method: "POST",
     body: JSON.stringify(body),
   });
   const raw = await readJson<Record<string, unknown>>(res);
-  return normalizeClientUbicacion(raw);
+  return {
+    ubicacion: normalizeClientUbicacion(raw),
+    reused: raw.reused === true,
+  };
 }
 
 export async function updateClientUbicacion(
