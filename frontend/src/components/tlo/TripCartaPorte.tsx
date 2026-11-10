@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { CatalogUbicacionSelect } from "@/components/tlo/CatalogUbicacionSelect";
 import { ClientUbicacionDialog } from "@/components/tlo/ClientUbicacionDialog";
 import { SatUbicacionCombobox } from "@/components/tlo/SatUbicacionCombobox";
 import { Link } from "react-router-dom";
@@ -866,12 +867,6 @@ export function TripCartaPorte({
   const catalogForDestino = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Destino" || u.tipo === "Ambos"),
   );
-
-  const catalogUbicacionLabel = (u: ClientUbicacion) => {
-    const owner = u.razon_social || u.client_razon_social;
-    const label = owner ? `${u.nombre} — ${owner}` : u.nombre;
-    return label.trim().toUpperCase();
-  };
 
   const reloadTrip = async () => {
     const r = await apiFetch(`/trips/${trip.id}`);
@@ -1928,28 +1923,17 @@ export function TripCartaPorte({
             {catalogForOrigen.length > 0 && canFiscalEdit ? (
               <div>
                 <Label>Cargar desde catálogo</Label>
-                <Select
-                  value={origenForm.client_ubicacion_id || "none"}
-                  onValueChange={(v) => {
-                    if (v === "none") {
+                <CatalogUbicacionSelect
+                  rows={catalogForOrigen}
+                  value={origenForm.client_ubicacion_id}
+                  onChange={(id) => {
+                    if (!id) {
                       patchOrigen({ client_ubicacion_id: undefined });
                       return;
                     }
-                    applyCatalogUbicacion("origen", v);
+                    applyCatalogUbicacion("origen", id);
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar ubicación" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Manual</SelectItem>
-                    {catalogForOrigen.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {catalogUbicacionLabel(u)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             ) : null}
             {showSaveOrigenUbic ? (
@@ -2048,28 +2032,17 @@ export function TripCartaPorte({
             {catalogForDestino.length > 0 && canFiscalEdit ? (
               <div>
                 <Label>Cargar desde catálogo</Label>
-                <Select
-                  value={destinoForm.client_ubicacion_id || "none"}
-                  onValueChange={(v) => {
-                    if (v === "none") {
+                <CatalogUbicacionSelect
+                  rows={catalogForDestino}
+                  value={destinoForm.client_ubicacion_id}
+                  onChange={(id) => {
+                    if (!id) {
                       patchDestino({ client_ubicacion_id: undefined });
                       return;
                     }
-                    applyCatalogUbicacion("destino", v);
+                    applyCatalogUbicacion("destino", id);
                   }}
-                >
-                  <SelectTrigger>
-                    <SelectValue placeholder="Seleccionar ubicación" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    <SelectItem value="none">Manual</SelectItem>
-                    {catalogForDestino.map((u) => (
-                      <SelectItem key={u.id} value={u.id}>
-                        {catalogUbicacionLabel(u)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </div>
             ) : null}
             {showSaveDestinoUbic ? (
