@@ -404,7 +404,11 @@ export default function Camiones() {
               </Button>
             </TabsContent>
             <TabsContent value="documentacion" className="pt-4">
-              <DocumentManager kind="truck" entityId={form.id || null} />
+              <DocumentManager
+                kind="truck"
+                entityId={form.id || null}
+                entityLabel={form.numero_economico}
+              />
             </TabsContent>
           </Tabs>
 

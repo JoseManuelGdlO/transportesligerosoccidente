@@ -7,13 +7,16 @@ import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@
 import {
   Dialog,
   DialogContent,
+  DialogDescription,
   DialogFooter,
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
-import { FileUp, Pencil, Trash2, ExternalLink, Loader2 } from "lucide-react";
+import { FileUp, Pencil, Trash2, ExternalLink, Loader2, Download } from "lucide-react";
 import { fmtDate } from "@/lib/format";
+import { downloadDocumentBundle, type BundleMode } from "@/lib/documentBundleDownload";
 import type { CatalogDocument, DocumentCatalogItem, DocumentCatalogStatus } from "@/types/tlo";
 import {
   fetchDriverDocumentsCatalog,
@@ -42,9 +45,22 @@ function statusBadge(status: DocumentCatalogStatus) {
 type Props = {
   kind: "driver" | "truck";
   entityId: string | null;
+  /** Nombre o número económico, para el archivo descargado. */
+  entityLabel?: string;
 };
 
-export function DocumentManager({ kind, entityId }: Props) {
+function documentDetail(doc: CatalogDocument): string {
+  const parts: string[] = [];
+  if (doc.numero?.trim()) parts.push(`No. ${doc.numero.trim()}`);
+  if (doc.vigencia_inicio || doc.vigencia_fin) {
+    const inicio = doc.vigencia_inicio ? fmtDate(doc.vigencia_inicio) : "-";
+    const fin = doc.vigencia_fin ? fmtDate(doc.vigencia_fin) : "-";
+    parts.push(`Vigencia ${inicio} - ${fin}`);
+  }
+  return parts.join(" · ");
+}
+
+export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission("documentos.editar");
   const [items, setItems] = useState<DocumentCatalogItem[]>([]);
@@ -56,6 +72,9 @@ export function DocumentManager({ kind, entityId }: Props) {
   const [vigenciaInicio, setVigenciaInicio] = useState("");
   const [vigenciaFin, setVigenciaFin] = useState("");
   const [notas, setNotas] = useState("");
+  const [downloadOpen, setDownloadOpen] = useState(false);
+  const [downloadMode, setDownloadMode] = useState<BundleMode>("separate");
+  const [downloading, setDownloading] = useState(false);
 
   const load = useCallback(async () => {
     if (!entityId) return;
@@ -163,12 +182,53 @@ export function DocumentManager({ kind, entityId }: Props) {
     }
   };
 
+  const uploaded = items.filter((row) => row.document?.file_url);
+  const subject = kind === "truck" ? "esta unidad" : "este operador";
+
+  const download = async () => {
+    setDownloading(true);
+    try {
+      await downloadDocumentBundle({
+        mode: downloadMode,
+        kind,
+        entityLabel: entityLabel ?? "",
+        files: uploaded.map((row) => ({
+          title: row.document_type.nombre,
+          detail: documentDetail(row.document!),
+          fileUrl: row.document!.file_url,
+          fileName: row.document!.file_name,
+          mime: row.document!.mime,
+        })),
+      });
+      toast.success(
+        downloadMode === "merged"
+          ? "Se descargó el PDF con todos los documentos"
+          : `Se descargaron ${uploaded.length} archivo${uploaded.length === 1 ? "" : "s"}`,
+      );
+      setDownloadOpen(false);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo descargar");
+    } finally {
+      setDownloading(false);
+    }
+  };
+
   if (!entityId) {
-    return <p className="text-sm text-muted-foreground">Sin operador seleccionado.</p>;
+    return (
+      <p className="text-sm text-muted-foreground">
+        {kind === "truck" ? "Sin unidad seleccionada." : "Sin operador seleccionado."}
+      </p>
+    );
   }
 
   return (
     <div className="space-y-3">
+      {uploaded.length > 0 ? (
+        <Button type="button" variant="outline" className="w-full" onClick={() => setDownloadOpen(true)}>
+          <Download className="h-4 w-4 mr-2" />
+          Descargar resumen documentos
+        </Button>
+      ) : null}
       {loading && (
         <div className="flex items-center gap-2 text-sm text-muted-foreground">
           <Loader2 className="h-4 w-4 animate-spin" /> Cargando documentación…
@@ -264,6 +324,59 @@ export function DocumentManager({ kind, entityId }: Props) {
             </Button>
             <Button onClick={() => void save()} className="bg-primary text-primary-foreground">
               Guardar
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog
+        open={downloadOpen}
+        onOpenChange={(open) => {
+          if (downloading) return;
+          setDownloadOpen(open);
+          if (open) setDownloadMode("separate");
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Descargar resumen documentos</DialogTitle>
+            <DialogDescription>
+              {uploaded.length} archivo{uploaded.length === 1 ? "" : "s"} de {subject}
+              {entityLabel?.trim() ? ` (${entityLabel.trim()})` : ""}.
+            </DialogDescription>
+          </DialogHeader>
+          <RadioGroup
+            value={downloadMode}
+            onValueChange={(value) => setDownloadMode(value as BundleMode)}
+            className="gap-3"
+            disabled={downloading}
+          >
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="separate" id="docs-separate" className="mt-1" />
+              <Label htmlFor="docs-separate" className="font-normal leading-snug">
+                Descargar por separado
+                <span className="block text-xs text-muted-foreground">
+                  Un archivo por documento, en su formato original.
+                </span>
+              </Label>
+            </div>
+            <div className="flex items-start gap-2">
+              <RadioGroupItem value="merged" id="docs-merged" className="mt-1" />
+              <Label htmlFor="docs-merged" className="font-normal leading-snug">
+                Descargar en un solo documento
+                <span className="block text-xs text-muted-foreground">
+                  Une los PDF y las imágenes en un único PDF.
+                </span>
+              </Label>
+            </div>
+          </RadioGroup>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setDownloadOpen(false)} disabled={downloading}>
+              Cancelar
+            </Button>
+            <Button onClick={() => void download()} disabled={downloading} className="bg-primary text-primary-foreground">
+              {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
+              Descargar
             </Button>
           </DialogFooter>
         </DialogContent>

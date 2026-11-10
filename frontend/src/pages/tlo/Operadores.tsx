@@ -732,7 +732,7 @@ export default function Operadores() {
               </Button>
             </TabsContent>
             <TabsContent value="documentacion" className="pt-4">
-              <DocumentManager kind="driver" entityId={form.id || null} />
+              <DocumentManager kind="driver" entityId={form.id || null} entityLabel={form.nombre} />
             </TabsContent>
             {canViewAccount ? (
               <TabsContent value="cuenta" className="pt-0">
