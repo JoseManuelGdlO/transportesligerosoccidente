@@ -84,10 +84,12 @@ export function ClientUbicacionDialog({
     }
     setSaving(true);
     try {
-      const ubicacion = editingId
-        ? await updateClientUbicacion(clientId, editingId, form)
+      const { ubicacion, reused } = editingId
+        ? { ubicacion: await updateClientUbicacion(clientId, editingId, form), reused: false }
         : await createClientUbicacion(clientId, form);
-      toast.success(editingId ? "Ubicación actualizada" : "Ubicación registrada");
+      toast.success(
+        editingId ? "Ubicación actualizada" : reused ? "Se usó la ubicación que ya existía" : "Ubicación registrada",
+      );
       handleOpenChange(false);
       onSaved(ubicacion);
     } catch (e) {
