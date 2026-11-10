@@ -188,7 +188,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   const download = async () => {
     setDownloading(true);
     try {
-      await downloadDocumentBundle({
+      const result = await downloadDocumentBundle({
         mode: downloadMode,
         kind,
         entityLabel: entityLabel ?? "",
@@ -200,10 +200,25 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
           mime: row.document!.mime,
         })),
       });
+      if (result.downloaded === 0) {
+        toast.error(
+          result.missing.length === 1
+            ? `No se encontró "${result.missing[0]}"`
+            : `No se encontraron los documentos: ${result.missing.join(", ")}`,
+        );
+        return;
+      }
+      if (result.missing.length > 0) {
+        toast.warning(
+          result.missing.length === 1
+            ? `No se encontró "${result.missing[0]}". Se descargó el resto.`
+            : `No se encontraron: ${result.missing.join(", ")}. Se descargó el resto.`,
+        );
+      }
       toast.success(
         downloadMode === "merged"
-          ? "Se descargó el PDF con todos los documentos"
-          : `Se descargaron ${uploaded.length} archivo${uploaded.length === 1 ? "" : "s"}`,
+          ? "Se descargó el PDF"
+          : `Se descargaron ${result.downloaded} archivo${result.downloaded === 1 ? "" : "s"}`,
       );
       setDownloadOpen(false);
     } catch (e) {

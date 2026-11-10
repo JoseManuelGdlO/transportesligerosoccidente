@@ -20,29 +20,25 @@ async function tinyPdf(): Promise<Uint8Array> {
 }
 
 describe("mergeDocumentsToPdf", () => {
-  it("une un PDF de dos páginas y una imagen detrás de la portada", async () => {
-    const bytes = await mergeDocumentsToPdf(
-      [
-        { title: "Licencia", detail: "No. 123", mime: "application/pdf", bytes: await tinyPdf() },
-        { title: "INE", detail: "", mime: "image/png", bytes: PNG },
-      ],
-      "Operador Juan Perez",
-    );
+  it("pega las páginas del PDF y la imagen, sin portada", async () => {
+    const bytes = await mergeDocumentsToPdf([
+      { title: "Licencia", detail: "No. 123", mime: "application/pdf", bytes: await tinyPdf() },
+      { title: "INE", detail: "", mime: "image/png", bytes: PNG },
+    ]);
     const doc = await PDFDocument.load(bytes);
-    expect(doc.getPageCount()).toBe(4);
+    expect(doc.getPageCount()).toBe(3);
+    const [first] = doc.getPages();
+    expect(first.getSize()).toEqual({ width: 200, height: 200 });
   });
 
   it("rechaza una lista vacía", async () => {
-    await expect(mergeDocumentsToPdf([], "Unidad 12")).rejects.toThrow(/No hay archivos/);
+    await expect(mergeDocumentsToPdf([])).rejects.toThrow(/No hay archivos/);
   });
 
   it("avisa cuando el PDF no se puede leer", async () => {
     const garbage = Uint8Array.from([1, 2, 3, 4]);
     await expect(
-      mergeDocumentsToPdf(
-        [{ title: "Póliza", detail: "", mime: "application/pdf", bytes: garbage }],
-        "Unidad 4",
-      ),
+      mergeDocumentsToPdf([{ title: "Póliza", detail: "", mime: "application/pdf", bytes: garbage }]),
     ).rejects.toThrow(/Póliza/);
   });
 });
