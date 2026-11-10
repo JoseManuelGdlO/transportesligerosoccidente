@@ -78,6 +78,14 @@ describe("computeCommission", () => {
     expect(computeTrip(trip, driver).ingreso).toBe(0);
   });
 
+  it("en sin comisión no suma la tarifa al ingreso", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.modalidad_cobro = "sin_comision";
+    trip.tarifa = 5000;
+    expect(computeTrip(trip, driver).ingreso).toBe(0);
+    expect(computeCommission(trip, driver)).toBe(0);
+  });
+
   it("usa el monto manual y no el porcentaje del operador", () => {
     const trip = tripWithExpenses(0, 0);
     trip.comision_override = 760;

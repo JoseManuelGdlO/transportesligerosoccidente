@@ -3,6 +3,7 @@ import { describe, it } from "node:test";
 import {
   applyModalidadPersistencia,
   generaCxcAutomatica,
+  llevaTarifa,
   permiteTimbrar,
 } from "./modalidadCobro";
 
@@ -21,6 +22,15 @@ describe("permiteTimbrar", () => {
     assert.equal(permiteTimbrar("efectivo"), false);
     assert.equal(permiteTimbrar("sin_comision"), false);
     assert.equal(permiteTimbrar("sin_cobro"), false);
+  });
+});
+
+describe("llevaTarifa", () => {
+  it("solo factura y efectivo llevan tarifa", () => {
+    assert.equal(llevaTarifa("factura"), true);
+    assert.equal(llevaTarifa("efectivo"), true);
+    assert.equal(llevaTarifa("sin_comision"), false);
+    assert.equal(llevaTarifa("sin_cobro"), false);
   });
 });
 
@@ -46,14 +56,14 @@ describe("applyModalidadPersistencia", () => {
     assert.match(cero.error ?? "", /comisión/i);
   });
 
-  it("en sin comisión ignora el override", () => {
+  it("en sin comisión fuerza tarifa 0 e ignora el override", () => {
     const r = applyModalidadPersistencia({
       modalidad: "sin_comision",
       tarifa: 2000,
       comision_override: 400,
     });
     assert.equal(r.error, undefined);
-    assert.equal(r.tarifa, 2000);
+    assert.equal(r.tarifa, 0);
     assert.equal(r.comision_override, null);
   });
 
@@ -66,11 +76,12 @@ describe("applyModalidadPersistencia", () => {
     assert.match(r.error ?? "", /factura/i);
   });
 
-  it("en efectivo y sin comisión exige tarifa positiva", () => {
+  it("en efectivo exige tarifa positiva; sin comisión no", () => {
     const efectivo = applyModalidadPersistencia({ modalidad: "efectivo", tarifa: 0 });
     assert.match(efectivo.error ?? "", /tarifa/i);
     const sinComision = applyModalidadPersistencia({ modalidad: "sin_comision", tarifa: -1 });
-    assert.match(sinComision.error ?? "", /tarifa/i);
+    assert.equal(sinComision.error, undefined);
+    assert.equal(sinComision.tarifa, 0);
   });
 
   it("con factura deja tarifa, override y factura como vienen", () => {

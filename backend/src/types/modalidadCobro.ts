@@ -17,6 +17,11 @@ export function permiteTimbrar(modalidad: ModalidadCobro): boolean {
   return modalidad === "factura";
 }
 
+/** Factura/efectivo llevan tarifa; sin comisión y sin cobro siempre guardan tarifa 0. */
+export function llevaTarifa(modalidad: ModalidadCobro): boolean {
+  return modalidad !== "sin_comision" && modalidad !== "sin_cobro";
+}
+
 export function applyModalidadPersistencia(input: {
   modalidad: ModalidadCobro;
   tarifa?: number;
@@ -41,14 +46,18 @@ export function applyModalidadPersistencia(input: {
     return { tarifa: 0, comision_override: override, num_factura: null };
   }
 
-  if (input.modalidad === "sin_comision" || generaCxcAutomatica(input.modalidad)) {
+  if (input.modalidad === "sin_comision") {
+    return { tarifa: 0, comision_override: null, num_factura: null };
+  }
+
+  if (generaCxcAutomatica(input.modalidad)) {
     const tarifa = input.tarifa ?? 0;
     if (!(tarifa > 0)) {
       return { error: "La tarifa debe ser mayor a 0" };
     }
     return {
       tarifa,
-      comision_override: input.modalidad === "sin_comision" ? null : input.comision_override,
+      comision_override: input.comision_override,
       num_factura: null,
     };
   }

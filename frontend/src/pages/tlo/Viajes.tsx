@@ -43,7 +43,7 @@ import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { tripBeforeLastError } from "@/lib/tripOdometer";
 import { slicePage } from "@/lib/tableFilters";
 import type { ModalidadCobro, RouteCatalog, Trip, TripStatusRef, TripType } from "@/types/tlo";
-import { MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
+import { llevaTarifa, MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
 import { ModalidadCobroSelect } from "@/components/tlo/ModalidadCobroSelect";
 import {
   findStatusIdBySlug,
@@ -677,10 +677,7 @@ export default function Viajes() {
       toast.error("Captura la comisión del operador");
       return;
     }
-    if (
-      (form.modalidad_cobro === "efectivo" || form.modalidad_cobro === "sin_comision") &&
-      !(form.tarifa > 0)
-    ) {
+    if (form.modalidad_cobro === "efectivo" && !(form.tarifa > 0)) {
       toast.error("La tarifa debe ser mayor a 0");
       return;
     }
@@ -715,7 +712,7 @@ export default function Viajes() {
         route_id: selectedRouteId !== "__custom__" ? selectedRouteId : undefined,
         fecha_salida: fechaSalidaIso,
         km_inicial: +form.km_inicial,
-        tarifa: form.modalidad_cobro === "sin_cobro" ? 0 : +form.tarifa,
+        tarifa: llevaTarifa(form.modalidad_cobro) ? +form.tarifa : 0,
         viaticos_entregados: +form.viaticos_entregados,
         tipo_viaje: form.tipo_viaje,
         modalidad_cobro: form.modalidad_cobro,
@@ -1398,7 +1395,7 @@ export default function Viajes() {
                     }
                   />
                 </div>
-                {form.modalidad_cobro !== "sin_cobro" ? (
+                {llevaTarifa(form.modalidad_cobro) ? (
                   <div className="space-y-1.5">
                     <Label>Tarifa pactada (MXN)</Label>
                     <Input
@@ -1407,7 +1404,7 @@ export default function Viajes() {
                       onChange={(e) => setForm({ ...form, tarifa: +e.target.value })}
                     />
                   </div>
-                ) : (
+                ) : form.modalidad_cobro === "sin_cobro" ? (
                   <div className="space-y-1.5">
                     <Label>Comisión del operador (MXN)</Label>
                     <Input
@@ -1416,7 +1413,7 @@ export default function Viajes() {
                       onChange={(e) => setForm({ ...form, comision_override: +e.target.value })}
                     />
                   </div>
-                )}
+                ) : null}
                 <div className="space-y-1.5">
                   <Label>Tipo de viaje</Label>
                   <Select

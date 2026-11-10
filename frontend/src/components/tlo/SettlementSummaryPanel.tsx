@@ -472,6 +472,7 @@ export function SettlementSummaryPanel({
                 <Input
                   type="number"
                   value={compForm.monto || ""}
+                  placeholder="Monto"
                   onChange={(e) => onCompFormChange({ ...compForm, monto: +e.target.value })}
                 />
                 <Button size="sm" onClick={onAddCompensation}><Plus className="h-4 w-4" /></Button>
@@ -526,7 +527,7 @@ export function SettlementSummaryPanel({
           </CardContent>
         </Card>
 
-        <Card className="tlo-shadow-md md:col-span-2">
+        <Card className="tlo-shadow-md">
           <CardHeader>
             <CardTitle className="text-base">Viáticos extra</CardTitle>
             <p className="text-xs text-muted-foreground">
@@ -535,13 +536,16 @@ export function SettlementSummaryPanel({
           </CardHeader>
           <CardContent className="space-y-3">
             {showFinanceForms && extraForm && onExtraFormChange && onAddExtraViatico && (
-              <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="grid grid-cols-2 gap-2">
                 <Input
                   type="date"
                   aria-label="Fecha del viático extra"
                   value={extraForm.fecha}
                   onChange={(e) => onExtraFormChange({ ...extraForm, fecha: e.target.value })}
                 />
+                <Button size="sm" className="h-10" onClick={onAddExtraViatico}>
+                  <Plus className="h-4 w-4" />
+                </Button>
                 <Input
                   type="number"
                   min={0}
@@ -560,9 +564,6 @@ export function SettlementSummaryPanel({
                   value={extraForm.monto_comprobado || ""}
                   onChange={(e) => onExtraFormChange({ ...extraForm, monto_comprobado: +e.target.value })}
                 />
-                <Button size="sm" className="h-10" onClick={onAddExtraViatico}>
-                  <Plus className="h-4 w-4" />
-                </Button>
               </div>
             )}
             <div className="overflow-x-auto">
@@ -620,7 +621,7 @@ export function SettlementSummaryPanel({
           </CardContent>
         </Card>
 
-        <Card className="tlo-shadow-md md:col-span-2">
+        <Card className="tlo-shadow-md">
           <CardHeader><CardTitle className="text-base">Descuentos del periodo</CardTitle></CardHeader>
           <CardContent className="space-y-3">
             {showFinanceForms && discForm && onDiscFormChange && onAddDiscount && (
@@ -647,7 +648,7 @@ export function SettlementSummaryPanel({
                   value={discForm.monto || ""}
                   onChange={(e) => onDiscFormChange({ ...discForm, monto: +e.target.value })}
                 />
-                <Button className="h-10 w-full" onClick={onAddDiscount}>
+                <Button size="sm" onClick={onAddDiscount}>
                   <Plus className="h-4 w-4" />
                 </Button>
                 <Input

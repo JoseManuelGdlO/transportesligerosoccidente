@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   generaCxcAutomatica,
+  llevaTarifa,
   parseModalidadCobro,
   permiteTimbrar,
   tipoDoctoSaldos,
@@ -29,6 +30,15 @@ describe("permiteTimbrar", () => {
     expect(permiteTimbrar("efectivo")).toBe(false);
     expect(permiteTimbrar("sin_comision")).toBe(false);
     expect(permiteTimbrar("sin_cobro")).toBe(false);
+  });
+});
+
+describe("llevaTarifa", () => {
+  it("solo factura y efectivo llevan tarifa", () => {
+    expect(llevaTarifa("factura")).toBe(true);
+    expect(llevaTarifa("efectivo")).toBe(true);
+    expect(llevaTarifa("sin_comision")).toBe(false);
+    expect(llevaTarifa("sin_cobro")).toBe(false);
   });
 });
 

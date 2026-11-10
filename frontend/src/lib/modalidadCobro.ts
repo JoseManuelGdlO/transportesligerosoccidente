@@ -29,6 +29,11 @@ export function permiteTimbrar(modalidad: ModalidadCobro): boolean {
   return modalidad === "factura";
 }
 
+/** Factura/efectivo llevan tarifa; sin comisión y sin cobro siempre guardan tarifa 0. */
+export function llevaTarifa(modalidad: ModalidadCobro): boolean {
+  return modalidad !== "sin_comision" && modalidad !== "sin_cobro";
+}
+
 export function tipoDoctoSaldos(modalidad: ModalidadCobro | null | undefined): string {
   if (!modalidad) return "FACTURA";
   return MODALIDAD_COBRO_TIPO_DOCTO[modalidad];

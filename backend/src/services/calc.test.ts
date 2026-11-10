@@ -88,6 +88,24 @@ describe("computeTrip ingreso por modalidad", () => {
     assert.equal(fin.comision, 200);
   });
 
+  it("en sin comisión no suma la tarifa al ingreso", () => {
+    const fin = computeTrip(
+      {
+        tarifa: 5000,
+        modalidad_cobro: "sin_comision",
+        comision_override: 400,
+        tipo_viaje: "local",
+        km_inicial: 0,
+        km_final: 10,
+        fuel: [],
+        expenses: [],
+      } as never,
+      driver,
+    );
+    assert.equal(fin.ingreso, 0);
+    assert.equal(fin.comision, 0);
+  });
+
   it("en efectivo sí cuenta la tarifa como ingreso", () => {
     const fin = computeTrip(
       {

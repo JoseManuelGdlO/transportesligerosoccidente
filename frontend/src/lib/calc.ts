@@ -65,7 +65,8 @@ export const computeTrip = (trip: Trip, driver?: Driver): TripFinancials => {
   const gastoRows = trip.expenses.filter((e) => e.tipo !== "ingreso");
   const ingresoRows = trip.expenses.filter((e) => e.tipo === "ingreso");
   const ingresos_extra = ingresoRows.reduce((a, e) => a + e.monto, 0);
-  const tarifaCobra = parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? 0 : trip.tarifa || 0;
+  const modalidad = parseModalidadCobro(trip.modalidad_cobro);
+  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : trip.tarifa || 0;
   const ingreso = tarifaCobra + ingresos_extra;
   const diesel_litros = trip.fuel.reduce((a, f) => a + f.litros, 0);
   const diesel_total = trip.fuel.reduce((a, f) => a + f.litros * f.precio_litro, 0);

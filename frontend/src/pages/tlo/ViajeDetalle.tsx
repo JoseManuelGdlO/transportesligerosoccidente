@@ -30,7 +30,7 @@ import { EditTripDialog } from "@/components/tlo/EditTripDialog";
 import { TripCartaPorte } from "@/components/tlo/TripCartaPorte";
 import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
-import { MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
+import { llevaTarifa, MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
 
 type ExpForm = {
@@ -598,9 +598,9 @@ export default function ViajeDetalle() {
                 <div><p className="text-xs uppercase text-muted-foreground">Viáticos entregados</p><p className="font-medium">{fmtMXN(trip.viaticos_entregados)}</p></div>
                 {parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? (
                   <div><p className="text-xs uppercase text-muted-foreground">Comisión del operador</p><p className="font-medium">{fmtMXN(trip.comision_override ?? 0)}</p></div>
-                ) : (
+                ) : llevaTarifa(parseModalidadCobro(trip.modalidad_cobro)) ? (
                   <div><p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p><p className="font-medium">{fmtMXN(trip.tarifa)}</p></div>
-                )}
+                ) : null}
                 {!isClosed && permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && (
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Número de factura</p>

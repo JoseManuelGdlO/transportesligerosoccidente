@@ -73,7 +73,8 @@ export function computeTrip(
   const gastoRows = expRows.filter((e) => e.tipo !== "ingreso");
   const ingresoRows = expRows.filter((e) => e.tipo === "ingreso");
   const ingresos_extra = ingresoRows.reduce((a, e) => a + num(e.monto), 0);
-  const tarifaCobra = parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? 0 : num(trip.tarifa);
+  const modalidad = parseModalidadCobro(trip.modalidad_cobro);
+  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : num(trip.tarifa);
   const ingreso = tarifaCobra + ingresos_extra;
   const gastos_comprobados = gastoRows.reduce((a, e) => a + clampMontoComprobado(e), 0);
   const gastos_no_comprobados = gastoRows.reduce((a, e) => a + (num(e.monto) - clampMontoComprobado(e)), 0);
