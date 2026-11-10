@@ -428,12 +428,12 @@ export default function Liquidaciones() {
 
   const addExtraViatico = async () => {
     if (!driverId) return;
-    if (extraForm.monto_entregado <= 0) {
-      toast.error("Captura un monto entregado mayor a cero");
+    if (extraForm.monto_entregado < 0 || extraForm.monto_comprobado < 0) {
+      toast.error("Los montos no pueden ser negativos");
       return;
     }
-    if (extraForm.monto_comprobado < 0) {
-      toast.error("El monto comprobado no puede ser negativo");
+    if (extraForm.monto_entregado <= 0 && extraForm.monto_comprobado <= 0) {
+      toast.error("Captura entregado o comprobado mayor a cero");
       return;
     }
     const fecha = clampDate(extraForm.fecha, inicio, fin);
@@ -441,8 +441,8 @@ export default function Liquidaciones() {
       const res = await apiFetch(`/drivers/${driverId}/extra-viaticos`, {
         method: "POST",
         body: JSON.stringify({
-          monto_entregado: extraForm.monto_entregado,
-          monto_comprobado: extraForm.monto_comprobado,
+          monto_entregado: extraForm.monto_entregado || 0,
+          monto_comprobado: extraForm.monto_comprobado || 0,
           fecha,
         }),
       });

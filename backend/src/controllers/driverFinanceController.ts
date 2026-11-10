@@ -57,12 +57,16 @@ const compensationSchema = z.object({
   descripcion: z.string().optional(),
 });
 
-const extraViaticoSchema = z.object({
-  fecha: z.string().min(1),
-  descripcion: z.string().optional(),
-  monto_entregado: z.number().positive(),
-  monto_comprobado: z.number().min(0).optional(),
-});
+const extraViaticoSchema = z
+  .object({
+    fecha: z.string().min(1),
+    descripcion: z.string().optional(),
+    monto_entregado: z.number().min(0).optional(),
+    monto_comprobado: z.number().min(0).optional(),
+  })
+  .refine((data) => (data.monto_entregado ?? 0) > 0 || (data.monto_comprobado ?? 0) > 0, {
+    message: "Captura entregado o comprobado mayor a cero",
+  });
 
 const extraViaticoPatchSchema = z.object({
   monto_comprobado: z.number().min(0),
@@ -305,7 +309,7 @@ export const createExtraViatico = asyncHandler(async (req: Request, res: Respons
     driver_id: req.params.id,
     fecha: parsed.data.fecha,
     descripcion: parsed.data.descripcion?.trim() || "Viático extra",
-    monto_entregado: parsed.data.monto_entregado,
+    monto_entregado: parsed.data.monto_entregado ?? 0,
     monto_comprobado: parsed.data.monto_comprobado ?? 0,
     settlement_id: null,
   } as never);
