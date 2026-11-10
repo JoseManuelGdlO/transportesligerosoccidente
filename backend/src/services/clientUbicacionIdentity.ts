@@ -70,11 +70,72 @@ function cpKey(value: string | null | undefined): string {
   return digits;
 }
 
-function coloniaKey(row: UbicacionIdentityRow): string {
-  const clave = blank(row.colonia_clave);
-  if (clave) return `clave:${clave}`;
-  const nombre = normalizeToken(row.colonia);
-  return nombre ? `nombre:${nombre}` : "";
+function coloniaClave(row: UbicacionIdentityRow): string {
+  return blank(row.colonia_clave);
+}
+
+function coloniaNombre(row: UbicacionIdentityRow): string {
+  return normalizeToken(row.colonia);
+}
+
+function coloniaVacia(row: UbicacionIdentityRow): boolean {
+  return !coloniaClave(row) && !coloniaNombre(row);
+}
+
+/**
+ * Dos claves distintas son colonias distintas aunque el nombre coincida.
+ * Si a un lado le falta la clave, decide el nombre normalizado.
+ * Una fila sin clave ni nombre es compatible con cualquiera.
+ */
+function sameColonia(a: UbicacionIdentityRow, b: UbicacionIdentityRow): boolean {
+  if (coloniaVacia(a) || coloniaVacia(b)) return true;
+  const claveA = coloniaClave(a);
+  const claveB = coloniaClave(b);
+  if (claveA && claveB) return claveA === claveB;
+  const nombreA = coloniaNombre(a);
+  return nombreA !== "" && nombreA === coloniaNombre(b);
+}
+
+/**
+ * Agrupa por colonia. Las filas con clave forman un grupo por clave; las que solo traen nombre
+ * se suman al único grupo con clave que tenga ese nombre, o forman su propio grupo por nombre.
+ * Si el nombre cae en varias claves, la fila es ambigua y se queda fuera.
+ * Las filas sin colonia se suman solo si hay una única colonia.
+ */
+function coloniaBucketsOf(rows: UbicacionIdentityRow[]): UbicacionIdentityRow[][] {
+  const byClave = new Map<string, UbicacionIdentityRow[]>();
+  const nameOnly: UbicacionIdentityRow[] = [];
+  const empty: UbicacionIdentityRow[] = [];
+  for (const row of rows) {
+    const clave = coloniaClave(row);
+    if (clave) {
+      const list = byClave.get(clave) ?? [];
+      list.push(row);
+      byClave.set(clave, list);
+    } else if (coloniaNombre(row)) {
+      nameOnly.push(row);
+    } else {
+      empty.push(row);
+    }
+  }
+  const claveBuckets = [...byClave.values()];
+  const byName = new Map<string, UbicacionIdentityRow[]>();
+  for (const row of nameOnly) {
+    const nombre = coloniaNombre(row);
+    const candidates = claveBuckets.filter((bucket) => bucket.some((other) => coloniaNombre(other) === nombre));
+    if (candidates.length === 1) {
+      candidates[0].push(row);
+    } else if (candidates.length === 0) {
+      const list = byName.get(nombre) ?? [];
+      list.push(row);
+      byName.set(nombre, list);
+    }
+  }
+  const buckets = [...claveBuckets, ...byName.values()];
+  if (empty.length === 0) return buckets;
+  if (buckets.length === 1) return [[...buckets[0], ...empty]];
+  if (buckets.length === 0) return [empty];
+  return buckets;
 }
 
 function localidadKey(row: UbicacionIdentityRow): string {
@@ -117,9 +178,7 @@ export function sameUbicacion(a: UbicacionIdentityRow, b: UbicacionIdentityRow):
   const ka = hardKey(a);
   const kb = hardKey(b);
   if (!ka || !kb || !hardEquals(ka, kb)) return false;
-  const colA = coloniaKey(a);
-  const colB = coloniaKey(b);
-  if (colA && colB && colA !== colB) return false;
+  if (!sameColonia(a, b)) return false;
   const locA = localidadKey(a);
   const locB = localidadKey(b);
   if (locA && locB && locA !== locB) return false;
@@ -214,7 +273,7 @@ function rankGroup(members: UbicacionIdentityRow[]) {
 export function groupDuplicates(rows: UbicacionIdentityRow[]) {
   const groups: ReturnType<typeof rankGroup>[] = [];
   for (const bucket of hardBucketsOf(rows)) {
-    for (const coloniaBucket of bucketBy(bucket, coloniaKey)) {
+    for (const coloniaBucket of coloniaBucketsOf(bucket)) {
       for (const localidadBucket of bucketBy(coloniaBucket, localidadKey)) {
         if (localidadBucket.length < 2) continue;
         groups.push(rankGroup(localidadBucket));
@@ -227,10 +286,10 @@ export function groupDuplicates(rows: UbicacionIdentityRow[]) {
 export function ambiguousRows(rows: UbicacionIdentityRow[]): UbicacionIdentityRow[] {
   const out: UbicacionIdentityRow[] = [];
   for (const bucket of hardBucketsOf(rows)) {
-    const colonias = new Set(bucket.map(coloniaKey).filter(Boolean));
-    if (colonias.size > 1) out.push(...bucket.filter((row) => !coloniaKey(row)));
-    const withColonia = bucket.filter((row) => coloniaKey(row));
-    for (const coloniaBucket of bucketBy(withColonia, coloniaKey)) {
+    const withColonia = bucket.filter((row) => !coloniaVacia(row));
+    const coloniaBuckets = coloniaBucketsOf(withColonia);
+    if (coloniaBuckets.length > 1) out.push(...bucket.filter(coloniaVacia));
+    for (const coloniaBucket of coloniaBuckets) {
       const localidades = new Set(coloniaBucket.map(localidadKey).filter(Boolean));
       if (localidades.size > 1) out.push(...coloniaBucket.filter((row) => !localidadKey(row)));
     }
