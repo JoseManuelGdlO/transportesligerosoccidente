@@ -36,7 +36,6 @@ export interface ExtraViaticoFormState {
   monto_entregado: number;
   monto_comprobado: number;
   fecha: string;
-  descripcion: string;
 }
 
 export interface DiscountFormState {
@@ -102,12 +101,10 @@ function FleteLiquidacionInput({
 
 function ExtraComprobadoInput({
   extraId,
-  descripcion,
   value,
   onCommit,
 }: {
   extraId: string;
-  descripcion: string;
   value: number;
   onCommit: (id: string, monto: number) => void;
 }) {
@@ -122,7 +119,7 @@ function ExtraComprobadoInput({
         step="0.01"
         inputMode="decimal"
         className="h-8 text-right tabular-nums"
-        aria-label={`Monto comprobado del viático extra ${descripcion}`}
+        aria-label="Monto comprobado del viático extra"
         value={shown}
         onChange={(e) => setDraft(e.target.value)}
         onBlur={() => {
@@ -566,12 +563,6 @@ export function SettlementSummaryPanel({
                 <Button size="sm" className="h-10" onClick={onAddExtraViatico}>
                   <Plus className="h-4 w-4" />
                 </Button>
-                <Input
-                  className="col-span-2 sm:col-span-4"
-                  placeholder="Descripción"
-                  value={extraForm.descripcion}
-                  onChange={(e) => onExtraFormChange({ ...extraForm, descripcion: e.target.value })}
-                />
               </div>
             )}
             <div className="overflow-x-auto">
@@ -579,7 +570,6 @@ export function SettlementSummaryPanel({
                 <TableHeader>
                   <TableRow className="bg-secondary/50">
                     <TableHead>Fecha</TableHead>
-                    <TableHead>Descripción</TableHead>
                     <TableHead className="text-right">Entregado</TableHead>
                     <TableHead className="text-right">Comprobado</TableHead>
                     {showFinanceForms ? <TableHead className="w-10" /> : null}
@@ -588,16 +578,15 @@ export function SettlementSummaryPanel({
                 <TableBody>
                   {extraViaticos.length === 0 && (
                     <TableRow>
-                      <TableCell colSpan={showFinanceForms ? 5 : 4} className="text-center text-muted-foreground py-4 text-sm">
+                      <TableCell colSpan={showFinanceForms ? 4 : 3} className="text-center text-muted-foreground py-4 text-sm">
                         {readOnly ? "Sin viáticos extra en el periodo" : "Sin viáticos extra pendientes de liquidar"}
                       </TableCell>
                     </TableRow>
                   )}
                   {extraViaticos.map((x: DriverExtraViatico) => (
                     <TableRow key={x.id}>
-                      <TableCell className="whitespace-nowrap">{fmtDate(x.fecha)}</TableCell>
-                      <TableCell className="text-sm">
-                        {x.descripcion}
+                      <TableCell className="whitespace-nowrap">
+                        {fmtDate(x.fecha)}
                         {x.en_periodo === false && (
                           <Badge variant="outline" className="ml-2 text-xs">Fuera del periodo</Badge>
                         )}
@@ -607,7 +596,6 @@ export function SettlementSummaryPanel({
                         {canEditExtraComprobado && onPatchExtraViaticoComprobado ? (
                           <ExtraComprobadoInput
                             extraId={x.id}
-                            descripcion={x.descripcion}
                             value={x.monto_comprobado}
                             onCommit={onPatchExtraViaticoComprobado}
                           />

@@ -129,7 +129,6 @@ export default function Liquidaciones() {
     monto_entregado: 0,
     monto_comprobado: 0,
     fecha: defaultFechaEnPeriodo(),
-    descripcion: "",
   });
 
   useEffect(() => {
@@ -445,7 +444,6 @@ export default function Liquidaciones() {
           monto_entregado: extraForm.monto_entregado,
           monto_comprobado: extraForm.monto_comprobado,
           fecha,
-          descripcion: extraForm.descripcion.trim() || "Viático extra",
         }),
       });
       await readJson(res);
@@ -453,7 +451,6 @@ export default function Liquidaciones() {
         monto_entregado: 0,
         monto_comprobado: 0,
         fecha: clampDate(isoDay(today), inicio, fin),
-        descripcion: "",
       });
       toast.success("Viático extra registrado");
       setSummarySource("live");
