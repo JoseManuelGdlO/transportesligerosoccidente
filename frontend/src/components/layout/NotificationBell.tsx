@@ -14,6 +14,7 @@ import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import type { NotificationItem } from "@/types/tlo";
 import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/tloApi";
+import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notificationGroups";
 import { toast } from "sonner";
 
 export function NotificationBell() {
@@ -35,7 +36,12 @@ export function NotificationBell() {
   useEffect(() => {
     void load();
     const t = window.setInterval(() => void load(), 60_000);
-    return () => window.clearInterval(t);
+    const onChanged = () => void load();
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
+    return () => {
+      window.clearInterval(t);
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
+    };
   }, [load]);
 
   if (!apiMode || !hasPermission("notificaciones.ver")) return null;

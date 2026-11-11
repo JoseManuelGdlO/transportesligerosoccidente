@@ -2,6 +2,7 @@ import { Navigate, Outlet, useLocation } from "react-router-dom";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "./AppSidebar";
 import { NotificationBell } from "./NotificationBell";
+import { LoginNoticeDialog } from "./LoginNoticeDialog";
 import { PushOptInBanner } from "./PushOptInBanner";
 import { useAuth } from "@/context/AuthContext";
 
@@ -68,6 +69,7 @@ export default function AppLayout() {
           </footer>
         </div>
       </div>
+      <LoginNoticeDialog />
     </SidebarProvider>
   );
 }

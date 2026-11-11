@@ -35,6 +35,9 @@ interface AuthState {
   logout: () => void;
   hasPermission: (p: Permission) => boolean;
   refreshTenant: () => Promise<void>;
+  /** True solo tras un login con usuario y contraseña (no refresh token ni recarga). */
+  loginNoticePending: boolean;
+  dismissLoginNotice: () => void;
 }
 
 const AuthCtx = createContext<AuthState | null>(null);
@@ -132,6 +135,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
   const [tenant, setTenant] = useState<Tenant | null>(null);
   const [permissions, setPermissions] = useState<Permission[]>([]);
   const [bootstrapping, setBootstrapping] = useState(apiMode);
+  const [loginNoticePending, setLoginNoticePending] = useState(false);
 
   const logout = useCallback(() => {
     clearAuthTokens();
@@ -139,7 +143,12 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
     setUser(null);
     setTenant(null);
     setPermissions([]);
+    setLoginNoticePending(false);
     applyTenantThemeCss(null);
+  }, []);
+
+  const dismissLoginNotice = useCallback(() => {
+    setLoginNoticePending(false);
   }, []);
 
   const hydrateFromMe = useCallback(async () => {
@@ -246,6 +255,7 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
         : { email, name: email, role: "admin" },
     );
     setPermissions(perms.filter((p): p is Permission => typeof p === "string"));
+    setLoginNoticePending(true);
   }, []);
 
   const signInDemo = useCallback((email: string, role: UserRole) => {
@@ -296,8 +306,23 @@ export const AuthProvider = ({ children }: { children: ReactNode }) => {
       logout,
       hasPermission,
       refreshTenant,
+      loginNoticePending,
+      dismissLoginNotice,
     }),
-    [user, tenant, permissions, apiMode, bootstrapping, signInWithApi, signInDemo, logout, hasPermission, refreshTenant],
+    [
+      user,
+      tenant,
+      permissions,
+      apiMode,
+      bootstrapping,
+      signInWithApi,
+      signInDemo,
+      logout,
+      hasPermission,
+      refreshTenant,
+      loginNoticePending,
+      dismissLoginNotice,
+    ],
   );
 
   return <AuthCtx.Provider value={value}>{children}</AuthCtx.Provider>;
