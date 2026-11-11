@@ -23,8 +23,12 @@ describe("identityChanged", () => {
     assert.equal(identityChanged(base, { ...base, nombre: "Oficina" }), false);
   });
 
-  it("changing calle is an identity change", () => {
-    assert.equal(identityChanged(base, { ...base, calle: "Morelos" }), true);
+  it("changing calle is not an identity change", () => {
+    assert.equal(identityChanged(base, { ...base, calle: "Morelos" }), false);
+  });
+
+  it("changing cp is an identity change", () => {
+    assert.equal(identityChanged(base, { ...base, cp: "44100" }), true);
   });
 
   it("ignores case-only differences on calle", () => {
@@ -32,12 +36,9 @@ describe("identityChanged", () => {
     assert.equal(identityChanged({ ...base, calle: " hidalgo " }, { ...base, calle: "HIDALGO" }), false);
   });
 
-  it("still detects a real calle change regardless of case", () => {
-    assert.equal(identityChanged({ ...base, calle: "HIDALGO" }, { ...base, calle: "MORELOS" }), true);
-  });
-
-  it("keeps other identity fields case-sensitive", () => {
-    assert.equal(identityChanged(base, { ...base, colonia: "CENTRO" }), true);
+  it("ignores a real calle or colonia change", () => {
+    assert.equal(identityChanged({ ...base, calle: "HIDALGO" }, { ...base, calle: "MORELOS" }), false);
+    assert.equal(identityChanged(base, { ...base, colonia: "CENTRO" }), false);
   });
 
   it("trims before comparing cp", () => {

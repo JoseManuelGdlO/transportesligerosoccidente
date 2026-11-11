@@ -16,6 +16,7 @@ describe("ubicaciones del mismo CP", () => {
     colonia_clave: "0001",
     calle: "Hidalgo",
     numero_exterior: "10",
+    tipo: "Origen",
   });
   const centroMorelos = row({
     id: "b",
@@ -24,6 +25,8 @@ describe("ubicaciones del mismo CP", () => {
     colonia_clave: "0001",
     calle: "Morelos",
     numero_exterior: "5",
+    tipo: "Destino",
+    createdAt: "2026-03-01T00:00:00.000Z",
   });
   const piedreraHidalgo = row({
     id: "c",
@@ -32,13 +35,29 @@ describe("ubicaciones del mismo CP", () => {
     colonia_clave: "0009",
     calle: "Hidalgo",
     numero_exterior: "10",
+    localidad: "Ocotlán",
+    localidad_clave: "001",
+    createdAt: "2026-02-01T00:00:00.000Z",
   });
 
-  it("deja convivir calle o colonia distintas", () => {
-    assert.equal(sameUbicacion(centroHidalgo, centroMorelos), false);
-    assert.equal(sameUbicacion(centroHidalgo, piedreraHidalgo), false);
+  it("un cliente tiene una sola ubicación por CP aunque cambien colonia o calle", () => {
+    assert.equal(sameUbicacion(centroHidalgo, centroMorelos), true);
+    assert.equal(sameUbicacion(centroHidalgo, piedreraHidalgo), true);
     const groups = groupDuplicates([centroHidalgo, centroMorelos, piedreraHidalgo]);
-    assert.equal(groups.length, 0);
+    assert.equal(groups.length, 1);
+    assert.equal(groups[0].survivor.id, "c");
+    assert.deepEqual(
+      groups[0].duplicates.map((d) => d.id).sort(),
+      ["a", "b"],
+    );
+    assert.equal(groups[0].patch.tipo, "Ambos");
+    assert.equal(groups[0].patch.calle, undefined);
+  });
+
+  it("otro cliente con el mismo CP es otra ubicación", () => {
+    const otroCliente = { ...centroHidalgo, id: "z", client_id: "cli-2" };
+    assert.equal(sameUbicacion(centroHidalgo, otroCliente), false);
+    assert.equal(groupDuplicates([centroHidalgo, otroCliente]).length, 0);
   });
 
   it("funde la localidad vacía con la que sí tiene clave", () => {
@@ -66,7 +85,7 @@ describe("ubicaciones del mismo CP", () => {
     assert.deepEqual(group.duplicates.map((d) => d.id), ["v"]);
   });
 
-  it("separa dos localidades con clave", () => {
+  it("no separa dos localidades del mismo CP", () => {
     const ocotlan = row({
       id: "o",
       cp: "47829",
@@ -83,7 +102,7 @@ describe("ubicaciones del mismo CP", () => {
       numero_exterior: "10",
       localidad_clave: "002",
     });
-    assert.equal(sameUbicacion(ocotlan, otra), false);
+    assert.equal(sameUbicacion(ocotlan, otra), true);
   });
 
   it("iguala AV. LAS LOMAS 1395 con avenida y número en su campo", () => {
@@ -100,12 +119,13 @@ describe("ubicaciones del mismo CP", () => {
     assert.equal(calleBase("AV. LAS LOMAS 1395"), "avenida las lomas");
   });
 
-  it("no funde una colonia vacía si ya hay dos colonias para esa puerta", () => {
+  it("reutiliza el CP aunque la colonia venga vacía", () => {
     const sinColonia = row({ id: "x", cp: "47829", calle: "Hidalgo", numero_exterior: "10" });
     const groups = groupDuplicates([centroHidalgo, piedreraHidalgo, sinColonia]);
-    assert.equal(groups.length, 0);
+    assert.equal(groups.length, 1);
     const reusable = findReusable([centroHidalgo, piedreraHidalgo], sinColonia);
-    assert.deepEqual(reusable, { ambiguous: true });
+    assert.ok(reusable && "match" in reusable);
+    if (reusable && "match" in reusable) assert.equal(reusable.match.id, "c");
   });
 
   it("cruza clave y nombre: Centro con clave y CENTRO sin clave es la misma colonia", () => {
@@ -130,7 +150,7 @@ describe("ubicaciones del mismo CP", () => {
     assert.equal(groups[0].duplicates.length, 1);
   });
 
-  it("no iguala clave 0001 Centro con La Piedrera sin clave", () => {
+  it("iguala colonias distintas del mismo CP", () => {
     const conClave = row({
       id: "k",
       cp: "47829",
@@ -146,11 +166,11 @@ describe("ubicaciones del mismo CP", () => {
       calle: "Hidalgo",
       numero_exterior: "10",
     });
-    assert.equal(sameUbicacion(conClave, otroNombre), false);
-    assert.equal(groupDuplicates([conClave, otroNombre]).length, 0);
+    assert.equal(sameUbicacion(conClave, otroNombre), true);
+    assert.equal(groupDuplicates([conClave, otroNombre]).length, 1);
   });
 
-  it("no iguala claves distintas aunque el nombre coincida", () => {
+  it("iguala claves de colonia distintas del mismo CP", () => {
     const clave1 = row({
       id: "k1",
       cp: "47829",
@@ -167,8 +187,8 @@ describe("ubicaciones del mismo CP", () => {
       calle: "Hidalgo",
       numero_exterior: "10",
     });
-    assert.equal(sameUbicacion(clave1, clave9), false);
-    assert.equal(groupDuplicates([clave1, clave9]).length, 0);
+    assert.equal(sameUbicacion(clave1, clave9), true);
+    assert.equal(groupDuplicates([clave1, clave9]).length, 1);
   });
 
   it("reutiliza la única coincidencia y copia la localidad que faltaba", () => {

@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { UniqueConstraintError } from "sequelize";
 import { z } from "zod";
 import type { Request, Response } from "express";
 import { Client, ClientUbicacion } from "../models";
@@ -6,7 +7,13 @@ import { identityChanged, matchActiveUbicacion, widenTipo } from "../services/cl
 import { asyncHandler } from "../utils/asyncHandler";
 import { clientUbicacionToJson } from "../utils/serialize";
 
+const CP_TAKEN = "Ese cliente ya tiene una ubicación con ese CP";
+
 const tid = (req: Request) => req.user!.tenantId;
+
+function sendCpConflict(res: Response) {
+  res.status(409).json({ error: CP_TAKEN });
+}
 
 function upperText(value: string | undefined): string | undefined {
   if (value == null) return value;
@@ -84,12 +91,6 @@ export const createClientUbicacion = asyncHandler(async (req: Request, res: Resp
   }
   const data = normalizeUbicacionText(parsed.data);
   const match = await matchActiveUbicacion(tid(req), client.id, { ...data, client_id: client.id });
-  if (match && "ambiguous" in match) {
-    res.status(409).json({
-      error: "Hay varias ubicaciones con esa calle y ese CP. Indica la colonia para no duplicar.",
-    });
-    return;
-  }
   if (match && "match" in match) {
     const current = match.match.id
       ? await ClientUbicacion.findOne({
@@ -110,15 +111,23 @@ export const createClientUbicacion = asyncHandler(async (req: Request, res: Resp
       return;
     }
   }
-  const row = await ClientUbicacion.create({
-    id: randomUUID(),
-    tenant_id: tid(req),
-    client_id: client.id,
-    ...data,
-    tipo: data.tipo ?? "Ambos",
-    estatus: data.estatus ?? "activo",
-  } as never);
-  res.status(201).json(clientUbicacionToJson(row));
+  try {
+    const row = await ClientUbicacion.create({
+      id: randomUUID(),
+      tenant_id: tid(req),
+      client_id: client.id,
+      ...data,
+      tipo: data.tipo ?? "Ambos",
+      estatus: data.estatus ?? "activo",
+    } as never);
+    res.status(201).json(clientUbicacionToJson(row));
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      sendCpConflict(res);
+      return;
+    }
+    throw err;
+  }
 });
 
 export const updateClientUbicacion = asyncHandler(async (req: Request, res: Response) => {
@@ -145,12 +154,20 @@ export const updateClientUbicacion = asyncHandler(async (req: Request, res: Resp
   };
   if (identityChanged(stored, next)) {
     const collision = await matchActiveUbicacion(tid(req), client.id, next, row.id);
-    if (collision && ("match" in collision || "ambiguous" in collision)) {
-      res.status(409).json({ error: "Esa ubicación ya existe" });
+    if (collision && "match" in collision) {
+      res.status(409).json({ error: CP_TAKEN });
       return;
     }
   }
-  await row.update(data as never);
+  try {
+    await row.update(data as never);
+  } catch (err) {
+    if (err instanceof UniqueConstraintError) {
+      sendCpConflict(res);
+      return;
+    }
+    throw err;
+  }
   res.json(clientUbicacionToJson(row));
 });
 

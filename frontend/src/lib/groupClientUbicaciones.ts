@@ -40,28 +40,17 @@ export function sublocationLabel(
   return `colonia ${colonia}, ${puerta}${localidad ? `, ${localidad}` : ""}`;
 }
 
-export function groupCatalogUbicaciones(rows: ClientUbicacion[]) {
-  const buckets = new Map<string, ClientUbicacion[]>();
-  for (const row of rows) {
-    const digits = (row.cp ?? "").replace(/\D/g, "");
-    const cp = digits.length === 5 ? digits : "";
-    const key = `${row.client_id}:${cp || "sin-cp"}`;
-    const list = buckets.get(key) ?? [];
-    list.push(row);
-    buckets.set(key, list);
-  }
+function catalogLabel(row: ClientUbicacion): string {
+  const digits = (row.cp ?? "").replace(/\D/g, "");
+  const cp = digits.length === 5 ? digits : (row.cp ?? "").trim() || "SIN CP";
+  const client = (row.client_razon_social || row.razon_social || "SIN CLIENTE").trim().toUpperCase();
+  const calle = calleBase(row.calle, row.numero_exterior);
+  return calle ? `${calle.toUpperCase()} ${cp} - ${client}` : `${cp} - ${client}`;
+}
 
-  return [...buckets.entries()]
-    .map(([key, list]) => {
-      const cp = (list[0].cp ?? "").trim() || "SIN CP";
-      const client = (list[0].client_razon_social || list[0].razon_social || "SIN CLIENTE").trim().toUpperCase();
-      const bases = list.map((row) => calleBase(row.calle, row.numero_exterior));
-      const shared = bases.every((base) => base && base === bases[0]) ? bases[0] : "";
-      const header = shared ? `${shared.toUpperCase()} ${cp} - ${client}` : `${cp} - ${client}`;
-      const items = list
-        .map((row) => ({ id: row.id, label: sublocationLabel(row) }))
-        .sort((a, b) => a.label.localeCompare(b.label, "es"));
-      return { key, header, items };
-    })
-    .sort((a, b) => a.header.localeCompare(b.header, "es"));
+/** Una opción por ubicación. El mismo CP de otro cliente sigue siendo otra opción. */
+export function catalogUbicacionOptions(rows: ClientUbicacion[]) {
+  return rows
+    .map((row) => ({ id: row.id, label: catalogLabel(row) }))
+    .sort((a, b) => a.label.localeCompare(b.label, "es") || a.id.localeCompare(b.id));
 }

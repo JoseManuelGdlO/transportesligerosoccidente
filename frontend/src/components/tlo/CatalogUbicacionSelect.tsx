@@ -9,7 +9,7 @@ import {
   CommandList,
 } from "@/components/ui/command";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
-import { groupCatalogUbicaciones } from "@/lib/groupClientUbicaciones";
+import { catalogUbicacionOptions } from "@/lib/groupClientUbicaciones";
 import { cn } from "@/lib/utils";
 import type { ClientUbicacion } from "@/types/tlo";
 
@@ -30,23 +30,15 @@ function foldSearch(value: string): string {
 export function CatalogUbicacionSelect({ rows, value, onChange }: Props) {
   const [open, setOpen] = useState(false);
   const [query, setQuery] = useState("");
-  const groups = useMemo(() => groupCatalogUbicaciones(rows), [rows]);
+  const options = useMemo(() => catalogUbicacionOptions(rows), [rows]);
   const needle = foldSearch(query);
 
   const visible = useMemo(() => {
-    if (!needle) return groups;
-    return groups.flatMap((group) => {
-      const headerHit = foldSearch(group.header).includes(needle);
-      const items = headerHit
-        ? group.items
-        : group.items.filter((item) => foldSearch(item.label).includes(needle));
-      return items.length > 0 ? [{ ...group, items }] : [];
-    });
-  }, [groups, needle]);
+    if (!needle) return options;
+    return options.filter((item) => foldSearch(item.label).includes(needle));
+  }, [options, needle]);
 
-  const selectedLabel = value
-    ? groups.flatMap((group) => group.items).find((item) => item.id === value)?.label
-    : undefined;
+  const selectedLabel = value ? options.find((item) => item.id === value)?.label : undefined;
 
   const close = (next: boolean) => {
     setOpen(next);
@@ -100,29 +92,23 @@ export function CatalogUbicacionSelect({ rows, value, onChange }: Props) {
             {visible.length === 0 ? (
               <p className="py-6 text-center text-sm text-muted-foreground">Sin ubicaciones</p>
             ) : (
-              visible.map((group) => (
-                <CommandGroup key={group.key}>
-                  <div className="px-2 py-1.5 text-xs font-semibold text-foreground">{group.header}</div>
-                  {group.items.map((item) => (
-                    <CommandItem
-                      key={item.id}
-                      value={item.id}
-                      onSelect={() => {
-                        onChange(item.id);
-                        close(false);
-                      }}
-                    >
-                      <Check
-                        className={cn(
-                          "mr-2 h-4 w-4 shrink-0",
-                          value === item.id ? "opacity-100" : "opacity-0",
-                        )}
-                      />
-                      <span className="whitespace-normal text-muted-foreground">{item.label}</span>
-                    </CommandItem>
-                  ))}
-                </CommandGroup>
-              ))
+              <CommandGroup>
+                {visible.map((item) => (
+                  <CommandItem
+                    key={item.id}
+                    value={item.id}
+                    onSelect={() => {
+                      onChange(item.id);
+                      close(false);
+                    }}
+                  >
+                    <Check
+                      className={cn("mr-2 h-4 w-4 shrink-0", value === item.id ? "opacity-100" : "opacity-0")}
+                    />
+                    <span className="whitespace-normal">{item.label}</span>
+                  </CommandItem>
+                ))}
+              </CommandGroup>
             )}
           </CommandList>
         </Command>

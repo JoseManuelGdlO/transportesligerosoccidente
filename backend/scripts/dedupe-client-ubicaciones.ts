@@ -1,6 +1,7 @@
 #!/usr/bin/env tsx
 /**
- * Fusiona ubicaciones de cliente que son el mismo domicilio.
+ * Fusiona ubicaciones activas del mismo cliente que comparten CP.
+ * Otro cliente con ese CP no se toca.
  *
  * Uso:
  *   npm run db:dedupe:ubicaciones
@@ -13,7 +14,7 @@
 import "dotenv/config";
 import "../src/models/index";
 import { ClientUbicacion, RouteStop, TripStop, TripUbicacion, sequelize } from "../src/models";
-import { ambiguousRows, groupDuplicates, type UbicacionIdentityRow } from "../src/services/clientUbicacionIdentity";
+import { groupDuplicates, type UbicacionIdentityRow } from "../src/services/clientUbicacionIdentity";
 
 function toIdentity(row: ClientUbicacion): UbicacionIdentityRow {
   const plain = row.get({ plain: true }) as UbicacionIdentityRow;
@@ -26,14 +27,13 @@ async function main() {
   const byClient = new Map<string, UbicacionIdentityRow[]>();
   for (const row of rows) {
     const identity = toIdentity(row);
-    const key = `${identity.client_id}`;
+    const key = `${row.tenant_id}:${identity.client_id}`;
     const list = byClient.get(key) ?? [];
     list.push(identity);
     byClient.set(key, list);
   }
 
   let merged = 0;
-  let ambiguous = 0;
   for (const list of byClient.values()) {
     for (const group of groupDuplicates(list)) {
       merged += group.duplicates.length;
@@ -68,13 +68,9 @@ async function main() {
         }
       });
     }
-    for (const row of ambiguousRows(list)) {
-      ambiguous += 1;
-      console.log(`[ambigua] ${row.id} cliente ${row.client_id} cp ${row.cp} calle ${row.calle} — no se toca`);
-    }
   }
 
-  console.log(`${apply ? "Aplicado" : "Simulación"}: ${merged} repetida(s), ${ambiguous} ambigua(s).`);
+  console.log(`${apply ? "Aplicado" : "Simulación"}: ${merged} repetida(s).`);
   await sequelize.close();
 }
 

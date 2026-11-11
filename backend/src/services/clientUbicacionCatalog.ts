@@ -1,52 +1,18 @@
-import { findReusable, type UbicacionIdentityRow } from "./clientUbicacionIdentity";
+import { findReusable, widenTipo, type UbicacionIdentityRow, type UbicacionTipo } from "./clientUbicacionIdentity";
 
-const IDENTITY_FIELDS = [
-  "calle",
-  "numero_exterior",
-  "numero_interior",
-  "colonia",
-  "colonia_clave",
-  "localidad",
-  "localidad_clave",
-  "cp",
-] as const;
-
-function identityValue(value: string | null | undefined): string {
+function cpIdentityValue(value: string | null | undefined): string {
+  const digits = (value ?? "").replace(/\D/g, "");
+  if (digits.length === 5) return digits;
   return (value ?? "").trim();
 }
 
-/** `calle` se guarda con trim + mayúsculas (ver el controller); se compara igual. */
-function identityComparable(field: (typeof IDENTITY_FIELDS)[number], row: UbicacionIdentityRow): string {
-  const value = identityValue(row[field]);
-  return field === "calle" ? value.toUpperCase() : value;
-}
-
-/**
- * True when a domicilio field differs after trim. Null and "" are the same.
- * `calle` ignora mayúsculas/minúsculas; el resto de campos solo recorta.
- */
+/** El CP de 5 dígitos es la identidad. Calle, colonia y localidad no abren otra ubicación. */
 export function identityChanged(before: UbicacionIdentityRow, after: UbicacionIdentityRow): boolean {
-  return IDENTITY_FIELDS.some((field) => identityComparable(field, before) !== identityComparable(field, after));
+  return cpIdentityValue(before.cp) !== cpIdentityValue(after.cp);
 }
 
-export type UbicacionTipo = "Origen" | "Destino" | "Ambos";
-
-/**
- * Al reutilizar una ubicación el tipo solo se ensancha, nunca se estrecha:
- * Origen + Destino (en cualquier orden) → Ambos; si un lado ya es Ambos, queda Ambos.
- */
-export function widenTipo(
-  existing: string | null | undefined,
-  incoming: string | null | undefined,
-): UbicacionTipo {
-  const a = existing?.trim();
-  const b = incoming?.trim();
-  if (!a && !b) return "Ambos";
-  if (!a) return b as UbicacionTipo;
-  if (!b) return a as UbicacionTipo;
-  if (a === b) return a as UbicacionTipo;
-  return "Ambos";
-}
+export type { UbicacionTipo };
+export { widenTipo };
 
 export async function matchActiveUbicacion(
   tenantId: string,
