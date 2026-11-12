@@ -1378,14 +1378,45 @@ function parseContentDispositionFilename(header: string | null): string | undefi
   }
 }
 
-export async function openAuthenticatedFile(fileUrlPath: string): Promise<void> {
+export type AuthenticatedBlob = {
+  blobUrl: string;
+  filename: string;
+};
+
+const BLOB_URL_TTL_MS = 60_000;
+
+export async function fetchAuthenticatedBlob(fileUrlPath: string): Promise<AuthenticatedBlob> {
   const path = fileUrlPath.startsWith("/") ? fileUrlPath : `/${fileUrlPath}`;
   const res = await apiFetch(path);
   if (!res.ok) throw new Error("No se pudo abrir el archivo");
   const blob = await res.blob();
-  const url = URL.createObjectURL(blob);
-  window.open(url, "_blank", "noopener,noreferrer");
-  window.setTimeout(() => URL.revokeObjectURL(url), 60_000);
+  const filename = parseContentDispositionFilename(res.headers.get("Content-Disposition")) || "documento";
+  return { blobUrl: URL.createObjectURL(blob), filename };
+}
+
+/** Abre la pestaña en el mismo turno del clic. `false` significa que el navegador la bloqueó. */
+export function openBlobInNewTab(blobUrl: string): boolean {
+  const popup = window.open(blobUrl, "_blank");
+  if (!popup) return false;
+  popup.opener = null;
+  return true;
+}
+
+export function releaseBlobUrlLater(blobUrl: string): void {
+  window.setTimeout(() => URL.revokeObjectURL(blobUrl), BLOB_URL_TTL_MS);
+}
+
+/**
+ * Descarga el archivo y abre una pestaña. Si el navegador la bloquea, devuelve el blob
+ * para reintentar con otro clic. Quien recibe el blob es dueño de revocar la URL.
+ */
+export async function openAuthenticatedFile(fileUrlPath: string): Promise<AuthenticatedBlob | null> {
+  const file = await fetchAuthenticatedBlob(fileUrlPath);
+  if (openBlobInNewTab(file.blobUrl)) {
+    releaseBlobUrlLater(file.blobUrl);
+    return null;
+  }
+  return file;
 }
 
 async function downloadCartaPorteFile(

@@ -26,8 +26,8 @@ import {
   postTruckDocument,
   patchDocument,
   deleteDocument,
-  openAuthenticatedFile,
 } from "@/lib/tloApi";
+import { useAuthenticatedFileOpen } from "@/components/tlo/BlockedTabDialog";
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 
@@ -77,6 +77,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   const [downloadMode, setDownloadMode] = useState<BundleMode>("separate");
   const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
+  const { openFile, dialog: blockedTabDialog } = useAuthenticatedFileOpen();
 
   const load = useCallback(async () => {
     if (!entityId) return;
@@ -178,7 +179,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
 
   const view = async (doc: CatalogDocument) => {
     try {
-      await openAuthenticatedFile(doc.file_url);
+      await openFile(doc.file_url);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo abrir el archivo");
     }
@@ -257,14 +258,18 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
 
   if (!entityId) {
     return (
-      <p className="text-sm text-muted-foreground">
-        {kind === "truck" ? "Sin unidad seleccionada." : "Sin operador seleccionado."}
-      </p>
+      <>
+        {blockedTabDialog}
+        <p className="text-sm text-muted-foreground">
+          {kind === "truck" ? "Sin unidad seleccionada." : "Sin operador seleccionado."}
+        </p>
+      </>
     );
   }
 
   return (
     <div className="space-y-3">
+      {blockedTabDialog}
       {uploaded.length > 0 ? (
         <Button type="button" variant="outline" className="w-full" onClick={openDownload}>
           <Download className="h-4 w-4 mr-2" />

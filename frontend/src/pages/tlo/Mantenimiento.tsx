@@ -9,7 +9,6 @@ import {
   fetchMaintenanceCategories,
   fetchMaintenanceRecords,
   fetchSuppliers,
-  openAuthenticatedFile,
   updateMaintenanceRecordApi,
   uploadMaintenanceInvoice,
 } from "@/lib/tloApi";
@@ -20,6 +19,7 @@ import type {
   MaintenanceType,
   Supplier,
 } from "@/types/tlo";
+import { useAuthenticatedFileOpen } from "@/components/tlo/BlockedTabDialog";
 import { KpiCard } from "@/components/tlo/KpiCard";
 import { CategoryCombobox } from "@/components/tlo/CategoryCombobox";
 import { MaintenanceCategoriesTab } from "@/components/tlo/MaintenanceCategoriesTab";
@@ -319,6 +319,7 @@ export default function Mantenimiento() {
   const [invoiceFile, setInvoiceFile] = useState<File | null>(null);
   const [invoicePreviewUrl, setInvoicePreviewUrl] = useState<string | null>(null);
   const [facturaBusyId, setFacturaBusyId] = useState<string | null>(null);
+  const { openFile, dialog: blockedTabDialog } = useAuthenticatedFileOpen();
 
   const [bitSearch, setBitSearch] = useState("");
   const [bitUnit, setBitUnit] = useState("todas");
@@ -896,7 +897,7 @@ export default function Mantenimiento() {
   const viewFactura = async (r: MaintenanceRecordRow) => {
     if (!r.factura_url) return;
     try {
-      await openAuthenticatedFile(r.factura_url);
+      await openFile(r.factura_url);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo abrir la factura");
     }
@@ -925,6 +926,7 @@ export default function Mantenimiento() {
 
   return (
     <div className="space-y-6">
+      {blockedTabDialog}
       <div className="flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
         <div className="max-w-2xl space-y-1">
           <p className="text-sm text-muted-foreground">
