@@ -228,6 +228,8 @@ function splitPacError(message: string): { origin: "SAT" | "Sicofi" | null; text
 
 type UbicacionDomicilioForm = {
   calle: string;
+  numero_exterior: string;
+  numero_interior: string;
   estado: string;
   municipio: string;
   municipio_clave: string;
@@ -235,7 +237,7 @@ type UbicacionDomicilioForm = {
   localidad_clave: string;
 };
 
-/** Calle, municipio y localidad son opcionales. Municipio y localidad usan el estado ya resuelto (catálogo o C.P.). */
+/** Calle, número, municipio y localidad son opcionales. Municipio y localidad usan el estado ya resuelto (catálogo o C.P.). */
 function UbicacionDomicilioFields({
   idPrefix,
   form,
@@ -261,6 +263,30 @@ function UbicacionDomicilioFields({
           disabled={disabled}
           placeholder="Opcional"
         />
+      </div>
+      <div className="grid grid-cols-2 gap-2">
+        <div>
+          <Label htmlFor={`${idPrefix}-numero-exterior`}>No. exterior</Label>
+          <Input
+            id={`${idPrefix}-numero-exterior`}
+            value={form.numero_exterior}
+            onChange={(e) => onPatch({ numero_exterior: e.target.value })}
+            onBlur={onBlur}
+            disabled={disabled}
+            placeholder="Opcional"
+          />
+        </div>
+        <div>
+          <Label htmlFor={`${idPrefix}-numero-interior`}>No. interior</Label>
+          <Input
+            id={`${idPrefix}-numero-interior`}
+            value={form.numero_interior}
+            onChange={(e) => onPatch({ numero_interior: e.target.value })}
+            onBlur={onBlur}
+            disabled={disabled}
+            placeholder="Opcional"
+          />
+        </div>
       </div>
       <div>
         <Label>Municipio</Label>
@@ -1197,7 +1223,7 @@ export function TripCartaPorte({
     if (!canTimbrar || !cp) return;
     if (tipoTimbrado === "ingreso" && enviarCorreo) {
       const correo = correoComplementoBody(true, correoEmail, "");
-      if (!correo.ok) {
+      if (correo.ok === false) {
         toast.error(correo.error);
         return;
       }
