@@ -12,6 +12,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import { Checkbox } from "@/components/ui/checkbox";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { FileUp, Pencil, Trash2, ExternalLink, Loader2, Download } from "lucide-react";
@@ -74,6 +75,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   const [notas, setNotas] = useState("");
   const [downloadOpen, setDownloadOpen] = useState(false);
   const [downloadMode, setDownloadMode] = useState<BundleMode>("separate");
+  const [selectedTypeIds, setSelectedTypeIds] = useState<Set<string>>(new Set());
   const [downloading, setDownloading] = useState(false);
 
   const load = useCallback(async () => {
@@ -183,16 +185,41 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   };
 
   const uploaded = items.filter((row) => row.document?.file_url);
+  const selected = uploaded.filter((row) => selectedTypeIds.has(row.document_type.id));
+  const allSelected = uploaded.length > 0 && selected.length === uploaded.length;
   const subject = kind === "truck" ? "esta unidad" : "este operador";
 
+  const setAllSelected = (checked: boolean) => {
+    setSelectedTypeIds(checked ? new Set(uploaded.map((row) => row.document_type.id)) : new Set());
+  };
+
+  const toggleSelected = (typeId: string, checked: boolean) => {
+    setSelectedTypeIds((current) => {
+      const next = new Set(current);
+      if (checked) next.add(typeId);
+      else next.delete(typeId);
+      return next;
+    });
+  };
+
+  const openDownload = () => {
+    setDownloadMode("separate");
+    setSelectedTypeIds(new Set(uploaded.map((row) => row.document_type.id)));
+    setDownloadOpen(true);
+  };
+
   const download = async () => {
+    if (selected.length === 0) {
+      toast.error("Elige al menos un documento");
+      return;
+    }
     setDownloading(true);
     try {
       const result = await downloadDocumentBundle({
         mode: downloadMode,
         kind,
         entityLabel: entityLabel ?? "",
-        files: uploaded.map((row) => ({
+        files: selected.map((row) => ({
           title: row.document_type.nombre,
           detail: documentDetail(row.document!),
           fileUrl: row.document!.file_url,
@@ -239,7 +266,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   return (
     <div className="space-y-3">
       {uploaded.length > 0 ? (
-        <Button type="button" variant="outline" className="w-full" onClick={() => setDownloadOpen(true)}>
+        <Button type="button" variant="outline" className="w-full" onClick={openDownload}>
           <Download className="h-4 w-4 mr-2" />
           Descargar resumen documentos
         </Button>
@@ -347,19 +374,62 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
       <Dialog
         open={downloadOpen}
         onOpenChange={(open) => {
-          if (downloading) return;
-          setDownloadOpen(open);
-          if (open) setDownloadMode("separate");
+          if (downloading || open) return;
+          setDownloadOpen(false);
         }}
       >
-        <DialogContent className="max-w-md">
+        <DialogContent className="max-w-md max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>Descargar resumen documentos</DialogTitle>
             <DialogDescription>
-              {uploaded.length} archivo{uploaded.length === 1 ? "" : "s"} de {subject}
-              {entityLabel?.trim() ? ` (${entityLabel.trim()})` : ""}.
+              Elige qué archivos de {subject}
+              {entityLabel?.trim() ? ` (${entityLabel.trim()})` : ""} quieres bajar.
             </DialogDescription>
           </DialogHeader>
+          <div className="space-y-2">
+            <Label>Documentos</Label>
+            <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
+              <div
+                className="flex cursor-pointer items-center gap-2 text-sm font-medium"
+                onClick={() => {
+                  if (!downloading) setAllSelected(!allSelected);
+                }}
+              >
+                <Checkbox
+                  checked={allSelected ? true : selected.length > 0 ? "indeterminate" : false}
+                  disabled={downloading}
+                  onClick={(event) => event.stopPropagation()}
+                  onCheckedChange={(value) => setAllSelected(value === true)}
+                />
+                Todos
+              </div>
+              {uploaded.map((row) => {
+                const checked = selectedTypeIds.has(row.document_type.id);
+                const detail = documentDetail(row.document!);
+                return (
+                  <div
+                    key={row.document_type.id}
+                    className="flex cursor-pointer items-start gap-2 text-sm"
+                    onClick={() => {
+                      if (!downloading) toggleSelected(row.document_type.id, !checked);
+                    }}
+                  >
+                    <Checkbox
+                      className="mt-0.5"
+                      checked={checked}
+                      disabled={downloading}
+                      onClick={(event) => event.stopPropagation()}
+                      onCheckedChange={(value) => toggleSelected(row.document_type.id, value === true)}
+                    />
+                    <span className="min-w-0">
+                      <span className="block">{row.document_type.nombre}</span>
+                      {detail ? <span className="block text-xs text-muted-foreground">{detail}</span> : null}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
           <RadioGroup
             value={downloadMode}
             onValueChange={(value) => setDownloadMode(value as BundleMode)}
@@ -389,9 +459,13 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
             <Button variant="outline" onClick={() => setDownloadOpen(false)} disabled={downloading}>
               Cancelar
             </Button>
-            <Button onClick={() => void download()} disabled={downloading} className="bg-primary text-primary-foreground">
+            <Button
+              onClick={() => void download()}
+              disabled={downloading || selected.length === 0}
+              className="bg-primary text-primary-foreground"
+            >
               {downloading ? <Loader2 className="h-4 w-4 mr-2 animate-spin" /> : <Download className="h-4 w-4 mr-2" />}
-              Descargar
+              {selected.length === 0 ? "Descargar" : `Descargar (${selected.length})`}
             </Button>
           </DialogFooter>
         </DialogContent>
