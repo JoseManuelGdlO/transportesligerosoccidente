@@ -24,6 +24,7 @@ import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
 import { montoCobroDefault, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError } from "@/lib/paymentComplement";
+import { planPagoLista } from "@/lib/pagoLista";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
 import { ComplementoCorreoFields } from "@/components/tlo/ComplementoCorreoFields";
@@ -178,6 +179,15 @@ export default function Cuentas() {
   const [cobranzaIds, setCobranzaIds] = useState<string[]>([]);
   const [cobranzaFecha, setCobranzaFecha] = useState(() => new Date().toISOString().slice(0, 10));
   const [cobranzaSaving, setCobranzaSaving] = useState(false);
+  const [pagoListaLoading, setPagoListaLoading] = useState(false);
+  const [pagoOmitidas, setPagoOmitidas] = useState(0);
+  const [bulkPayOpen, setBulkPayOpen] = useState(false);
+  const [bulkPaySaving, setBulkPaySaving] = useState(false);
+  const [bulkPayFecha, setBulkPayFecha] = useState(() => new Date().toISOString().slice(0, 10));
+  const [bulkPayNota, setBulkPayNota] = useState("");
+  const [bulkPayRows, setBulkPayRows] = useState<
+    { doc: AccountDocument; checked: boolean; monto: string }[]
+  >([]);
   const [loading, setLoading] = useState(false);
   const [syncing, setSyncing] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
@@ -248,6 +258,7 @@ export default function Cuentas() {
   const [correoEmail, setCorreoEmail] = useState("");
   const [correoMensaje, setCorreoMensaje] = useState(MENSAJE_CORREO_DEFAULT);
   const cobroLoadSeq = useRef(0);
+  const cobroDesdeLista = useRef(false);
 
   const resetCorreo = (clientId?: string | null) => {
     setEnviarCorreo(false);
@@ -474,8 +485,17 @@ export default function Cuentas() {
       toast.success(result.dto.uuid ? `Complemento timbrado ${result.dto.uuid}` : "Complemento timbrado");
       setCobroOpen(false);
       setStampOpen(false);
-      setDetailOpen(true);
-      void refreshAfterComplement(documentId);
+      const desdeLista = cobroDesdeLista.current;
+      cobroDesdeLista.current = false;
+      if (desdeLista) setCobranzaIds([]);
+      if (detailOpen && selected) {
+        void refreshAfterComplement(selected.id);
+      } else if (!desdeLista) {
+        setDetailOpen(true);
+        void refreshAfterComplement(documentId);
+      } else {
+        void load();
+      }
       return;
     }
     const complementId = result.dto.id;
@@ -512,6 +532,8 @@ export default function Cuentas() {
 
   const openCobroDialog = () => {
     if (!selected) return;
+    cobroDesdeLista.current = false;
+    setPagoOmitidas(0);
     const clientId = selected.client_id;
     const currentId = selected.id;
     setCobroFecha(new Date().toISOString().slice(0, 10));
@@ -547,12 +569,66 @@ export default function Cuentas() {
     });
   };
 
+  const openPagoDesdeLista = async () => {
+    if (!cobranzaIds.length) return;
+    setPagoListaLoading(true);
+    cobroLoadSeq.current += 1;
+    try {
+      const loaded = await Promise.all(cobranzaIds.map((id) => fetchAccountDocument(id).catch(() => null)));
+      const cargadas = loaded.filter((doc): doc is AccountDocument => doc != null);
+      if (!cargadas.length) {
+        toast.error("No se pudieron cargar las facturas seleccionadas");
+        return;
+      }
+      const plan = planPagoLista(cargadas);
+      if (plan.kind === "vacio" || plan.kind === "error") {
+        toast.error(plan.message);
+        return;
+      }
+      const hoy = new Date().toISOString().slice(0, 10);
+      setPagoOmitidas(plan.omitidas + cobranzaIds.length - cargadas.length);
+      if (plan.kind === "complemento") {
+        cobroDesdeLista.current = true;
+        setCobroFecha(hoy);
+        setCobroForma("03");
+        setCobroTipoCambio("");
+        setCobroRows(
+          plan.docs.map((doc) => ({
+            doc,
+            checked: true,
+            monto: String(montoCobroDefault(doc.saldo_pendiente, doc.saldo_sat ?? doc.saldo_pendiente)),
+          })),
+        );
+        resetCorreo(plan.clientId);
+        setCobroLoading(false);
+        setCobroOpen(true);
+        return;
+      }
+      cobroDesdeLista.current = false;
+      setBulkPayFecha(hoy);
+      setBulkPayNota("");
+      setBulkPayRows(
+        plan.docs.map((doc) => ({
+          doc,
+          checked: true,
+          monto: String(doc.saldo_pendiente),
+        })),
+      );
+      setBulkPayOpen(true);
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo preparar el pago");
+    } finally {
+      setPagoListaLoading(false);
+    }
+  };
+
   const saveCobro = async () => {
-    if (!selected?.client_id) {
+    const base = cobroRows.find((row) => row.checked)?.doc;
+    if (!base?.client_id) {
       toast.error("La factura no tiene cliente");
       return;
     }
-    const moneda = selected.moneda || "MXN";
+    const moneda = base.moneda || "MXN";
     const esMxn = moneda.toUpperCase() === "MXN";
     const tipoCambio = esMxn ? 1 : Number(cobroTipoCambio);
     if (!/^\d{2}$/.test(cobroForma)) {
@@ -578,7 +654,7 @@ export default function Cuentas() {
     setCobroSaving(true);
     try {
       const result = await createPaymentComplementApi({
-        client_id: selected.client_id,
+        client_id: base.client_id,
         fecha_pago: cobroFecha,
         forma_pago_p: cobroForma,
         moneda_p: moneda,
@@ -586,12 +662,12 @@ export default function Cuentas() {
         documentos,
         ...correo.fields,
       });
-      showComplementToast(selected.id, result);
+      showComplementToast(base.id, result);
     } catch (e) {
       const message = e instanceof Error ? e.message : "No se pudo registrar el cobro";
       const pendingId = pendingComplementIdFromError(message);
       if (pendingId) {
-        showComplementToast(selected.id, {
+        showComplementToast(base.id, {
           status: 422,
           dto: { id: pendingId, estatus: "error", error_mensaje: message },
         });
@@ -600,6 +676,45 @@ export default function Cuentas() {
       }
     } finally {
       setCobroSaving(false);
+    }
+  };
+
+  const saveBulkPay = async () => {
+    const lineas = bulkPayRows
+      .filter((row) => row.checked)
+      .map((row) => ({ id: row.doc.id, monto: Number(row.monto) }));
+    if (!lineas.length || lineas.some((linea) => !(linea.monto > 0))) {
+      toast.error("Selecciona facturas con monto mayor a 0");
+      return;
+    }
+    setBulkPaySaving(true);
+    let aplicadas = 0;
+    try {
+      for (const linea of lineas) {
+        await addAccountPaymentApi(linea.id, {
+          monto: linea.monto,
+          fecha: bulkPayFecha,
+          nota: bulkPayNota.trim() || undefined,
+        });
+        aplicadas += 1;
+      }
+      toast.success(lineas.length === 1 ? "Pago aplicado" : `Pago aplicado a ${lineas.length} cuentas`);
+      setBulkPayOpen(false);
+      setCobranzaIds([]);
+      await load();
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "No se pudo aplicar el pago";
+      if (aplicadas > 0) {
+        const hechas = new Set(lineas.slice(0, aplicadas).map((linea) => linea.id));
+        setBulkPayRows((prev) => prev.filter((row) => !hechas.has(row.doc.id)));
+        setCobranzaIds((prev) => prev.filter((id) => !hechas.has(id)));
+        toast.error(`${message} ${aplicadas} ya quedaron aplicadas.`);
+      } else {
+        toast.error(message);
+      }
+      await load();
+    } finally {
+      setBulkPaySaving(false);
     }
   };
 
@@ -670,6 +785,8 @@ export default function Cuentas() {
 
   const cobroMoneda = selected?.moneda || "MXN";
   const cobroEsMxn = cobroMoneda.toUpperCase() === "MXN";
+  const monedaCobroDialog = cobroRows[0]?.doc.moneda || cobroMoneda;
+  const cobroDialogEsMxn = monedaCobroDialog.toUpperCase() === "MXN";
   const abonosSinComplemento = (selected?.payments ?? []).filter((payment) => !payment.cfdi_pago_id);
   const puedeTimbrarAbonos =
     Boolean(selected?.complemento_disponible) && abonosSinComplemento.length > 0;
@@ -844,13 +961,23 @@ export default function Cuentas() {
             </div>
           </div>
 
+          <div className="space-y-4">
           {tipo === "cxc" && canManage && (
-            <div className="flex flex-col gap-3 rounded-md border border-border/70 bg-muted/30 px-3 py-3 sm:flex-row sm:flex-wrap sm:items-end">
+            <div className="sticky top-0 z-20 -mx-4 flex flex-col gap-3 border-y bg-background px-4 py-3 shadow-sm sm:flex-row sm:flex-wrap sm:items-end md:-mx-6 md:px-6">
               <p className="text-sm sm:mr-auto sm:mb-2">
                 {cobranzaIds.length
-                  ? `${cobranzaIds.length} seleccionadas. Cada vencimiento se recalcula con el plazo de esa factura.`
-                  : "Selecciona facturas para asignarles la misma fecha de ingreso a cobranza."}
+                  ? `${cobranzaIds.length} seleccionadas. Aplica el pago o la misma fecha de ingreso a cobranza.`
+                  : "Selecciona facturas para aplicar un pago o asignarles la fecha de ingreso a cobranza."}
               </p>
+              <Button
+                type="button"
+                size="sm"
+                className="h-9"
+                disabled={!cobranzaIds.length || pagoListaLoading || cobranzaSaving}
+                onClick={() => void openPagoDesdeLista()}
+              >
+                {pagoListaLoading ? "Cargando…" : "Aplicar pago"}
+              </Button>
               <div className="space-y-1.5">
                 <Label className="text-xs text-muted-foreground">Fecha de ingreso a cobranza</Label>
                 <Input
@@ -863,8 +990,9 @@ export default function Cuentas() {
               <Button
                 type="button"
                 size="sm"
+                variant="outline"
                 className="h-9"
-                disabled={!cobranzaIds.length || !cobranzaFecha || cobranzaSaving}
+                disabled={!cobranzaIds.length || !cobranzaFecha || cobranzaSaving || pagoListaLoading}
                 onClick={async () => {
                   setCobranzaSaving(true);
                   try {
@@ -1063,6 +1191,7 @@ export default function Cuentas() {
               </div>
             </div>
           ) : null}
+          </div>
         </TabsContent>
       </Tabs>
 
@@ -1654,9 +1783,16 @@ export default function Cuentas() {
       <Dialog open={cobroOpen} onOpenChange={setCobroOpen}>
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
-            <DialogTitle>Registrar cobro</DialogTitle>
+            <DialogTitle>{cobroDesdeLista.current ? "Aplicar pago" : "Registrar cobro"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
+            {pagoOmitidas > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {pagoOmitidas === 1
+                  ? "1 factura sin saldo no entra a este cobro."
+                  : `${pagoOmitidas} facturas sin saldo no entran a este cobro.`}
+              </p>
+            )}
             <div>
               <Label>Fecha</Label>
               <Input type="date" value={cobroFecha} onChange={(e) => setCobroFecha(e.target.value)} />
@@ -1667,9 +1803,9 @@ export default function Cuentas() {
             </div>
             <div>
               <Label>Moneda</Label>
-              <Input value={cobroMoneda} disabled />
+              <Input value={monedaCobroDialog} disabled />
             </div>
-            {!cobroEsMxn && (
+            {!cobroDialogEsMxn && (
               <div>
                 <Label>Tipo de cambio</Label>
                 <Input
@@ -1742,6 +1878,82 @@ export default function Cuentas() {
             </Button>
             <Button disabled={cobroSaving || cobroLoading} onClick={() => void saveCobro()}>
               {cobroSaving ? "Timbrando…" : "Timbrar cobro"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={bulkPayOpen} onOpenChange={setBulkPayOpen}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Aplicar pago</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            {pagoOmitidas > 0 && (
+              <p className="text-sm text-muted-foreground">
+                {pagoOmitidas === 1
+                  ? "1 factura sin saldo no entra a este pago."
+                  : `${pagoOmitidas} facturas sin saldo no entran a este pago.`}
+              </p>
+            )}
+            <p className="text-sm text-muted-foreground">
+              Cada factura conserva su propia cuenta. El monto se abona al saldo de esa factura.
+            </p>
+            <div>
+              <Label>Fecha</Label>
+              <Input type="date" value={bulkPayFecha} onChange={(e) => setBulkPayFecha(e.target.value)} />
+            </div>
+            <div>
+              <Label>Nota</Label>
+              <Input value={bulkPayNota} onChange={(e) => setBulkPayNota(e.target.value)} />
+            </div>
+            <div className="space-y-2">
+              <Label>Facturas</Label>
+              <div className="max-h-56 space-y-2 overflow-y-auto rounded-md border p-2">
+                {bulkPayRows.map((row) => (
+                  <label key={row.doc.id} className="flex items-center gap-2 text-sm">
+                    <Checkbox
+                      checked={row.checked}
+                      onCheckedChange={(v) =>
+                        setBulkPayRows((prev) =>
+                          prev.map((item) =>
+                            item.doc.id === row.doc.id ? { ...item, checked: v === true } : item,
+                          ),
+                        )
+                      }
+                    />
+                    <span className="min-w-0 flex-1">
+                      {row.doc.folio}
+                      <span className="text-muted-foreground">
+                        {" "}
+                        · saldo {fmtMXNDecimal(row.doc.saldo_pendiente)}
+                      </span>
+                    </span>
+                    <Input
+                      type="number"
+                      min={0}
+                      step="0.01"
+                      className="w-28"
+                      value={row.monto}
+                      onChange={(e) =>
+                        setBulkPayRows((prev) =>
+                          prev.map((item) =>
+                            item.doc.id === row.doc.id ? { ...item, monto: e.target.value } : item,
+                          ),
+                        )
+                      }
+                    />
+                  </label>
+                ))}
+              </div>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setBulkPayOpen(false)} disabled={bulkPaySaving}>
+              Cancelar
+            </Button>
+            <Button disabled={bulkPaySaving} onClick={() => void saveBulkPay()}>
+              {bulkPaySaving ? "Aplicando…" : "Aplicar pago"}
             </Button>
           </DialogFooter>
         </DialogContent>
