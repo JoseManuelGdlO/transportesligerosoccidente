@@ -1026,6 +1026,40 @@ describe("addPayment y complemento PPD", () => {
     assert.equal(created.mock.calls.length, 0);
   });
 
+  it("con sin_timbrar aplica el abono PPD y lo marca como pago externo", async () => {
+    const doc = {
+      id: "doc-ppd",
+      tenant_id: "t1",
+      tipo: "cxc" as const,
+      origen: "viaje" as const,
+      estatus: "abierta" as const,
+      client_id: "client-1",
+      trip_id: "trip-1",
+      monto_original: "11200",
+      entidad_nombre: "ESCUELA",
+      folio: "15",
+      concepto: "Flete",
+      fecha_emision: "2026-05-01",
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(CartaPorte, "findOne", async () => ({ xml_timbrado: PPD_XML }) as never);
+    mock.method(Trip, "findAll", async () => [] as never);
+    const created = mock.method(AccountDocumentPayment, "create", async () => ({ id: "pay-ext" }) as never);
+
+    const dto = await addPayment("t1", "doc-ppd", {
+      monto: 11200,
+      fecha: "2026-10-15",
+      sin_timbrar: true,
+    });
+
+    assert.equal(created.mock.calls.length, 1);
+    const payload = created.mock.calls[0]?.arguments[0] as { pago_externo?: boolean; nota?: string };
+    assert.equal(payload.pago_externo, true);
+    assert.match(payload.nota ?? "", /Sicofi/);
+    assert.equal(dto.id, "doc-ppd");
+  });
+
   it("origen manual sigue creando el abono", async () => {
     const doc = {
       id: "doc-manual",

@@ -238,6 +238,7 @@ export default function Cuentas() {
     fecha: new Date().toISOString().slice(0, 10),
     nota: "",
   });
+  const [pagoSinTimbrar, setPagoSinTimbrar] = useState(false);
   const [cobroOpen, setCobroOpen] = useState(false);
   const [cobroLoading, setCobroLoading] = useState(false);
   const [cobroSaving, setCobroSaving] = useState(false);
@@ -281,6 +282,7 @@ export default function Cuentas() {
   };
 
   const openDetail = (d: AccountDocument) => {
+    setPagoSinTimbrar(false);
     setSelected(d);
     fillEditForm(d);
     setDetailOpen(true);
@@ -371,6 +373,7 @@ export default function Cuentas() {
   useEffect(() => {
     const docId = searchParams.get("doc");
     if (!docId || !canView) return;
+    setPagoSinTimbrar(false);
     setDetailLoading(true);
     void fetchAccountDocument(docId)
       .then((d) => {
@@ -460,8 +463,9 @@ export default function Cuentas() {
         monto,
         fecha: payForm.fecha,
         nota: payForm.nota || undefined,
+        sin_timbrar: pagoSinTimbrar || undefined,
       });
-      toast.success("Abono registrado");
+      toast.success(pagoSinTimbrar ? "Pago aplicado sin timbrar" : "Abono registrado");
       setPaymentOpen(false);
       setSelected(updated);
       await load();
@@ -720,7 +724,9 @@ export default function Cuentas() {
 
   const openStampDialog = () => {
     if (!selected) return;
-    const pending = (selected.payments ?? []).filter((payment) => !payment.cfdi_pago_id);
+    const pending = (selected.payments ?? []).filter(
+      (payment) => !payment.cfdi_pago_id && !payment.pago_externo,
+    );
     setStampPayments(pending);
     setStampIds(pending.map((payment) => payment.id));
     setStampFecha(new Date().toISOString().slice(0, 10));
@@ -787,7 +793,9 @@ export default function Cuentas() {
   const cobroEsMxn = cobroMoneda.toUpperCase() === "MXN";
   const monedaCobroDialog = cobroRows[0]?.doc.moneda || cobroMoneda;
   const cobroDialogEsMxn = monedaCobroDialog.toUpperCase() === "MXN";
-  const abonosSinComplemento = (selected?.payments ?? []).filter((payment) => !payment.cfdi_pago_id);
+  const abonosSinComplemento = (selected?.payments ?? []).filter(
+    (payment) => !payment.cfdi_pago_id && !payment.pago_externo,
+  );
   const puedeTimbrarAbonos =
     Boolean(selected?.complemento_disponible) && abonosSinComplemento.length > 0;
   const saldoSatReferencia = selected?.saldo_sat ?? selected?.saldo_pendiente ?? 0;
@@ -1541,7 +1549,9 @@ export default function Cuentas() {
                           {p.nota ? ` · ${p.nota}` : ""}
                         </span>
                         <span className="flex flex-wrap items-center gap-2">
-                          {p.cfdi_pago_id ? (
+                          {p.pago_externo ? (
+                            <span>Pagado en Sicofi</span>
+                          ) : p.cfdi_pago_id ? (
                             <>
                               <span>Timbrado</span>
                               <Button
@@ -1603,10 +1613,23 @@ export default function Cuentas() {
                 </Button>
               )}
             </div>
-            <div className="flex flex-wrap justify-end gap-2">
-              <Button variant="outline" onClick={() => setDetailOpen(false)}>
-                Cerrar
-              </Button>
+            <div className="flex flex-wrap items-center justify-end gap-2">
+              {canManage &&
+                selected?.tipo === "cxc" &&
+                selected.complemento_disponible &&
+                selected.estatus === "abierta" &&
+                selected.saldo_pendiente > 0 && (
+                  <label
+                    className="flex items-center gap-2 text-sm"
+                    title="Provisional. Aplica el pago en la cuenta sin timbrar el complemento. Úsalo cuando el pago ya está en Sicofi."
+                  >
+                    <Checkbox
+                      checked={pagoSinTimbrar}
+                      onCheckedChange={(v) => setPagoSinTimbrar(v === true)}
+                    />
+                    Aplicar sin timbrar
+                  </label>
+                )}
               {canManage && detailLoading && selected?.estatus === "abierta" && selected.saldo_pendiente > 0 && (
                 <Button variant="secondary" disabled>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1618,8 +1641,22 @@ export default function Cuentas() {
                 selected?.complemento_disponible &&
                 selected.estatus === "abierta" &&
                 selected.saldo_pendiente > 0 && (
-                  <Button variant="secondary" onClick={openCobroDialog}>
-                    Registrar cobro
+                  <Button
+                    variant="secondary"
+                    onClick={() => {
+                      if (!pagoSinTimbrar) {
+                        openCobroDialog();
+                        return;
+                      }
+                      setPayForm({
+                        monto: String(selected.saldo_pendiente),
+                        fecha: new Date().toISOString().slice(0, 10),
+                        nota: "",
+                      });
+                      setPaymentOpen(true);
+                    }}
+                  >
+                    {pagoSinTimbrar ? "Aplicar pago" : "Registrar cobro"}
                   </Button>
                 )}
               {canManage &&
@@ -1742,7 +1779,7 @@ export default function Cuentas() {
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>Registrar abono</DialogTitle>
+            <DialogTitle>{pagoSinTimbrar ? "Aplicar pago sin timbrar" : "Registrar abono"}</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -1775,7 +1812,9 @@ export default function Cuentas() {
             <Button variant="outline" onClick={() => setPaymentOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => void savePayment()}>Guardar abono</Button>
+            <Button onClick={() => void savePayment()}>
+              {pagoSinTimbrar ? "Aplicar pago" : "Guardar abono"}
+            </Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>

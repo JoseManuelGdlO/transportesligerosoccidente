@@ -464,6 +464,7 @@ export function normalizeAccountDocument(
         fecha: String(row.fecha ?? "").slice(0, 10),
         nota: row.nota != null ? String(row.nota) : undefined,
         created_at: row.created_at != null ? String(row.created_at) : undefined,
+        pago_externo: row.pago_externo === true,
         cfdi_pago_id: row.cfdi_pago_id != null ? String(row.cfdi_pago_id) : undefined,
         uuid: row.uuid != null ? String(row.uuid) : undefined,
       };
@@ -2067,7 +2068,7 @@ export async function patchAccountDocumentApi(
 
 export async function addAccountPaymentApi(
   id: string,
-  body: { monto: number; fecha: string; nota?: string },
+  body: { monto: number; fecha: string; nota?: string; sin_timbrar?: boolean },
 ): Promise<import("@/types/tlo").AccountDocument> {
   const res = await apiFetch(`/account-documents/${id}/payments`, {
     method: "POST",

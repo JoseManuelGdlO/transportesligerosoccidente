@@ -359,7 +359,12 @@ async function finishStamp(input: {
       await AccountDocumentPayment.update(
         { cfdi_pago_id: input.pago.id },
         {
-          where: { id: input.mode.paymentIds, tenant_id: input.tenantId, cfdi_pago_id: null },
+          where: {
+            id: input.mode.paymentIds,
+            tenant_id: input.tenantId,
+            cfdi_pago_id: null,
+            pago_externo: false,
+          },
           transaction,
         },
       );
@@ -636,6 +641,9 @@ export async function createFromExistingPayments(
   if (payments.length !== input.paymentIds.length) throw new ComplementError("Abono no encontrado", 404);
   for (const payment of payments) {
     if (payment.cfdi_pago_id) throw new ComplementError("El abono ya tiene complemento", 400);
+    if (payment.pago_externo) {
+      throw new ComplementError("Ese abono ya se registró en Sicofi y no se timbra aquí", 400);
+    }
   }
   const sums = new Map<string, number>();
   for (const payment of payments) {

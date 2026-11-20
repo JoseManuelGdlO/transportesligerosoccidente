@@ -49,6 +49,8 @@ export interface AccountPaymentDto {
   fecha: string;
   nota?: string;
   created_at?: string;
+  /** Abono aplicado sin complemento: el pago ya existe en Sicofi. */
+  pago_externo?: boolean;
   cfdi_pago_id?: string;
   uuid?: string;
 }
@@ -215,6 +217,7 @@ function toPaymentDto(p: AccountDocumentPayment): AccountPaymentDto {
     fecha: String(p.fecha).slice(0, 10),
     nota: p.nota ?? undefined,
     created_at: p.createdAt ? p.createdAt.toISOString() : undefined,
+    pago_externo: Boolean(p.pago_externo),
     cfdi_pago_id: p.cfdi_pago_id ?? undefined,
   };
 }
@@ -811,7 +814,7 @@ async function refreshDocumentStatus(
 export async function addPayment(
   tenantId: string,
   documentId: string,
-  data: { monto: number; fecha: string; nota?: string },
+  data: { monto: number; fecha: string; nota?: string; sin_timbrar?: boolean },
   createdBy?: string,
 ): Promise<AccountDocumentDto> {
   if (data.monto <= 0) throw httpError("El abono debe ser mayor a 0", 400);
@@ -821,6 +824,8 @@ export async function addPayment(
   if (!doc) throw httpError("Documento no encontrado", 404);
   if (doc.estatus === "cancelada") throw httpError("Documento cancelado", 400);
 
+  // Provisional: facturas viejas ya cobradas en Sicofi. El abono baja el saldo y no se timbra.
+  let pagoExterno = false;
   if (doc.origen === "viaje" && doc.tipo === "cxc" && doc.trip_id) {
     const carta = await cartaPorteDelDocumento(doc, {
       estatus: "timbrada",
@@ -836,7 +841,10 @@ export async function addPayment(
           client_id: doc.client_id,
         })
       ) {
-        throw httpError("Esta factura PPD se cobra con complemento de pago", 400);
+        if (!data.sin_timbrar) {
+          throw httpError("Esta factura PPD se cobra con complemento de pago", 400);
+        }
+        pagoExterno = true;
       }
     }
   }
@@ -855,7 +863,10 @@ export async function addPayment(
     document_id: documentId,
     monto: String(roundMoney(data.monto)),
     fecha: data.fecha,
-    nota: data.nota?.trim() || null,
+    nota: pagoExterno
+      ? data.nota?.trim() || "Pago ya registrado en Sicofi"
+      : data.nota?.trim() || null,
+    pago_externo: pagoExterno,
     created_by: createdBy ?? null,
   } as never);
 

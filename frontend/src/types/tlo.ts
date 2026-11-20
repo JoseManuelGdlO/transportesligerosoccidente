@@ -847,6 +847,8 @@ export interface AccountDocumentPayment {
   fecha: string;
   nota?: string;
   created_at?: string;
+  /** Abono aplicado sin timbrar: el complemento ya existe en Sicofi. */
+  pago_externo?: boolean;
   cfdi_pago_id?: string;
   uuid?: string;
 }

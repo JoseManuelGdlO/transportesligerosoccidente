@@ -70,6 +70,7 @@ const paymentSchema = z.object({
   monto: z.number().positive(),
   fecha: dateOnly,
   nota: z.string().optional(),
+  sin_timbrar: z.boolean().optional(),
 });
 
 export const listAccountDocuments = asyncHandler(async (req: Request, res: Response) => {
