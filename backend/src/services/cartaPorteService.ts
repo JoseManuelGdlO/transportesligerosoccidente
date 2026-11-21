@@ -753,30 +753,26 @@ function uploadAbsFromRel(rel: string): string {
   return path.join(uploadRootDir(), ...normalized.split("/"));
 }
 
-function cartaPorteXmlFilename(cp: CartaPorte, trip: Trip): string {
-  if (cp.serie && cp.folio_cfdi) {
-    return `${safeFilenamePart(cp.serie)}-${safeFilenamePart(String(cp.folio_cfdi))}.xml`;
-  }
-  if (trip.folio?.trim()) {
-    return `${safeFilenamePart(trip.folio)}-carta-porte.xml`;
-  }
-  if (cp.uuid) {
-    return `${safeFilenamePart(cp.uuid)}.xml`;
-  }
-  return `carta-porte-${trip.id}.xml`;
+function facturaFilenamePart(serie: string | null | undefined, folio: string | null | undefined): string {
+  const serieSafe = serie?.trim() ? safeFilenamePart(serie.trim()) : "";
+  const folioSafe = folio?.trim() ? safeFilenamePart(folio.trim()) : "";
+  if (serieSafe && folioSafe) return `${serieSafe}-${folioSafe}`;
+  return folioSafe || serieSafe;
 }
 
-function cartaPortePdfFilename(cp: CartaPorte, trip: Trip): string {
-  if (cp.serie && cp.folio_cfdi) {
-    return `${safeFilenamePart(cp.serie)}-${safeFilenamePart(String(cp.folio_cfdi))}.pdf`;
-  }
-  if (trip.folio?.trim()) {
-    return `${safeFilenamePart(trip.folio)}-carta-porte.pdf`;
-  }
-  if (cp.uuid) {
-    return `${safeFilenamePart(cp.uuid)}.pdf`;
-  }
-  return `carta-porte-${trip.id}.pdf`;
+/** Descarga: folio del viaje y serie-folio de la factura. El archivo en disco sigue usando el id. */
+export function cartaPorteDownloadFilename(
+  cp: { serie?: string | null; folio_cfdi?: string | null; uuid?: string | null },
+  trip: { id: string; folio?: string | null },
+  ext: "xml" | "pdf",
+): string {
+  const viaje = trip.folio?.trim() ? safeFilenamePart(trip.folio.trim()) : "";
+  const factura = facturaFilenamePart(cp.serie, cp.folio_cfdi);
+  if (viaje && factura) return `${viaje}_${factura}.${ext}`;
+  if (factura) return `${factura}.${ext}`;
+  if (viaje) return `${viaje}-carta-porte.${ext}`;
+  if (cp.uuid?.trim()) return `${safeFilenamePart(cp.uuid.trim())}.${ext}`;
+  return `carta-porte-${trip.id}.${ext}`;
 }
 
 export async function getCartaPortePdf(
@@ -797,7 +793,7 @@ export async function getCartaPortePdf(
 
   const byCartaRel = cartaPortePdfRelPath(tenantId, cartaId);
   const byCartaAbs = uploadAbsFromRel(byCartaRel);
-  const filename = cartaPortePdfFilename(cp, trip);
+  const filename = cartaPorteDownloadFilename(cp, trip, "pdf");
 
   if (existsSync(byCartaAbs)) {
     return { pdf: await readFile(byCartaAbs), filename };
@@ -853,7 +849,7 @@ export async function getCartaPorteXml(
   }
   if (!xml?.trim()) throw err("XML timbrado no encontrado", 404);
 
-  return { xml, filename: cartaPorteXmlFilename(cp, trip) };
+  return { xml, filename: cartaPorteDownloadFilename(cp, trip, "xml") };
 }
 
 export async function cancelarCartaPorte(

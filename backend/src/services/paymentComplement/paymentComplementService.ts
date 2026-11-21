@@ -826,9 +826,70 @@ export async function paymentComplementUuids(tenantId: string, cfdiPagoIds: stri
   return map;
 }
 
-function pagoFilename(serie: string, folio: string, ext: "xml" | "pdf"): string {
-  const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
-  return `complemento-${safe(serie) || "P"}-${safe(folio) || "0"}.${ext}`;
+function safeFilenamePart(value: string): string {
+  return value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+}
+
+/** Descarga: serie-folio del pago y la factura (o facturas) que cubre. */
+export function paymentComplementDownloadFilename(
+  serie: string,
+  folio: string,
+  facturas: string[],
+  ext: "xml" | "pdf",
+): string {
+  const pago = [safeFilenamePart(serie.trim()), safeFilenamePart(String(folio).trim())].filter(Boolean).join("-") || "pago";
+  const relacionadas = [
+    ...new Set(facturas.map((factura) => safeFilenamePart(factura.trim())).filter(Boolean)),
+  ];
+  if (!relacionadas.length) return `complemento-${pago}.${ext}`;
+  return `${pago}_${relacionadas.join("_")}.${ext}`;
+}
+
+async function facturasDePago(tenantId: string, pagoId: string): Promise<string[]> {
+  const rows = await CfdiPagoDocumento.findAll({
+    where: { tenant_id: tenantId, cfdi_pago_id: pagoId },
+    attributes: ["carta_porte_id", "account_document_id"],
+    order: [
+      ["num_parcialidad", "ASC"],
+      ["createdAt", "ASC"],
+    ],
+  });
+  if (!rows.length) return [];
+
+  const cartaIds = [...new Set(rows.map((row) => row.carta_porte_id).filter(Boolean))];
+  const documentIds = [...new Set(rows.map((row) => row.account_document_id).filter(Boolean))];
+  const [cartas, docs] = await Promise.all([
+    cartaIds.length
+      ? CartaPorte.findAll({
+          where: { tenant_id: tenantId, id: { [Op.in]: cartaIds } },
+          attributes: ["id", "serie", "folio_cfdi"],
+        })
+      : [],
+    documentIds.length
+      ? AccountDocument.findAll({
+          where: { tenant_id: tenantId, id: { [Op.in]: documentIds } },
+          attributes: ["id", "folio"],
+        })
+      : [],
+  ]);
+  const porCarta = new Map(
+    cartas.map((carta) => {
+      const serie = carta.serie?.trim() ?? "";
+      const folio = carta.folio_cfdi?.trim() ?? "";
+      const label = serie && folio ? `${serie}-${folio}` : folio || serie;
+      return [carta.id, label] as const;
+    }),
+  );
+  const porDocumento = new Map(docs.map((doc) => [doc.id, doc.folio?.trim() ?? ""] as const));
+  const labels: string[] = [];
+  const seen = new Set<string>();
+  for (const row of rows) {
+    const label = porCarta.get(row.carta_porte_id) || porDocumento.get(row.account_document_id) || "";
+    if (!label || seen.has(label)) continue;
+    seen.add(label);
+    labels.push(label);
+  }
+  return labels;
 }
 
 async function loadTimbradoPago(tenantId: string, id: string): Promise<CfdiPago> {
@@ -847,7 +908,11 @@ export async function getPaymentComplementXml(
   const pago = await loadTimbradoPago(tenantId, id);
   const xml = pago.xml_timbrado?.trim();
   if (!xml) throw new ComplementError("XML timbrado no encontrado", 404);
-  return { xml, filename: pagoFilename(pago.serie, String(pago.folio), "xml") };
+  const facturas = await facturasDePago(tenantId, pago.id);
+  return {
+    xml,
+    filename: paymentComplementDownloadFilename(pago.serie, String(pago.folio), facturas, "xml"),
+  };
 }
 
 export async function getPaymentComplementPdf(
@@ -855,7 +920,8 @@ export async function getPaymentComplementPdf(
   id: string,
 ): Promise<{ pdf: Buffer; filename: string }> {
   const pago = await loadTimbradoPago(tenantId, id);
-  const filename = pagoFilename(pago.serie, String(pago.folio), "pdf");
+  const facturas = await facturasDePago(tenantId, pago.id);
+  const filename = paymentComplementDownloadFilename(pago.serie, String(pago.folio), facturas, "pdf");
   const xml = pago.xml_timbrado?.trim();
   if (xml) {
     const tenant = await Tenant.findByPk(tenantId);

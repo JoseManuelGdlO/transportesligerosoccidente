@@ -1181,19 +1181,14 @@ export function TripCartaPorte({
     await reloadTrip();
   };
 
-  const suggestedXmlFilename = useCallback(
-    (serie?: string, folioCfdi?: string) => {
-      if (serie && folioCfdi) return `${serie}-${folioCfdi}.xml`;
-      if (trip.folio?.trim()) return `${trip.folio.replace(/[^A-Za-z0-9._-]/g, "_")}-carta-porte.xml`;
-      return undefined;
-    },
-    [trip.folio],
-  );
-
-  const suggestedPdfFilename = useCallback(
-    (serie?: string, folioCfdi?: string) => {
-      if (serie && folioCfdi) return `${serie}-${folioCfdi}.pdf`;
-      if (trip.folio?.trim()) return `${trip.folio.replace(/[^A-Za-z0-9._-]/g, "_")}-carta-porte.pdf`;
+  const suggestedStampedFilename = useCallback(
+    (serie: string | undefined, folioCfdi: string | undefined, ext: "xml" | "pdf") => {
+      const safe = (value: string) => value.replace(/[^A-Za-z0-9._-]/g, "_").slice(0, 80);
+      const factura = serie && folioCfdi ? `${safe(serie)}-${safe(folioCfdi)}` : "";
+      const viaje = trip.folio?.trim() ? safe(trip.folio.trim()) : "";
+      if (viaje && factura) return `${viaje}_${factura}.${ext}`;
+      if (factura) return `${factura}.${ext}`;
+      if (viaje) return `${viaje}-carta-porte.${ext}`;
       return undefined;
     },
     [trip.folio],
@@ -1202,7 +1197,7 @@ export function TripCartaPorte({
   const handleDownloadXml = async (serie?: string, folioCfdi?: string) => {
     if (!cp) return;
     try {
-      await downloadCartaPorteXmlById(trip.id, cp.id, suggestedXmlFilename(serie, folioCfdi));
+      await downloadCartaPorteXmlById(trip.id, cp.id, suggestedStampedFilename(serie, folioCfdi, "xml"));
       toast.success("XML descargado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el XML");
@@ -1212,7 +1207,7 @@ export function TripCartaPorte({
   const handleDownloadPdf = async (serie?: string, folioCfdi?: string) => {
     if (!cp) return;
     try {
-      await downloadCartaPortePdfById(trip.id, cp.id, suggestedPdfFilename(serie, folioCfdi));
+      await downloadCartaPortePdfById(trip.id, cp.id, suggestedStampedFilename(serie, folioCfdi, "pdf"));
       toast.success("PDF descargado");
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF");
@@ -1263,7 +1258,7 @@ export function TripCartaPorte({
           await downloadCartaPortePdfById(
             trip.id,
             cp.id,
-            suggestedPdfFilename(timbrado.serie, timbrado.folio_cfdi),
+            suggestedStampedFilename(timbrado.serie, timbrado.folio_cfdi, "pdf"),
           );
         } catch (e) {
           toast.warning(
