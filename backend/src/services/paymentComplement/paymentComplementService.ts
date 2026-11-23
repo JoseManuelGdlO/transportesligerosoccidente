@@ -16,10 +16,11 @@ import { roundMoney } from "../calc";
 import type { TimbradoResult } from "../pac/types";
 import { resolveSicofiBaseUrl, resolveSicofiPagos40Url } from "../pac/sicofi/config";
 import { getSicofiAccessToken, invalidateSicofiAccessToken } from "../pac/sicofi/sicofiAuth";
+import { noIdentificacionFromComentarios } from "../pac/sicofi/mapConceptos";
 import { isSicofiHttp401, sicofiPostPagos40 } from "../pac/sicofi/sicofiClient";
 import { uploadRootDir } from "../../middlewares/uploadDocument";
 import { decryptSecret } from "../../utils/fiscalCrypto";
-import { localDateStr, localDateTimeSatStr } from "../../utils/localDates";
+import { fechaPagoConHora, localDateStr, localDateTimeSatStr } from "../../utils/localDates";
 import { num } from "../../utils/numbers";
 import { buildDraftLines, ComplementError, type DraftLine } from "./buildDraftLines";
 import { buildPagos40Payload } from "./buildPagos40Payload";
@@ -44,6 +45,7 @@ export interface CreateComplementInput {
   monedaP: string;
   tipoCambioP: number;
   numOperacion?: string;
+  comentarios?: string;
   email?: string;
   emailMensaje?: string;
   documentos: { documentId: string; monto: number }[];
@@ -269,18 +271,20 @@ function payloadBody(input: {
   monedaP: string;
   tipoCambioP: number;
   numOperacion: string;
+  comentarios?: string | null;
   client: Client;
   lineas: DraftLine[];
   usuario: string;
   contrasena: string;
   email?: string | null;
   emailMensaje?: string | null;
+  ahora?: Date;
 }): Record<string, unknown> {
   const correo = correoStamp(input.email, input.emailMensaje);
   const payload = buildPagos40Payload({
     folio: Number(input.folio),
     serie: input.serie,
-    fechaCfdi: localDateTimeSatStr(),
+    fechaCfdi: localDateTimeSatStr(input.ahora),
     lugarExpedicion: input.cpFiscal,
     formaPagoP: input.formaPagoP,
     fechaPago: input.fechaPago,
@@ -296,6 +300,7 @@ function payloadBody(input: {
     lineas: input.lineas,
     email: correo.email,
     emailMensaje: correo.emailMensaje,
+    mensajePdf: input.comentarios,
   });
   return {
     Usuario: input.usuario,
@@ -545,17 +550,21 @@ async function runComplement(
     const monto = roundMoney(draft.reduce((sum, linea) => sum + linea.impPagado, 0));
     const paymentIds = mode.kind === "link" ? mode.paymentIds : null;
     const correo = correoStamp(input.email, input.emailMensaje);
+    const comentarios = noIdentificacionFromComentarios(input.comentarios);
+    const ahora = new Date();
+    const fechaPagoSat = fechaPagoConHora(input.fechaPago, ahora);
     const pago = await CfdiPago.create(
       {
         id: randomUUID(),
         tenant_id: tenantId,
         client_id: input.clientId,
-        fecha_pago: new Date(`${input.fechaPago}T12:00:00`),
+        fecha_pago: new Date(fechaPagoSat),
         forma_pago_p: input.formaPagoP,
         moneda_p: input.monedaP,
         tipo_cambio_p: String(input.tipoCambioP),
         monto: monto.toFixed(2),
         num_operacion: input.numOperacion?.trim() || null,
+        comentarios,
         email: correo.email,
         email_mensaje: correo.emailMensaje,
         serie: fiscal.serie,
@@ -584,25 +593,26 @@ async function runComplement(
       })) as never,
       { transaction },
     );
-    return { docs, draft, folio, pago };
+    return { docs, draft, folio, pago, fechaPagoSat, ahora, comentarios };
   });
 
-  const fechaPagoPayload = `${input.fechaPago}T12:00:00`;
   const body = payloadBody({
     folio: prepared.folio,
     serie: fiscal.serie,
     cpFiscal: fiscal.cpFiscal,
     formaPagoP: input.formaPagoP,
-    fechaPago: fechaPagoPayload,
+    fechaPago: prepared.fechaPagoSat,
     monedaP: input.monedaP,
     tipoCambioP: input.tipoCambioP,
     numOperacion: input.numOperacion?.trim() ?? "",
+    comentarios: prepared.comentarios,
     client,
     lineas: prepared.draft,
     usuario: fiscal.usuario,
     contrasena: fiscal.contrasena,
     email: input.email,
     emailMensaje: input.emailMensaje,
+    ahora: prepared.ahora,
   });
 
   return finishStamp({
@@ -780,6 +790,7 @@ export async function retryPaymentComplement(tenantId: string, id: string): Prom
     monedaP: pago.moneda_p,
     tipoCambioP: num(pago.tipo_cambio_p),
     numOperacion: pago.num_operacion?.trim() ?? "",
+    comentarios: pago.comentarios,
     client,
     lineas: draft,
     usuario: fiscal.usuario,

@@ -303,16 +303,19 @@ describe("paymentComplementService", () => {
       Usuario?: string;
       Contrasena?: string;
       ReceptorCFDI?: { Email?: string | null; RazonSocial?: string };
-      DatosCFDI?: { EmailMensaje?: string | null; Serie?: string };
-      Pagos?: { CFDIPagos40?: { FechaPago?: string }[] };
+      DatosCFDI?: { EmailMensaje?: string | null; MensajePDF?: string; Serie?: string; Fecha?: string };
+      Pagos?: { CFDIPagos40?: { FechaPago?: string; NumOperacion?: string }[] };
     };
     assert.equal(body.Usuario, "sicofi-user");
     assert.equal(body.Contrasena, "secret");
     assert.equal(body.ReceptorCFDI?.RazonSocial, "ESCUELA");
     assert.equal(body.ReceptorCFDI?.Email, null);
     assert.equal(body.DatosCFDI?.EmailMensaje, null);
+    assert.equal(body.DatosCFDI?.MensajePDF, "");
     assert.equal(body.DatosCFDI?.Serie, "P");
-    assert.equal(body.Pagos?.CFDIPagos40?.[0]?.FechaPago, `${localDateStr()}T12:00:00`);
+    assert.equal(body.Pagos?.CFDIPagos40?.[0]?.NumOperacion, "SPEI-1");
+    assert.equal(body.Pagos?.CFDIPagos40?.[0]?.FechaPago, body.DatosCFDI?.Fecha);
+    assert.match(body.Pagos?.CFDIPagos40?.[0]?.FechaPago ?? "", new RegExp(`^${localDateStr()}T\\d{2}:\\d{2}:\\d{2}$`));
     assert.match(String(h.post.mock.calls[0]?.arguments[0]), /\/Comprobante40\/Pagos40$/);
   });
 
@@ -342,6 +345,36 @@ describe("paymentComplementService", () => {
     };
     assert.equal(body.ReceptorCFDI?.Email, "cliente@empresa.com");
     assert.equal(body.DatosCFDI?.EmailMensaje, "Adjunto el complemento.");
+  });
+
+  it("guarda numero de operacion y comentarios y los manda a Sicofi", async () => {
+    const doc = makeDoc("doc-1", "trip-1");
+    const h = installHarness({
+      docs: [doc],
+      post: async () => ({ uuid: "UUID-NOTA", xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" }),
+      pagoFindAll: () => [],
+      docLines: [],
+      paymentsById: [],
+      paymentsByDocument: [],
+    });
+
+    await createPaymentComplement("tenant-1", "user-1", {
+      ...input([{ documentId: "doc-1", monto: 100 }], "  SPEI-9  "),
+      comentarios: "  Pago | parcial  ",
+    });
+
+    const created = h.pagoCreate.mock.calls[0]?.arguments[0] as {
+      num_operacion?: string | null;
+      comentarios?: string | null;
+    };
+    assert.equal(created.num_operacion, "SPEI-9");
+    assert.equal(created.comentarios, "Pago parcial");
+    const body = h.post.mock.calls[0]?.arguments[1] as {
+      DatosCFDI?: { MensajePDF?: string };
+      Pagos?: { CFDIPagos40?: { NumOperacion?: string }[] };
+    };
+    assert.equal(body.DatosCFDI?.MensajePDF, "Pago parcial");
+    assert.equal(body.Pagos?.CFDIPagos40?.[0]?.NumOperacion, "SPEI-9");
   });
 
   it("parcialidad 2 usa el insoluto de la última línea timbrada", async () => {

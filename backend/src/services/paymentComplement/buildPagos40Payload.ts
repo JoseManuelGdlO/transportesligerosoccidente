@@ -1,3 +1,4 @@
+import { noIdentificacionFromComentarios } from "../pac/sicofi/mapConceptos";
 import type { DraftLine } from "./buildDraftLines";
 import { aggregatePagoImpuestos } from "./proratePaymentTaxes";
 import type { TaxComponent } from "./taxComponent";
@@ -59,6 +60,8 @@ export function buildPagos40Payload(input: {
   lineas: DraftLine[];
   email?: string | null;
   emailMensaje?: string | null;
+  /** Comentario opcional. Sicofi lo imprime en la caja Comentarios (`MensajePDF`). */
+  mensajePdf?: string | null;
 }): Record<string, unknown> {
   const monto = round2(input.lineas.reduce((sum, linea) => sum + linea.impPagado, 0));
   const impuestos = aggregatePagoImpuestos(
@@ -85,7 +88,7 @@ export function buildPagos40Payload(input: {
       LugarDeExpedicion: input.lugarExpedicion,
       Exportacion: "01",
       DatosAdicionales: null,
-      MensajePDF: null,
+      MensajePDF: noIdentificacionFromComentarios(input.mensajePdf) ?? "",
       EmailMensaje: emailMensaje,
       complementos: null,
     },

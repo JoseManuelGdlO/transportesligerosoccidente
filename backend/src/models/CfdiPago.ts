@@ -19,6 +19,7 @@ export class CfdiPago extends Model<InferAttributes<CfdiPago>, InferCreationAttr
   declare tipo_cambio_p: string;
   declare monto: string;
   declare num_operacion: CreationOptional<string | null>;
+  declare comentarios: CreationOptional<string | null>;
   declare email: CreationOptional<string | null>;
   declare email_mensaje: CreationOptional<string | null>;
   declare serie: string;
@@ -46,6 +47,7 @@ export function initCfdiPago(sequelize: Sequelize) {
       tipo_cambio_p: { type: DataTypes.DECIMAL(14, 6), allowNull: false },
       monto: { type: DataTypes.DECIMAL(14, 2), allowNull: false },
       num_operacion: { type: DataTypes.STRING(100), allowNull: true },
+      comentarios: { type: DataTypes.STRING(100), allowNull: true },
       email: { type: DataTypes.STRING(255), allowNull: true },
       email_mensaje: { type: DataTypes.TEXT, allowNull: true },
       serie: { type: DataTypes.STRING(16), allowNull: false },

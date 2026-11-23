@@ -4,6 +4,47 @@ import { Label } from "@/components/ui/label";
 import { Switch } from "@/components/ui/switch";
 import { Textarea } from "@/components/ui/textarea";
 
+interface ComplementoPagoCamposProps {
+  numOperacion: string;
+  onNumOperacionChange: (value: string) => void;
+  comentarios: string;
+  onComentariosChange: (value: string) => void;
+}
+
+/** No. de operación y comentarios del complemento. Ambos pueden ir vacíos. */
+export function ComplementoPagoCampos({
+  numOperacion,
+  onNumOperacionChange,
+  comentarios,
+  onComentariosChange,
+}: ComplementoPagoCamposProps) {
+  const baseId = useId();
+  return (
+    <>
+      <div>
+        <Label htmlFor={`${baseId}-operacion`}>No. de operación</Label>
+        <Input
+          id={`${baseId}-operacion`}
+          value={numOperacion}
+          maxLength={100}
+          placeholder="Opcional"
+          onChange={(e) => onNumOperacionChange(e.target.value)}
+        />
+      </div>
+      <div>
+        <Label htmlFor={`${baseId}-comentarios`}>Comentarios</Label>
+        <Textarea
+          id={`${baseId}-comentarios`}
+          value={comentarios}
+          maxLength={100}
+          placeholder="Opcional"
+          onChange={(e) => onComentariosChange(e.target.value)}
+        />
+      </div>
+    </>
+  );
+}
+
 interface ComplementoCorreoFieldsProps {
   enabled: boolean;
   onEnabledChange: (value: boolean) => void;

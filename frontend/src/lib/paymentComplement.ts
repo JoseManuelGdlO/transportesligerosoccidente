@@ -14,6 +14,19 @@ export const MENSAJE_CORREO_DEFAULT =
 
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
+/** No. de operación y comentarios solo viajan si el usuario escribió algo. */
+export function complementoExtraBody(
+  numOperacion: string,
+  comentarios: string,
+): { num_operacion?: string; comentarios?: string } {
+  const operacion = numOperacion.trim();
+  const texto = comentarios.trim();
+  return {
+    ...(operacion ? { num_operacion: operacion } : {}),
+    ...(texto ? { comentarios: texto } : {}),
+  };
+}
+
 /** Fragmento del POST de timbrado. Sin switch, no manda correo. Con switch, el correo tiene que ser válido. */
 export function correoComplementoBody(
   enabled: boolean,

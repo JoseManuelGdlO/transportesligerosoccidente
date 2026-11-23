@@ -103,6 +103,7 @@ describe("buildPagos40Payload", () => {
     assert.equal(datos.Serie, "P");
     assert.equal(doctos[0].Serie, "A");
     assert.equal(datos.Folio, 12);
+    assert.equal(datos.MensajePDF, "");
     assert.equal(receptor.UsoCfdi, "CP01");
     assert.equal(receptor.Email, null);
     assert.equal(datos.EmailMensaje, null);
@@ -148,6 +149,12 @@ describe("buildPagos40Payload", () => {
     const doctos = pagos.CFDIPagos40[0].DoctoRelacionado as Array<Record<string, unknown>>;
     assert.equal(datos.Serie, "RP");
     assert.equal(doctos[0].Serie, "A");
+  });
+
+  it("manda el comentario limpio en MensajePDF", () => {
+    const payload = buildPagos40Payload({ ...input(), mensajePdf: "  Pago | parcial  " });
+    const datos = payload.DatosCFDI as Record<string, unknown>;
+    assert.equal(datos.MensajePDF, "Pago parcial");
   });
 
   it("pone correo y mensaje cuando hay destinatario", () => {

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  complementoExtraBody,
   correoComplementoBody,
   montoCobroDefault,
   pendingComplementIdFromError,
@@ -21,6 +22,19 @@ describe("pendingComplementIdFromError", () => {
       ),
     ).toBe(id);
     expect(pendingComplementIdFromError("El monto excede el saldo interno")).toBeNull();
+  });
+});
+
+describe("complementoExtraBody", () => {
+  it("omite operacion y comentarios vacios", () => {
+    expect(complementoExtraBody("   ", "  ")).toEqual({});
+  });
+
+  it("manda los textos recortados", () => {
+    expect(complementoExtraBody("  SPEI-1  ", "  Pago de marzo  ")).toEqual({
+      num_operacion: "SPEI-1",
+      comentarios: "Pago de marzo",
+    });
   });
 });
 

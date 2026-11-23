@@ -24,11 +24,11 @@ import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw } from "lucide-reac
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
-import { montoCobroDefault, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError } from "@/lib/paymentComplement";
+import { montoCobroDefault, complementoExtraBody, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError } from "@/lib/paymentComplement";
 import { planPagoLista } from "@/lib/pagoLista";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
-import { ComplementoCorreoFields } from "@/components/tlo/ComplementoCorreoFields";
+import { ComplementoCorreoFields, ComplementoPagoCampos } from "@/components/tlo/ComplementoCorreoFields";
 import { ConceptosEditor } from "@/components/tlo/ConceptosEditor";
 import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import {
@@ -262,6 +262,8 @@ export default function Cuentas() {
   const [stampTipoCambio, setStampTipoCambio] = useState("");
   const [stampPayments, setStampPayments] = useState<AccountDocumentPayment[]>([]);
   const [stampIds, setStampIds] = useState<string[]>([]);
+  const [numOperacion, setNumOperacion] = useState("");
+  const [comentariosPago, setComentariosPago] = useState("");
   const [enviarCorreo, setEnviarCorreo] = useState(false);
   const [correoEmail, setCorreoEmail] = useState("");
   const [correoMensaje, setCorreoMensaje] = useState(MENSAJE_CORREO_DEFAULT);
@@ -272,6 +274,8 @@ export default function Cuentas() {
     setEnviarCorreo(false);
     setCorreoEmail(clients.find((c) => c.id === clientId)?.email ?? "");
     setCorreoMensaje(MENSAJE_CORREO_DEFAULT);
+    setNumOperacion("");
+    setComentariosPago("");
   };
 
   const fillEditForm = (d: AccountDocument) => {
@@ -657,6 +661,7 @@ export default function Cuentas() {
       toast.error(correo.error);
       return;
     }
+    const extra = complementoExtraBody(numOperacion, comentariosPago);
     const marcadas = cobroRows.filter((row) => row.checked);
     const documentos = marcadas.map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
     if (!documentos.length || documentos.some((doc) => !(doc.monto > 0))) {
@@ -674,6 +679,7 @@ export default function Cuentas() {
           moneda_p: moneda,
           tipo_cambio_p: tipoCambio,
           documentos,
+          ...extra,
           ...correo.fields,
         });
         const folioDe = new Map(marcadas.map((row) => [row.doc.id, row.doc.folio]));
@@ -709,6 +715,7 @@ export default function Cuentas() {
         moneda_p: moneda,
         tipo_cambio_p: tipoCambio,
         documentos,
+        ...extra,
         ...correo.fields,
       });
       showComplementToast(base.id, result);
@@ -870,6 +877,7 @@ export default function Cuentas() {
         moneda_p: moneda,
         tipo_cambio_p: tipoCambio,
         payment_ids: stampIds,
+        ...complementoExtraBody(numOperacion, comentariosPago),
         ...correo.fields,
       });
       showComplementToast(selected.id, result);
@@ -1937,6 +1945,7 @@ export default function Cuentas() {
             <div>
               <Label>Fecha</Label>
               <Input type="date" value={cobroFecha} onChange={(e) => setCobroFecha(e.target.value)} />
+              <p className="mt-1 text-xs text-muted-foreground">La hora se registra al timbrar.</p>
             </div>
             <div>
               <Label>Forma de pago</Label>
@@ -2033,6 +2042,12 @@ export default function Cuentas() {
                 </RadioGroup>
               </div>
             )}
+            <ComplementoPagoCampos
+              numOperacion={numOperacion}
+              onNumOperacionChange={setNumOperacion}
+              comentarios={comentariosPago}
+              onComentariosChange={setComentariosPago}
+            />
             <ComplementoCorreoFields
               enabled={enviarCorreo}
               onEnabledChange={setEnviarCorreo}
@@ -2198,6 +2213,7 @@ export default function Cuentas() {
             <div>
               <Label>Fecha</Label>
               <Input type="date" value={stampFecha} onChange={(e) => setStampFecha(e.target.value)} />
+              <p className="mt-1 text-xs text-muted-foreground">La hora se registra al timbrar.</p>
             </div>
             <div>
               <Label>Forma de pago</Label>
@@ -2235,6 +2251,12 @@ export default function Cuentas() {
                 </label>
               ))}
             </div>
+            <ComplementoPagoCampos
+              numOperacion={numOperacion}
+              onNumOperacionChange={setNumOperacion}
+              comentarios={comentariosPago}
+              onComentariosChange={setComentariosPago}
+            />
             <ComplementoCorreoFields
               enabled={enviarCorreo}
               onEnabledChange={setEnviarCorreo}

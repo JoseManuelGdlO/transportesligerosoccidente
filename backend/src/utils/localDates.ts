@@ -4,6 +4,11 @@ export function localDateTimeSatStr(d = new Date()): string {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}T${pad(d.getHours())}:${pad(d.getMinutes())}:${pad(d.getSeconds())}`;
 }
 
+/** Fecha elegida por el usuario con la hora del reloj. La hora no se captura a mano. */
+export function fechaPagoConHora(fecha: string, now = new Date()): string {
+  return `${fecha.slice(0, 10)}T${localDateTimeSatStr(now).slice(11)}`;
+}
+
 /** Fecha local YYYY-MM-DD según TZ del proceso (recomendado America/Mexico_City). */
 export function localDateStr(d = new Date()): string {
   const y = d.getFullYear();
