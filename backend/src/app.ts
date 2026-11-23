@@ -58,6 +58,9 @@ export function createApp() {
         callback(null, false);
       },
       credentials: true,
+      // La descarga arma un blob y lee este header para el nombre del archivo.
+      // Sin exponerlo, el navegador lo oculta y el complemento sale como complemento-<uuid>.
+      exposedHeaders: ["Content-Disposition"],
     }),
   );
   app.use(express.json());
