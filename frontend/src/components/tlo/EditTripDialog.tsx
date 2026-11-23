@@ -196,7 +196,8 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
 
   const applyRoute = (routeId: string) => {
     setSelectedRouteId(routeId);
-    if (routeId === "__custom__") return;
+    // Carta timbrada: solo se corrige el vínculo al catálogo. Las paradas ya van en el XML.
+    if (paradasLocked || routeId === "__custom__") return;
     const r = catalogRoutes.find((x) => x.id === routeId);
     if (!r) return;
     setParadas(
@@ -497,6 +498,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                     value={form.client_id}
                     onChange={(v) => {
                       setForm({ ...form, client_id: v });
+                      if (paradasLocked) return;
                       setSelectedRouteId("__custom__");
                       if (v !== trip.client_id) setParadas(emptyParadas());
                     }}
@@ -511,7 +513,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                 {form.client_id && apiMode && (
                   <div className="space-y-1.5">
                     <Label>Ruta del catálogo</Label>
-                    <Select value={selectedRouteId} onValueChange={applyRoute} disabled={paradasLocked}>
+                    <Select value={selectedRouteId} onValueChange={applyRoute}>
                       <SelectTrigger>
                         <SelectValue placeholder="Personalizada o del catálogo" />
                       </SelectTrigger>
@@ -529,7 +531,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                 )}
                 {paradasLocked && (
                   <p className="text-xs text-muted-foreground rounded-md border border-warning/40 bg-warning/10 px-3 py-2">
-                    La carta porte está timbrada: no se pueden modificar las paradas de la ruta.
+                    La carta porte está timbrada: las paradas quedan como se timbraron. Sí puedes corregir la ruta del catálogo.
                   </p>
                 )}
                 <TripParadasEditor
