@@ -8,6 +8,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Table, TableBody, TableCell, TableHead, TableHeader, TableRow } from "@/components/ui/table";
 import { Checkbox } from "@/components/ui/checkbox";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from "@/components/ui/dialog";
 import {
   AlertDialog,
@@ -44,6 +45,7 @@ import {
   createAccountDocumentApi,
   createComplementFromPaymentsApi,
   createPaymentComplementApi,
+  createPaymentComplementsEachApi,
   discardPaymentComplementApi,
   downloadPaymentComplementFile,
   fetchAccountAging,
@@ -248,6 +250,11 @@ export default function Cuentas() {
   const [cobroRows, setCobroRows] = useState<
     { doc: AccountDocument; checked: boolean; monto: string }[]
   >([]);
+  const [cobroCadaFactura, setCobroCadaFactura] = useState(false);
+  const [loteTimbrados, setLoteTimbrados] = useState(0);
+  const [loteFallos, setLoteFallos] = useState<
+    { documentId: string; folio: string; complementoId?: string; error: string; retrying: boolean }[] | null
+  >(null);
   const [stampOpen, setStampOpen] = useState(false);
   const [stampSaving, setStampSaving] = useState(false);
   const [stampFecha, setStampFecha] = useState(new Date().toISOString().slice(0, 10));
@@ -544,6 +551,7 @@ export default function Cuentas() {
     setCobroForma("03");
     setCobroTipoCambio("");
     setCobroRows([]);
+    setCobroCadaFactura(false);
     resetCorreo(clientId);
     setCobroOpen(true);
     setCobroLoading(true);
@@ -596,6 +604,7 @@ export default function Cuentas() {
         setCobroFecha(hoy);
         setCobroForma("03");
         setCobroTipoCambio("");
+        setCobroCadaFactura(false);
         setCobroRows(
           plan.docs.map((doc) => ({
             doc,
@@ -648,15 +657,51 @@ export default function Cuentas() {
       toast.error(correo.error);
       return;
     }
-    const documentos = cobroRows
-      .filter((row) => row.checked)
-      .map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
+    const marcadas = cobroRows.filter((row) => row.checked);
+    const documentos = marcadas.map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
     if (!documentos.length || documentos.some((doc) => !(doc.monto > 0))) {
       toast.error("Selecciona facturas con monto mayor a 0");
       return;
     }
+    const cadaUna = cobroCadaFactura && documentos.length > 1;
     setCobroSaving(true);
     try {
+      if (cadaUna) {
+        const lote = await createPaymentComplementsEachApi({
+          client_id: base.client_id,
+          fecha_pago: cobroFecha,
+          forma_pago_p: cobroForma,
+          moneda_p: moneda,
+          tipo_cambio_p: tipoCambio,
+          documentos,
+          ...correo.fields,
+        });
+        const folioDe = new Map(marcadas.map((row) => [row.doc.id, row.doc.folio]));
+        const desdeLista = cobroDesdeLista.current;
+        cobroDesdeLista.current = false;
+        setCobroOpen(false);
+        if (desdeLista) setCobranzaIds([]);
+        await load();
+        if (!lote.fallidos.length) {
+          toast.success(
+            lote.timbrados.length === 1
+              ? "Complemento timbrado"
+              : `Se timbraron ${lote.timbrados.length} complementos`,
+          );
+          return;
+        }
+        setLoteTimbrados(lote.timbrados.length);
+        setLoteFallos(
+          lote.fallidos.map((fallo) => ({
+            documentId: fallo.document_id,
+            folio: folioDe.get(fallo.document_id) || fallo.document_id,
+            complementoId: fallo.complemento_id,
+            error: fallo.error,
+            retrying: false,
+          })),
+        );
+        return;
+      }
       const result = await createPaymentComplementApi({
         client_id: base.client_id,
         fecha_pago: cobroFecha,
@@ -680,6 +725,61 @@ export default function Cuentas() {
       }
     } finally {
       setCobroSaving(false);
+    }
+  };
+
+  const quitarFallo = (documentId: string) => {
+    setLoteFallos((prev) => {
+      const next = (prev ?? []).filter((fallo) => fallo.documentId !== documentId);
+      return next.length ? next : null;
+    });
+  };
+
+  const retryFallo = async (documentId: string) => {
+    const fallo = (loteFallos ?? []).find((row) => row.documentId === documentId);
+    if (!fallo?.complementoId || fallo.retrying) return;
+    setLoteFallos((prev) =>
+      (prev ?? []).map((row) => (row.documentId === documentId ? { ...row, retrying: true } : row)),
+    );
+    try {
+      const again = await retryPaymentComplementApi(fallo.complementoId);
+      if (again.status === 201) {
+        quitarFallo(documentId);
+        setLoteTimbrados((count) => count + 1);
+        toast.success(again.dto.uuid ? `Complemento timbrado ${again.dto.uuid}` : "Complemento timbrado");
+        await load();
+        return;
+      }
+      setLoteFallos((prev) =>
+        (prev ?? []).map((row) =>
+          row.documentId === documentId
+            ? { ...row, retrying: false, error: again.dto.error_mensaje || row.error }
+            : row,
+        ),
+      );
+    } catch (e) {
+      setLoteFallos((prev) =>
+        (prev ?? []).map((row) => (row.documentId === documentId ? { ...row, retrying: false } : row)),
+      );
+      toast.error(e instanceof Error ? e.message : "No se pudo reintentar");
+    }
+  };
+
+  const discardFallo = async (documentId: string) => {
+    const fallo = (loteFallos ?? []).find((row) => row.documentId === documentId);
+    if (!fallo?.complementoId || fallo.retrying) return;
+    setLoteFallos((prev) =>
+      (prev ?? []).map((row) => (row.documentId === documentId ? { ...row, retrying: true } : row)),
+    );
+    try {
+      await discardPaymentComplementApi(fallo.complementoId);
+      quitarFallo(documentId);
+      toast.success("Complemento descartado");
+    } catch (e) {
+      setLoteFallos((prev) =>
+        (prev ?? []).map((row) => (row.documentId === documentId ? { ...row, retrying: false } : row)),
+      );
+      toast.error(e instanceof Error ? e.message : "No se pudo descartar");
     }
   };
 
@@ -799,6 +899,8 @@ export default function Cuentas() {
   const puedeTimbrarAbonos =
     Boolean(selected?.complemento_disponible) && abonosSinComplemento.length > 0;
   const saldoSatReferencia = selected?.saldo_sat ?? selected?.saldo_pendiente ?? 0;
+  const marcadasCobro = cobroRows.filter((row) => row.checked).length;
+  const timbraCadaUna = cobroCadaFactura && marcadasCobro > 1;
 
   return (
     <div className="space-y-4">
@@ -1902,6 +2004,35 @@ export default function Cuentas() {
                 </div>
               )}
             </div>
+            {cobroRows.length > 1 && (
+              <div className="space-y-2">
+                <Label>Cómo timbrar</Label>
+                <RadioGroup
+                  value={cobroCadaFactura ? "cada" : "junto"}
+                  onValueChange={(value) => setCobroCadaFactura(value === "cada")}
+                  className="gap-2"
+                >
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="junto" id="cobro-junto" className="mt-1" />
+                    <Label htmlFor="cobro-junto" className="font-normal leading-snug">
+                      Un complemento para todas
+                      <span className="block text-xs text-muted-foreground">
+                        Un solo CFDI con las facturas marcadas.
+                      </span>
+                    </Label>
+                  </div>
+                  <div className="flex items-start gap-2">
+                    <RadioGroupItem value="cada" id="cobro-cada" className="mt-1" />
+                    <Label htmlFor="cobro-cada" className="font-normal leading-snug">
+                      Un complemento por factura
+                      <span className="block text-xs text-muted-foreground">
+                        Un CFDI por cada factura. Si una falla, las demás se timbran y esa se reintenta al final.
+                      </span>
+                    </Label>
+                  </div>
+                </RadioGroup>
+              </div>
+            )}
             <ComplementoCorreoFields
               enabled={enviarCorreo}
               onEnabledChange={setEnviarCorreo}
@@ -1916,7 +2047,67 @@ export default function Cuentas() {
               Cancelar
             </Button>
             <Button disabled={cobroSaving || cobroLoading} onClick={() => void saveCobro()}>
-              {cobroSaving ? "Timbrando…" : "Timbrar cobro"}
+              {cobroSaving
+                ? timbraCadaUna
+                  ? `Timbrando ${marcadasCobro} complementos…`
+                  : "Timbrando…"
+                : timbraCadaUna
+                  ? `Timbrar ${marcadasCobro} complementos`
+                  : "Timbrar cobro"}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      <Dialog open={loteFallos != null} onOpenChange={(open) => { if (!open) setLoteFallos(null); }}>
+        <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
+          <DialogHeader>
+            <DialogTitle>Reintentar facturas</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-3">
+            <p className="text-sm text-muted-foreground">
+              {loteTimbrados === 0
+                ? "Ningún complemento se timbró."
+                : loteTimbrados === 1
+                  ? "Se timbró 1 complemento."
+                  : `Se timbraron ${loteTimbrados} complementos.`}{" "}
+              Estas facturas no se timbraron. Reinténtalas ahora.
+            </p>
+            <div className="space-y-3">
+              {(loteFallos ?? []).map((fallo) => (
+                <div key={fallo.documentId} className="space-y-2 rounded-md border p-3">
+                  <p className="text-sm font-medium">{fallo.folio}</p>
+                  <p className="text-sm text-muted-foreground">{fallo.error}</p>
+                  {fallo.complementoId ? (
+                    <div className="flex justify-end gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        disabled={fallo.retrying}
+                        onClick={() => void discardFallo(fallo.documentId)}
+                      >
+                        Descartar
+                      </Button>
+                      <Button
+                        size="sm"
+                        disabled={fallo.retrying}
+                        onClick={() => void retryFallo(fallo.documentId)}
+                      >
+                        {fallo.retrying ? "Reintentando…" : "Reintentar"}
+                      </Button>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">
+                      No quedó un complemento para reintentar. Vuelve a timbrar esta factura desde Aplicar pago.
+                    </p>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setLoteFallos(null)}>
+              Cerrar
             </Button>
           </DialogFooter>
         </DialogContent>

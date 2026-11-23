@@ -2115,6 +2115,17 @@ export interface PaymentComplementResult {
   dto: PaymentComplementDto;
 }
 
+export interface PaymentComplementBatchFailure {
+  document_id: string;
+  complemento_id?: string;
+  error: string;
+}
+
+export interface PaymentComplementBatchResult {
+  timbrados: PaymentComplementDto[];
+  fallidos: PaymentComplementBatchFailure[];
+}
+
 export interface PaymentComplementCreateBody {
   client_id: string;
   fecha_pago: string;
@@ -2169,6 +2180,18 @@ export async function createPaymentComplementApi(
     body: JSON.stringify(body),
   });
   return readPaymentComplementResult(res);
+}
+
+export async function createPaymentComplementsEachApi(
+  body: PaymentComplementCreateBody,
+): Promise<PaymentComplementBatchResult> {
+  const res = await apiFetch("/account-documents/payment-complements/each", {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (res.status === 200) return (await res.json()) as PaymentComplementBatchResult;
+  const j = (await res.json().catch(() => ({}))) as { error?: unknown };
+  throw new Error(paymentComplementErrorMessage(j.error, "No se pudieron timbrar los complementos"));
 }
 
 export async function createComplementFromPaymentsApi(

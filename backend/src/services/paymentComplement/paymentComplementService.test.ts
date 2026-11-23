@@ -3,6 +3,7 @@ import { mkdtempSync, rmSync } from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import { after, afterEach, describe, it, mock } from "node:test";
+import { Op } from "sequelize";
 import {
   AccountDocument,
   AccountDocumentPayment,
@@ -22,6 +23,7 @@ import {
   complementDeps,
   createFromExistingPayments,
   createPaymentComplement,
+  createPaymentComplementsPerDocument,
 } from "./paymentComplementService";
 
 const uploadDir = mkdtempSync(path.join(os.tmpdir(), "pago-pdf-"));
@@ -96,6 +98,13 @@ function whereOf(opts: unknown): Where {
   return where ?? {};
 }
 
+function idsOf(value: unknown): string[] | null {
+  if (typeof value === "string") return [value];
+  if (!value || typeof value !== "object") return null;
+  const listed = (value as Record<symbol, unknown>)[Op.in];
+  return Array.isArray(listed) ? listed.map(String) : null;
+}
+
 function makeDoc(id: string, tripId: string) {
   const doc = {
     id,
@@ -162,7 +171,15 @@ function installHarness(opts: HarnessOpts) {
       uuid: "D9BE138A-9449-11EE-9430-00155D012007",
     };
   });
-  const pagos = mock.method(CfdiPago, "findAll", async (query: unknown) => opts.pagoFindAll(whereOf(query)));
+  const pagos = mock.method(CfdiPago, "findAll", async (query: unknown) => {
+    const where = whereOf(query);
+    const listed = opts.pagoFindAll(where);
+    const created = where.estatus
+      ? pagoRows.filter((row) => row.estatus === where.estatus)
+      : pagoRows;
+    const seen = new Set(listed.map((row) => String((row as { id?: string }).id ?? "")));
+    return [...listed, ...created.filter((row) => !seen.has(String(row.id ?? "")))];
+  });
   const pagoCreate = mock.method(CfdiPago, "create", async (values: Record<string, unknown>) => {
     const row = {
       ...values,
@@ -174,8 +191,19 @@ function installHarness(opts: HarnessOpts) {
     pagoRows.push(row);
     return row;
   });
-  const lineBulk = mock.method(CfdiPagoDocumento, "bulkCreate", async (rows: unknown[]) => rows);
-  const docLines = mock.method(CfdiPagoDocumento, "findAll", async () => opts.docLines);
+  const createdLines: Record<string, unknown>[] = [];
+  const lineBulk = mock.method(CfdiPagoDocumento, "bulkCreate", async (rows: unknown[]) => {
+    createdLines.push(...(rows as Record<string, unknown>[]));
+    return rows;
+  });
+  const docLines = mock.method(CfdiPagoDocumento, "findAll", async (query: unknown) => {
+    const ids = idsOf(whereOf(query).account_document_id);
+    const matches = (row: unknown) => {
+      if (!ids) return true;
+      return ids.includes(String((row as { account_document_id?: string }).account_document_id ?? ""));
+    };
+    return [...opts.docLines.filter(matches), ...createdLines.filter(matches)];
+  });
   const payments = mock.method(AccountDocumentPayment, "findAll", async (query: unknown) => {
     const where = whereOf(query);
     if ("id" in where) return opts.paymentsById;
@@ -462,5 +490,59 @@ describe("paymentComplementService", () => {
     assert.equal(iva?.importe, 400);
     assert.equal(ret?.base, 2500);
     assert.equal(ret?.importe, 100);
+  });
+
+  it("un complemento por factura sigue si una falla y deja su id para reintentar", async () => {
+    const docs = [makeDoc("doc-1", "trip-1"), makeDoc("doc-2", "trip-2"), makeDoc("doc-3", "trip-3")];
+    let llamadas = 0;
+    const h = installHarness({
+      docs,
+      post: async () => {
+        llamadas += 1;
+        if (llamadas === 2) throw new SicofiHttpError(400, "serie no dada de alta");
+        return { uuid: `UUID-${llamadas}`, xmlTimbrado: PAGO_XML, fechaTimbrado: "2026-10-15T12:00:00" };
+      },
+      pagoFindAll: () => [],
+      docLines: [],
+      paymentsById: [],
+      paymentsByDocument: [],
+    });
+
+    const result = await createPaymentComplementsPerDocument(
+      "tenant-1",
+      "user-1",
+      input([
+        { documentId: "doc-1", monto: 100 },
+        { documentId: "doc-2", monto: 80 },
+        { documentId: "doc-3", monto: 60 },
+      ]),
+    );
+
+    assert.equal(h.post.mock.calls.length, 3);
+    assert.deepEqual(
+      result.timbrados.map((dto) => dto.folio),
+      ["1", "3"],
+    );
+    assert.equal(result.timbrados[0]?.estatus, "timbrado");
+    assert.equal(result.timbrados[1]?.estatus, "timbrado");
+    assert.equal(result.fallidos.length, 1);
+    assert.equal(result.fallidos[0]?.documentId, "doc-2");
+    assert.equal(typeof result.fallidos[0]?.complementoId, "string");
+    assert.match(result.fallidos[0]?.error ?? "", /serie no dada de alta/);
+    const abonos = h.paymentBulk.mock.calls.flatMap((call) => call.arguments[0] as { document_id: string }[]);
+    assert.deepEqual(
+      abonos.map((row) => row.document_id),
+      ["doc-1", "doc-3"],
+    );
+
+    await assert.rejects(
+      () => createPaymentComplement("tenant-1", "user-1", input([{ documentId: "doc-2", monto: 80 }])),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.status, 409);
+        assert.match(err.message, new RegExp(String(result.fallidos[0]?.complementoId)));
+        return true;
+      },
+    );
   });
 });

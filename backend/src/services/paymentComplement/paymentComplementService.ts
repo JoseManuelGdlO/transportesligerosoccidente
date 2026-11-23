@@ -629,6 +629,58 @@ export async function createPaymentComplement(
   return runComplement(tenantId, userId, input, { kind: "create" });
 }
 
+export interface ComplementPerDocumentFailure {
+  documentId: string;
+  complementoId?: string;
+  error: string;
+}
+
+export interface ComplementPerDocumentResult {
+  timbrados: ComplementDto[];
+  fallidos: ComplementPerDocumentFailure[];
+}
+
+const PENDING_COMPLEMENT = /Hay un complemento pendiente \(([0-9a-fA-F-]{36})\)/;
+
+/**
+ * Timbra un complemento por factura, en orden. Si una falla, las demás siguen.
+ * La fallida conserva su id para que el usuario la reintente al final.
+ */
+export async function createPaymentComplementsPerDocument(
+  tenantId: string,
+  userId: string | undefined,
+  input: CreateComplementInput,
+): Promise<ComplementPerDocumentResult> {
+  if (input.documentos.length < 1) throw new ComplementError("Debe incluir al menos un documento");
+  const ids = input.documentos.map((doc) => doc.documentId);
+  if (new Set(ids).size !== ids.length) throw new ComplementError("Documento repetido");
+
+  const timbrados: ComplementDto[] = [];
+  const fallidos: ComplementPerDocumentFailure[] = [];
+  for (const documento of input.documentos) {
+    try {
+      const dto = await createPaymentComplement(tenantId, userId, { ...input, documentos: [documento] });
+      if (dto.estatus === "timbrado") {
+        timbrados.push(dto);
+        continue;
+      }
+      fallidos.push({
+        documentId: documento.documentId,
+        complementoId: dto.id,
+        error: dto.error_mensaje || "No se pudo timbrar el complemento",
+      });
+    } catch (error) {
+      const message = error instanceof ComplementError ? error.message : messageOf(error);
+      fallidos.push({
+        documentId: documento.documentId,
+        complementoId: PENDING_COMPLEMENT.exec(message)?.[1],
+        error: message,
+      });
+    }
+  }
+  return { timbrados, fallidos };
+}
+
 export async function createFromExistingPayments(
   tenantId: string,
   userId: string | undefined,

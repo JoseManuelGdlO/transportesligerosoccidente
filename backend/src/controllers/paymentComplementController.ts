@@ -72,6 +72,36 @@ export const postPaymentComplement = asyncHandler(async (req: Request, res: Resp
   });
 });
 
+export const postPaymentComplementsPerDocument = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = createSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const data = parsed.data;
+  await guard(res, async () => {
+    const result = await paymentComplementService.createPaymentComplementsPerDocument(tid(req), req.user?.id, {
+      clientId: data.client_id,
+      fechaPago: data.fecha_pago,
+      formaPagoP: data.forma_pago_p,
+      monedaP: data.moneda_p,
+      tipoCambioP: data.tipo_cambio_p,
+      numOperacion: data.num_operacion,
+      email: data.email,
+      emailMensaje: data.email_mensaje,
+      documentos: data.documentos.map((doc) => ({ documentId: doc.document_id, monto: doc.monto })),
+    });
+    res.status(200).json({
+      timbrados: result.timbrados,
+      fallidos: result.fallidos.map((row) => ({
+        document_id: row.documentId,
+        complemento_id: row.complementoId,
+        error: row.error,
+      })),
+    });
+  });
+});
+
 export const postPaymentComplementFromPayments = asyncHandler(async (req: Request, res: Response) => {
   const parsed = fromPaymentsSchema.safeParse(req.body);
   if (!parsed.success) {
