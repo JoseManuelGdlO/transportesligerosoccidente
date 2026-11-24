@@ -10,6 +10,8 @@ export type StopIssueFlags = {
 
 export type CartaPorteIssueClass = {
   hasEmpresaIssues: boolean;
+  hasClienteIssues: boolean;
+  hasPacIssues: boolean;
   hasTripStatusIssue: boolean;
   hasMercanciasIssue: boolean;
   ubicacionesMin: boolean;
@@ -35,6 +37,8 @@ export type CartaPorteIssueClass = {
 
 export type ErrorSectionId =
   | "empresa"
+  | "cliente"
+  | "pac"
   | "driver"
   | "truck"
   | "origen"
@@ -55,6 +59,8 @@ const emptyStop = (): StopIssueFlags => ({
 export function emptyCartaPorteIssueClass(): CartaPorteIssueClass {
   return {
     hasEmpresaIssues: false,
+    hasClienteIssues: false,
+    hasPacIssues: false,
     hasTripStatusIssue: false,
     hasMercanciasIssue: false,
     ubicacionesMin: false,
@@ -100,7 +106,12 @@ export function classifyCartaPorteIssues(
   const flags = emptyCartaPorteIssueClass();
 
   for (const issue of issues) {
-    if (
+    if (issue.startsWith("Cliente:")) {
+      flags.hasClienteIssues = true;
+    } else if (issue.startsWith("PAC:")) {
+      flags.hasPacIssues = true;
+    } else if (
+      issue.startsWith("Empresa:") ||
       issue.includes("empresa") ||
       issue.includes("Régimen fiscal") ||
       issue.includes("Razón social") ||
@@ -113,12 +124,6 @@ export function classifyCartaPorteIssues(
     }
     if (issue === "Agrega al menos una mercancía") {
       flags.hasMercanciasIssue = true;
-    }
-    if (issue.startsWith("Cliente:")) {
-      flags.hasEmpresaIssues = true;
-    }
-    if (issue.startsWith("PAC:")) {
-      flags.hasEmpresaIssues = true;
     }
     if (issue.startsWith("Viaje: la tarifa")) {
       flags.hasMercanciasIssue = true;
@@ -216,12 +221,6 @@ export function classifyCartaPorteIssues(
       flags.truck.poliza_resp_civil = true;
     }
 
-    if (issue.includes("Cliente: falta")) {
-      flags.hasEmpresaIssues = true;
-    }
-    if (issue.includes("PAC: falta")) {
-      flags.hasEmpresaIssues = true;
-    }
     if (issue.includes("clave SAT de colonia") || issue.includes("clave SAT de municipio")) {
       const ubicMatch2 = issue.match(/^Ubicación (.+):/);
       if (ubicMatch2) {
@@ -246,11 +245,31 @@ export function cardHighlightClass(highlight: boolean, validationAttempted: bool
   return highlight && validationAttempted ? "ring-2 ring-destructive" : "";
 }
 
+/** Texto del aviso de empresa. Sicofi no usa los CSD locales: el preview ya los ignora. */
+export function empresaFiscalHint(pacProveedor?: string | null): string {
+  const sicofi = (pacProveedor || "").toLowerCase() === "sicofi";
+  const datos = sicofi ? "RFC, régimen y CP fiscal" : "RFC, régimen, CP fiscal y certificados CSD";
+  return `Configura ${datos} en`;
+}
+
+export function timbradoValidationToast(issues: string[]): { title: string; description?: string } {
+  const clean = issues.map((issue) => issue.trim()).filter(Boolean);
+  if (clean.length === 0) {
+    return { title: "Completa los datos fiscales señalados" };
+  }
+  return {
+    title: "No se timbró: faltan datos",
+    description: clean.join("\n"),
+  };
+}
+
 export function firstErrorSection(
   flags: CartaPorteIssueClass,
   stopCount: number,
 ): ErrorSectionId | null {
   if (flags.hasEmpresaIssues) return "empresa";
+  if (flags.hasClienteIssues) return "cliente";
+  if (flags.hasPacIssues) return "pac";
   if (flags.driver.highlight) return "driver";
   if (flags.truck.highlight) return "truck";
   if (flags.origen.highlight) return "origen";

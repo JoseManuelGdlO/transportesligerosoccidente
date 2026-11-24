@@ -50,8 +50,10 @@ import { materialPeligrosoForCatalog, materialPeligrosoUiMode } from "@/lib/satC
 import {
   cardHighlightClass,
   classifyCartaPorteIssues,
+  empresaFiscalHint,
   fieldHighlightClass,
   firstErrorSection,
+  timbradoValidationToast,
 } from "@/lib/cartaPorteIssues";
 import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
 import { correoComplementoBody } from "@/lib/paymentComplement";
@@ -624,6 +626,7 @@ export function TripCartaPorte({
   const [mercCatalog, setMercCatalog] = useState<SatClaveProducto | null>(null);
   const [previewIssues, setPreviewIssues] = useState<string[]>([]);
   const [validationAttempted, setValidationAttempted] = useState(false);
+  const [pacProveedor, setPacProveedor] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const [driverFiscal, setDriverFiscal] = useState({
     rfc: "",
@@ -749,6 +752,22 @@ export function TripCartaPorte({
       else setMercCatalog(null);
     });
   }, [applyMercCatalog]);
+
+  useEffect(() => {
+    let cancelled = false;
+    void apiFetch("/tenant/fiscal")
+      .then(async (res) => {
+        if (!res.ok || cancelled) return;
+        const data = (await res.json()) as { pac_proveedor?: unknown };
+        if (!cancelled) {
+          setPacProveedor(typeof data.pac_proveedor === "string" ? data.pac_proveedor : null);
+        }
+      })
+      .catch(() => undefined);
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     void lookupSatClaveProducto(DEFAULT_CLAVE_BIENES_TRANSP).then((row) => {
@@ -879,10 +898,10 @@ export function TripCartaPorte({
 
   useEffect(() => {
     if (!validationAttempted) return;
-    const section = firstErrorSection(issueFlags, fiscalStopCount);
+    const section = firstErrorSection(issueFlags, fiscalStopCount) ?? (previewIssues.length > 0 ? "avisos" : null);
     if (!section) return;
     sectionRefs.current[section]?.scrollIntoView({ behavior: "smooth", block: "start" });
-  }, [validationAttempted, issueFlags, fiscalStopCount]);
+  }, [validationAttempted, issueFlags, fiscalStopCount, previewIssues]);
 
   const llegadaNoPosterior = useMemo(() => {
     if (!origenForm.fecha_hora || !destinoForm.fecha_hora) return false;
@@ -1244,7 +1263,12 @@ export function TripCartaPorte({
 
       if (!preview.valid) {
         setValidationAttempted(true);
-        toast.warning("Completa los datos fiscales señalados");
+        const notice = timbradoValidationToast(issues);
+        toast.warning(notice.title, {
+          description: notice.description,
+          duration: notice.description ? 12000 : undefined,
+          classNames: notice.description ? { description: "whitespace-pre-line" } : undefined,
+        });
         return;
       }
 
@@ -1390,6 +1414,21 @@ export function TripCartaPorte({
           </div>
         </CardHeader>
         <CardContent className="space-y-2 text-sm">
+          {validationAttempted && previewIssues.length > 0 && (
+            <div
+              ref={(el) => {
+                sectionRefs.current.avisos = el;
+              }}
+              className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm"
+            >
+              <p className="font-medium text-destructive">No se pudo timbrar</p>
+              <ul className="mt-1 list-disc space-y-1 pl-5">
+                {previewIssues.map((issue, index) => (
+                  <li key={`${issue}-${index}`}>{issue}</li>
+                ))}
+              </ul>
+            </div>
+          )}
           {issueFlags.hasEmpresaIssues && validationAttempted && (
             <div
               ref={(el) => {
@@ -1399,7 +1438,41 @@ export function TripCartaPorte({
             >
               <p className="font-medium text-destructive">Datos de empresa incompletos</p>
               <p className="text-muted-foreground mt-1">
-                Configura RFC, régimen, CP fiscal y certificados CSD en{" "}
+                {empresaFiscalHint(pacProveedor)}{" "}
+                <Link to="/empresa" className="text-primary underline">
+                  Empresa → Datos fiscales
+                </Link>
+                .
+              </p>
+            </div>
+          )}
+          {issueFlags.hasClienteIssues && validationAttempted && (
+            <div
+              ref={(el) => {
+                sectionRefs.current.cliente = el;
+              }}
+              className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm"
+            >
+              <p className="font-medium text-destructive">Datos del cliente incompletos</p>
+              <p className="text-muted-foreground mt-1">
+                Completa RFC, régimen y código postal fiscal en{" "}
+                <Link to="/clientes" className="text-primary underline">
+                  Clientes
+                </Link>
+                .
+              </p>
+            </div>
+          )}
+          {issueFlags.hasPacIssues && validationAttempted && (
+            <div
+              ref={(el) => {
+                sectionRefs.current.pac = el;
+              }}
+              className="rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm"
+            >
+              <p className="font-medium text-destructive">Acceso a Sicofi incompleto</p>
+              <p className="text-muted-foreground mt-1">
+                Configura usuario y contraseña de Sicofi en{" "}
                 <Link to="/empresa" className="text-primary underline">
                   Empresa → Datos fiscales
                 </Link>
