@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import { afterEach, describe, it, mock } from "node:test";
 import { Op } from "sequelize";
-import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, Client, Supplier, Trip, Truck } from "../models";
+import { AccountDocument, AccountDocumentPayment, CartaPorte, CfdiPago, CfdiPagoDocumento, Client, Supplier, Trip, Truck } from "../models";
 import type { FuelLoad } from "../models/FuelLoad";
 import type { FuelTicket } from "../models/FuelTicket";
 import type { Expense } from "../models/Expense";
@@ -1100,6 +1100,7 @@ describe("búsqueda de cuentas por UUID", () => {
     mock.method(Trip, "findAll", async () => [{ id: "trip-1", modalidad_cobro: "factura" }] as never);
     mock.method(CartaPorte, "findAll", async () => [{ trip_id: "trip-1" }] as never);
     mock.method(CfdiPago, "findAll", async () => [{ id: "pago-1" }] as never);
+    mock.method(CfdiPagoDocumento, "findAll", async () => [] as never);
     mock.method(AccountDocumentPayment, "findAll", async (opts: { where?: { cfdi_pago_id?: unknown } }) => {
       if (opts?.where && "cfdi_pago_id" in opts.where) return [{ document_id: "doc-pago" }] as never;
       return [] as never;
@@ -1159,6 +1160,7 @@ describe("búsqueda de cuentas por UUID", () => {
     mock.method(CartaPorte, "findAll", async () => [] as never);
     mock.method(CfdiPago, "findAll", async () => [] as never);
     mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(CfdiPagoDocumento, "findAll", async () => [] as never);
     mock.method(Client, "findAll", async () => [{ id: "client-alias" }] as never);
     let where: Record<PropertyKey, unknown> | undefined;
     mock.method(AccountDocument, "findAll", async (opts: { where: Record<PropertyKey, unknown> }) => {
@@ -1172,5 +1174,30 @@ describe("búsqueda de cuentas por UUID", () => {
       (or.find((clause) => "client_id" in clause)?.client_id as { [Op.in]?: string[] })?.[Op.in],
       ["client-alias"],
     );
+  });
+
+  it("encuentra la cuenta por el UUID cancelado aunque el abono ya no apunte al complemento", async () => {
+    mock.method(Client, "findAll", async () => [] as never);
+    mock.method(Trip, "findAll", async () => [] as never);
+    mock.method(CartaPorte, "findAll", async () => [] as never);
+    mock.method(CfdiPago, "findAll", async () => [{ id: "pago-cancelado" }] as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+    mock.method(CfdiPagoDocumento, "findAll", async () => [{ account_document_id: "doc-suelto" }] as never);
+    let where: Record<PropertyKey, unknown> | undefined;
+    mock.method(AccountDocument, "findAll", async (opts: { where: Record<PropertyKey, unknown> }) => {
+      where = opts.where;
+      return [] as never;
+    });
+
+    await listDocuments("t1", { q: "0ca71ac8" });
+    const or = where?.[Op.or] as Array<Record<string, unknown>>;
+    const ids = (
+      or.find((clause) => {
+        const id = clause.id as { [Op.in]?: string[] } | undefined;
+        return Boolean(id?.[Op.in]);
+      })?.id as { [Op.in]?: string[] }
+    )?.[Op.in];
+
+    assert.deepEqual(ids, ["doc-suelto"]);
   });
 });

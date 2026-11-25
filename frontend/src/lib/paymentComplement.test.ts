@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  cancelComplementBody,
   complementoExtraBody,
   correoComplementoBody,
   montoCobroDefault,
@@ -64,6 +65,19 @@ describe("correoComplementoBody", () => {
     expect(correoComplementoBody(true, "no-es-correo", "Hola")).toEqual({
       ok: false,
       error: "El correo no es válido",
+    });
+  });
+});
+
+describe("cancelComplementBody", () => {
+  it("omite el folio vacío", () => {
+    expect(cancelComplementBody("02", "   ")).toEqual({ motivo: "02" });
+  });
+
+  it("manda el folio recortado", () => {
+    expect(cancelComplementBody("01", "  AAA-111  ")).toEqual({
+      motivo: "01",
+      folio_sustitucion: "AAA-111",
     });
   });
 });

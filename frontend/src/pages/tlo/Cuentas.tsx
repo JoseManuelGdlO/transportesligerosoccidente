@@ -24,7 +24,7 @@ import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw } from "lucide-reac
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
-import { montoCobroDefault, complementoExtraBody, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError } from "@/lib/paymentComplement";
+import { montoCobroDefault, complementoExtraBody, correoComplementoBody, MENSAJE_CORREO_DEFAULT, pendingComplementIdFromError, cancelComplementBody } from "@/lib/paymentComplement";
 import { planPagoLista } from "@/lib/pagoLista";
 import { slicePage } from "@/lib/tableFilters";
 import { AccountStatementPdfDialog } from "@/components/tlo/AccountStatementPdfDialog";
@@ -42,6 +42,7 @@ import {
   addAccountPaymentApi,
   backfillAccountDocumentsApi,
   cancelAccountDocumentApi,
+  cancelPaymentComplementApi,
   createAccountDocumentApi,
   createComplementFromPaymentsApi,
   createPaymentComplementApi,
@@ -91,6 +92,13 @@ const FORMAS_PAGO_COMPLEMENTO = [
   ["29", "Tarjeta de servicios"],
   ["30", "Aplicación de anticipos"],
   ["31", "Intermediario pagos"],
+] as const;
+
+const MOTIVOS_CANCELACION_COMPLEMENTO = [
+  { value: "02", label: "02 — Comprobante emitido con errores sin relación" },
+  { value: "01", label: "01 — Comprobante emitido con errores con relación" },
+  { value: "03", label: "03 — No se llevó a cabo la operación" },
+  { value: "04", label: "04 — Operación nominativa relacionada en una factura global" },
 ] as const;
 
 function FormaPagoSelect({
@@ -200,6 +208,10 @@ export default function Cuentas() {
   const [detailLoading, setDetailLoading] = useState(false);
   const [cancelConfirmOpen, setCancelConfirmOpen] = useState(false);
   const [cancelling, setCancelling] = useState(false);
+  const [cancelPago, setCancelPago] = useState<AccountDocumentPayment | null>(null);
+  const [motivoCancelacion, setMotivoCancelacion] = useState("02");
+  const [folioSustitucion, setFolioSustitucion] = useState("");
+  const [cancelError, setCancelError] = useState<string | null>(null);
   const [selected, setSelected] = useState<AccountDocument | null>(null);
   const [editForm, setEditForm] = useState({
     entidad_nombre: "",
@@ -290,6 +302,34 @@ export default function Cuentas() {
       supplier_id: d.supplier_id ?? "",
     });
     setEditConceptos(d.conceptos);
+  };
+
+  const closeCancelPago = () => {
+    if (cancelling) return;
+    setCancelPago(null);
+    setMotivoCancelacion("02");
+    setFolioSustitucion("");
+    setCancelError(null);
+  };
+
+  const confirmCancelPago = async () => {
+    if (!cancelPago?.cfdi_pago_id || !selected) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      await cancelPaymentComplementApi(
+        cancelPago.cfdi_pago_id,
+        cancelComplementBody(motivoCancelacion, folioSustitucion),
+      );
+      const full = await fetchAccountDocument(selected.id);
+      setSelected(full);
+      toast.success("Complemento cancelado");
+      setCancelling(false);
+      closeCancelPago();
+    } catch (e) {
+      setCancelError(e instanceof Error && e.message.trim() ? e.message : "No se pudo cancelar el complemento");
+      setCancelling(false);
+    }
   };
 
   const openDetail = (d: AccountDocument) => {
@@ -1692,6 +1732,21 @@ export default function Cuentas() {
                               >
                                 PDF
                               </Button>
+                              {canManage && (
+                                <Button
+                                  type="button"
+                                  variant="outline"
+                                  size="sm"
+                                  onClick={() => {
+                                    setCancelError(null);
+                                    setMotivoCancelacion("02");
+                                    setFolioSustitucion("");
+                                    setCancelPago(p);
+                                  }}
+                                >
+                                  Cancelar
+                                </Button>
+                              )}
                             </>
                           ) : (
                             <span>Sin timbrar</span>
@@ -1701,6 +1756,48 @@ export default function Cuentas() {
                       </li>
                     ))}
                   </ul>
+                  {!!selected.complementos_cancelados?.length && (
+                    <div>
+                      <p className="font-medium mb-1">Complementos cancelados</p>
+                      <ul className="space-y-2">
+                        {selected.complementos_cancelados.map((pago) => (
+                          <li key={pago.id} className="flex flex-wrap items-center justify-between gap-2">
+                            <span className="text-sm">
+                              {pago.serie}-{pago.folio}
+                              {pago.uuid ? ` · ${pago.uuid}` : ""}
+                            </span>
+                            <span className="flex flex-wrap items-center gap-2">
+                              <span>Cancelado</span>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void downloadPaymentComplementFile(pago.id, "xml").catch((e) =>
+                                    toast.error(e instanceof Error ? e.message : "No se pudo descargar el XML"),
+                                  );
+                                }}
+                              >
+                                XML
+                              </Button>
+                              <Button
+                                type="button"
+                                variant="outline"
+                                size="sm"
+                                onClick={() => {
+                                  void downloadPaymentComplementFile(pago.id, "pdf").catch((e) =>
+                                    toast.error(e instanceof Error ? e.message : "No se pudo descargar el PDF"),
+                                  );
+                                }}
+                              >
+                                PDF
+                              </Button>
+                            </span>
+                          </li>
+                        ))}
+                      </ul>
+                    </div>
+                  )}
                   {puedeTimbrarAbonos && selected.saldo_pendiente < saldoSatReferencia && (
                     <p className="mt-2 text-sm text-muted-foreground">
                       Hay abonos capturados que el SAT todavía no tiene.
@@ -1885,6 +1982,85 @@ export default function Cuentas() {
           </AlertDialogFooter>
         </AlertDialogContent>
       </AlertDialog>
+
+      <Dialog
+        open={Boolean(cancelPago)}
+        onOpenChange={(open) => {
+          if (!open) closeCancelPago();
+        }}
+      >
+        <DialogContent className="max-w-md">
+          <DialogHeader>
+            <DialogTitle>Cancelar complemento de pago</DialogTitle>
+          </DialogHeader>
+          <div className="space-y-4 py-2">
+            {cancelPago?.uuid && (
+              <p className="text-sm text-muted-foreground break-all">
+                UUID: <span className="font-mono text-foreground">{cancelPago.uuid}</span>
+              </p>
+            )}
+            <div className="space-y-2">
+              <Label>Motivo de cancelación</Label>
+              <Select
+                value={motivoCancelacion}
+                onValueChange={(value) => {
+                  setMotivoCancelacion(value);
+                  setCancelError(null);
+                }}
+              >
+                <SelectTrigger>
+                  <SelectValue placeholder="Selecciona un motivo" />
+                </SelectTrigger>
+                <SelectContent>
+                  {MOTIVOS_CANCELACION_COMPLEMENTO.map((m) => (
+                    <SelectItem key={m.value} value={m.value}>
+                      {m.label}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+            </div>
+            <div className="space-y-2">
+              <Label>Folio de sustitución (opcional)</Label>
+              <Input
+                value={folioSustitucion}
+                onChange={(e) => {
+                  setFolioSustitucion(e.target.value);
+                  setCancelError(null);
+                }}
+                placeholder="UUID del CFDI que sustituye"
+              />
+            </div>
+            {cancelError && (
+              <div
+                role="alert"
+                className="max-h-32 overflow-y-auto break-all rounded-md border border-destructive/50 bg-destructive/5 p-3 text-sm text-destructive"
+              >
+                {cancelError}
+              </div>
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" disabled={cancelling} onClick={closeCancelPago}>
+              Cerrar
+            </Button>
+            <Button
+              variant="destructive"
+              disabled={cancelling || !motivoCancelacion}
+              onClick={() => void confirmCancelPago()}
+            >
+              {cancelling ? (
+                <>
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  Cancelando…
+                </>
+              ) : (
+                "Confirmar cancelación"
+              )}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
 
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
         <DialogContent>

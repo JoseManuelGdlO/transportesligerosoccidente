@@ -166,6 +166,12 @@ r.post("/account-documents/:id/cancel", authenticateJwt, requirePermission("cuen
 
 r.post("/payment-complements/:id/retry", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postRetryPaymentComplement);
 r.post("/payment-complements/:id/discard", authenticateJwt, requirePermission("cuentas.gestionar"), paymentComplementC.postDiscardPaymentComplement);
+r.post(
+  "/payment-complements/:id/cancel",
+  authenticateJwt,
+  requirePermission("cuentas.gestionar"),
+  paymentComplementC.postCancelPaymentComplement,
+);
 r.get("/payment-complements/:id/xml", authenticateJwt, requirePermission("cuentas.ver"), paymentComplementC.getPaymentComplementXml);
 r.get("/payment-complements/:id/pdf", authenticateJwt, requirePermission("cuentas.ver"), paymentComplementC.getPaymentComplementPdf);
 

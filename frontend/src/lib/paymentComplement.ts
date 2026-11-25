@@ -42,3 +42,8 @@ export function correoComplementoBody(
     fields: texto ? { email: trimmed, email_mensaje: texto } : { email: trimmed },
   };
 }
+
+export function cancelComplementBody(motivo: string, folioSustitucion?: string) {
+  const folio = folioSustitucion?.trim();
+  return folio ? { motivo, folio_sustitucion: folio } : { motivo };
+}
