@@ -21,6 +21,7 @@ import type { TaxComponent } from "./taxComponent";
 import {
   ComplementError,
   cancelPaymentComplement,
+  cancelledComplementsForDocument,
   complementDeps,
   createFromExistingPayments,
   createPaymentComplement,
@@ -872,5 +873,49 @@ describe("complemento cancelado en reintento y descarga", () => {
         return true;
       },
     );
+  });
+});
+
+describe("cancelledComplementsForDocument", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("devuelve solo los complementos cancelados de esa cuenta, del más reciente al más viejo", async () => {
+    mock.method(CfdiPagoDocumento, "findAll", async () => [
+      { cfdi_pago_id: "pago-vivo" },
+      { cfdi_pago_id: "pago-viejo" },
+      { cfdi_pago_id: "pago-nuevo" },
+    ]);
+    let pagoWhere: Record<string, unknown> | undefined;
+    mock.method(CfdiPago, "findAll", async (query: unknown) => {
+      pagoWhere = (query as { where?: Record<string, unknown> }).where;
+      return [
+        {
+          id: "pago-viejo",
+          serie: "P",
+          folio: "2",
+          uuid: "aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa",
+          timbrado_at: new Date("2026-10-01T12:00:00Z"),
+        },
+        {
+          id: "pago-nuevo",
+          serie: "P",
+          folio: "3",
+          uuid: "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb",
+          timbrado_at: new Date("2026-11-01T12:00:00Z"),
+        },
+      ];
+    });
+
+    const rows = await cancelledComplementsForDocument("tenant-1", "doc-1");
+
+    assert.deepEqual(
+      rows.map((row) => row.id),
+      ["pago-nuevo", "pago-viejo"],
+    );
+    assert.equal(rows[0]?.folio, "3");
+    assert.equal(rows[0]?.uuid, "bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb");
+    assert.equal(pagoWhere?.estatus, "cancelado");
   });
 });

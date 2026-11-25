@@ -920,6 +920,42 @@ export interface ComplementSnapshot {
   siguienteParcialidad: number;
 }
 
+export interface CancelledComplementDto {
+  id: string;
+  serie: string;
+  folio: string;
+  uuid: string | null;
+}
+
+export async function cancelledComplementsForDocument(
+  tenantId: string,
+  documentId: string,
+): Promise<CancelledComplementDto[]> {
+  const lines = await CfdiPagoDocumento.findAll({
+    where: { tenant_id: tenantId, account_document_id: documentId },
+    attributes: ["cfdi_pago_id"],
+  });
+  const ids = [...new Set(lines.map((line) => line.cfdi_pago_id))];
+  if (!ids.length) return [];
+  const pagos = await CfdiPago.findAll({
+    where: { tenant_id: tenantId, id: { [Op.in]: ids }, estatus: "cancelado" },
+    attributes: ["id", "serie", "folio", "uuid", "timbrado_at"],
+  });
+  return pagos
+    .slice()
+    .sort((a, b) => {
+      const left = a.timbrado_at ? new Date(a.timbrado_at).getTime() : 0;
+      const right = b.timbrado_at ? new Date(b.timbrado_at).getTime() : 0;
+      return right - left;
+    })
+    .map((pago) => ({
+      id: pago.id,
+      serie: pago.serie,
+      folio: String(pago.folio),
+      uuid: pago.uuid ?? null,
+    }));
+}
+
 export async function complementSnapshot(tenantId: string, docId: string): Promise<ComplementSnapshot | null> {
   const doc = await AccountDocument.findOne({ where: { id: docId, tenant_id: tenantId } });
   if (!doc?.trip_id) return null;

@@ -4,6 +4,7 @@ import { asyncHandler } from "../utils/asyncHandler";
 import * as accountDocumentService from "../services/accountDocumentService";
 import type { AccountPaymentDto } from "../services/accountDocumentService";
 import {
+  cancelledComplementsForDocument,
   complementSnapshot,
   documentoRequiereComplemento,
   paymentComplementUuids,
@@ -124,6 +125,8 @@ export const getAccountDocument = asyncHandler(async (req: Request, res: Respons
   const payments = await paymentsWithComplementUuid(tid(req), row.payments);
   const snap = await complementSnapshot(tid(req), row.id);
   const base = { ...row, payments };
+  const complementosCancelados = await cancelledComplementsForDocument(tid(req), row.id);
+  const withCancelled = { ...base, complementos_cancelados: complementosCancelados };
   if (
     snap &&
     documentoRequiereComplemento(
@@ -137,7 +140,7 @@ export const getAccountDocument = asyncHandler(async (req: Request, res: Respons
     )
   ) {
     res.json({
-      ...base,
+      ...withCancelled,
       complemento_disponible: true,
       metodo_pago: "PPD",
       moneda: snap.moneda,
@@ -146,7 +149,7 @@ export const getAccountDocument = asyncHandler(async (req: Request, res: Respons
     });
     return;
   }
-  res.json(base);
+  res.json(withCancelled);
 });
 
 export const createAccountDocument = asyncHandler(async (req: Request, res: Response) => {
