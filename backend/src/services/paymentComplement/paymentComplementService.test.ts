@@ -596,15 +596,15 @@ describe("cancelPaymentComplement", () => {
     cancelar?: () => Promise<void>;
   }) {
     const patches: Record<string, unknown>[] = [];
-    const pago = opts.pago
-      ? {
-          ...opts.pago,
-          update: async (patch: Record<string, unknown>) => {
-            Object.assign(pago, patch);
-            patches.push(patch);
-          },
-        }
-      : null;
+    let pago: Record<string, unknown> | null = null;
+    if (opts.pago) {
+      const row: Record<string, unknown> = { ...opts.pago };
+      row.update = async (patch: Record<string, unknown>) => {
+        Object.assign(row, patch);
+        patches.push(patch);
+      };
+      pago = row;
+    }
     mock.method(CfdiPago, "findOne", async () => pago);
     mock.method(CfdiPago, "findAll", async () =>
       opts.stampedIds.map((id) => ({ id })),
