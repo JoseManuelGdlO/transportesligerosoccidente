@@ -7,7 +7,7 @@ import {
   type Sequelize,
 } from "sequelize";
 
-export type CfdiPagoEstatus = "error" | "timbrado";
+export type CfdiPagoEstatus = "error" | "timbrado" | "cancelado";
 
 export class CfdiPago extends Model<InferAttributes<CfdiPago>, InferCreationAttributes<CfdiPago>> {
   declare id: CreationOptional<string>;
@@ -52,7 +52,7 @@ export function initCfdiPago(sequelize: Sequelize) {
       email_mensaje: { type: DataTypes.TEXT, allowNull: true },
       serie: { type: DataTypes.STRING(16), allowNull: false },
       folio: { type: DataTypes.STRING(32), allowNull: false },
-      estatus: { type: DataTypes.ENUM("error", "timbrado"), allowNull: false },
+      estatus: { type: DataTypes.ENUM("error", "timbrado", "cancelado"), allowNull: false },
       uuid: { type: DataTypes.STRING(36), allowNull: true },
       xml_timbrado: { type: DataTypes.TEXT("long"), allowNull: true },
       pdf_path: { type: DataTypes.STRING(512), allowNull: true },

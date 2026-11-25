@@ -53,7 +53,7 @@ export interface CreateComplementInput {
 
 export interface ComplementDto {
   id: string;
-  estatus: "error" | "timbrado";
+  estatus: "error" | "timbrado" | "cancelado";
   uuid?: string;
   serie: string;
   folio: string;
@@ -144,7 +144,7 @@ function parseAnnotated(message: string | null | undefined): { text: string; pay
 
 function toComplementDto(pago: {
   id: string;
-  estatus: "error" | "timbrado";
+  estatus: "error" | "timbrado" | "cancelado";
   uuid?: string | null;
   serie: string;
   folio: string;
