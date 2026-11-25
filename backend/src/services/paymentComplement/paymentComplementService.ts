@@ -886,6 +886,30 @@ export async function cancelPaymentComplement(
     }
   }
 
+  const errorPagos = await CfdiPago.findAll({
+    where: {
+      tenant_id: tenantId,
+      id: { [Op.in]: [...new Set(siblings.map((line) => line.cfdi_pago_id))] },
+      estatus: "error",
+    },
+    attributes: ["id"],
+  });
+  const errorIds = new Set(errorPagos.map((row) => row.id));
+  for (const line of lines) {
+    const pending = siblings.some(
+      (other) =>
+        other.account_document_id === line.account_document_id &&
+        other.cfdi_pago_id !== pago.id &&
+        errorIds.has(other.cfdi_pago_id),
+    );
+    if (pending) {
+      throw new ComplementError(
+        "Hay un complemento pendiente en esta factura. Reintentalo o descartalo antes de cancelar.",
+        400,
+      );
+    }
+  }
+
   const tenant = await Tenant.findByPk(tenantId);
   if (!tenant?.rfc) throw new ComplementError("RFC de empresa no configurado", 400);
   const folio = opts?.folioSustitucion?.trim();

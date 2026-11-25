@@ -594,6 +594,7 @@ describe("cancelPaymentComplement", () => {
     lines: Array<Record<string, unknown>>;
     siblings: Array<Record<string, unknown>>;
     stampedIds: string[];
+    errorIds?: string[];
     cancelar?: () => Promise<void>;
   }) {
     const patches: Record<string, unknown>[] = [];
@@ -607,9 +608,16 @@ describe("cancelPaymentComplement", () => {
       pago = row;
     }
     mock.method(CfdiPago, "findOne", async () => pago);
-    mock.method(CfdiPago, "findAll", async () =>
-      opts.stampedIds.map((id) => ({ id })),
-    );
+    mock.method(CfdiPago, "findAll", async (query: unknown) => {
+      const where = (query as { where?: { estatus?: string } }).where ?? {};
+      if (where.estatus === "error") {
+        return (opts.errorIds ?? []).map((id) => ({ id }));
+      }
+      if (where.estatus === "timbrado") {
+        return opts.stampedIds.map((id) => ({ id }));
+      }
+      return [];
+    });
     mock.method(CfdiPagoDocumento, "findAll", async (query: unknown) => {
       const where = (query as { where?: { cfdi_pago_id?: string } }).where ?? {};
       if (where.cfdi_pago_id) return opts.lines;
@@ -811,6 +819,37 @@ describe("cancelPaymentComplement", () => {
 
     assert.equal(result.estatus, "cancelado");
     assert.equal(h.cancelar.mock.calls.length, 1);
+  });
+
+  it("rechaza cancelar si hay un complemento en error en la misma factura", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [line],
+      siblings: [
+        line,
+        { cfdi_pago_id: "pago-err", account_document_id: "doc-1", num_parcialidad: 2 },
+      ],
+      stampedIds: ["pago-1"],
+      errorIds: ["pago-err"],
+    });
+
+    await assert.rejects(
+      () => cancelPaymentComplement("tenant-1", "pago-1", "02"),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.status, 400);
+        assert.equal(
+          err.message,
+          "Hay un complemento pendiente en esta factura. Reintentalo o descartalo antes de cancelar.",
+        );
+        return true;
+      },
+    );
+    assert.equal(h.cancelar.mock.calls.length, 0);
   });
 });
 
