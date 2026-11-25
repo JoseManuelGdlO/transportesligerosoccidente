@@ -5,6 +5,7 @@ import {
   AccountDocumentPayment,
   CartaPorte,
   CfdiPago,
+  CfdiPagoDocumento,
   Client,
   Expense,
   FuelLoad,
@@ -286,13 +287,24 @@ async function fiscalUuidMatchIds(
   const tripIds = [...new Set(cartas.map((row) => row.trip_id).filter(Boolean))];
   const pagoIds = pagos.map((row) => row.id);
   if (!pagoIds.length) return { tripIds, documentIds: [] };
-  const payments = await AccountDocumentPayment.findAll({
-    where: { tenant_id: tenantId, cfdi_pago_id: { [Op.in]: pagoIds } },
-    attributes: ["document_id"],
-  });
+  const [payments, lineas] = await Promise.all([
+    AccountDocumentPayment.findAll({
+      where: { tenant_id: tenantId, cfdi_pago_id: { [Op.in]: pagoIds } },
+      attributes: ["document_id"],
+    }),
+    CfdiPagoDocumento.findAll({
+      where: { tenant_id: tenantId, cfdi_pago_id: { [Op.in]: pagoIds } },
+      attributes: ["account_document_id"],
+    }),
+  ]);
   return {
     tripIds,
-    documentIds: [...new Set(payments.map((row) => row.document_id))],
+    documentIds: [
+      ...new Set([
+        ...payments.map((row) => row.document_id),
+        ...lineas.map((row) => row.account_document_id),
+      ]),
+    ],
   };
 }
 
