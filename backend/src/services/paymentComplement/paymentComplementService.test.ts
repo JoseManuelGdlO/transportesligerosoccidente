@@ -25,6 +25,8 @@ import {
   createFromExistingPayments,
   createPaymentComplement,
   createPaymentComplementsPerDocument,
+  getPaymentComplementXml,
+  retryPaymentComplement,
 } from "./paymentComplementService";
 
 const uploadDir = mkdtempSync(path.join(os.tmpdir(), "pago-pdf-"));
@@ -808,5 +810,67 @@ describe("cancelPaymentComplement", () => {
 
     assert.equal(result.estatus, "cancelado");
     assert.equal(h.cancelar.mock.calls.length, 1);
+  });
+});
+
+describe("complemento cancelado en reintento y descarga", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("no reintenta un complemento cancelado", async () => {
+    mock.method(CfdiPago, "findOne", async () => ({
+      id: "pago-1",
+      estatus: "cancelado",
+      uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+    }));
+
+    await assert.rejects(
+      () => retryPaymentComplement("tenant-1", "pago-1"),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.status, 400);
+        assert.equal(err.message, "El complemento está cancelado");
+        return true;
+      },
+    );
+  });
+
+  it("entrega el XML de un complemento cancelado", async () => {
+    mock.method(CfdiPago, "findOne", async () => ({
+      id: "pago-1",
+      estatus: "cancelado",
+      uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      serie: "P",
+      folio: "4",
+      xml_timbrado: "<xml/>",
+    }));
+    mock.method(CfdiPagoDocumento, "findAll", async () => []);
+
+    const file = await getPaymentComplementXml("tenant-1", "pago-1");
+
+    assert.equal(file.xml, "<xml/>");
+    assert.match(file.filename, /P-4/);
+  });
+
+  it("sigue ocultando el XML de un complemento en error", async () => {
+    mock.method(CfdiPago, "findOne", async () => ({
+      id: "pago-1",
+      estatus: "error",
+      xml_timbrado: "<xml/>",
+    }));
+
+    await assert.rejects(
+      () => getPaymentComplementXml("tenant-1", "pago-1"),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.status, 404);
+        assert.equal(
+          err.message,
+          "El archivo solo está disponible para un complemento timbrado o cancelado",
+        );
+        return true;
+      },
+    );
   });
 });

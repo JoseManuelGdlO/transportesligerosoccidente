@@ -777,6 +777,7 @@ async function draftFromStored(tenantId: string, rows: CfdiPagoDocumento[]): Pro
 export async function retryPaymentComplement(tenantId: string, id: string): Promise<ComplementDto> {
   const pago = await CfdiPago.findOne({ where: { id, tenant_id: tenantId } });
   if (!pago) throw new ComplementError("Complemento no encontrado", 404);
+  if (pago.estatus === "cancelado") throw new ComplementError("El complemento está cancelado", 400);
   if (pago.estatus === "timbrado") throw new ComplementError("El complemento ya está timbrado", 400);
   const stored = parseAnnotated(pago.error_mensaje);
   const lineRows = await CfdiPagoDocumento.findAll({
@@ -1041,8 +1042,11 @@ async function facturasDePago(tenantId: string, pagoId: string): Promise<string[
 async function loadTimbradoPago(tenantId: string, id: string): Promise<CfdiPago> {
   const pago = await CfdiPago.findOne({ where: { id, tenant_id: tenantId } });
   if (!pago) throw new ComplementError("Complemento no encontrado", 404);
-  if (pago.estatus !== "timbrado") {
-    throw new ComplementError("El archivo solo está disponible para un complemento timbrado", 404);
+  if (pago.estatus !== "timbrado" && pago.estatus !== "cancelado") {
+    throw new ComplementError(
+      "El archivo solo está disponible para un complemento timbrado o cancelado",
+      404,
+    );
   }
   return pago;
 }
