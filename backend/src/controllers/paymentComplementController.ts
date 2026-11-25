@@ -143,6 +143,29 @@ export const postDiscardPaymentComplement = asyncHandler(async (req: Request, re
   });
 });
 
+const cancelSchema = z.object({
+  motivo: z.enum(["01", "02", "03", "04"]),
+  folio_sustitucion: z.string().optional(),
+});
+
+export const postCancelPaymentComplement = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = cancelSchema.safeParse(req.body);
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const folio = parsed.data.folio_sustitucion?.trim();
+  await guard(res, async () => {
+    const dto = await paymentComplementService.cancelPaymentComplement(
+      tid(req),
+      req.params.id,
+      parsed.data.motivo,
+      { folioSustitucion: folio || undefined },
+    );
+    res.json(dto);
+  });
+});
+
 export const getPaymentComplementXml = asyncHandler(async (req: Request, res: Response) => {
   await guard(res, async () => {
     const { xml, filename } = await paymentComplementService.getPaymentComplementXml(tid(req), req.params.id);
