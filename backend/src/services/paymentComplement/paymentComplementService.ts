@@ -13,7 +13,9 @@ import {
   Tenant,
 } from "../../models";
 import { roundMoney } from "../calc";
-import type { TimbradoResult } from "../pac/types";
+import type { CancelarOpts, TimbradoResult } from "../pac/types";
+import { getPacProvider } from "../pac";
+import { formatPacErrorMessage } from "../pac/sicofi/sicofiErrors";
 import { resolveSicofiBaseUrl, resolveSicofiPagos40Url } from "../pac/sicofi/config";
 import { getSicofiAccessToken, invalidateSicofiAccessToken } from "../pac/sicofi/sicofiAuth";
 import { noIdentificacionFromComentarios } from "../pac/sicofi/mapConceptos";
@@ -36,6 +38,14 @@ export const complementDeps = {
   postPagos40: sicofiPostPagos40,
   accessToken: getSicofiAccessToken,
   invalidateToken: invalidateSicofiAccessToken,
+  cancelar: async (
+    uuid: string,
+    motivo: string,
+    tenant: Tenant,
+    opts?: CancelarOpts,
+  ) => {
+    await getPacProvider(tenant).cancelar(uuid, motivo, tenant, opts);
+  },
 };
 
 export interface CreateComplementInput {
@@ -827,6 +837,79 @@ export async function discardPaymentComplement(tenantId: string, id: string): Pr
     });
     await pago.destroy({ transaction });
   });
+}
+
+export async function cancelPaymentComplement(
+  tenantId: string,
+  id: string,
+  motivo: string,
+  opts?: { folioSustitucion?: string },
+): Promise<{ id: string; estatus: "cancelado"; uuid: string }> {
+  const pago = await CfdiPago.findOne({ where: { id, tenant_id: tenantId } });
+  if (!pago) throw new ComplementError("Complemento no encontrado", 404);
+  if (pago.estatus !== "timbrado" || !pago.uuid) {
+    throw new ComplementError("Solo se puede cancelar un complemento timbrado", 400);
+  }
+
+  const lines = await CfdiPagoDocumento.findAll({
+    where: { tenant_id: tenantId, cfdi_pago_id: pago.id },
+  });
+  if (!lines.length) throw new ComplementError("El complemento no tiene líneas", 400);
+
+  const documentIds = [...new Set(lines.map((line) => line.account_document_id))];
+  const siblings = await CfdiPagoDocumento.findAll({
+    where: { tenant_id: tenantId, account_document_id: documentIds },
+  });
+  const stamped = await CfdiPago.findAll({
+    where: {
+      tenant_id: tenantId,
+      id: { [Op.in]: [...new Set(siblings.map((line) => line.cfdi_pago_id))] },
+      estatus: "timbrado",
+    },
+    attributes: ["id"],
+  });
+  const stampedIds = new Set(stamped.map((row) => row.id));
+  for (const line of lines) {
+    const blocked = siblings.some(
+      (other) =>
+        other.account_document_id === line.account_document_id &&
+        other.cfdi_pago_id !== pago.id &&
+        stampedIds.has(other.cfdi_pago_id) &&
+        Number(other.num_parcialidad) > Number(line.num_parcialidad),
+    );
+    if (blocked) {
+      throw new ComplementError(
+        "Solo se puede cancelar la última parcialidad timbrada de cada factura",
+        400,
+      );
+    }
+  }
+
+  const tenant = await Tenant.findByPk(tenantId);
+  if (!tenant?.rfc) throw new ComplementError("RFC de empresa no configurado", 400);
+  const folio = opts?.folioSustitucion?.trim();
+  try {
+    await complementDeps.cancelar(
+      pago.uuid,
+      motivo,
+      tenant,
+      folio ? { folioSustitucion: folio } : undefined,
+    );
+  } catch (error) {
+    if (error instanceof ComplementError) throw error;
+    const msg = formatPacErrorMessage(error instanceof Error ? error.message : "Error al cancelar ante el PAC");
+    throw new ComplementError(msg, 422);
+  }
+
+  await sequelize.transaction(async (transaction) => {
+    await AccountDocumentPayment.update(
+      { cfdi_pago_id: null },
+      { where: { tenant_id: tenantId, cfdi_pago_id: pago.id }, transaction },
+    );
+    await pago.update({ estatus: "cancelado" }, { transaction });
+  });
+
+  return { id: pago.id, estatus: "cancelado", uuid: pago.uuid };
 }
 
 export interface ComplementSnapshot {

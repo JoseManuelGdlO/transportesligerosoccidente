@@ -20,6 +20,7 @@ import { SicofiHttpError } from "../pac/sicofi/sicofiClient";
 import type { TaxComponent } from "./taxComponent";
 import {
   ComplementError,
+  cancelPaymentComplement,
   complementDeps,
   createFromExistingPayments,
   createPaymentComplement,
@@ -577,5 +578,235 @@ describe("paymentComplementService", () => {
         return true;
       },
     );
+  });
+});
+
+describe("cancelPaymentComplement", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  function install(opts: {
+    pago: Record<string, unknown> | null;
+    lines: Array<Record<string, unknown>>;
+    siblings: Array<Record<string, unknown>>;
+    stampedIds: string[];
+    cancelar?: () => Promise<void>;
+  }) {
+    const patches: Record<string, unknown>[] = [];
+    const pago = opts.pago
+      ? {
+          ...opts.pago,
+          update: async (patch: Record<string, unknown>) => {
+            Object.assign(pago, patch);
+            patches.push(patch);
+          },
+        }
+      : null;
+    mock.method(CfdiPago, "findOne", async () => pago);
+    mock.method(CfdiPago, "findAll", async () =>
+      opts.stampedIds.map((id) => ({ id })),
+    );
+    mock.method(CfdiPagoDocumento, "findAll", async (query: unknown) => {
+      const where = (query as { where?: { cfdi_pago_id?: string } }).where ?? {};
+      if (where.cfdi_pago_id) return opts.lines;
+      return opts.siblings;
+    });
+    const paymentUpdate = mock.method(AccountDocumentPayment, "update", async () => [1]);
+    const lineDestroy = mock.method(CfdiPagoDocumento, "destroy", async () => 0);
+    mock.method(sequelize, "transaction", async (work: unknown) => {
+      if (typeof work !== "function") throw new Error("transaction sin callback");
+      return (work as (tx: object) => Promise<unknown>)({});
+    });
+    mock.method(Tenant, "findByPk", async () => ({
+      id: "tenant-1",
+      rfc: "TNU150126V30",
+      pac_proveedor: "sicofi",
+    }));
+    const cancelar = mock.method(
+      complementDeps,
+      "cancelar",
+      opts.cancelar ?? (async () => undefined),
+    );
+    return { pago, patches, paymentUpdate, lineDestroy, cancelar };
+  }
+
+  const line = {
+    cfdi_pago_id: "pago-1",
+    account_document_id: "doc-1",
+    num_parcialidad: 1,
+  };
+
+  it("cancela la última parcialidad y suelta los abonos", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        tenant_id: "tenant-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [line],
+      siblings: [line],
+      stampedIds: ["pago-1"],
+    });
+
+    const result = await cancelPaymentComplement("tenant-1", "pago-1", "02", {
+      folioSustitucion: "  ",
+    });
+
+    assert.equal(result.estatus, "cancelado");
+    assert.equal(result.uuid, "0ca71ac8-61a8-4d50-8136-fc447522c588");
+    assert.equal(h.cancelar.mock.calls[0]?.arguments[0], "0ca71ac8-61a8-4d50-8136-fc447522c588");
+    assert.equal(h.cancelar.mock.calls[0]?.arguments[1], "02");
+    assert.equal(h.cancelar.mock.calls[0]?.arguments[3], undefined);
+    assert.deepEqual(h.paymentUpdate.mock.calls[0]?.arguments[0], { cfdi_pago_id: null });
+    assert.equal(
+      (h.paymentUpdate.mock.calls[0]?.arguments[1] as { where: { cfdi_pago_id: string } }).where
+        .cfdi_pago_id,
+      "pago-1",
+    );
+    assert.equal(h.patches.at(-1)?.estatus, "cancelado");
+    assert.equal(h.lineDestroy.mock.calls.length, 0);
+  });
+
+  it("manda el folio de sustitución recortado", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [line],
+      siblings: [line],
+      stampedIds: ["pago-1"],
+    });
+
+    await cancelPaymentComplement("tenant-1", "pago-1", "01", {
+      folioSustitucion: "  AAA-NUEVO  ",
+    });
+
+    assert.deepEqual(h.cancelar.mock.calls[0]?.arguments[3], {
+      folioSustitucion: "AAA-NUEVO",
+    });
+  });
+
+  it("no toca la base si el PAC rechaza", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [line],
+      siblings: [line],
+      stampedIds: ["pago-1"],
+      cancelar: async () => {
+        throw new Error("UUID no encontrado");
+      },
+    });
+
+    await assert.rejects(
+      () => cancelPaymentComplement("tenant-1", "pago-1", "02"),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.status, 422);
+        assert.match(err.message, /UUID no encontrado/);
+        return true;
+      },
+    );
+    assert.equal(h.paymentUpdate.mock.calls.length, 0);
+    assert.equal(h.patches.length, 0);
+  });
+
+  it("rechaza error, cancelado y timbrado sin UUID antes de llamar al PAC", async () => {
+    for (const pago of [
+      { id: "pago-1", estatus: "error", uuid: null },
+      { id: "pago-1", estatus: "cancelado", uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588" },
+      { id: "pago-1", estatus: "timbrado", uuid: null },
+    ]) {
+      const h = install({ pago, lines: [line], siblings: [line], stampedIds: ["pago-1"] });
+      await assert.rejects(
+        () => cancelPaymentComplement("tenant-1", "pago-1", "02"),
+        (err: unknown) => {
+          assert.ok(err instanceof ComplementError);
+          assert.equal(err.status, 400);
+          assert.equal(err.message, "Solo se puede cancelar un complemento timbrado");
+          return true;
+        },
+      );
+      assert.equal(h.cancelar.mock.calls.length, 0);
+      mock.restoreAll();
+    }
+  });
+
+  it("rechaza un timbrado sin líneas", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [],
+      siblings: [],
+      stampedIds: [],
+    });
+
+    await assert.rejects(
+      () => cancelPaymentComplement("tenant-1", "pago-1", "02"),
+      (err: unknown) => {
+        assert.ok(err instanceof ComplementError);
+        assert.equal(err.message, "El complemento no tiene líneas");
+        return true;
+      },
+    );
+    assert.equal(h.cancelar.mock.calls.length, 0);
+  });
+
+  it("rechaza cancelar si hay una parcialidad posterior timbrada", async () => {
+    const h = install({
+      pago: {
+        id: "pago-1",
+        estatus: "timbrado",
+        uuid: "0ca71ac8-61a8-4d50-8136-fc447522c588",
+      },
+      lines: [
+        line,
+        { cfdi_pago_id: "pago-1", account_document_id: "doc-2", num_parcialidad: 1 },
+      ],
+      siblings: [
+        line,
+        { cfdi_pago_id: "pago-1", account_document_id: "doc-2", num_parcialidad: 1 },
+        { cfdi_pago_id: "pago-2", account_document_id: "doc-2", num_parcialidad: 2 },
+      ],
+      stampedIds: ["pago-1", "pago-2"],
+    });
+
+    await assert.rejects(
+      () => cancelPaymentComplement("tenant-1", "pago-1", "02"),
+      /Solo se puede cancelar la última parcialidad timbrada de cada factura/,
+    );
+    assert.equal(h.cancelar.mock.calls.length, 0);
+    assert.equal(h.paymentUpdate.mock.calls.length, 0);
+  });
+
+  it("permite cancelar cuando la otra parcialidad timbrada es anterior", async () => {
+    const h = install({
+      pago: {
+        id: "pago-2",
+        estatus: "timbrado",
+        uuid: "11111111-1111-1111-1111-111111111111",
+      },
+      lines: [{ cfdi_pago_id: "pago-2", account_document_id: "doc-1", num_parcialidad: 2 }],
+      siblings: [
+        { cfdi_pago_id: "pago-1", account_document_id: "doc-1", num_parcialidad: 1 },
+        { cfdi_pago_id: "pago-2", account_document_id: "doc-1", num_parcialidad: 2 },
+      ],
+      stampedIds: ["pago-1", "pago-2"],
+    });
+
+    const result = await cancelPaymentComplement("tenant-1", "pago-2", "02");
+
+    assert.equal(result.estatus, "cancelado");
+    assert.equal(h.cancelar.mock.calls.length, 1);
   });
 });
