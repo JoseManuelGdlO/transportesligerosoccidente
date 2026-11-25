@@ -853,6 +853,13 @@ export interface AccountDocumentPayment {
   uuid?: string;
 }
 
+export interface CancelledPaymentComplement {
+  id: string;
+  serie: string;
+  folio: string;
+  uuid?: string;
+}
+
 export interface DocumentConcepto {
   descripcion: string;
   precio: number;
@@ -887,6 +894,7 @@ export interface AccountDocument {
   categoria?: string | null;
   unidad?: string | null;
   payments?: AccountDocumentPayment[];
+  complementos_cancelados?: CancelledPaymentComplement[];
   complemento_disponible?: boolean;
   metodo_pago?: string;
   moneda?: string;

@@ -469,6 +469,14 @@ export function normalizeAccountDocument(
         uuid: row.uuid != null ? String(row.uuid) : undefined,
       };
     }),
+    complementos_cancelados: Array.isArray(raw.complementos_cancelados)
+      ? (raw.complementos_cancelados as Record<string, unknown>[]).map((row) => ({
+          id: String(row.id),
+          serie: String(row.serie ?? ""),
+          folio: String(row.folio ?? ""),
+          uuid: row.uuid != null && String(row.uuid).trim() ? String(row.uuid) : undefined,
+        }))
+      : [],
     complemento_disponible:
       typeof raw.complemento_disponible === "boolean" ? raw.complemento_disponible : undefined,
     metodo_pago: raw.metodo_pago != null ? String(raw.metodo_pago) : undefined,
@@ -2216,6 +2224,20 @@ export async function discardPaymentComplementApi(id: string): Promise<void> {
   if (res.status === 204 || res.ok) return;
   const j = (await res.json().catch(() => ({}))) as { error?: unknown };
   throw new Error(paymentComplementErrorMessage(j.error, "No se pudo descartar el complemento"));
+}
+
+export async function cancelPaymentComplementApi(
+  id: string,
+  body: { motivo: string; folio_sustitucion?: string },
+): Promise<void> {
+  const res = await apiFetch(`/payment-complements/${id}/cancel`, {
+    method: "POST",
+    body: JSON.stringify(body),
+  });
+  if (!res.ok) {
+    const j = (await res.json().catch(() => ({}))) as { error?: unknown };
+    throw new Error(paymentComplementErrorMessage(j.error, "No se pudo cancelar el complemento"));
+  }
 }
 
 export async function downloadPaymentComplementFile(id: string, kind: "xml" | "pdf"): Promise<void> {
