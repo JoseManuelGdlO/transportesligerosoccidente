@@ -2,7 +2,7 @@ import { jsPDF } from "jspdf";
 import { autoTable, type UserOptions } from "jspdf-autotable";
 import type { Client, Driver, FuelLoad, Expense, Trip, Truck } from "@/types/tlo";
 import type { SettlementSummary } from "@/lib/calc";
-import { computeTrip, roundMoney, tripDriverNombre } from "@/lib/calc";
+import { computeTrip, roundMoney, tripClientesLabel, tripDriverNombre, tripFacturasLabel, tripFlete } from "@/lib/calc";
 import { fmtMXN, fmtMXNDecimal, fmtDate, fmtNumber, formatTripRoute, parseDateOnlyLocal } from "@/lib/format";
 import {
   buildSettlementSheet,
@@ -75,6 +75,7 @@ export interface TripRenderData {
   driver?: Driver | null;
   truck?: Truck | null;
   client?: Client | null;
+  clients?: Client[];
 }
 
 export type RenderData = SettlementRenderData | TripRenderData;
@@ -258,15 +259,16 @@ const renderTripHeader: BlockRenderer = (state, props) => {
 
 const renderTripMeta: BlockRenderer = (state, props) => {
   if (state.data.kind !== "trip") return;
-  const { trip, driver, truck, client } = state.data;
+  const { trip, driver, truck, client, clients } = state.data;
+  const catalog = clients?.length ? clients : client ? [client] : [];
   const lines = [
-    `Cliente: ${client?.razon_social ?? "—"}`,
+    `Cliente: ${tripClientesLabel(trip, catalog) || client?.razon_social || "—"}`,
     `Operador: ${tripDriverNombre(trip, driver ? [driver] : undefined)}`,
     `Camión: ${truck ? `${truck.marca} ${truck.modelo} (${truck.placas})` : "—"}`,
     `Salida: ${trip.fecha_salida ? fmtDate(trip.fecha_salida) : "—"}` +
       (trip.fecha_llegada ? ` · Llegada: ${fmtDate(trip.fecha_llegada)}` : ""),
     `Km: ${fmtNumber(trip.km_inicial)} > ${trip.km_final != null ? fmtNumber(trip.km_final) : "—"}`,
-    `Factura: ${trip.num_factura?.trim() || "—"}`,
+    `Factura: ${tripFacturasLabel(trip) || "—"}`,
     `Viáticos entregados: ${fmtMXN(trip.viaticos_entregados)}`,
   ];
   textBlock(state, lines, { align: props.align });
@@ -351,8 +353,9 @@ const renderPeriodLabel: BlockRenderer = (state, props) => {
 
 const renderTripInfoGrid: BlockRenderer = (state) => {
   if (state.data.kind !== "trip") return;
-  const { trip, driver, truck, client } = state.data;
+  const { trip, driver, truck, client, clients } = state.data;
   const f = computeTrip(trip, driver ?? undefined);
+  const catalog = clients?.length ? clients : client ? [client] : [];
   const { doc, margin, pageW } = state;
   const totalGastos = f.diesel_total + f.gastos_total;
   const utilXKm = f.km_recorridos > 0 ? f.utilidad / f.km_recorridos : 0;
@@ -377,11 +380,11 @@ const renderTripInfoGrid: BlockRenderer = (state) => {
     ["Operador", tripDriverNombre(trip, driver ? [driver] : undefined)],
     ["Vendedor(es)", trip.tipo_viaje === "foraneo" ? "FORÁNEO" : "LOCAL"],
     ["KM Recorridos", fmtNumber(f.km_recorridos, 2)],
-    ["Cliente(s)", client?.razon_social ?? "—"],
+    ["Cliente(s)", tripClientesLabel(trip, catalog) || client?.razon_social || "—"],
     ["Carta(s) Porte", cartas.length > 0 ? cartas.join(", ") : "—"],
-    ["Factura(s)", trip.num_factura?.trim() || "—"],
+    ["Factura(s)", tripFacturasLabel(trip) || "—"],
     ["Peso", peso > 0 ? `${fmtNumber(peso, 2)} kg` : "—"],
-    ["SubTotal", fmtMXN(trip.tarifa)],
+    ["SubTotal", fmtMXN(tripFlete(trip))],
   ];
   const rightRows: Array<[string, string, boolean]> = [
     ["Flete", fmtMXN(f.ingreso), true],
@@ -816,7 +819,7 @@ const renderCommissionBlock: BlockRenderer = (state) => {
     state.y,
   );
   state.y += 6;
-  state.doc.text(`Tarifa: ${fmtMXN(trip.tarifa)}`, state.margin, state.y);
+  state.doc.text(`Tarifa: ${fmtMXN(tripFlete(trip))}`, state.margin, state.y);
   state.doc.text(`Comisión calculada: ${fmtMXN(f.comision)}`, state.margin + 55, state.y);
   if (typeof trip.comision_override === "number") {
     state.doc.text(`Override: ${fmtMXN(trip.comision_override)}`, state.margin + 130, state.y);

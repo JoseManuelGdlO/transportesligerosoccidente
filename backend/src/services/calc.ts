@@ -21,6 +21,67 @@ export interface TripFinancials {
   costo_diesel_por_km: number;
 }
 
+type CartaFlete = {
+  estatus?: string;
+  tipo_comprobante?: string | null;
+  folio_cfdi?: string | null;
+  timbrado_at?: Date | string | null;
+  client_id?: string | null;
+  cfdi_conceptos?: { valor_unitario?: unknown; cantidad?: unknown }[] | null;
+};
+
+export type TripConCartas = Trip & {
+  cartasPorte?: CartaFlete[];
+  cartas_porte?: CartaFlete[];
+  carta_porte?: CartaFlete;
+};
+
+function timestampCarta(value: Date | string | null | undefined): number {
+  if (value == null) return 0;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function tripCartasFuente(trip: TripConCartas): CartaFlete[] {
+  if (Array.isArray(trip.cartasPorte)) return trip.cartasPorte;
+  if (Array.isArray(trip.cartas_porte)) return trip.cartas_porte;
+  if (trip.carta_porte) return [trip.carta_porte];
+  return [];
+}
+
+/** CFDIs de ingreso timbrados, del más viejo al más nuevo. */
+export function cartasIngresoTimbradas(trip: TripConCartas): CartaFlete[] {
+  return tripCartasFuente(trip)
+    .filter((c) => c.estatus === "timbrada" && c.tipo_comprobante === "ingreso")
+    .sort((a, b) => timestampCarta(a.timbrado_at) - timestampCarta(b.timbrado_at));
+}
+
+function importeConceptos(
+  conceptos: { valor_unitario?: unknown; cantidad?: unknown }[] | null | undefined,
+): number | null {
+  if (!conceptos?.length) return null;
+  return roundMoney(
+    conceptos.reduce((s, c) => s + num(c.valor_unitario) * num(c.cantidad || 1), 0),
+  );
+}
+
+/**
+ * Flete que suma ingreso y comisión %.
+ * Con 2+ facturas de ingreso timbradas (todas con conceptos) es la suma de importes.
+ * En cualquier otro caso es la tarifa pactada del viaje.
+ */
+export function tripFlete(trip: TripConCartas): number {
+  const cartas = cartasIngresoTimbradas(trip);
+  if (cartas.length < 2) return num(trip.tarifa);
+  let total = 0;
+  for (const carta of cartas) {
+    const importe = importeConceptos(carta.cfdi_conceptos);
+    if (importe == null) return num(trip.tarifa);
+    total = roundMoney(total + importe);
+  }
+  return total;
+}
+
 export function driverCommissionRate(driver: Driver, trip: Trip): number {
   const isForaneo = trip.tipo_viaje === "foraneo";
   const local = driver.comision_valor_local ?? driver.comision_valor;
@@ -38,7 +99,7 @@ export function computeCommission(trip: Trip, driver?: Driver | null): number {
   if (!driver) return 0;
   const rate = driverCommissionRate(driver, trip);
   if (driver.comision_tipo === "porcentaje") {
-    return (num(trip.tarifa) * rate) / 100;
+    return (tripFlete(trip) * rate) / 100;
   }
   return rate;
 }
@@ -74,7 +135,7 @@ export function computeTrip(
   const ingresoRows = expRows.filter((e) => e.tipo === "ingreso");
   const ingresos_extra = ingresoRows.reduce((a, e) => a + num(e.monto), 0);
   const modalidad = parseModalidadCobro(trip.modalidad_cobro);
-  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : num(trip.tarifa);
+  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : tripFlete(trip);
   const ingreso = tarifaCobra + ingresos_extra;
   const gastos_comprobados = gastoRows.reduce((a, e) => a + clampMontoComprobado(e), 0);
   const gastos_no_comprobados = gastoRows.reduce((a, e) => a + (num(e.monto) - clampMontoComprobado(e)), 0);

@@ -11,6 +11,7 @@ export interface TripPdfOpts {
   driver?: Driver | null;
   truck?: Truck | null;
   client?: Client | null;
+  clients?: Client[];
   template?: PdfTemplate | null;
   logoDataUrl?: string | null;
 }
@@ -31,6 +32,7 @@ export function buildTripPdf(opts: TripPdfOpts) {
       driver: opts.driver ?? null,
       truck: opts.truck ?? null,
       client: opts.client ?? null,
+      clients: opts.clients,
     },
   });
 }

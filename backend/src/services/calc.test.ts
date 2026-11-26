@@ -6,6 +6,7 @@ import {
   computeSettlementTotals,
   computeTrip,
   previewAccountInstallments,
+  tripFlete,
   viaticosAFavor,
   viaticosNoComprobado,
 } from "./calc";
@@ -121,6 +122,111 @@ describe("computeTrip ingreso por modalidad", () => {
     );
     assert.equal(fin.ingreso, 1000);
     assert.equal(fin.comision, 100);
+  });
+});
+
+describe("viaje con varias facturas de ingreso", () => {
+  const driver20 = {
+    id: "driver-1",
+    comision_tipo: "porcentaje",
+    comision_valor: "20",
+    comision_valor_local: "20",
+    comision_valor_foraneo: "20",
+  } as never;
+
+  const concepto = (valor: number) => ({
+    clave_prod_serv: "78101802",
+    cantidad: 1,
+    clave_unidad: "E54",
+    unidad: "Viaje",
+    descripcion: "Flete",
+    valor_unitario: valor,
+  });
+
+  const carta = (overrides: Record<string, unknown> = {}) =>
+    ({
+      estatus: "timbrada",
+      tipo_comprobante: "ingreso",
+      folio_cfdi: "4833",
+      cfdi_conceptos: [concepto(4973)],
+      ...overrides,
+    });
+
+  it("con una factura timbrada sigue usando la tarifa del viaje", () => {
+    const trip = {
+      tarifa: 4973,
+      modalidad_cobro: "factura",
+      tipo_viaje: "local",
+      km_inicial: 0,
+      km_final: 10,
+      fuel: [],
+      expenses: [],
+      cartasPorte: [carta({ folio_cfdi: "4833", cfdi_conceptos: [concepto(4973)] })],
+    } as never;
+    const fin = computeTrip(trip, driver20);
+    assert.equal(tripFlete(trip), 4973);
+    assert.equal(fin.ingreso, 4973);
+    assert.equal(fin.comision, 994.6);
+  });
+
+  it("con dos facturas suma flete y comisión porcentual", () => {
+    const trip = {
+      tarifa: 4973,
+      modalidad_cobro: "factura",
+      tipo_viaje: "local",
+      km_inicial: 0,
+      km_final: 10,
+      fuel: [],
+      expenses: [],
+      cartasPorte: [
+        carta({ folio_cfdi: "4833", cfdi_conceptos: [concepto(4973)] }),
+        carta({ folio_cfdi: "4840", cfdi_conceptos: [concepto(2000)] }),
+      ],
+    } as never;
+    const fin = computeTrip(trip, driver20);
+    assert.equal(tripFlete(trip), 6973);
+    assert.equal(fin.ingreso, 6973);
+    assert.equal(fin.comision, 1394.6);
+  });
+
+  it("respeta comision_override aunque haya dos facturas", () => {
+    const trip = {
+      tarifa: 4973,
+      comision_override: 500,
+      modalidad_cobro: "factura",
+      tipo_viaje: "local",
+      km_inicial: 0,
+      km_final: 10,
+      fuel: [],
+      expenses: [],
+      cartasPorte: [
+        carta({ cfdi_conceptos: [concepto(4973)] }),
+        carta({ cfdi_conceptos: [concepto(2000)] }),
+      ],
+    } as never;
+    const fin = computeTrip(trip, driver20);
+    assert.equal(fin.ingreso, 6973);
+    assert.equal(fin.comision, 500);
+  });
+
+  it("no suma carta cancelada ni de traslado", () => {
+    const trip = {
+      tarifa: 4973,
+      modalidad_cobro: "factura",
+      tipo_viaje: "local",
+      km_inicial: 0,
+      km_final: 10,
+      fuel: [],
+      expenses: [],
+      cartasPorte: [
+        carta({ folio_cfdi: "4833", cfdi_conceptos: [concepto(4973)] }),
+        carta({ estatus: "cancelada", folio_cfdi: "4840", cfdi_conceptos: [concepto(2000)] }),
+        carta({ tipo_comprobante: "traslado", folio_cfdi: "4841", cfdi_conceptos: [concepto(1500)] }),
+      ],
+    } as never;
+    const fin = computeTrip(trip, driver20);
+    assert.equal(tripFlete(trip), 4973);
+    assert.equal(fin.comision, 994.6);
   });
 });
 

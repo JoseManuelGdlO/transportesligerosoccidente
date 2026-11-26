@@ -1,7 +1,7 @@
 import { useMemo, useState, useEffect, useCallback, useRef } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, driverById, truckById, tripDriverNombre } from "@/lib/calc";
+import { computeTrip, driverById, truckById, tripClientesLabel, tripClientIds, tripDriverNombre, tripFacturasLabel, tripFlete } from "@/lib/calc";
 import { Card } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -224,7 +224,7 @@ function getTripRowSortValue(
     case "ruta":
       return formatTripRoute(trip);
     case "factura":
-      return trip.num_factura ?? "";
+      return tripFacturasLabel(trip);
     case "operador": {
       const name = tripDriverNombre(trip, drivers);
       return name === "—" ? "" : name;
@@ -232,7 +232,7 @@ function getTripRowSortValue(
     case "camion":
       return truckById(trucks, trip.truck_id)?.numero_economico ?? "";
     case "tarifa":
-      return trip.tarifa;
+      return tripFlete(trip);
     case "utilidad":
       return tripIsClosed(trip) ? fin.utilidad : null;
     case "margen":
@@ -583,7 +583,7 @@ export default function Viajes() {
   const rows = useMemo(() => {
     return trips
       .filter((t) => tripMatchesStatusFilter(t, filterStatus))
-      .filter((t) => filterClient === FILTER_TODOS || t.client_id === filterClient)
+      .filter((t) => filterClient === FILTER_TODOS || tripClientIds(t).includes(filterClient))
       .filter(
         (t) => filterTipoViaje === FILTER_TODOS || t.tipo_viaje === filterTipoViaje,
       )
@@ -614,6 +614,9 @@ export default function Viajes() {
           t.client_nombre,
           client?.razon_social,
           client?.alias,
+          tripClientesLabel(t, clients),
+          tripFacturasLabel(t),
+          ...tripClientIds(t).map((id) => clients.find((c) => c.id === id)?.alias),
         ]
           .filter(Boolean)
           .join(" ")
@@ -1138,9 +1141,9 @@ export default function Viajes() {
                   </TableCell>
                   <TableCell
                     className="font-mono text-xs w-16 max-w-16 px-1.5 truncate"
-                    title={t.num_factura || undefined}
+                    title={tripFacturasLabel(t) || undefined}
                   >
-                    {t.num_factura || "—"}
+                    {tripFacturasLabel(t) || "—"}
                   </TableCell>
                   <TableCell
                     className="font-mono text-xs w-14 max-w-14 px-1.5 truncate"
@@ -1148,7 +1151,7 @@ export default function Viajes() {
                   >
                     {tk?.numero_economico}
                   </TableCell>
-                  <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMXN(t.tarifa)}</TableCell>
+                  <TableCell className="text-right tabular-nums whitespace-nowrap">{fmtMXN(tripFlete(t))}</TableCell>
                   <TableCell className="text-right font-mono text-sm tabular-nums whitespace-nowrap">
                     {closed && t.km_final != null ? (
                       <div className="leading-tight space-y-1">

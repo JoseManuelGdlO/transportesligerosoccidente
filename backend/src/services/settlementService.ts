@@ -169,6 +169,7 @@ export async function settlementSummary(
       { association: "Client", attributes: ["id", "razon_social"] },
       { association: "Driver", attributes: ["id", "nombre"], required: false },
       { association: "paradas" },
+      { association: "cartasPorte" },
       { association: "Route", attributes: ["id", "nombre"], required: false },
     ],
   });

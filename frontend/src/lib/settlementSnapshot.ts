@@ -4,6 +4,7 @@ import {
   ingresosComprobadosLiquidacion,
   previewAccountInstallments,
   roundMoney,
+  tripFlete,
   type SettlementSummary,
 } from "@/lib/calc";
 import { applyExtraViaticosToTotals } from "@/lib/extraViaticos";
@@ -12,12 +13,14 @@ import type { Driver, SettlementSummaryApi, Trip } from "@/types/tlo";
 export type TripInclusionPayload = { id: string; included: boolean };
 export type FleteLiquidacionPayload = { id: string; monto: number };
 
-/** Flete que se imprime en la liquidación. Si no hay ajuste, es la tarifa del viaje. */
-export function settlementFlete(trip: { tarifa: number; flete_liquidacion?: number | null }): number {
+/** Flete que se imprime en la liquidación. Si no hay ajuste, es el flete derivado del viaje. */
+export function settlementFlete(
+  trip: Pick<Trip, "tarifa" | "flete_liquidacion" | "cartas_porte" | "carta_porte">,
+): number {
   if (typeof trip.flete_liquidacion === "number" && Number.isFinite(trip.flete_liquidacion)) {
     return trip.flete_liquidacion;
   }
-  return trip.tarifa || 0;
+  return tripFlete(trip as Trip);
 }
 
 export function applySettlementFlete(

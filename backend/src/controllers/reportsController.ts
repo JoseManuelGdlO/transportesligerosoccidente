@@ -607,6 +607,7 @@ async function loadReportData(tenantId: string) {
         { association: "fuel" },
         { association: "expenses" },
         { association: "paradas" },
+        { association: "cartasPorte" },
         { association: "Route", attributes: ["id", "nombre"], required: false },
         {
           model: Driver,

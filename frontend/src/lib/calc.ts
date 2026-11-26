@@ -1,4 +1,4 @@
-import type { Trip, Driver, Truck } from "@/types/tlo";
+import type { CartaPorteRecord, Trip, Driver, Truck } from "@/types/tlo";
 import { parseModalidadCobro } from "@/lib/modalidadCobro";
 
 export interface TripFinancials {
@@ -19,6 +19,92 @@ export interface TripFinancials {
   costo_diesel_por_km: number;
 }
 
+const round2 = (n: number) => Math.round((n + Number.EPSILON) * 100) / 100;
+
+function timestampCarta(value: Date | string | null | undefined): number {
+  if (value == null) return 0;
+  const t = new Date(value).getTime();
+  return Number.isNaN(t) ? 0 : t;
+}
+
+function tripCartasFuente(trip: Trip): CartaPorteRecord[] {
+  if (trip.cartas_porte?.length) return trip.cartas_porte;
+  if (trip.carta_porte) return [trip.carta_porte];
+  return [];
+}
+
+/** CFDIs de ingreso timbrados, del más viejo al más nuevo. */
+export function cartasIngresoTimbradas(trip: Trip): CartaPorteRecord[] {
+  return tripCartasFuente(trip)
+    .filter((c) => c.estatus === "timbrada" && c.tipo_comprobante === "ingreso")
+    .sort((a, b) => timestampCarta(a.timbrado_at) - timestampCarta(b.timbrado_at));
+}
+
+function importeConceptos(
+  conceptos: { valor_unitario: number; cantidad: number }[] | null | undefined,
+): number | null {
+  if (!conceptos?.length) return null;
+  return round2(conceptos.reduce((s, c) => s + Number(c.valor_unitario) * Number(c.cantidad || 1), 0));
+}
+
+/**
+ * Flete que suma ingreso y comisión %.
+ * Con 2+ facturas de ingreso timbradas (todas con conceptos) es la suma de importes.
+ * En cualquier otro caso es la tarifa pactada del viaje.
+ */
+export function tripFlete(trip: Trip): number {
+  const cartas = cartasIngresoTimbradas(trip);
+  if (cartas.length < 2) return trip.tarifa || 0;
+  let total = 0;
+  for (const carta of cartas) {
+    const importe = importeConceptos(carta.cfdi_conceptos);
+    if (importe == null) return trip.tarifa || 0;
+    total = round2(total + importe);
+  }
+  return total;
+}
+
+export function tripUsaSumaFacturas(trip: Trip): boolean {
+  const cartas = cartasIngresoTimbradas(trip);
+  if (cartas.length < 2) return false;
+  return cartas.every((c) => (c.cfdi_conceptos?.length ?? 0) > 0);
+}
+
+/** Folios de las facturas de ingreso, o `num_factura` si aún no hay ninguna. */
+export function tripFacturasLabel(trip: Trip): string {
+  const folios = cartasIngresoTimbradas(trip)
+    .map((c) => (c.folio_cfdi ?? "").trim())
+    .filter(Boolean);
+  if (folios.length === 0) return (trip.num_factura ?? "").trim();
+  return folios.join(", ");
+}
+
+export function tripClientIds(trip: Trip): string[] {
+  const ids: string[] = [];
+  const add = (id?: string | null) => {
+    const v = (id ?? "").trim();
+    if (!v || ids.includes(v)) return;
+    ids.push(v);
+  };
+  add(trip.client_id);
+  for (const carta of cartasIngresoTimbradas(trip)) {
+    add(carta.client_id || trip.client_id);
+  }
+  return ids;
+}
+
+export function tripClientesLabel(
+  trip: Trip,
+  clients: { id: string; razon_social: string }[],
+): string {
+  const byId = new Map(clients.map((c) => [c.id, c.razon_social]));
+  const names = tripClientIds(trip)
+    .map((id) => byId.get(id) || (id === trip.client_id ? trip.client_nombre : undefined))
+    .filter((n): n is string => Boolean(n?.trim()));
+  if (names.length === 0) return (trip.client_nombre ?? "").trim();
+  return names.join(", ");
+}
+
 export const driverCommissionRate = (trip: Trip, driver: Driver): number => {
   const isForaneo = trip.tipo_viaje === "foraneo";
   const local = driver.comision_valor_local ?? driver.comision_valor;
@@ -30,7 +116,7 @@ export const computeCommissionFromScheme = (trip: Trip, driver?: Driver): number
   if (!driver) return 0;
   const rate = driverCommissionRate(trip, driver);
   if (driver.comision_tipo === "porcentaje") {
-    return (trip.tarifa * rate) / 100;
+    return (tripFlete(trip) * rate) / 100;
   }
   return rate;
 };
@@ -66,7 +152,7 @@ export const computeTrip = (trip: Trip, driver?: Driver): TripFinancials => {
   const ingresoRows = trip.expenses.filter((e) => e.tipo === "ingreso");
   const ingresos_extra = ingresoRows.reduce((a, e) => a + e.monto, 0);
   const modalidad = parseModalidadCobro(trip.modalidad_cobro);
-  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : trip.tarifa || 0;
+  const tarifaCobra = modalidad === "sin_cobro" || modalidad === "sin_comision" ? 0 : tripFlete(trip);
   const ingreso = tarifaCobra + ingresos_extra;
   const diesel_litros = trip.fuel.reduce((a, f) => a + f.litros, 0);
   const diesel_total = trip.fuel.reduce((a, f) => a + f.litros * f.precio_litro, 0);

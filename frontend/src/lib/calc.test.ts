@@ -6,10 +6,14 @@ import {
   computeTrip,
   outstandingDebtsForSettlement,
   previewAccountInstallments,
+  tripClientesLabel,
+  tripClientIds,
+  tripFacturasLabel,
+  tripFlete,
   viaticosAFavor,
   viaticosNoComprobado,
 } from "@/lib/calc";
-import type { Driver, Trip } from "@/types/tlo";
+import type { CartaPorteRecord, Driver, Trip, TripCfdiConcepto } from "@/types/tlo";
 
 const driver: Driver = {
   id: "driver-1",
@@ -96,6 +100,94 @@ describe("computeCommission", () => {
     const trip = tripWithExpenses(0, 0);
     trip.comision_override = "760.00" as unknown as number;
     expect(computeCommission(trip, driver)).toBe(760);
+  });
+});
+
+describe("viaje con varias facturas de ingreso", () => {
+  const concepto = (valor: number): TripCfdiConcepto => ({
+    clave_prod_serv: "78101802",
+    cantidad: 1,
+    clave_unidad: "E54",
+    unidad: "Viaje",
+    descripcion: "Flete",
+    valor_unitario: valor,
+  });
+
+  const carta = (
+    overrides: Partial<CartaPorteRecord> & { valor?: number; folio?: string },
+  ): CartaPorteRecord => ({
+    id: overrides.id ?? "c-1",
+    trip_id: "trip-1",
+    estatus: overrides.estatus ?? "timbrada",
+    tipo_comprobante: overrides.tipo_comprobante ?? "ingreso",
+    folio_cfdi: overrides.folio ?? overrides.folio_cfdi ?? "4833",
+    timbrado_at: overrides.timbrado_at ?? "2026-11-25T10:00:00.000Z",
+    client_id: overrides.client_id,
+    cfdi_conceptos: overrides.cfdi_conceptos ?? (overrides.valor != null ? [concepto(overrides.valor)] : [concepto(4973)]),
+  });
+
+  const driver20: Driver = { ...driver, comision_valor: 20, comision_valor_local: 20 };
+
+  it("con una factura timbrada sigue usando la tarifa del viaje", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.tarifa = 4973;
+    trip.cartas_porte = [carta({ id: "c-1", valor: 4973, folio: "4833" })];
+    expect(tripFlete(trip)).toBe(4973);
+    expect(computeTrip(trip, driver20).ingreso).toBe(4973);
+    expect(computeCommission(trip, driver20)).toBeCloseTo(994.6);
+    expect(tripFacturasLabel(trip)).toBe("4833");
+  });
+
+  it("con dos facturas suma flete y comisión porcentual", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.tarifa = 4973;
+    trip.cartas_porte = [
+      carta({ id: "c-1", valor: 4973, folio: "4833", timbrado_at: "2026-11-25T10:00:00.000Z" }),
+      carta({
+        id: "c-2",
+        valor: 2000,
+        folio: "4840",
+        timbrado_at: "2026-11-26T10:00:00.000Z",
+        client_id: "client-2",
+      }),
+    ];
+    const fin = computeTrip(trip, driver20);
+    expect(tripFlete(trip)).toBe(6973);
+    expect(fin.ingreso).toBe(6973);
+    expect(fin.comision).toBeCloseTo(1394.6);
+    expect(tripFacturasLabel(trip)).toBe("4833, 4840");
+    expect(tripClientIds(trip)).toEqual(["client-1", "client-2"]);
+    expect(
+      tripClientesLabel(trip, [
+        { id: "client-1", razon_social: "RECAL ACEROS" },
+        { id: "client-2", razon_social: "OTRO CLIENTE" },
+      ]),
+    ).toBe("RECAL ACEROS, OTRO CLIENTE");
+  });
+
+  it("respeta comision_override aunque haya dos facturas", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.tarifa = 4973;
+    trip.comision_override = 500;
+    trip.cartas_porte = [
+      carta({ id: "c-1", valor: 4973, folio: "4833" }),
+      carta({ id: "c-2", valor: 2000, folio: "4840" }),
+    ];
+    expect(computeTrip(trip, driver20).ingreso).toBe(6973);
+    expect(computeCommission(trip, driver20)).toBe(500);
+  });
+
+  it("no suma carta cancelada ni de traslado", () => {
+    const trip = tripWithExpenses(0, 0);
+    trip.tarifa = 4973;
+    trip.cartas_porte = [
+      carta({ id: "c-1", valor: 4973, folio: "4833" }),
+      carta({ id: "c-2", valor: 2000, folio: "4840", estatus: "cancelada" }),
+      carta({ id: "c-3", valor: 1500, folio: "4841", tipo_comprobante: "traslado" }),
+    ];
+    expect(tripFlete(trip)).toBe(4973);
+    expect(computeCommission(trip, driver20)).toBeCloseTo(994.6);
+    expect(tripFacturasLabel(trip)).toBe("4833");
   });
 });
 

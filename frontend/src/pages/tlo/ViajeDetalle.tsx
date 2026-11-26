@@ -1,7 +1,20 @@
 import { useState, useEffect, useRef } from "react";
 import { useParams, useNavigate, Link } from "react-router-dom";
 import { useTlo } from "@/context/TloContext";
-import { computeTrip, computeCommissionFromScheme, commissionOverride, driverById, truckById, driverCommissionRate, tripDriverNombre } from "@/lib/calc";
+import {
+  computeTrip,
+  computeCommissionFromScheme,
+  commissionOverride,
+  driverById,
+  truckById,
+  driverCommissionRate,
+  tripDriverNombre,
+  tripFlete,
+  tripFacturasLabel,
+  tripClientesLabel,
+  tripUsaSumaFacturas,
+  cartasIngresoTimbradas,
+} from "@/lib/calc";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -83,7 +96,7 @@ export default function ViajeDetalle() {
     FEATURE_CARTA_PORTE &&
     hasPermission("cartaporte.ver") &&
     permiteTimbrar(parseModalidadCobro(trip?.modalidad_cobro));
-  const [cxcDoc, setCxcDoc] = useState<AccountDocument | null>(null);
+  const [cxcDocs, setCxcDocs] = useState<AccountDocument[]>([]);
   useEffect(() => {
     setTripOverride(null);
   }, [id]);
@@ -124,13 +137,13 @@ export default function ViajeDetalle() {
 
   useEffect(() => {
     if (!id || !canViewCuentas || !hasApiConfigured()) {
-      setCxcDoc(null);
+      setCxcDocs([]);
       return;
     }
     void fetchAccountDocuments({ tipo: "cxc" })
-      .then((rows) => setCxcDoc(rows.find((d) => d.trip_id === id) ?? null))
-      .catch(() => setCxcDoc(null));
-  }, [id, canViewCuentas, trip?.num_factura, trip?.tarifa, trip?.fecha_llegada]);
+      .then((rows) => setCxcDocs(rows.filter((d) => d.trip_id === id)))
+      .catch(() => setCxcDocs([]));
+  }, [id, canViewCuentas, trip?.num_factura, trip?.tarifa, trip?.fecha_llegada, trip?.cartas_porte]);
 
   const [fuelOpen, setFuelOpen] = useState(false);
   const [expOpen, setExpOpen] = useState(false);
@@ -202,6 +215,11 @@ export default function ViajeDetalle() {
   const driver = driverById(drivers, trip.driver_id);
   const truck = truckById(trucks, trip.truck_id);
   const client = clients.find(c => c.id === trip.client_id);
+  const clientesLabel = tripClientesLabel(trip, clients) || client?.razon_social;
+  const flete = tripFlete(trip);
+  const facturasLabel = tripFacturasLabel(trip);
+  const sumaFacturas = tripUsaSumaFacturas(trip);
+  const facturasTimbradas = cartasIngresoTimbradas(trip).length;
   const fin = computeTrip(trip, driver);
   const comisionEsquema = computeCommissionFromScheme(trip, driver);
   const hasComisionManual = commissionOverride(trip) != null;
@@ -482,6 +500,7 @@ export default function ViajeDetalle() {
                   driver: driver ?? null,
                   truck: truck ?? null,
                   client: client ?? null,
+                  clients,
                   template: tenant?.pdf_config?.trip,
                   logoDataUrl,
                 });
@@ -597,7 +616,7 @@ export default function ViajeDetalle() {
           <Card className="tlo-shadow-md">
             <CardContent className="p-5 grid md:grid-cols-2 gap-6">
               <div className="space-y-3">
-                <div><p className="text-xs uppercase text-muted-foreground">Cliente</p><p className="font-medium">{client?.razon_social}</p></div>
+                <div><p className="text-xs uppercase text-muted-foreground">Cliente</p><p className="font-medium">{clientesLabel}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Operador</p><p className="font-medium">{tripDriverNombre(trip, drivers)}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Camión</p><p className="font-medium">{truck?.numero_economico} · {truck?.marca} {truck?.modelo} · {truck?.placas}</p></div>
                 <div><p className="text-xs uppercase text-muted-foreground">Tipo de viaje</p><p className="font-medium">{trip.tipo_viaje === "foraneo" ? "Foráneo" : "Local"}</p></div>
@@ -606,12 +625,18 @@ export default function ViajeDetalle() {
                 {parseModalidadCobro(trip.modalidad_cobro) === "sin_cobro" ? (
                   <div><p className="text-xs uppercase text-muted-foreground">Comisión del operador</p><p className="font-medium">{fmtMXN(trip.comision_override ?? 0)}</p></div>
                 ) : llevaTarifa(parseModalidadCobro(trip.modalidad_cobro)) ? (
-                  <div><p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p><p className="font-medium">{fmtMXN(trip.tarifa)}</p></div>
+                  <div>
+                    <p className="text-xs uppercase text-muted-foreground">Tarifa pactada</p>
+                    <p className="font-medium">{fmtMXN(flete)}</p>
+                    {sumaFacturas ? (
+                      <p className="text-[11px] text-muted-foreground">Suma de {facturasTimbradas} facturas</p>
+                    ) : null}
+                  </div>
                 ) : null}
                 {!isClosed && permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && (
                   <div>
                     <p className="text-xs uppercase text-muted-foreground">Número de factura</p>
-                    <p className="font-medium font-mono">{trip.num_factura || "—"}</p>
+                    <p className="font-medium font-mono">{facturasLabel || "—"}</p>
                   </div>
                 )}
                 {customStatusOptions.length > 0 && (
@@ -652,18 +677,22 @@ export default function ViajeDetalle() {
                 {isClosed && permiteTimbrar(parseModalidadCobro(trip.modalidad_cobro)) && (
                   <div>
                     <Label>Número de factura</Label>
-                    <Input
-                      defaultValue={trip.num_factura || ""}
-                      placeholder="F-8826"
-                      onBlur={async (e) => {
-                        const v = e.target.value.trim();
-                        if (v !== (trip.num_factura || "")) {
-                          updateTrip(trip.id, { num_factura: v || undefined });
-                          toast.success("Número de factura guardado");
-                          await reloadTrip();
-                        }
-                      }}
-                    />
+                    {facturasTimbradas >= 2 ? (
+                      <p className="font-medium font-mono mt-1">{facturasLabel || "—"}</p>
+                    ) : (
+                      <Input
+                        defaultValue={trip.num_factura || ""}
+                        placeholder="F-8826"
+                        onBlur={async (e) => {
+                          const v = e.target.value.trim();
+                          if (v !== (trip.num_factura || "")) {
+                            updateTrip(trip.id, { num_factura: v || undefined });
+                            toast.success("Número de factura guardado");
+                            await reloadTrip();
+                          }
+                        }}
+                      />
+                    )}
                   </div>
                 )}
                 {canViewCuentas && (
@@ -671,21 +700,27 @@ export default function ViajeDetalle() {
                     <p className="text-xs uppercase text-muted-foreground flex items-center gap-1">
                       <HandCoins className="h-3.5 w-3.5" /> Cuenta por cobrar
                     </p>
-                    {cxcDoc ? (
-                      <>
-                        <p className="text-sm">
-                          Saldo {fmtMXNDecimal(cxcDoc.saldo_pendiente)} ·{" "}
-                          <Badge variant={cxcDoc.estatus_display === "Vencida" ? "destructive" : "secondary"}>
-                            {cxcDoc.estatus_display}
-                          </Badge>
-                        </p>
-                        <Link
-                          to={`/cuentas?tipo=cxc&doc=${cxcDoc.id}`}
-                          className="text-sm text-primary underline-offset-2 hover:underline"
-                        >
-                          Ver en Cuentas
-                        </Link>
-                      </>
+                    {cxcDocs.length > 0 ? (
+                      <div className="space-y-2">
+                        {cxcDocs.map((doc) => (
+                          <div key={doc.id} className="space-y-0.5">
+                            <p className="text-sm">
+                              {doc.folio ? <span className="font-mono">{doc.folio} · </span> : null}
+                              {doc.entidad_nombre ? `${doc.entidad_nombre} · ` : null}
+                              Saldo {fmtMXNDecimal(doc.saldo_pendiente)} ·{" "}
+                              <Badge variant={doc.estatus_display === "Vencida" ? "destructive" : "secondary"}>
+                                {doc.estatus_display}
+                              </Badge>
+                            </p>
+                            <Link
+                              to={`/cuentas?tipo=cxc&doc=${doc.id}`}
+                              className="text-sm text-primary underline-offset-2 hover:underline"
+                            >
+                              Ver en Cuentas
+                            </Link>
+                          </div>
+                        ))}
+                      </div>
                     ) : (
                       <p className="text-sm text-muted-foreground">
                         {isClosed
