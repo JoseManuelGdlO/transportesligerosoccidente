@@ -37,6 +37,7 @@ import { num } from "../utils/numbers";
 import { renderCfdiPdfFromXml, type CartaPortePdfSource } from "./cfdiPdf";
 import { noIdentificacionFromComentarios } from "./pac/sicofi/mapConceptos";
 import { algunaCartaTimbrada, cartaVisible } from "./cartaPorteSelection";
+import { relabelUbicacionAlCambiarReceptor } from "./cartaPorteReceptorUbicacion";
 import { parseModalidadCobro, permiteTimbrar } from "../types/modalidadCobro";
 
 function err(msg: string, status = 400): Error {
@@ -201,7 +202,8 @@ export async function updateCartaPorteComentarios(
   return cp;
 }
 
-/** El receptor de esta factura. No mueve el cliente operativo del viaje. */
+/** El receptor de esta factura. No mueve el cliente operativo del viaje.
+ *  Las filas que todavía identifican al receptor anterior toman el RFC y la razón social nuevos. */
 export async function asignarClienteCarta(
   tenantId: string,
   tripId: string,
@@ -219,8 +221,35 @@ export async function asignarClienteCarta(
   const client = await Client.findOne({ where: { id: clientId, tenant_id: tenantId } });
   if (!client) throw err("Cliente no encontrado", 404);
   if (client.estatus !== "activo") throw err("El cliente está inactivo");
+  const anteriorId = cp.client_id || trip.client_id;
+  const anterior =
+    anteriorId && anteriorId !== client.id
+      ? await Client.findOne({ where: { id: anteriorId, tenant_id: tenantId } })
+      : null;
   await cp.update({ client_id: client.id } as never);
-  return cp;
+  if (anterior) {
+    const filas = await TripUbicacion.findAll({
+      where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: cp.id },
+    });
+    for (const row of filas) {
+      const next = relabelUbicacionAlCambiarReceptor(
+        { rfc: row.rfc, nombre: row.nombre, client_ubicacion_id: row.client_ubicacion_id },
+        { rfc: anterior.rfc, nombre: anterior.razon_social },
+        { rfc: client.rfc, nombre: client.razon_social },
+      );
+      if (!next.changed) continue;
+      await row.update({
+        rfc: next.rfc,
+        nombre: next.nombre,
+        client_ubicacion_id: null,
+      } as never);
+    }
+  }
+  const ubicaciones = await TripUbicacion.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: cp.id },
+    order: [["orden", "ASC"]],
+  });
+  return { carta: cp, ubicaciones };
 }
 
 type FolioEnUsoError = Error & { status: number; folio_sugerido: number };

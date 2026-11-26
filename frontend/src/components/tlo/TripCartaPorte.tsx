@@ -20,6 +20,16 @@ import {
   DialogHeader,
   DialogTitle,
 } from "@/components/ui/dialog";
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from "@/components/ui/alert-dialog";
 import { apiFetch, readJson } from "@/lib/api";
 import {
   cancelarCartaPorte,
@@ -58,6 +68,7 @@ import {
   timbradoValidationToast,
 } from "@/lib/cartaPorteIssues";
 import { cxcSyncNotice } from "@/lib/cxcSyncNotice";
+import { aplicarParteEnFormulario, avisoParteDistinta, partesConOtroNombre } from "@/lib/cartaPorteReceptor";
 import { correoComplementoBody } from "@/lib/paymentComplement";
 import { condicionesPagoDesdeDias } from "@/lib/condicionesPago";
 import type {
@@ -410,6 +421,8 @@ export function TripCartaPorte({
   const receptorNombre =
     receptor?.razon_social?.trim() || (receptorId && receptorId === clientId ? clientName : "") || "";
   const [savingCliente, setSavingCliente] = useState(false);
+  const [parteConfirmOpen, setParteConfirmOpen] = useState(false);
+  const syncPartesTrasClienteRef = useRef<(record: CartaPorteRecord) => void>(() => {});
 
   const [tipoTimbrado, setTipoTimbrado] = useState<"ingreso" | "traslado">("ingreso");
   const [usoCfdi, setUsoCfdi] = useState("G03");
@@ -592,8 +605,10 @@ export function TripCartaPorte({
     if (!canFiscalEdit || !cp || !nextId || nextId === receptorId) return;
     setSavingCliente(true);
     try {
+      await flushPendingSaves();
       const record = await patchCartaPorteCliente(trip.id, cp.id, nextId);
       condicionesTouched.current = false;
+      syncPartesTrasClienteRef.current(record);
       onTripUpdated(mergeCartaIntoTrip(trip, record));
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "No se pudo cambiar el cliente de la factura");
@@ -1012,6 +1027,35 @@ export function TripCartaPorte({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [fiscalKey]);
 
+  syncPartesTrasClienteRef.current = (record) => {
+    if (!record.ubicaciones) return;
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    const ubics = [...record.ubicaciones].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    const origenU = ubics.find((u) => u.orden === 1) ?? ubics.find((u) => u.tipo === "Origen");
+    const destinoU =
+      ubics.filter((u) => (u.orden ?? 0) > 1).pop() ?? ubics.find((u) => u.tipo === "Destino");
+    const origenAplicado = origenU ? aplicarParteEnFormulario(origenForm, origenU) : null;
+    const destinoAplicado = destinoU ? aplicarParteEnFormulario(destinoForm, destinoU) : null;
+    const nextOrigen = origenAplicado?.form ?? origenForm;
+    const nextDestino = destinoAplicado?.form ?? destinoForm;
+    setOrigenForm(nextOrigen);
+    setDestinoForm(nextDestino);
+    lastSavedSnapshotRef.current = JSON.stringify({ origen: nextOrigen, destino: nextDestino });
+    const cambiadas = [
+      origenAplicado?.cambioIdentidad ? "origen" : "",
+      destinoAplicado?.cambioIdentidad ? "destino" : "",
+    ].filter(Boolean);
+    if (cambiadas.length === 0) return;
+    const nuevo = clients.find((c) => c.id === record.client_id);
+    const quien = nuevo?.razon_social?.trim() || "el cliente de esta factura";
+    toast.warning(
+      `RFC y razón social de ${cambiadas.join(" y ")} quedaron a nombre de ${quien}. La calle y el CP no cambiaron.`,
+    );
+  };
+
   useEffect(() => {
     if (!validationAttempted) return;
     const section = firstErrorSection(issueFlags, fiscalStopCount) ?? (previewIssues.length > 0 ? "avisos" : null);
@@ -1026,6 +1070,19 @@ export function TripCartaPorte({
     if (Number.isNaN(salidaMs) || Number.isNaN(llegadaMs)) return false;
     return llegadaMs <= salidaMs;
   }, [origenForm.fecha_hora, destinoForm.fecha_hora]);
+
+  const partesDistintas = useMemo(
+    () =>
+      partesConOtroNombre(
+        [
+          { rol: "origen", rfc: origenForm.rfc, nombre: origenForm.nombre },
+          { rol: "destino", rfc: destinoForm.rfc, nombre: destinoForm.nombre },
+        ],
+        { rfc: receptorRfc, nombre: receptorNombre },
+      ),
+    [origenForm.rfc, origenForm.nombre, destinoForm.rfc, destinoForm.nombre, receptorRfc, receptorNombre],
+  );
+  const avisoParte = avisoParteDistinta(partesDistintas, receptorNombre);
 
   const catalogForOrigen = catalogUbicaciones.filter(
     (u) => u.estatus !== "inactivo" && (u.tipo === "Origen" || u.tipo === "Ambos"),
@@ -1351,8 +1408,13 @@ export function TripCartaPorte({
     }
   };
 
-  const handleTimbrar = async () => {
+  const handleTimbrar = async (opts?: { confirmarParte?: boolean }) => {
     if (!canTimbrar || !cp) return;
+    if (!opts?.confirmarParte && partesDistintas.length > 0) {
+      setParteConfirmOpen(true);
+      return;
+    }
+    setParteConfirmOpen(false);
     if (tipoTimbrado === "ingreso" && enviarCorreo) {
       const correo = correoComplementoBody(true, correoEmail, "");
       if (correo.ok === false) {
@@ -1654,8 +1716,11 @@ export function TripCartaPorte({
               placeholder="Seleccionar cliente…"
             />
             <p className="text-xs text-muted-foreground">
-              Es el receptor del CFDI. Cada factura del viaje puede timbrarse a un cliente distinto. Origen, destino y mercancías de abajo son la copia de esta factura.
+              Es a quién se le cobra esta factura. Si origen o destino todavía tienen el RFC de ese cliente, al cambiarlo se actualizan el RFC y la razón social. La calle no cambia.
             </p>
+            {cartaEditable && avisoParte ? (
+              <p className="text-xs text-amber-800 dark:text-amber-300">{avisoParte}</p>
+            ) : null}
           </div>
           <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
             <Label htmlFor="cp-folio">Folio</Label>
@@ -2541,6 +2606,24 @@ export function TripCartaPorte({
           onSaved={(ubicacion, reused) => void onUbicacionCatalogSaved(ubicacion, reused)}
         />
       ) : null}
+
+      <AlertDialog open={parteConfirmOpen} onOpenChange={setParteConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Origen o destino siguen a nombre de otro cliente</AlertDialogTitle>
+            <AlertDialogDescription className="whitespace-pre-line">
+              {avisoParte}
+              {"\n\n"}Si timbras así, se le cobra al cliente de esta factura y la mercancía figura a nombre de quien dicen esas filas.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Volver a revisar</AlertDialogCancel>
+            <AlertDialogAction onClick={() => void handleTimbrar({ confirmarParte: true })}>
+              Timbrar así
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <Dialog
         open={cancelOpen}

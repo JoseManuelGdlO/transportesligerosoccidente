@@ -164,13 +164,16 @@ export const patchCliente = asyncHandler(async (req: Request, res: Response) => 
     return;
   }
   const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
-  const cp = await cartaPorteService.asignarClienteCarta(
+  const { carta, ubicaciones } = await cartaPorteService.asignarClienteCarta(
     tenantId,
     tripId,
     cartaId,
     parsed.data.client_id,
   );
-  res.json(cartaPorteToJson(cp));
+  res.json({
+    ...cartaPorteToJson(carta),
+    ubicaciones: ubicaciones.map(tripUbicacionToJson),
+  });
 });
 
 const folioSchema = z.object({
