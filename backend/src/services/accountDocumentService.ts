@@ -340,6 +340,9 @@ export async function listDocuments(
     hasta?: string;
   } = {},
 ): Promise<AccountDocumentDto[]> {
+  if (opts.tipo !== "cxp") {
+    await cancelarCxcDeCartasCanceladas(tenantId);
+  }
   const where: WhereOptions = { tenant_id: tenantId };
   if (opts.tipo) where.tipo = opts.tipo;
   if (opts.estatus) where.estatus = opts.estatus;
@@ -1143,6 +1146,92 @@ export function debeSincronizarCxc(input: {
   );
 }
 
+export type PlanCxcCartaCancelada = "noop" | "cancelar" | "conservar";
+
+/** Una factura cancelada no debe dejar CXC abierta. Con abonos se conserva: el cobro ya ocurrió. */
+export function planCxcDeCartaCancelada(input: {
+  estatus: string | null;
+  paymentCount: number;
+}): PlanCxcCartaCancelada {
+  if (!input.estatus || input.estatus === "cancelada") return "noop";
+  if (input.paymentCount > 0) return "conservar";
+  return "cancelar";
+}
+
+export async function cancelCxcDeCarta(
+  tenantId: string,
+  cartaId: string,
+): Promise<"cancelada" | "noop" | "conservar"> {
+  const doc = await AccountDocument.findOne({
+    where: { tenant_id: tenantId, carta_porte_id: cartaId, tipo: "cxc" },
+  });
+  if (!doc) return "noop";
+  const payments = await AccountDocumentPayment.findAll({
+    where: { tenant_id: tenantId, document_id: doc.id },
+  });
+  const plan = planCxcDeCartaCancelada({
+    estatus: doc.estatus,
+    paymentCount: payments.length,
+  });
+  if (plan === "cancelar") {
+    await doc.update({ estatus: "cancelada" } as never);
+    return "cancelada";
+  }
+  if (plan === "conservar") {
+    console.warn(
+      `[cxc] Factura cancelada pero la CXC ${doc.folio} tiene abonos y sigue abierta`,
+    );
+  }
+  return plan;
+}
+
+/** Cierra CXC abiertas cuya carta porte ya está cancelada. No reabre ni toca las que tienen abonos. */
+async function cancelarCxcDeCartasCanceladas(tenantId: string): Promise<number> {
+  const cartas = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, estatus: "cancelada" },
+    attributes: ["id", "estatus"],
+  });
+  const ids = cartas
+    .filter((carta) => carta.estatus === "cancelada" && Boolean(carta.id))
+    .map((carta) => carta.id);
+  if (!ids.length) return 0;
+  const docs = await AccountDocument.findAll({
+    where: {
+      tenant_id: tenantId,
+      tipo: "cxc",
+      estatus: { [Op.ne]: "cancelada" },
+      carta_porte_id: { [Op.in]: ids },
+    },
+  });
+  if (!docs.length) return 0;
+  const payments = await AccountDocumentPayment.findAll({
+    where: {
+      tenant_id: tenantId,
+      document_id: { [Op.in]: docs.map((doc) => doc.id) },
+    },
+    attributes: ["document_id"],
+  });
+  const conAbono = new Set(payments.map((payment) => payment.document_id));
+  let cerradas = 0;
+  for (const doc of docs) {
+    const plan = planCxcDeCartaCancelada({
+      estatus: doc.estatus,
+      paymentCount: conAbono.has(doc.id) ? 1 : 0,
+    });
+    if (plan !== "cancelar") {
+      if (plan === "conservar") {
+        console.warn(
+          `[cxc] Factura cancelada pero la CXC ${doc.folio} tiene abonos y sigue abierta`,
+        );
+      }
+      continue;
+    }
+    await doc.update({ estatus: "cancelada" } as never);
+    cerradas += 1;
+  }
+  return cerradas;
+}
+
 /** El backfill de viajes solo crea la CXC que falta; una ya existente, incluso cancelada, no se reescribe. */
 export function backfillOmiteCxcExistente(yaExiste: boolean): boolean {
   return yaExiste;
@@ -1694,6 +1783,10 @@ export async function backfillTenant(tenantId: string): Promise<{
       where: { tenant_id: tenantId, trip_id: trip.id },
     });
     for (const carta of cartas) {
+      if (carta.estatus === "cancelada") {
+        if ((await cancelCxcDeCarta(tenantId, carta.id)) === "cancelada") cxc += 1;
+        continue;
+      }
       const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
       if (
         !debeSincronizarCxc({

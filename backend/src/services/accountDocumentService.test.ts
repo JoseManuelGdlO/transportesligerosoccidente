@@ -16,6 +16,8 @@ import {
   cxcMontoFiscal,
   daysBetween,
   debeSincronizarCxc,
+  planCxcDeCartaCancelada,
+  cancelCxcDeCarta,
   statementTotalsFromDocuments,
   totalCfdiDesdeXml,
   folioCxcTimbrado,
@@ -633,6 +635,19 @@ describe("CXC desde ingreso timbrado", () => {
     assert.equal(folioCxcTimbrado({ serie: null, folio_cfdi: null }, "  F-9 "), "F-9");
   });
 
+  it("planCxcDeCartaCancelada cancela la CXC abierta sin abonos", () => {
+    assert.equal(planCxcDeCartaCancelada({ estatus: "abierta", paymentCount: 0 }), "cancelar");
+  });
+
+  it("planCxcDeCartaCancelada no toca una CXC ya cancelada", () => {
+    assert.equal(planCxcDeCartaCancelada({ estatus: "cancelada", paymentCount: 0 }), "noop");
+    assert.equal(planCxcDeCartaCancelada({ estatus: null, paymentCount: 0 }), "noop");
+  });
+
+  it("planCxcDeCartaCancelada conserva la CXC si ya tiene abonos", () => {
+    assert.equal(planCxcDeCartaCancelada({ estatus: "pagada", paymentCount: 1 }), "conservar");
+  });
+
   it("debeSincronizarCxc exige timbrada de ingreso y monto positivo", () => {
     assert.equal(
       debeSincronizarCxc({ estatus: "timbrada", tipo_comprobante: "ingreso", monto: 10 }),
@@ -686,6 +701,31 @@ describe("CXC desde ingreso timbrado", () => {
 
   it("backfillOmiteCxcExistente no omite si no hay documento", () => {
     assert.equal(backfillOmiteCxcExistente(false), false);
+  });
+});
+
+describe("cancelCxcDeCarta", () => {
+  afterEach(() => {
+    mock.restoreAll();
+  });
+
+  it("marca cancelada la CXC de la factura sin abonos", async () => {
+    const doc = {
+      id: "cxc-1",
+      tenant_id: "t1",
+      folio: "CP-4844",
+      estatus: "abierta" as "abierta" | "pagada" | "cancelada",
+      update: async (patch: Record<string, unknown>) => {
+        Object.assign(doc, patch);
+      },
+    };
+    mock.method(AccountDocument, "findOne", async () => doc as never);
+    mock.method(AccountDocumentPayment, "findAll", async () => [] as never);
+
+    const result = await cancelCxcDeCarta("t1", "carta-4844");
+
+    assert.equal(result, "cancelada");
+    assert.equal(doc.estatus, "cancelada");
   });
 });
 

@@ -141,7 +141,9 @@ export default function ViajeDetalle() {
       return;
     }
     void fetchAccountDocuments({ tipo: "cxc" })
-      .then((rows) => setCxcDocs(rows.filter((d) => d.trip_id === id)))
+      .then((rows) =>
+        setCxcDocs(rows.filter((d) => d.trip_id === id && d.estatus !== "cancelada")),
+      )
       .catch(() => setCxcDocs([]));
   }, [id, canViewCuentas, trip?.num_factura, trip?.tarifa, trip?.fecha_llegada, trip?.cartas_porte]);
 

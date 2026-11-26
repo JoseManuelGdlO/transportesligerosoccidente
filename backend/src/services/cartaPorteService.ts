@@ -962,5 +962,14 @@ export async function cancelarCartaPorte(
     throw err(msg, 422);
   }
   await cp.update({ estatus: "cancelada" } as never);
+  try {
+    const { cancelCxcDeCarta } = await import("./accountDocumentService");
+    await cancelCxcDeCarta(tenantId, cp.id);
+  } catch (syncErr) {
+    console.warn(
+      "[cartaPorte] Factura cancelada pero falló cancelar la CXC:",
+      syncErr instanceof Error ? syncErr.message : syncErr,
+    );
+  }
   return cp;
 }
