@@ -442,7 +442,7 @@ export function TripCartaPorte({
   const [folioSustitucion, setFolioSustitucion] = useState("");
   const [cancelling, setCancelling] = useState(false);
   const [cancelError, setCancelError] = useState<string | null>(null);
-  const [enviarCorreo, setEnviarCorreo] = useState(false);
+  const [correoConfirmOpen, setCorreoConfirmOpen] = useState(false);
   const [correoEmail, setCorreoEmail] = useState("");
   const clienteCorreo = useMemo(
     () => clients.find((c) => c.id === receptorId)?.email?.trim() ?? "",
@@ -457,17 +457,19 @@ export function TripCartaPorte({
   }, [clienteDiasCredito]);
 
   useEffect(() => {
-    setCorreoEmail((actual) =>
-      actual.trim() && actual.trim() === correoAutoPrevio.current ? clienteCorreo : actual,
-    );
+    setCorreoEmail((actual) => {
+      const trimmed = actual.trim();
+      if (!trimmed || trimmed === correoAutoPrevio.current) return clienteCorreo;
+      return actual;
+    });
     correoAutoPrevio.current = clienteCorreo;
   }, [clienteCorreo]);
 
+  const correoTimbrado = () =>
+    correoComplementoBody(correoEmail.trim().length > 0, correoEmail, "");
+
   const timbradoBody = () => {
-    const correo =
-      tipoTimbrado === "ingreso"
-        ? correoComplementoBody(enviarCorreo, correoEmail, "")
-        : { ok: true as const, fields: {} };
+    const correo = tipoTimbrado === "ingreso" ? correoTimbrado() : { ok: true as const, fields: {} };
     return {
       tipo: tipoTimbrado,
       uso_cfdi: tipoTimbrado === "ingreso" ? usoCfdi : undefined,
@@ -514,8 +516,8 @@ export function TripCartaPorte({
   }, [trip.id, cp?.id, cp?.comentarios]);
 
   useEffect(() => {
-    setEnviarCorreo(false);
-    setCorreoEmail("");
+    setCorreoEmail(clienteCorreo);
+    correoAutoPrevio.current = clienteCorreo;
     condicionesTouched.current = false;
     const condiciones = condicionesPagoDesdeDias(clienteDiasCredito);
     if (cp?.tipo_comprobante === "ingreso" || cp?.tipo_comprobante === "traslado") {
@@ -1415,8 +1417,8 @@ export function TripCartaPorte({
       return;
     }
     setParteConfirmOpen(false);
-    if (tipoTimbrado === "ingreso" && enviarCorreo) {
-      const correo = correoComplementoBody(true, correoEmail, "");
+    if (tipoTimbrado === "ingreso") {
+      const correo = correoTimbrado();
       if (correo.ok === false) {
         toast.error(correo.error);
         return;
@@ -1816,34 +1818,6 @@ export function TripCartaPorte({
                       placeholder="CREDITO 30 DIAS"
                     />
                   </div>
-                  <div className="sm:col-span-2 space-y-2">
-                    <label className="flex items-center gap-2 text-sm">
-                      <Checkbox
-                        id="cp-enviar-correo"
-                        checked={enviarCorreo}
-                        disabled={loading}
-                        onCheckedChange={(checked) => {
-                          const on = checked === true;
-                          setEnviarCorreo(on);
-                          if (on && !correoEmail.trim()) setCorreoEmail(clienteCorreo);
-                        }}
-                      />
-                      Enviar por correo
-                    </label>
-                    {enviarCorreo && (
-                      <div>
-                        <Label htmlFor="cp-correo">Correo</Label>
-                        <Input
-                          id="cp-correo"
-                          type="email"
-                          value={correoEmail}
-                          disabled={loading}
-                          placeholder="cliente@empresa.com"
-                          onChange={(e) => setCorreoEmail(e.target.value)}
-                        />
-                      </div>
-                    )}
-                  </div>
                   <div className="sm:col-span-2 space-y-2 pt-2 border-t">
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div>
@@ -1994,7 +1968,14 @@ export function TripCartaPorte({
             {canTimbrar && !cpTimbrada && (
               <Button
                 size="sm"
-                onClick={() => void handleTimbrar()}
+                onClick={() => {
+                  if (tipoTimbrado === "ingreso") {
+                    if (!correoEmail.trim() && clienteCorreo) setCorreoEmail(clienteCorreo);
+                    setCorreoConfirmOpen(true);
+                    return;
+                  }
+                  void handleTimbrar();
+                }}
                 disabled={loading || savingConceptos}
                 className="bg-primary text-primary-foreground"
               >
@@ -2606,6 +2587,47 @@ export function TripCartaPorte({
           onSaved={(ubicacion, reused) => void onUbicacionCatalogSaved(ubicacion, reused)}
         />
       ) : null}
+
+      <AlertDialog open={correoConfirmOpen} onOpenChange={setCorreoConfirmOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>¿Timbrar esta factura?</AlertDialogTitle>
+            <AlertDialogDescription>
+              {correoEmail.trim()
+                ? "Se va a timbrar y el comprobante se enviará a este correo."
+                : "Se va a timbrar. El correo está vacío, así que no se envía."}
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <div className="space-y-1.5">
+            <Label htmlFor="cp-correo-confirm">Correo</Label>
+            <Input
+              id="cp-correo-confirm"
+              type="email"
+              value={correoEmail}
+              disabled={loading}
+              placeholder="cliente@empresa.com"
+              onChange={(e) => setCorreoEmail(e.target.value)}
+            />
+          </div>
+          <AlertDialogFooter>
+            <AlertDialogCancel disabled={loading}>Cancelar</AlertDialogCancel>
+            <AlertDialogAction
+              disabled={loading}
+              onClick={(event) => {
+                const correo = correoTimbrado();
+                if (correo.ok === false) {
+                  event.preventDefault();
+                  toast.error(correo.error);
+                  return;
+                }
+                void handleTimbrar();
+              }}
+            >
+              Timbrar
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
 
       <AlertDialog open={parteConfirmOpen} onOpenChange={setParteConfirmOpen}>
         <AlertDialogContent>
