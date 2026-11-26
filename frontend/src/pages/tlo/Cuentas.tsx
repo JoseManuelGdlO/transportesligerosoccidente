@@ -514,9 +514,8 @@ export default function Cuentas() {
         monto,
         fecha: payForm.fecha,
         nota: payForm.nota || undefined,
-        sin_timbrar: pagoSinTimbrar || undefined,
       });
-      toast.success(pagoSinTimbrar ? "Pago aplicado sin timbrar" : "Abono registrado");
+      toast.success("Abono registrado");
       setPaymentOpen(false);
       setSelected(updated);
       await load();
@@ -589,6 +588,7 @@ export default function Cuentas() {
     if (!selected) return;
     cobroDesdeLista.current = false;
     setPagoOmitidas(0);
+    setPagoSinTimbrar(false);
     const clientId = selected.client_id;
     const currentId = selected.id;
     setCobroFecha(new Date().toISOString().slice(0, 10));
@@ -645,6 +645,7 @@ export default function Cuentas() {
       setPagoOmitidas(plan.omitidas + cobranzaIds.length - cargadas.length);
       if (plan.kind === "complemento") {
         cobroDesdeLista.current = true;
+        setPagoSinTimbrar(false);
         setCobroFecha(hoy);
         setCobroForma("03");
         setCobroTipoCambio("");
@@ -679,8 +680,70 @@ export default function Cuentas() {
     }
   };
 
+  const aplicarCobroSinTimbrar = async (
+    marcadas: { doc: AccountDocument; monto: string }[],
+  ) => {
+    const lineas = marcadas.map((row) => ({ id: row.doc.id, monto: Number(row.monto) }));
+    setCobroSaving(true);
+    let aplicadas = 0;
+    try {
+      for (const linea of lineas) {
+        await addAccountPaymentApi(linea.id, {
+          monto: linea.monto,
+          fecha: cobroFecha,
+          sin_timbrar: true,
+        });
+        aplicadas += 1;
+      }
+      toast.success(
+        lineas.length === 1
+          ? "Pago aplicado sin timbrar"
+          : `Pago aplicado sin timbrar a ${lineas.length} facturas`,
+      );
+      const desdeLista = cobroDesdeLista.current;
+      cobroDesdeLista.current = false;
+      setCobroOpen(false);
+      setPagoSinTimbrar(false);
+      if (desdeLista) setCobranzaIds([]);
+      if (detailOpen && selected && lineas.some((linea) => linea.id === selected.id)) {
+        await refreshAfterComplement(selected.id);
+      } else {
+        await load();
+      }
+    } catch (e) {
+      const message = e instanceof Error ? e.message : "No se pudo aplicar el pago";
+      if (aplicadas > 0) {
+        const hechas = new Set(lineas.slice(0, aplicadas).map((linea) => linea.id));
+        setCobroRows((prev) => prev.filter((row) => !hechas.has(row.doc.id)));
+        if (cobroDesdeLista.current) {
+          setCobranzaIds((prev) => prev.filter((id) => !hechas.has(id)));
+        }
+        toast.error(`${message} ${aplicadas} ya quedaron aplicadas.`);
+      } else {
+        toast.error(message);
+      }
+      if (detailOpen && selected && lineas.slice(0, aplicadas).some((linea) => linea.id === selected.id)) {
+        await refreshAfterComplement(selected.id);
+      } else {
+        await load();
+      }
+    } finally {
+      setCobroSaving(false);
+    }
+  };
+
   const saveCobro = async () => {
-    const base = cobroRows.find((row) => row.checked)?.doc;
+    const marcadas = cobroRows.filter((row) => row.checked);
+    const documentos = marcadas.map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
+    if (!documentos.length || documentos.some((doc) => !(doc.monto > 0))) {
+      toast.error("Selecciona facturas con monto mayor a 0");
+      return;
+    }
+    if (pagoSinTimbrar) {
+      await aplicarCobroSinTimbrar(marcadas);
+      return;
+    }
+    const base = marcadas[0]?.doc;
     if (!base?.client_id) {
       toast.error("La factura no tiene cliente");
       return;
@@ -702,12 +765,6 @@ export default function Cuentas() {
       return;
     }
     const extra = complementoExtraBody(numOperacion, comentariosPago);
-    const marcadas = cobroRows.filter((row) => row.checked);
-    const documentos = marcadas.map((row) => ({ document_id: row.doc.id, monto: Number(row.monto) }));
-    if (!documentos.length || documentos.some((doc) => !(doc.monto > 0))) {
-      toast.error("Selecciona facturas con monto mayor a 0");
-      return;
-    }
     const cadaUna = cobroCadaFactura && documentos.length > 1;
     setCobroSaving(true);
     try {
@@ -1821,22 +1878,6 @@ export default function Cuentas() {
               )}
             </div>
             <div className="flex flex-wrap items-center justify-end gap-2">
-              {canManage &&
-                selected?.tipo === "cxc" &&
-                selected.complemento_disponible &&
-                selected.estatus === "abierta" &&
-                selected.saldo_pendiente > 0 && (
-                  <label
-                    className="flex items-center gap-2 text-sm"
-                    title="Provisional. Aplica el pago en la cuenta sin timbrar el complemento. Úsalo cuando el pago ya está en Sicofi."
-                  >
-                    <Checkbox
-                      checked={pagoSinTimbrar}
-                      onCheckedChange={(v) => setPagoSinTimbrar(v === true)}
-                    />
-                    Aplicar sin timbrar
-                  </label>
-                )}
               {canManage && detailLoading && selected?.estatus === "abierta" && selected.saldo_pendiente > 0 && (
                 <Button variant="secondary" disabled>
                   <Loader2 className="mr-2 h-4 w-4 animate-spin" />
@@ -1848,22 +1889,8 @@ export default function Cuentas() {
                 selected?.complemento_disponible &&
                 selected.estatus === "abierta" &&
                 selected.saldo_pendiente > 0 && (
-                  <Button
-                    variant="secondary"
-                    onClick={() => {
-                      if (!pagoSinTimbrar) {
-                        openCobroDialog();
-                        return;
-                      }
-                      setPayForm({
-                        monto: String(selected.saldo_pendiente),
-                        fecha: new Date().toISOString().slice(0, 10),
-                        nota: "",
-                      });
-                      setPaymentOpen(true);
-                    }}
-                  >
-                    {pagoSinTimbrar ? "Aplicar pago" : "Registrar cobro"}
+                  <Button variant="secondary" onClick={() => openCobroDialog()}>
+                    Registrar cobro
                   </Button>
                 )}
               {canManage &&
@@ -2065,7 +2092,7 @@ export default function Cuentas() {
       <Dialog open={paymentOpen} onOpenChange={setPaymentOpen}>
         <DialogContent>
           <DialogHeader>
-            <DialogTitle>{pagoSinTimbrar ? "Aplicar pago sin timbrar" : "Registrar abono"}</DialogTitle>
+            <DialogTitle>Registrar abono</DialogTitle>
           </DialogHeader>
           <div className="space-y-3">
             <div>
@@ -2098,14 +2125,18 @@ export default function Cuentas() {
             <Button variant="outline" onClick={() => setPaymentOpen(false)}>
               Cancelar
             </Button>
-            <Button onClick={() => void savePayment()}>
-              {pagoSinTimbrar ? "Aplicar pago" : "Guardar abono"}
-            </Button>
+            <Button onClick={() => void savePayment()}>Guardar abono</Button>
           </DialogFooter>
         </DialogContent>
       </Dialog>
 
-      <Dialog open={cobroOpen} onOpenChange={setCobroOpen}>
+      <Dialog
+        open={cobroOpen}
+        onOpenChange={(open) => {
+          setCobroOpen(open);
+          if (!open) setPagoSinTimbrar(false);
+        }}
+      >
         <DialogContent className="max-w-lg max-h-[90vh] overflow-y-auto">
           <DialogHeader>
             <DialogTitle>{cobroDesdeLista.current ? "Aplicar pago" : "Registrar cobro"}</DialogTitle>
@@ -2121,17 +2152,21 @@ export default function Cuentas() {
             <div>
               <Label>Fecha</Label>
               <Input type="date" value={cobroFecha} onChange={(e) => setCobroFecha(e.target.value)} />
-              <p className="mt-1 text-xs text-muted-foreground">La hora se registra al timbrar.</p>
+              {!pagoSinTimbrar && (
+                <p className="mt-1 text-xs text-muted-foreground">La hora se registra al timbrar.</p>
+              )}
             </div>
-            <div>
-              <Label>Forma de pago</Label>
-              <FormaPagoSelect value={cobroForma} onChange={setCobroForma} />
-            </div>
+            {!pagoSinTimbrar && (
+              <div>
+                <Label>Forma de pago</Label>
+                <FormaPagoSelect value={cobroForma} onChange={setCobroForma} />
+              </div>
+            )}
             <div>
               <Label>Moneda</Label>
               <Input value={monedaCobroDialog} disabled />
             </div>
-            {!cobroDialogEsMxn && (
+            {!pagoSinTimbrar && !cobroDialogEsMxn && (
               <div>
                 <Label>Tipo de cambio</Label>
                 <Input
@@ -2189,7 +2224,25 @@ export default function Cuentas() {
                 </div>
               )}
             </div>
-            {cobroRows.length > 1 && (
+            <label
+              className="flex items-start gap-2 text-sm"
+              title="Provisional. Aplica el pago en la cuenta sin timbrar el complemento. Úsalo cuando el pago ya está en Sicofi."
+            >
+              <Checkbox
+                checked={pagoSinTimbrar}
+                onCheckedChange={(v) => setPagoSinTimbrar(v === true)}
+                className="mt-0.5"
+              />
+              <span>
+                Aplicar sin timbrar
+                {marcadasCobro > 1 && (
+                  <span className="block text-xs text-muted-foreground">
+                    Se aplica a las {marcadasCobro} facturas marcadas.
+                  </span>
+                )}
+              </span>
+            </label>
+            {!pagoSinTimbrar && cobroRows.length > 1 && (
               <div className="space-y-2">
                 <Label>Cómo timbrar</Label>
                 <RadioGroup
@@ -2218,20 +2271,24 @@ export default function Cuentas() {
                 </RadioGroup>
               </div>
             )}
-            <ComplementoPagoCampos
-              numOperacion={numOperacion}
-              onNumOperacionChange={setNumOperacion}
-              comentarios={comentariosPago}
-              onComentariosChange={setComentariosPago}
-            />
-            <ComplementoCorreoFields
-              enabled={enviarCorreo}
-              onEnabledChange={setEnviarCorreo}
-              email={correoEmail}
-              onEmailChange={setCorreoEmail}
-              mensaje={correoMensaje}
-              onMensajeChange={setCorreoMensaje}
-            />
+            {!pagoSinTimbrar && (
+              <>
+                <ComplementoPagoCampos
+                  numOperacion={numOperacion}
+                  onNumOperacionChange={setNumOperacion}
+                  comentarios={comentariosPago}
+                  onComentariosChange={setComentariosPago}
+                />
+                <ComplementoCorreoFields
+                  enabled={enviarCorreo}
+                  onEnabledChange={setEnviarCorreo}
+                  email={correoEmail}
+                  onEmailChange={setCorreoEmail}
+                  mensaje={correoMensaje}
+                  onMensajeChange={setCorreoMensaje}
+                />
+              </>
+            )}
           </div>
           <DialogFooter>
             <Button variant="outline" onClick={() => setCobroOpen(false)}>
@@ -2239,12 +2296,20 @@ export default function Cuentas() {
             </Button>
             <Button disabled={cobroSaving || cobroLoading} onClick={() => void saveCobro()}>
               {cobroSaving
-                ? timbraCadaUna
-                  ? `Timbrando ${marcadasCobro} complementos…`
-                  : "Timbrando…"
-                : timbraCadaUna
-                  ? `Timbrar ${marcadasCobro} complementos`
-                  : "Timbrar cobro"}
+                ? pagoSinTimbrar
+                  ? marcadasCobro > 1
+                    ? `Aplicando ${marcadasCobro} pagos…`
+                    : "Aplicando…"
+                  : timbraCadaUna
+                    ? `Timbrando ${marcadasCobro} complementos…`
+                    : "Timbrando…"
+                : pagoSinTimbrar
+                  ? marcadasCobro > 1
+                    ? `Aplicar sin timbrar (${marcadasCobro})`
+                    : "Aplicar sin timbrar"
+                  : timbraCadaUna
+                    ? `Timbrar ${marcadasCobro} complementos`
+                    : "Timbrar cobro"}
             </Button>
           </DialogFooter>
         </DialogContent>
