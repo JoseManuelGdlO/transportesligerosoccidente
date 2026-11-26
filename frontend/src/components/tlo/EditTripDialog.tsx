@@ -31,6 +31,7 @@ import {
 } from "@/components/tlo/TripParadasEditor";
 import { TripFormSection } from "@/components/tlo/TripFormSection";
 import { ClientCombobox } from "@/components/tlo/ClientCombobox";
+import { RouteCombobox } from "@/components/tlo/RouteCombobox";
 import { hasApiConfigured } from "@/lib/api";
 import { fetchRoutes, fetchTruckOdometerResets, patchTrip } from "@/lib/tloApi";
 import { filterTripsInSameEpoch, findApplicableReset } from "@/lib/odometerEpoch";
@@ -513,20 +514,7 @@ export function EditTripDialog({ open, onOpenChange, trip, onSaved }: Props) {
                 {form.client_id && apiMode && (
                   <div className="space-y-1.5">
                     <Label>Ruta del catálogo</Label>
-                    <Select value={selectedRouteId} onValueChange={applyRoute}>
-                      <SelectTrigger>
-                        <SelectValue placeholder="Personalizada o del catálogo" />
-                      </SelectTrigger>
-                      <SelectContent>
-                        <SelectItem value="__custom__">Personalizada (editar paradas)</SelectItem>
-                        {catalogRoutes.map((r) => (
-                          <SelectItem key={r.id} value={r.id}>
-                            {r.nombre} — {r.ruta_resumen}
-                            {r.client_id ? "" : " (global)"}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
+                    <RouteCombobox routes={catalogRoutes} value={selectedRouteId} onChange={applyRoute} />
                   </div>
                 )}
                 {paradasLocked && (
