@@ -496,7 +496,14 @@ export default function ViajeDetalle() {
               <Pencil className="h-4 w-4 mr-2" /> Editar
             </Button>
           )}
-          {!isClosed && (
+          {isClosed ? (
+            <Button
+              onClick={() => nav("/viajes?nuevo=1")}
+              className="bg-primary text-primary-foreground hover:bg-primary-glow"
+            >
+              <Plus className="h-4 w-4 mr-2" /> Abrir nuevo viaje
+            </Button>
+          ) : (
             <Button
               onClick={() => {
                 setCloseData({
