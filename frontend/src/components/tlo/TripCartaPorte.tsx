@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { CatalogUbicacionSelect } from "@/components/tlo/CatalogUbicacionSelect";
 import { ClientUbicacionDialog } from "@/components/tlo/ClientUbicacionDialog";
+import { ClientCombobox } from "@/components/tlo/ClientCombobox";
 import { SatUbicacionCombobox } from "@/components/tlo/SatUbicacionCombobox";
 import { Link } from "react-router-dom";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -34,6 +35,7 @@ import {
   lookupSatClaveProducto,
   normalizeTrip,
   patchCartaPorteComentariosById,
+  patchCartaPorteCliente,
   patchCartaPorteFolioById,
   previewCartaPorte,
   putCartaPorteConceptos,
@@ -66,6 +68,7 @@ import type {
   Trip,
   TripCfdiConcepto,
   TripMercancia,
+  TripUbicacion,
   Truck,
 } from "@/types/tlo";
 import { useAuth } from "@/context/AuthContext";
@@ -86,7 +89,7 @@ import {
   Ban,
 } from "lucide-react";
 import { toast } from "sonner";
-import { tripIsClosed, tripIsOpen, tripTieneCartaTimbrada } from "@/lib/tripStatus";
+import { tripIsClosed, tripIsOpen } from "@/lib/tripStatus";
 import { SatClaveProductoCombobox } from "@/components/tlo/SatClaveProductoCombobox";
 
 /** c_ClaveProdServCP (Carta Porte) por defecto: Varilla corrugada. No usar 781018xx (CFDI servicio de transporte). 
@@ -115,13 +118,19 @@ function cartaLabel(carta: CartaPorteRecord): string {
 
 function mergeCartaIntoTrip(trip: Trip, record: CartaPorteRecord): Trip {
   const existing = cartasDeTrip(trip);
+  const mergeOne = (carta: CartaPorteRecord): CartaPorteRecord => ({
+    ...carta,
+    ...record,
+    ubicaciones: record.ubicaciones ?? carta.ubicaciones,
+    mercancias: record.mercancias ?? carta.mercancias,
+  });
   const cartas_porte = existing.some((c) => c.id === record.id)
-    ? existing.map((c) => (c.id === record.id ? { ...c, ...record } : c))
+    ? existing.map((c) => (c.id === record.id ? mergeOne(c) : c))
     : [...existing, record];
   return {
     ...trip,
     cartas_porte,
-    carta_porte: trip.carta_porte?.id === record.id ? { ...trip.carta_porte, ...record } : trip.carta_porte,
+    carta_porte: trip.carta_porte?.id === record.id ? mergeOne(trip.carta_porte) : trip.carta_porte,
   };
 }
 
@@ -189,6 +198,38 @@ type Props = {
   truck?: Truck;
   onTripUpdated: (trip: Trip) => void;
 };
+
+function formDesdeUbicacion(
+  ubic: TripUbicacion | undefined,
+  fallback: {
+    rfc: string;
+    nombre: string;
+    calle: string;
+    fecha: string;
+    distancia?: number | "";
+  },
+) {
+  return {
+    ...emptyUbic(),
+    rfc: ubic?.rfc || fallback.rfc,
+    nombre: ubic?.nombre || fallback.nombre,
+    calle: ubic?.calle || fallback.calle,
+    colonia: ubic?.colonia || "",
+    colonia_clave: ubic?.colonia_clave || "",
+    municipio: ubic?.municipio || "",
+    municipio_clave: ubic?.municipio_clave || "",
+    localidad: ubic?.localidad || "",
+    localidad_clave: ubic?.localidad_clave || "",
+    estado: ubic?.estado || "",
+    cp: ubic?.cp || "",
+    numero_exterior: ubic?.numero_exterior || "",
+    numero_interior: ubic?.numero_interior || "",
+    pais: ubic?.pais || "MEX",
+    client_ubicacion_id: ubic?.client_ubicacion_id,
+    fecha_hora: fallback.fecha,
+    distancia_km: fallback.distancia ?? "",
+  };
+}
 
 const emptyUbic = () => ({
   rfc: "",
@@ -355,13 +396,20 @@ export function TripCartaPorte({
   const [creatingCarta, setCreatingCarta] = useState(false);
   const cp = cartas.find((c) => c.id === cartaId) ?? cartas[0];
   const cpTimbrada = cp?.estatus === "timbrada";
-  const tripTieneTimbrada = tripTieneCartaTimbrada(trip);
+  const cartaEditable = cp?.estatus === "borrador" || cp?.estatus === "error";
   const tripFiscalReady = tripIsOpen(trip) || tripIsClosed(trip);
   const canFiscalEdit =
-    !tripTieneTimbrada &&
+    cartaEditable &&
     tripFiscalReady &&
     (hasPermission("viajes.crear") || hasPermission("cartaporte.timbrar"));
   const canCatalogEdit = hasPermission("catalogos.editar");
+  const receptorId = cp?.client_id || clientId || "";
+  const receptor = clients.find((c) => c.id === receptorId);
+  const receptorRfc =
+    receptor?.rfc?.trim() || (receptorId && receptorId === clientId ? clientRfc : "") || "";
+  const receptorNombre =
+    receptor?.razon_social?.trim() || (receptorId && receptorId === clientId ? clientName : "") || "";
+  const [savingCliente, setSavingCliente] = useState(false);
 
   const [tipoTimbrado, setTipoTimbrado] = useState<"ingreso" | "traslado">("ingreso");
   const [usoCfdi, setUsoCfdi] = useState("G03");
@@ -384,16 +432,23 @@ export function TripCartaPorte({
   const [enviarCorreo, setEnviarCorreo] = useState(false);
   const [correoEmail, setCorreoEmail] = useState("");
   const clienteCorreo = useMemo(
-    () => clients.find((c) => c.id === clientId)?.email?.trim() ?? "",
-    [clients, clientId],
+    () => clients.find((c) => c.id === receptorId)?.email?.trim() ?? "",
+    [clients, receptorId],
   );
-  const clienteDiasCredito = clients.find((c) => c.id === clientId)?.dias_credito;
+  const clienteDiasCredito = clients.find((c) => c.id === receptorId)?.dias_credito;
+  const correoAutoPrevio = useRef(clienteCorreo);
 
   useEffect(() => {
     if (condicionesTouched.current) return;
-    const texto = condicionesPagoDesdeDias(clienteDiasCredito);
-    if (texto) setCondicionesPago(texto);
+    setCondicionesPago(condicionesPagoDesdeDias(clienteDiasCredito));
   }, [clienteDiasCredito]);
+
+  useEffect(() => {
+    setCorreoEmail((actual) =>
+      actual.trim() && actual.trim() === correoAutoPrevio.current ? clienteCorreo : actual,
+    );
+    correoAutoPrevio.current = clienteCorreo;
+  }, [clienteCorreo]);
 
   const timbradoBody = () => {
     const correo =
@@ -448,8 +503,11 @@ export function TripCartaPorte({
   useEffect(() => {
     setEnviarCorreo(false);
     setCorreoEmail("");
+    condicionesTouched.current = false;
+    const condiciones = condicionesPagoDesdeDias(clienteDiasCredito);
     if (cp?.tipo_comprobante === "ingreso" || cp?.tipo_comprobante === "traslado") {
       setTipoTimbrado(cp.tipo_comprobante);
+      setCondicionesPago(condiciones);
       return;
     }
     setTipoTimbrado("ingreso");
@@ -458,7 +516,9 @@ export function TripCartaPorte({
     setTipoCambio("");
     setMetodoPago("PPD");
     setFormaPago("99");
-    setCondicionesPago("");
+    setCondicionesPago(condiciones);
+    // Al cambiar de factura, las condiciones salen del cliente de esa carta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [cp?.id, cp?.tipo_comprobante]);
 
   useEffect(() => {
@@ -528,12 +588,28 @@ export function TripCartaPorte({
     }
   };
 
+  const saveCliente = async (nextId: string) => {
+    if (!canFiscalEdit || !cp || !nextId || nextId === receptorId) return;
+    setSavingCliente(true);
+    try {
+      const record = await patchCartaPorteCliente(trip.id, cp.id, nextId);
+      condicionesTouched.current = false;
+      onTripUpdated(mergeCartaIntoTrip(trip, record));
+    } catch (e) {
+      toast.error(e instanceof Error ? e.message : "No se pudo cambiar el cliente de la factura");
+    } finally {
+      setSavingCliente(false);
+    }
+  };
+
   const handleNuevaFactura = async () => {
     if (!canTimbrar) return;
     setCreatingCarta(true);
     try {
+      await flushPendingSaves();
       const record = await createCartaPorte(trip.id);
-      onTripUpdated(mergeCartaIntoTrip(trip, record));
+      const fresh = await fetchTrip(trip.id);
+      onTripUpdated(fresh);
       setCartaId(record.id);
       toast.success("Factura creada");
     } catch (e) {
@@ -548,9 +624,15 @@ export function TripCartaPorte({
     : driverProp;
   const truckLive = truckProp?.id ? (truckById(trucks, truckProp.id) ?? truckProp) : truckProp;
 
+  const cartaUbicaciones = cp?.ubicaciones ?? trip.ubicaciones;
+  const cartaMercancias = cp?.mercancias ?? trip.mercancias;
+  const fiscalKey = `${cp?.id ?? ""}:${[...(cartaUbicaciones ?? [])]
+    .map((u) => u.id)
+    .sort()
+    .join(",")}`;
   const sortedUbics = useMemo(
-    () => [...(trip.ubicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
-    [trip.ubicaciones],
+    () => [...(cartaUbicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0)),
+    [cartaUbicaciones],
   );
   const fiscalStopCount = 2;
   const origen = sortedUbics.find((u) => u.orden === 1) ?? sortedUbics.find((u) => u.tipo === "Origen");
@@ -570,8 +652,8 @@ export function TripCartaPorte({
 
   const [origenForm, setOrigenForm] = useState({
     ...emptyUbic(),
-    rfc: origen?.rfc || clientRfc || "",
-    nombre: origen?.nombre || clientName || "",
+    rfc: origen?.rfc || receptorRfc || "",
+    nombre: origen?.nombre || receptorNombre || "",
     calle: origen?.calle || trip.origen,
     colonia: origen?.colonia || "",
     colonia_clave: origen?.colonia_clave || "",
@@ -589,8 +671,8 @@ export function TripCartaPorte({
   });
   const [destinoForm, setDestinoForm] = useState({
     ...emptyUbic(),
-    rfc: destino?.rfc || clientRfc || "",
-    nombre: destino?.nombre || clientName || "",
+    rfc: destino?.rfc || receptorRfc || "",
+    nombre: destino?.nombre || receptorNombre || "",
     calle: destino?.calle || trip.destino,
     colonia: destino?.colonia || "",
     colonia_clave: destino?.colonia_clave || "",
@@ -897,6 +979,40 @@ export function TripCartaPorte({
   }, [trip.id, trip.ubicaciones]);
 
   useEffect(() => {
+    if (persistTimerRef.current) {
+      clearTimeout(persistTimerRef.current);
+      persistTimerRef.current = null;
+    }
+    const ubics = [...(cartaUbicaciones ?? [])].sort((a, b) => (a.orden ?? 0) - (b.orden ?? 0));
+    const origenU = ubics.find((u) => u.orden === 1) ?? ubics.find((u) => u.tipo === "Origen");
+    const destinoU =
+      ubics.filter((u) => (u.orden ?? 0) > 1).pop() ?? ubics.find((u) => u.tipo === "Destino");
+    const distancia =
+      trip.km_final != null && trip.km_inicial != null
+        ? Math.max(0, Number(trip.km_final) - Number(trip.km_inicial))
+        : null;
+    const fechaSalida = origenU?.fecha_hora?.slice(0, 16) || trip.fecha_salida.slice(0, 16);
+    const nextOrigen = formDesdeUbicacion(origenU, {
+      rfc: receptorRfc || "",
+      nombre: receptorNombre || "",
+      calle: trip.origen,
+      fecha: fechaSalida,
+    });
+    const nextDestino = formDesdeUbicacion(destinoU, {
+      rfc: receptorRfc || "",
+      nombre: receptorNombre || "",
+      calle: trip.destino,
+      fecha: destinoU?.fecha_hora?.slice(0, 16) || fechaSalida,
+      distancia: destinoU?.distancia_km ?? distancia ?? "",
+    });
+    setOrigenForm(nextOrigen);
+    setDestinoForm(nextDestino);
+    lastSavedSnapshotRef.current = JSON.stringify({ origen: nextOrigen, destino: nextDestino });
+    // Solo al cambiar de factura o de filas guardadas. fiscalKey resume ese cambio.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [fiscalKey]);
+
+  useEffect(() => {
     if (!validationAttempted) return;
     const section = firstErrorSection(issueFlags, fiscalStopCount) ?? (previewIssues.length > 0 ? "avisos" : null);
     if (!section) return;
@@ -952,12 +1068,12 @@ export function TripCartaPorte({
   });
 
   const persistUbicaciones = useCallback(async (opts?: { force?: boolean }) => {
-    if (!canFiscalEdit) return;
+    if (!canFiscalEdit || !cp?.id) return;
     const snapshot = buildUbicSnapshot(origenForm, destinoForm);
     if (!opts?.force && snapshot === lastSavedSnapshotRef.current) return;
 
     try {
-      await putTripUbicaciones(trip.id, [
+      await putTripUbicaciones(trip.id, cp.id, [
         toPayload(origenForm, 1),
         toPayload(destinoForm, fiscalStopCount),
       ]);
@@ -966,7 +1082,7 @@ export function TripCartaPorte({
     } catch {
       toast.error("No se pudieron guardar las ubicaciones");
     }
-  }, [canFiscalEdit, destinoForm, fiscalStopCount, origenForm, trip.id]);
+  }, [canFiscalEdit, cp?.id, destinoForm, fiscalStopCount, origenForm, trip.id]);
 
   const flushPendingSaves = useCallback(async (opts?: { force?: boolean }) => {
     if (persistTimerRef.current) {
@@ -1018,8 +1134,8 @@ export function TripCartaPorte({
     const u = catalog.find((x) => x.id === ubicacionId);
     if (!u) return;
     const patch = {
-      rfc: u.rfc || clientRfc || "",
-      nombre: u.razon_social || clientName || "",
+      rfc: u.rfc || receptorRfc || "",
+      nombre: u.razon_social || receptorNombre || "",
       calle: u.calle || "",
       colonia: u.colonia || "",
       colonia_clave: u.colonia_clave || "",
@@ -1069,8 +1185,8 @@ export function TripCartaPorte({
   });
 
   const openSaveUbicacionDialog = (tipo: "origen" | "destino") => {
-    if (!clientId) {
-      toast.error("El viaje no tiene cliente asignado");
+    if (!receptorId) {
+      toast.error("Selecciona el cliente de esta factura");
       return;
     }
     const form = tipo === "origen" ? origenForm : destinoForm;
@@ -1180,7 +1296,8 @@ export function TripCartaPorte({
       payload.material_peligroso = merc.material_peligroso;
     }
 
-    const r = await apiFetch(`/trips/${trip.id}/mercancias`, {
+    if (!cp?.id) return;
+    const r = await apiFetch(`/trips/${trip.id}/cartas-porte/${cp.id}/mercancias`, {
       method: "POST",
       body: JSON.stringify(payload),
     });
@@ -1195,7 +1312,8 @@ export function TripCartaPorte({
   };
 
   const removeMercancia = async (id: string) => {
-    const r = await apiFetch(`/trips/${trip.id}/mercancias/${id}`, { method: "DELETE" });
+    if (!cp?.id) return;
+    const r = await apiFetch(`/trips/${trip.id}/cartas-porte/${cp.id}/mercancias/${id}`, { method: "DELETE" });
     if (!r.ok) return;
     await reloadTrip();
   };
@@ -1375,6 +1493,13 @@ export function TripCartaPorte({
   const destinoLinkedCatalog = !!destinoForm.client_ubicacion_id;
   const showSaveOrigenUbic = canFiscalEdit && canEditCatalog && !origenLinkedCatalog;
   const showSaveDestinoUbic = canFiscalEdit && canEditCatalog && !destinoLinkedCatalog;
+  const clientesFactura = clients.filter((c) => c.estatus !== "inactivo");
+  const receptorExtra =
+    receptor && receptor.estatus === "inactivo"
+      ? [{ value: receptor.id, label: `${receptor.razon_social} (inactivo)` }]
+      : !receptor && receptorId
+        ? [{ value: receptorId, label: receptorNombre || "Cliente de la factura" }]
+        : [];
 
   return (
     <div className="space-y-4">
@@ -1385,7 +1510,15 @@ export function TripCartaPorte({
           </CardTitle>
           <div className="flex flex-wrap items-center gap-2">
             {cartas.length > 0 && (
-              <Select value={cp?.id} onValueChange={setCartaId}>
+              <Select
+                value={cp?.id}
+                onValueChange={(id) => {
+                  void (async () => {
+                    await flushPendingSaves();
+                    setCartaId(id);
+                  })();
+                }}
+              >
                 <SelectTrigger className="w-[220px] h-8 text-xs">
                   <SelectValue placeholder="Selecciona factura" />
                 </SelectTrigger>
@@ -1510,6 +1643,20 @@ export function TripCartaPorte({
             </p>
           )}
           {cp?.error_mensaje && <CartaPorteErrorNotice message={cp.error_mensaje} />}
+          <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
+            <Label>Cliente de esta factura</Label>
+            <ClientCombobox
+              clients={clientesFactura}
+              value={receptorId}
+              disabled={!canFiscalEdit || savingCliente || !cp}
+              onChange={(id) => void saveCliente(id)}
+              extraOptions={receptorExtra}
+              placeholder="Seleccionar cliente…"
+            />
+            <p className="text-xs text-muted-foreground">
+              Es el receptor del CFDI. Cada factura del viaje puede timbrarse a un cliente distinto. Origen, destino y mercancías de abajo son la copia de esta factura.
+            </p>
+          </div>
           <div className="rounded-md border bg-muted/50 p-3 space-y-1.5">
             <Label htmlFor="cp-folio">Folio</Label>
             <Input
@@ -2358,14 +2505,14 @@ export function TripCartaPorte({
               </TableRow>
             </TableHeader>
             <TableBody>
-              {(trip.mercancias || []).length === 0 && (
+              {(cartaMercancias || []).length === 0 && (
                 <TableRow>
                   <TableCell colSpan={5} className="text-center text-muted-foreground py-4">
                     Sin mercancías
                   </TableCell>
                 </TableRow>
               )}
-              {(trip.mercancias || []).map((m: TripMercancia) => (
+              {(cartaMercancias || []).map((m: TripMercancia) => (
                 <TableRow key={m.id}>
                   <TableCell>{m.descripcion}</TableCell>
                   <TableCell className="text-right">{m.cantidad}</TableCell>
@@ -2385,11 +2532,11 @@ export function TripCartaPorte({
         </CardContent>
       </Card>
 
-      {clientId ? (
+      {receptorId ? (
         <ClientUbicacionDialog
           open={ubicDialogOpen}
           onOpenChange={setUbicDialogOpen}
-          clientId={clientId}
+          clientId={receptorId}
           initialValues={ubicDialogInitialValues}
           onSaved={(ubicacion, reused) => void onUbicacionCatalogSaved(ubicacion, reused)}
         />

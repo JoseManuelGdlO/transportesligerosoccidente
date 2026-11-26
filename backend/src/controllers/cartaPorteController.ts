@@ -153,6 +153,26 @@ export const patchComentarios = asyncHandler(async (req: Request, res: Response)
   res.json(cartaPorteToJson(cp));
 });
 
+const clienteSchema = z.object({
+  client_id: z.string().min(1),
+});
+
+export const patchCliente = asyncHandler(async (req: Request, res: Response) => {
+  const parsed = clienteSchema.safeParse(req.body ?? {});
+  if (!parsed.success) {
+    res.status(400).json({ error: parsed.error.flatten() });
+    return;
+  }
+  const { tenantId, tripId, cartaId } = await resolveCartaTarget(req);
+  const cp = await cartaPorteService.asignarClienteCarta(
+    tenantId,
+    tripId,
+    cartaId,
+    parsed.data.client_id,
+  );
+  res.json(cartaPorteToJson(cp));
+});
+
 const folioSchema = z.object({
   folio: z.union([z.number(), z.string()]),
 });
@@ -248,6 +268,7 @@ export const putUbicaciones = asyncHandler(async (req: Request, res: Response) =
     tid(req),
     req.params.id,
     parsed.data.ubicaciones,
+    req.params.cartaId,
   );
   res.json(rows.map((row) => tripUbicacionToJson(row)));
 });
@@ -275,7 +296,7 @@ export const postMercancia = asyncHandler(async (req: Request, res: Response) =>
     return;
   }
   try {
-    const row = await tripFiscalService.addMercancia(tid(req), req.params.id, parsed.data);
+    const row = await tripFiscalService.addMercancia(tid(req), req.params.id, parsed.data, req.params.cartaId);
     res.status(201).json(tripMercanciaToJson(row));
   } catch (e) {
     res.status(400).json({ error: e instanceof Error ? e.message : "No se pudo agregar mercancía" });
@@ -283,7 +304,7 @@ export const postMercancia = asyncHandler(async (req: Request, res: Response) =>
 });
 
 export const deleteMercancia = asyncHandler(async (req: Request, res: Response) => {
-  await tripFiscalService.removeMercancia(tid(req), req.params.id, req.params.mercanciaId);
+  await tripFiscalService.removeMercancia(tid(req), req.params.id, req.params.mercanciaId, req.params.cartaId);
   res.status(204).send();
 });
 

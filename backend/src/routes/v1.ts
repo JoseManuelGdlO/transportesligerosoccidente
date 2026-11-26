@@ -234,6 +234,24 @@ r.put(
   requirePermission("cartaporte.timbrar"),
   cartaPorteC.putConceptosCarta,
 );
+r.put(
+  "/trips/:id/cartas-porte/:cartaId/ubicaciones",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.putUbicaciones,
+);
+r.post(
+  "/trips/:id/cartas-porte/:cartaId/mercancias",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.postMercancia,
+);
+r.delete(
+  "/trips/:id/cartas-porte/:cartaId/mercancias/:mercanciaId",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.deleteMercancia,
+);
 r.put("/trips/:id/statuses", authenticateJwt, requirePermission("viajes.crear"), tripStatusC.putTripStatuses);
 r.post("/trips/:id/close", authenticateJwt, requirePermission("viajes.cerrar"), tripC.postCloseTrip);
 r.delete("/trips/:id", authenticateJwt, requirePermission("viajes.eliminar"), tripC.deleteTrip);
@@ -285,6 +303,12 @@ r.patch(
   authenticateJwt,
   requirePermission("cartaporte.timbrar"),
   cartaPorteC.patchComentarios,
+);
+r.patch(
+  "/trips/:id/cartas-porte/:cartaId/cliente",
+  authenticateJwt,
+  requirePermission("viajes.crear", "cartaporte.timbrar"),
+  cartaPorteC.patchCliente,
 );
 r.post(
   "/trips/:id/cartas-porte/:cartaId/cancelar",

@@ -211,18 +211,23 @@ export async function assertTripOpen(trip: Trip) {
   }
 }
 
-export async function assertTripAllowsFiscalEdit(trip: Trip) {
+/**
+ * Ubicaciones y mercancías pertenecen a una carta.
+ * Una factura timbrada no se reescribe; un borrador del mismo viaje sí se puede editar.
+ */
+export async function assertCartaPermiteEdicionFiscal(
+  trip: Trip,
+  carta: { estatus: string } | null,
+) {
   if (!tripHasStatusSlug(trip, "en_curso") && !tripHasStatusSlug(trip, "cerrado")) {
     const err = new Error("El viaje no permite editar datos fiscales de carta porte");
     (err as Error & { status?: number }).status = 400;
     throw err;
   }
-  const rows = await CartaPorte.findAll({
-    where: { tenant_id: trip.tenant_id, trip_id: trip.id },
-    attributes: ["estatus"],
-  });
-  if (algunaCartaTimbrada(rows)) {
-    const err = new Error("No se pueden modificar ubicaciones o mercancías: la carta porte ya está timbrada");
+  if (carta && (carta.estatus === "timbrada" || carta.estatus === "cancelada")) {
+    const err = new Error(
+      "No se pueden modificar ubicaciones o mercancías: esta factura ya está timbrada o cancelada",
+    );
     (err as Error & { status?: number }).status = 400;
     throw err;
   }

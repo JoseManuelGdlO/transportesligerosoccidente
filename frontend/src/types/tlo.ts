@@ -211,9 +211,14 @@ export interface CartaPorteRecord {
   transporte_internacional?: boolean;
   tipo_comprobante?: "ingreso" | "traslado";
   comentarios?: string;
+  /** Receptor de esta factura. Vacío: se usa el cliente del viaje. */
+  client_id?: string;
   /** Siguiente folio libre, o el ya guardado en esta carta. */
   folio_sugerido?: number;
   cfdi_conceptos?: TripCfdiConcepto[];
+  /** Copia propia de esta factura. No la comparten las demás cartas del viaje. */
+  ubicaciones?: TripUbicacion[];
+  mercancias?: TripMercancia[];
 }
 
 export interface TenantFiscal {

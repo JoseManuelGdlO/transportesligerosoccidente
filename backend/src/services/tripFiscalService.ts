@@ -1,10 +1,10 @@
 import { randomUUID } from "node:crypto";
 import { Trip, Client, ClientUbicacion, TripUbicacion, TripMercancia, CartaPorte } from "../models";
 import type { UbicacionTipo } from "../models/TripUbicacion";
-import { getTripOrThrow, assertTripAllowsFiscalEdit } from "./tripService";
+import { getTripOrThrow, assertCartaPermiteEdicionFiscal } from "./tripService";
 import { listTripStops } from "./tripStopService";
 import { resolveMercanciaCatalog } from "./satCatalogService";
-import { algunaCartaTimbrada } from "./cartaPorteSelection";
+import { cartaVisible } from "./cartaPorteSelection";
 
 /** Carta Porte 3.1: IDUbicacion = (OR|DE) + 6 dígitos. */
 export const SAT_ID_UBICACION_PATTERN = /^(OR|DE)[0-9]{6}$/;
@@ -50,6 +50,133 @@ function tipoFromOrden(orden: number): UbicacionTipo {
   return orden === 1 ? "Origen" : "Destino";
 }
 
+function httpError(message: string, status: number): Error {
+  const err = new Error(message);
+  (err as Error & { status?: number }).status = status;
+  return err;
+}
+
+/** `null` son filas todavía sin factura (el viaje aún no tiene carta). */
+function cartaScope(cartaId: string | null) {
+  return { carta_porte_id: cartaId };
+}
+
+/** RFC y domicilio de prellenado: los del cliente de esa carta, no los de otra factura del viaje. */
+async function clienteDeCartaFiscal(
+  tenantId: string,
+  trip: Trip & { Client?: Client },
+  cartaId: string | null,
+): Promise<Client | null> {
+  const incluido = trip.Client ?? null;
+  if (!cartaId) return incluido;
+  const carta = await CartaPorte.findOne({
+    where: { id: cartaId, tenant_id: tenantId, trip_id: trip.id },
+    attributes: ["id", "client_id"],
+  });
+  const id = carta?.client_id || trip.client_id;
+  if (!id) return null;
+  if (incluido && incluido.id === id) return incluido;
+  return Client.findOne({ where: { id, tenant_id: tenantId } });
+}
+
+async function cartaEditableId(
+  tenantId: string,
+  tripId: string,
+  cartaId?: string,
+): Promise<string | null> {
+  const trip = await getTripOrThrow(tenantId, tripId, false);
+  if (cartaId) {
+    const carta = await CartaPorte.findOne({
+      where: { id: cartaId, tenant_id: tenantId, trip_id: tripId },
+    });
+    if (!carta) throw httpError("Carta porte no encontrada", 404);
+    await assertCartaPermiteEdicionFiscal(trip, carta);
+    return carta.id;
+  }
+  const cartas = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["created_at", "ASC"]],
+  });
+  const editable = [...cartas].reverse().find((c) => c.estatus === "borrador" || c.estatus === "error");
+  if (editable) {
+    await assertCartaPermiteEdicionFiscal(trip, editable);
+    return editable.id;
+  }
+  if (cartas.length === 0) {
+    await assertCartaPermiteEdicionFiscal(trip, null);
+    return null;
+  }
+  throw httpError("No hay una factura en borrador para editar ubicaciones o mercancías", 400);
+}
+
+function copyPlain<T extends { get(opts: { plain: true }): unknown }>(row: T): Record<string, unknown> {
+  const plain = { ...(row.get({ plain: true }) as Record<string, unknown>) };
+  delete plain.id;
+  delete plain.createdAt;
+  delete plain.updatedAt;
+  return plain;
+}
+
+/** La primera factura se queda con las filas que aún no tenían carta. */
+export async function reclamarFiscalHuerfano(tenantId: string, tripId: string, cartaId: string) {
+  const ubicaciones = await TripUbicacion.count({
+    where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: cartaId },
+  });
+  if (ubicaciones === 0) {
+    await TripUbicacion.update({ carta_porte_id: cartaId } as never, {
+      where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: null },
+    });
+  }
+  const mercancias = await TripMercancia.count({
+    where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: cartaId },
+  });
+  if (mercancias === 0) {
+    await TripMercancia.update({ carta_porte_id: cartaId } as never, {
+      where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: null },
+    });
+  }
+}
+
+/** Cada factura nueva arranca con una copia de la anterior, no con las mismas filas. */
+export async function clonarFiscalHaciaCarta(
+  tenantId: string,
+  tripId: string,
+  sourceCartaId: string,
+  targetCartaId: string,
+) {
+  const ubicaciones = await TripUbicacion.count({
+    where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: targetCartaId },
+  });
+  if (ubicaciones === 0) {
+    const rows = await TripUbicacion.findAll({
+      where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: sourceCartaId },
+      order: [["orden", "ASC"]],
+    });
+    for (const row of rows) {
+      await TripUbicacion.create({
+        ...copyPlain(row),
+        id: randomUUID(),
+        carta_porte_id: targetCartaId,
+      } as never);
+    }
+  }
+  const mercancias = await TripMercancia.count({
+    where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: targetCartaId },
+  });
+  if (mercancias === 0) {
+    const rows = await TripMercancia.findAll({
+      where: { tenant_id: tenantId, trip_id: tripId, carta_porte_id: sourceCartaId },
+    });
+    for (const row of rows) {
+      await TripMercancia.create({
+        ...copyPlain(row),
+        id: randomUUID(),
+        carta_porte_id: targetCartaId,
+      } as never);
+    }
+  }
+}
+
 function addressFromClient(client: Client) {
   return {
     calle: client.calle ?? null,
@@ -84,25 +211,40 @@ function addressFromClientUbicacion(u: ClientUbicacion) {
   };
 }
 
-export async function listUbicaciones(tenantId: string, tripId: string) {
+export async function listUbicaciones(tenantId: string, tripId: string, cartaId: string | null) {
   await getTripOrThrow(tenantId, tripId, false);
   return TripUbicacion.findAll({
-    where: { tenant_id: tenantId, trip_id: tripId },
+    where: { tenant_id: tenantId, trip_id: tripId, ...cartaScope(cartaId) },
     order: [["orden", "ASC"]],
   });
 }
 
-/** Prefill trip ubicaciones from client fiscal address when missing. */
+async function editableCartaIds(tenantId: string, tripId: string): Promise<Array<string | null>> {
+  const cartas = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["created_at", "ASC"]],
+  });
+  const editable = cartas
+    .filter((c) => c.estatus === "borrador" || c.estatus === "error")
+    .map((c) => c.id);
+  if (editable.length > 0) return editable;
+  if (cartas.length === 0) return [null];
+  return [];
+}
+
+/** Prefill de la factura editable. Una carta ya timbrada no se vuelve a llenar. */
 export async function ensureUbicacionesFromClient(tenantId: string, tripId: string) {
   const cartas = await CartaPorte.findAll({
     where: { tenant_id: tenantId, trip_id: tripId },
-    attributes: ["estatus"],
+    order: [["created_at", "ASC"]],
   });
-  if (algunaCartaTimbrada(cartas)) return;
+  const editable = [...cartas].reverse().find((c) => c.estatus === "borrador" || c.estatus === "error");
+  if (!editable && cartas.length > 0) return;
+  const cartaId = editable?.id ?? null;
 
   const stops = await listTripStops(tenantId, tripId);
   if (stops.length >= 2) {
-    await syncUbicacionesFromTripStops(tenantId, tripId);
+    await syncUbicacionesDeCarta(tenantId, tripId, cartaId);
     return;
   }
 
@@ -111,10 +253,12 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
     include: [{ model: Client }],
   });
   if (!trip) return;
-  const client = (trip as Trip & { Client?: Client }).Client;
+  const client = await clienteDeCartaFiscal(tenantId, trip, cartaId);
   if (!client) return;
 
-  const existing = await TripUbicacion.findAll({ where: { tenant_id: tenantId, trip_id: tripId } });
+  const existing = await TripUbicacion.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId, ...cartaScope(cartaId) },
+  });
   const hasOrigen = existing.some((u) => u.orden === 1);
   const hasDestino = existing.some((u) => u.orden === 2);
 
@@ -129,6 +273,7 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
+      carta_porte_id: cartaId,
       orden: 1,
       tipo: "Origen",
       id_ubicacion_sat: defaultIdUbicacionSat("Origen", tripId, 1),
@@ -155,6 +300,7 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
       id: randomUUID(),
       tenant_id: tenantId,
       trip_id: tripId,
+      carta_porte_id: cartaId,
       orden: 2,
       tipo: "Destino",
       id_ubicacion_sat: defaultIdUbicacionSat("Destino", tripId, 2),
@@ -177,18 +323,25 @@ export async function ensureUbicacionesFromClient(tenantId: string, tripId: stri
 }
 
 export async function syncUbicacionesFromTripStops(tenantId: string, tripId: string) {
+  const targets = await editableCartaIds(tenantId, tripId);
+  for (const cartaId of targets) {
+    await syncUbicacionesDeCarta(tenantId, tripId, cartaId);
+  }
+}
+
+async function syncUbicacionesDeCarta(tenantId: string, tripId: string, cartaId: string | null) {
   const trip = await Trip.findOne({
     where: { id: tripId, tenant_id: tenantId },
     include: [{ model: Client }],
   });
   if (!trip) return;
 
-  const client = (trip as Trip & { Client?: Client }).Client;
+  const client = await clienteDeCartaFiscal(tenantId, trip, cartaId);
   const stops = await listTripStops(tenantId, tripId);
   if (stops.length < 2) return;
 
   const existing = await TripUbicacion.findAll({
-    where: { tenant_id: tenantId, trip_id: tripId },
+    where: { tenant_id: tenantId, trip_id: tripId, ...cartaScope(cartaId) },
     order: [["orden", "ASC"]],
   });
   const destinoLegacy =
@@ -248,7 +401,7 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
     };
 
     const existingAtOrden = await TripUbicacion.findOne({
-      where: { tenant_id: tenantId, trip_id: tripId, orden: fiscalOrden },
+      where: { tenant_id: tenantId, trip_id: tripId, orden: fiscalOrden, ...cartaScope(cartaId) },
     });
     if (existingAtOrden) {
       await existingAtOrden.update(payload as never);
@@ -257,6 +410,7 @@ export async function syncUbicacionesFromTripStops(tenantId: string, tripId: str
         id: randomUUID(),
         tenant_id: tenantId,
         trip_id: tripId,
+        carta_porte_id: cartaId,
         ...payload,
       } as never);
     }
@@ -319,36 +473,37 @@ async function resolveUbicacionPayload(
   };
 }
 
-export async function upsertUbicacion(
+type UbicacionInput = {
+  rfc?: string;
+  nombre?: string;
+  fecha_hora?: string;
+  calle?: string;
+  colonia?: string;
+  colonia_clave?: string;
+  municipio?: string;
+  municipio_clave?: string;
+  localidad?: string;
+  localidad_clave?: string;
+  estado?: string;
+  cp?: string;
+  numero_exterior?: string;
+  numero_interior?: string;
+  pais?: string;
+  distancia_km?: number;
+  client_ubicacion_id?: string | null;
+};
+
+async function upsertUbicacionEnCarta(
   tenantId: string,
   tripId: string,
+  cartaId: string | null,
   orden: number,
-  data: {
-    rfc?: string;
-    nombre?: string;
-    fecha_hora?: string;
-    calle?: string;
-    colonia?: string;
-    colonia_clave?: string;
-    municipio?: string;
-    municipio_clave?: string;
-    localidad?: string;
-    localidad_clave?: string;
-    estado?: string;
-    cp?: string;
-    numero_exterior?: string;
-    numero_interior?: string;
-    pais?: string;
-    distancia_km?: number;
-    client_ubicacion_id?: string | null;
-  },
+  data: UbicacionInput,
 ) {
-  const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripAllowsFiscalEdit(trip);
   const tipo = tipoFromOrden(orden);
   const resolved = await resolveUbicacionPayload(tenantId, data);
   const existing = await TripUbicacion.findOne({
-    where: { tenant_id: tenantId, trip_id: tripId, orden },
+    where: { tenant_id: tenantId, trip_id: tripId, orden, ...cartaScope(cartaId) },
   });
   const payload = {
     orden,
@@ -382,9 +537,21 @@ export async function upsertUbicacion(
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
+    carta_porte_id: cartaId,
     id_ubicacion_sat: defaultIdUbicacionSat(tipo, tripId, orden),
     ...payload,
   } as never);
+}
+
+export async function upsertUbicacion(
+  tenantId: string,
+  tripId: string,
+  orden: number,
+  data: UbicacionInput,
+  cartaId?: string,
+) {
+  const destino = await cartaEditableId(tenantId, tripId, cartaId);
+  return upsertUbicacionEnCarta(tenantId, tripId, destino, orden, data);
 }
 
 /** Legacy: upsert by tipo (first Origen or first Destino by orden). */
@@ -392,62 +559,58 @@ export async function upsertUbicacionByTipo(
   tenantId: string,
   tripId: string,
   tipo: UbicacionTipo,
-  data: Parameters<typeof upsertUbicacion>[3],
+  data: UbicacionInput,
+  cartaId?: string,
 ) {
+  const destino = await cartaEditableId(tenantId, tripId, cartaId);
   const orden = tipo === "Origen" ? 1 : 2;
   const existing = await TripUbicacion.findOne({
-    where: { tenant_id: tenantId, trip_id: tripId, tipo },
+    where: { tenant_id: tenantId, trip_id: tripId, tipo, ...cartaScope(destino) },
     order: [["orden", "ASC"]],
   });
-  return upsertUbicacion(tenantId, tripId, existing?.orden ?? orden, data);
+  return upsertUbicacionEnCarta(tenantId, tripId, destino, existing?.orden ?? orden, data);
 }
 
 export async function replaceUbicaciones(
   tenantId: string,
   tripId: string,
-  items: Array<{
-    orden: number;
-    rfc?: string;
-    nombre?: string;
-    fecha_hora?: string;
-    calle?: string;
-    colonia?: string;
-    municipio?: string;
-    localidad?: string;
-    estado?: string;
-    cp?: string;
-    numero_exterior?: string;
-    numero_interior?: string;
-    pais?: string;
-    distancia_km?: number;
-    client_ubicacion_id?: string | null;
-  }>,
+  items: Array<UbicacionInput & { orden: number }>,
+  cartaId?: string,
 ) {
-  const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripAllowsFiscalEdit(trip);
+  const destino = await cartaEditableId(tenantId, tripId, cartaId);
   if (items.length < 2) {
-    const err = new Error("Se requieren al menos 2 ubicaciones");
-    (err as Error & { status?: number }).status = 400;
-    throw err;
+    throw httpError("Se requieren al menos 2 ubicaciones", 400);
   }
   const sorted = [...items].sort((a, b) => a.orden - b.orden);
   for (let i = 0; i < sorted.length; i++) {
     const item = { ...sorted[i], orden: i + 1 };
-    await upsertUbicacion(tenantId, tripId, item.orden, item);
+    await upsertUbicacionEnCarta(tenantId, tripId, destino, item.orden, item);
   }
   const maxOrden = sorted.length;
   const extras = await TripUbicacion.findAll({
-    where: { tenant_id: tenantId, trip_id: tripId },
+    where: { tenant_id: tenantId, trip_id: tripId, ...cartaScope(destino) },
   });
   for (const u of extras) {
     if (u.orden > maxOrden) await u.destroy();
   }
-  return listUbicaciones(tenantId, tripId);
+  return listUbicaciones(tenantId, tripId, destino);
 }
 
-export async function listMercancias(tenantId: string, tripId: string) {
+async function cartaIdVisible(tenantId: string, tripId: string, cartaId?: string): Promise<string | null> {
+  if (cartaId) return cartaId;
+  const cartas = await CartaPorte.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId },
+    order: [["created_at", "ASC"]],
+  });
+  return cartaVisible(cartas)?.id ?? null;
+}
+
+export async function listMercancias(tenantId: string, tripId: string, cartaId?: string) {
   await getTripOrThrow(tenantId, tripId, false);
-  return TripMercancia.findAll({ where: { tenant_id: tenantId, trip_id: tripId } });
+  const destino = await cartaIdVisible(tenantId, tripId, cartaId);
+  return TripMercancia.findAll({
+    where: { tenant_id: tenantId, trip_id: tripId, ...cartaScope(destino) },
+  });
 }
 
 export async function addMercancia(
@@ -463,9 +626,9 @@ export async function addMercancia(
     embalaje?: string;
     cantidad_transportada?: number;
   },
+  cartaId?: string,
 ) {
-  const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripAllowsFiscalEdit(trip);
+  const destino = await cartaEditableId(tenantId, tripId, cartaId);
   const catalog = await resolveMercanciaCatalog(
     data.clave_prod_serv,
     data.material_peligroso,
@@ -475,6 +638,7 @@ export async function addMercancia(
     id: randomUUID(),
     tenant_id: tenantId,
     trip_id: tripId,
+    carta_porte_id: destino,
     descripcion: data.descripcion,
     cantidad: data.cantidad,
     unidad: data.unidad ?? "H87",
@@ -486,12 +650,21 @@ export async function addMercancia(
   } as never);
 }
 
-export async function removeMercancia(tenantId: string, tripId: string, mercanciaId: string) {
-  const trip = await getTripOrThrow(tenantId, tripId, false);
-  await assertTripAllowsFiscalEdit(trip);
+export async function removeMercancia(
+  tenantId: string,
+  tripId: string,
+  mercanciaId: string,
+  cartaId?: string,
+) {
+  const destino = await cartaEditableId(tenantId, tripId, cartaId);
   const row = await TripMercancia.findOne({
-    where: { id: mercanciaId, tenant_id: tenantId, trip_id: tripId },
+    where: {
+      id: mercanciaId,
+      tenant_id: tenantId,
+      trip_id: tripId,
+      ...cartaScope(destino),
+    },
   });
-  if (!row) throw new Error("Mercancía no encontrada");
+  if (!row) throw httpError("Mercancía no encontrada", 404);
   await row.destroy();
 }

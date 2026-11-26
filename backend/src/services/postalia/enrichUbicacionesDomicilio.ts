@@ -87,15 +87,17 @@ export async function enrichUbicacionesDomicilio(
     }
   }
 
+  const cartaId = fiscal.find((u) => u.carta_porte_id)?.carta_porte_id ?? null;
+
   if (pending.length === 0) {
     if (!changed) return { ubicaciones: fiscal, issues: [] };
-    const reloaded = await listUbicaciones(tenantId, tripId);
+    const reloaded = await listUbicaciones(tenantId, tripId, cartaId);
     return { ubicaciones: normalizeFiscalUbicaciones(reloaded), issues: [] };
   }
 
   if (!isPostaliaConfigured()) {
     if (changed) {
-      const reloaded = await listUbicaciones(tenantId, tripId);
+      const reloaded = await listUbicaciones(tenantId, tripId, cartaId);
       return {
         ubicaciones: normalizeFiscalUbicaciones(reloaded),
         issues: pending.map(
@@ -157,7 +159,7 @@ export async function enrichUbicacionesDomicilio(
     return { ubicaciones: fiscal, issues };
   }
 
-  const reloaded = await listUbicaciones(tenantId, tripId);
+  const reloaded = await listUbicaciones(tenantId, tripId, cartaId);
   return {
     ubicaciones: normalizeFiscalUbicaciones(reloaded),
     issues,

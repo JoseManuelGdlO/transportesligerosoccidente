@@ -185,6 +185,7 @@ export function cartaPorteToJson(cp: CartaPorte): Record<string, unknown> {
   return {
     id: p.id,
     trip_id: p.trip_id,
+    client_id: p.client_id ?? undefined,
     estatus: p.estatus,
     uuid: p.uuid ?? undefined,
     serie: p.serie ?? undefined,
@@ -224,13 +225,25 @@ export function tripToJson(t: Trip): Record<string, unknown> {
   const routeNombre = route?.nombre?.trim() || undefined;
   const rutaResumen =
     paradasSorted.length > 0 ? formatRutaResumen(paradasSorted) : `${t.origen} → ${t.destino}`;
-  const ubicacionesRaw = (t as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones ?? [];
-  const ubicaciones = [...ubicacionesRaw]
-    .sort((a, b) => a.orden - b.orden)
-    .map((row) => tripUbicacionToJson(row));
-  const mercancias = (t as Trip & { mercancias?: TripMercancia[] }).mercancias ?? [];
+  const ubicacionesAssoc = (t as Trip & { ubicaciones?: TripUbicacion[] }).ubicaciones;
+  const mercanciasAssoc = (t as Trip & { mercancias?: TripMercancia[] }).mercancias;
+  const fiscalLoaded = Array.isArray(ubicacionesAssoc) || Array.isArray(mercanciasAssoc);
+  const ubicacionesRaw = ubicacionesAssoc ?? [];
+  const mercanciasRaw = mercanciasAssoc ?? [];
   const cartas = (t as Trip & { cartasPorte?: CartaPorte[] }).cartasPorte ?? [];
   const visible = cartaVisible(cartas);
+  const deCarta = <T extends { carta_porte_id?: string | null }>(rows: T[], cartaId: string | null) =>
+    rows.filter((row) => (row.carta_porte_id ?? null) === cartaId);
+  const ubicacionesDe = (cartaId: string | null) =>
+    [...deCarta(ubicacionesRaw, cartaId)].sort((a, b) => a.orden - b.orden).map((row) => tripUbicacionToJson(row));
+  const mercanciasDe = (cartaId: string | null) =>
+    deCarta(mercanciasRaw, cartaId).map((row) => tripMercanciaToJson(row));
+  const ubicaciones = fiscalLoaded ? ubicacionesDe(visible?.id ?? null) : undefined;
+  const mercancias = fiscalLoaded ? mercanciasDe(visible?.id ?? null) : undefined;
+  const fiscalDeCarta = (cartaId: string) =>
+    fiscalLoaded
+      ? { ubicaciones: ubicacionesDe(cartaId), mercancias: mercanciasDe(cartaId) }
+      : {};
   const statusesRaw = (t as Trip & { statuses?: TripStatus[] }).statuses ?? [];
   const statuses = statusesRaw.map((row) => tripStatusToJson(row));
   const client = (t as Trip & { Client?: Client }).Client;
@@ -266,9 +279,9 @@ export function tripToJson(t: Trip): Record<string, unknown> {
     fuel: fuel.map((row) => fuelToJson(row)),
     expenses: expenses.map((row) => expenseToJson(row)),
     ubicaciones,
-    mercancias: mercancias.map((row) => tripMercanciaToJson(row)),
-    carta_porte: visible ? cartaPorteToJson(visible) : undefined,
-    cartas_porte: cartas.map(cartaPorteToJson),
+    mercancias,
+    carta_porte: visible ? { ...cartaPorteToJson(visible), ...fiscalDeCarta(visible.id) } : undefined,
+    cartas_porte: cartas.map((carta) => ({ ...cartaPorteToJson(carta), ...fiscalDeCarta(carta.id) })),
   };
 }
 

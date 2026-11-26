@@ -14,6 +14,8 @@ export class CartaPorte extends Model<InferAttributes<CartaPorte>, InferCreation
   declare id: CreationOptional<string>;
   declare tenant_id: string;
   declare trip_id: string;
+  /** Receptor de esta factura. Si falta, el timbrado usa el cliente del viaje. */
+  declare client_id: CreationOptional<string | null>;
   declare estatus: CreationOptional<CartaPorteEstatus>;
   declare uuid: CreationOptional<string | null>;
   declare serie: CreationOptional<string | null>;
@@ -39,6 +41,7 @@ export function initCartaPorte(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), allowNull: false },
+      client_id: { type: DataTypes.CHAR(36), allowNull: true },
       estatus: {
         type: DataTypes.ENUM("borrador", "timbrada", "cancelada", "error"),
         allowNull: false,

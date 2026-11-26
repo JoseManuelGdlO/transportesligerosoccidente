@@ -1165,6 +1165,7 @@ export async function upsertFromStampedIngreso(
     serie: string | null;
     folio_cfdi: string | null;
     xml_timbrado?: string | null;
+    client_id?: string | null;
   },
 ): Promise<AccountDocumentDto | null> {
   const monto = await montoCxcDeIngresoTimbrado(trip, carta.xml_timbrado);
@@ -1177,8 +1178,9 @@ export async function upsertFromStampedIngreso(
   ) {
     return null;
   }
+  const clientId = carta.client_id || trip.client_id;
   const client = await Client.findOne({
-    where: { id: trip.client_id, tenant_id: trip.tenant_id },
+    where: { id: clientId, tenant_id: trip.tenant_id },
   });
   const plazo = client?.dias_credito ?? null;
   const emision = trip.fecha_llegada
@@ -1188,7 +1190,7 @@ export async function upsertFromStampedIngreso(
       : localDateStr();
   return upsertBySource(trip.tenant_id, "carta_porte_id", carta.id, {
     tipo: "cxc",
-    client_id: trip.client_id,
+    client_id: clientId,
     entidad_nombre: client?.razon_social,
     folio: folioCxcTimbrado(carta, trip.num_factura),
     concepto: `Servicio de transporte ${tripRouteLabelFromModel(trip)}`,

@@ -190,8 +190,15 @@ export function normalizeCartaPorte(raw: Record<string, unknown>): CartaPorteRec
         ? raw.tipo_comprobante
         : undefined,
     comentarios: raw.comentarios != null ? String(raw.comentarios) : undefined,
+    client_id: raw.client_id != null ? String(raw.client_id) : undefined,
     folio_sugerido: typeof raw.folio_sugerido === "number" ? raw.folio_sugerido : undefined,
     cfdi_conceptos: normalizeCfdiConceptos(raw.cfdi_conceptos),
+    ubicaciones: Array.isArray(raw.ubicaciones)
+      ? (raw.ubicaciones as Record<string, unknown>[]).map(normalizeTripUbicacion)
+      : undefined,
+    mercancias: Array.isArray(raw.mercancias)
+      ? (raw.mercancias as Record<string, unknown>[]).map(normalizeTripMercancia)
+      : undefined,
   };
 }
 
@@ -989,6 +996,19 @@ export async function patchCartaPorteComentariosById(
   return normalizeCartaPorte(raw);
 }
 
+export async function patchCartaPorteCliente(
+  tripId: string,
+  cartaId: string,
+  clientId: string,
+): Promise<CartaPorteRecord> {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/cliente`, {
+    method: "PATCH",
+    body: JSON.stringify({ client_id: clientId }),
+  });
+  const raw = await readJson<Record<string, unknown>>(res);
+  return normalizeCartaPorte(raw);
+}
+
 export async function cancelarCartaPorte(
   tripId: string,
   cartaId: string,
@@ -1542,9 +1562,10 @@ export async function deleteRouteApi(id: string): Promise<void> {
 
 export async function putTripUbicaciones(
   tripId: string,
+  cartaId: string,
   ubicaciones: Array<Record<string, unknown> & { orden: number }>,
 ): Promise<TripUbicacion[]> {
-  const res = await apiFetch(`/trips/${tripId}/carta-porte/ubicaciones`, {
+  const res = await apiFetch(`/trips/${tripId}/cartas-porte/${cartaId}/ubicaciones`, {
     method: "PUT",
     body: JSON.stringify({ ubicaciones }),
   });

@@ -14,6 +14,7 @@ export class TripMercancia extends Model<
   declare id: CreationOptional<string>;
   declare tenant_id: string;
   declare trip_id: string;
+  declare carta_porte_id: CreationOptional<string | null>;
   declare descripcion: string;
   declare cantidad: string;
   declare unidad: string;
@@ -32,6 +33,7 @@ export function initTripMercancia(sequelize: Sequelize) {
       id: { type: DataTypes.CHAR(36), primaryKey: true },
       tenant_id: { type: DataTypes.CHAR(36), allowNull: false },
       trip_id: { type: DataTypes.CHAR(36), allowNull: false },
+      carta_porte_id: { type: DataTypes.CHAR(36), allowNull: true },
       descripcion: { type: DataTypes.STRING(500), allowNull: false },
       cantidad: { type: DataTypes.DECIMAL(14, 4), allowNull: false, defaultValue: 1 },
       unidad: { type: DataTypes.STRING(16), allowNull: false, defaultValue: "H87" },
