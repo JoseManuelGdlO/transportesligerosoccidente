@@ -66,6 +66,7 @@ import {
   Legend,
 } from "recharts";
 import { toast } from "sonner";
+import { PageLoader } from "@/components/tlo/PageLoading";
 
 type DateRange = { desde: string; hasta: string };
 
@@ -194,7 +195,7 @@ export default function Reportes() {
   const [overview, setOverview] = useState<ReportsOverview | null>(null);
   const [fuelSummary, setFuelSummary] = useState<FuelSummaryRow[]>([]);
   const [maintenanceSummary, setMaintenanceSummary] = useState<MaintenanceReportsSummary | null>(null);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [fuelLoading, setFuelLoading] = useState(false);
   const [maintenanceLoading, setMaintenanceLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -420,8 +421,10 @@ export default function Reportes() {
       </Card>
 
       {error && <p className="text-sm text-destructive">{error}</p>}
-      {loading && !overview && <p className="text-sm text-muted-foreground">Cargando reportes…</p>}
-
+      {loading && !overview ? (
+        <PageLoader label="Cargando reportes" />
+      ) : (
+      <>
       {t && (
         <div className="grid grid-cols-2 md:grid-cols-4 xl:grid-cols-5 gap-3">
           <KpiCard label="Ingresos" value={fmtMXN(t.ingreso)} hint={variationHint(v?.ingreso_pct)} icon={DollarSign} tone={variationTone(v?.ingreso_pct)} />
@@ -1574,6 +1577,8 @@ export default function Reportes() {
           )}
         </TabsContent>
       </Tabs>
+      </>
+      )}
     </div>
   );
 }

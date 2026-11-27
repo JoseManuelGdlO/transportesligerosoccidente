@@ -39,6 +39,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { FileText, Lock, Eye, Trash2, CircleDollarSign, Wallet, TrendingUp, Truck as TruckIcon, Users, Download } from "lucide-react";
+import { PageLoader, TableBodySkeleton } from "@/components/tlo/PageLoading";
 import { toast } from "sonner";
 
 type SettlementTab = "resumen" | "actual" | "borradores" | "historico";
@@ -77,7 +78,7 @@ export default function Liquidaciones() {
   const [summary, setSummary] = useState<SettlementSummaryApi | null>(null);
   const [history, setHistory] = useState<SettlementRecord[]>([]);
   const [drafts, setDrafts] = useState<SettlementRecord[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(hasApiSession);
   const [closing, setClosing] = useState(false);
   const [activeTab, setActiveTab] = useState<SettlementTab>("actual");
   const [weekSummary, setWeekSummary] = useState<WeekSettlementSummaryApi | null>(null);
@@ -179,9 +180,15 @@ export default function Liquidaciones() {
     }
   }, [inicio, fin, hasApiSession]);
 
+  const [listsLoading, setListsLoading] = useState(hasApiSession);
+
   const loadLists = useCallback(async (forDriverId?: string) => {
-    if (!hasApiSession) return;
+    if (!hasApiSession) {
+      setListsLoading(false);
+      return;
+    }
     const filterDriverId = forDriverId ?? driverId;
+    setListsLoading(true);
     try {
       const res = await apiFetch("/settlements");
       const all = await readJson<SettlementRecord[]>(res);
@@ -190,6 +197,8 @@ export default function Liquidaciones() {
     } catch {
       setHistory([]);
       setDrafts([]);
+    } finally {
+      setListsLoading(false);
     }
   }, [hasApiSession, driverId]);
 
@@ -831,7 +840,7 @@ export default function Liquidaciones() {
           {!hasApiSession ? (
             <p className="text-muted-foreground text-sm">Inicia sesión con API para liquidaciones en servidor.</p>
           ) : weekLoading && !weekSummary ? (
-            <p className="text-muted-foreground">Cargando resumen…</p>
+            <PageLoader label="Cargando resumen" />
           ) : !weekSummary ? (
             <p className="text-muted-foreground">No se pudo cargar el resumen de la semana.</p>
           ) : (
@@ -1003,7 +1012,11 @@ export default function Liquidaciones() {
           {!hasApiSession ? (
             <p className="text-muted-foreground text-sm">Inicia sesión con API para liquidaciones en servidor.</p>
           ) : !summary || !driver ? (
-            <p className="text-muted-foreground">{loading ? "Cargando…" : "Selecciona operador y periodo."}</p>
+            loading ? (
+              <PageLoader label="Cargando liquidación" />
+            ) : (
+            <p className="text-muted-foreground">Selecciona operador y periodo.</p>
+            )
           ) : (
             <>
               {summarySource === "snapshot" && (
@@ -1103,14 +1116,16 @@ export default function Liquidaciones() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {drafts.length === 0 && (
+                {listsLoading ? (
+                  <TableBodySkeleton cols={3} rows={4} />
+                ) : drafts.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={3} className="text-center text-muted-foreground py-6">
                       Sin borradores
                     </TableCell>
                   </TableRow>
-                )}
-                {drafts.map((s) => (
+                ) : null}
+                {!listsLoading && drafts.map((s) => (
                   <TableRow
                     key={s.id}
                     className="cursor-pointer hover:bg-muted/50"
@@ -1155,14 +1170,16 @@ export default function Liquidaciones() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {history.length === 0 && (
+                {listsLoading ? (
+                  <TableBodySkeleton cols={4} rows={4} />
+                ) : history.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={4} className="text-center text-muted-foreground py-6">
                       Sin liquidaciones cerradas
                     </TableCell>
                   </TableRow>
-                )}
-                {history.map((s) => (
+                ) : null}
+                {!listsLoading && history.map((s) => (
                   <TableRow key={s.id}>
                     <TableCell>{s.driver_nombre ?? drivers.find((d) => d.id === s.driver_id)?.nombre ?? "—"}</TableCell>
                     <TableCell>{s.fecha_inicio} — {s.fecha_fin}</TableCell>

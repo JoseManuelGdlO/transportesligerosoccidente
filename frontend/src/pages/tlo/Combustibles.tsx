@@ -57,6 +57,7 @@ import { fmtMXN, fmtNumber } from "@/lib/format";
 import { ArrowDown, ArrowUp, ArrowUpDown, Check, Download, Fuel, Pencil, Plus, RefreshCw, Trash2, Upload } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { PageLoader, TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 function monthRange(): { inicio: string; fin: string } {
   const now = new Date();
@@ -582,7 +583,7 @@ export default function Combustibles() {
   const [truckFilter, setTruckFilter] = useState<string>("all");
 
   const [tickets, setTickets] = useState<FuelTicket[]>([]);
-  const [loadingTickets, setLoadingTickets] = useState(false);
+  const [loadingTickets, setLoadingTickets] = useState(true);
 
   const [activeTab, setActiveTab] = useState("tickets");
   const [proration, setProration] = useState<FuelProrationReport | null>(null);
@@ -593,7 +594,7 @@ export default function Combustibles() {
   const [loadingConfirmedProration, setLoadingConfirmedProration] = useState(false);
 
   const [summary, setSummary] = useState<FuelSummaryRow[]>([]);
-  const [loadingSummary, setLoadingSummary] = useState(false);
+  const [loadingSummary, setLoadingSummary] = useState(true);
 
   const [dialogOpen, setDialogOpen] = useState(false);
   const [form, setForm] = useState(emptyTicket());
@@ -1199,11 +1200,7 @@ export default function Combustibles() {
               </TableHeader>
               <TableBody>
                 {loadingTickets ? (
-                  <TableRow>
-                    <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
-                      Cargando…
-                    </TableCell>
-                  </TableRow>
+                  <TableBodySkeleton cols={9} />
                 ) : tickets.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={9} className="text-center text-muted-foreground py-8">
@@ -1291,9 +1288,7 @@ export default function Combustibles() {
             </p>
           </Card>
 
-          {loadingProration && (
-            <p className="text-sm text-muted-foreground text-center py-6">Calculando todas las unidades…</p>
-          )}
+          {loadingProration && <PageLoader label="Calculando prorrateo" />}
 
           {proration && !loadingProration && proration.unidades.length === 0 && (
             <p className="text-muted-foreground text-center py-6">
@@ -1444,9 +1439,7 @@ export default function Combustibles() {
             </Button>
           </Card>
 
-          {loadingConfirmedProration && (
-            <p className="text-sm text-muted-foreground text-center py-6">Cargando prorrateos confirmados…</p>
-          )}
+          {loadingConfirmedProration && <PageLoader label="Cargando prorrateos confirmados" />}
 
           {confirmedProration && !loadingConfirmedProration && confirmedProration.unidades.length === 0 && (
             <p className="text-muted-foreground text-center py-6">
@@ -1569,11 +1562,7 @@ export default function Combustibles() {
               </TableHeader>
               <TableBody>
                 {loadingSummary ? (
-                  <TableRow>
-                    <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">
-                      Cargando…
-                    </TableCell>
-                  </TableRow>
+                  <TableBodySkeleton cols={6} />
                 ) : filteredSummary.length === 0 ? (
                   <TableRow>
                     <TableCell colSpan={6} className="text-center py-8 text-muted-foreground">

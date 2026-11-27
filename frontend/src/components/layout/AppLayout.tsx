@@ -5,6 +5,7 @@ import { NotificationBell } from "./NotificationBell";
 import { LoginNoticeDialog } from "./LoginNoticeDialog";
 import { PushOptInBanner } from "./PushOptInBanner";
 import { useAuth } from "@/context/AuthContext";
+import { AppShellSkeleton } from "@/components/tlo/PageLoading";
 
 const titles: Record<string, string> = {
   "/": "Dashboard",
@@ -28,11 +29,7 @@ export default function AppLayout() {
   const { user, bootstrapping, apiMode } = useAuth();
   const loc = useLocation();
   if (apiMode && bootstrapping) {
-    return (
-      <div className="min-h-screen flex w-full bg-background items-center justify-center">
-        <p className="text-sm text-muted-foreground">Cargando sesión…</p>
-      </div>
-    );
+    return <AppShellSkeleton />;
   }
 
   if (!user) return <Navigate to="/login" replace />;

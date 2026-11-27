@@ -23,6 +23,7 @@ import {
   updateRouteApi,
 } from "@/lib/tloApi";
 import { hasApiConfigured } from "@/lib/api";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const emptyParadas = (): ParadaDraft[] => [{ etiqueta: "" }, { etiqueta: "" }];
 
@@ -30,7 +31,7 @@ export default function Rutas() {
   const { clients } = useTlo();
   const apiMode = hasApiConfigured();
   const [routes, setRoutes] = useState<RouteCatalog[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(apiMode);
   const [filterScope, setFilterScope] = useState<"global" | "cliente" | "todos">("todos");
   const [filterClientId, setFilterClientId] = useState<string>("");
 
@@ -184,21 +185,16 @@ export default function Rutas() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {loading && (
-              <TableRow>
-                <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
-                  Cargando...
-                </TableCell>
-              </TableRow>
-            )}
-            {!loading && rows.length === 0 && (
+            {loading ? (
+              <TableBodySkeleton cols={5} />
+            ) : rows.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={5} className="text-center text-muted-foreground py-8">
                   Sin rutas en el catálogo
                 </TableCell>
               </TableRow>
-            )}
-            {rows.map((r) => (
+            ) : (
+            rows.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.nombre}</TableCell>
                 <TableCell className="text-sm">{r.ruta_resumen}</TableCell>
@@ -217,7 +213,8 @@ export default function Rutas() {
                   </div>
                 </TableCell>
               </TableRow>
-            ))}
+            ))
+            )}
           </TableBody>
         </Table>
       </Card>

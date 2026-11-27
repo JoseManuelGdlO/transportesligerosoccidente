@@ -42,6 +42,7 @@ import {
   type DriverComisionFilter,
 } from "@/lib/tableFilters";
 import { toast } from "sonner";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 type EstatusFilter = "activo" | "inactivo" | "todos";
 
@@ -59,7 +60,7 @@ const empty: Driver = {
 };
 
 export default function Operadores() {
-  const { drivers: catalogDrivers, upsertDriver, deleteDriver, trucks, reloadCatalog } = useTlo();
+  const { drivers: catalogDrivers, upsertDriver, deleteDriver, trucks, reloadCatalog, catalogLoading } = useTlo();
   const { permissions, hasApiSession } = useAuth();
   const apiLive = hasApiConfigured() && hasApiSession;
   const canEditAccount = permissions.includes("liquidaciones.cerrar");
@@ -78,7 +79,7 @@ export default function Operadores() {
   const [page, setPage] = useState(1);
   const [pageSize, setPageSize] = useState(20);
   const [listDrivers, setListDrivers] = useState<Driver[]>([]);
-  const [listLoading, setListLoading] = useState(false);
+  const [listLoading, setListLoading] = useState(() => apiLive);
 
   const refreshList = useCallback(async () => {
     if (!apiLive) {
@@ -329,7 +330,9 @@ export default function Operadores() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageData.slice.length === 0 ? (
+            {listLoading || catalogLoading ? (
+              <TableBodySkeleton cols={showMotivoColumn ? 8 : 7} />
+            ) : pageData.slice.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={showMotivoColumn ? 8 : 7}

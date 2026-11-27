@@ -10,6 +10,7 @@ import { ShieldCheck, ClipboardList, Eye, EyeOff } from "lucide-react";
 import { cn } from "@/lib/utils";
 import type { UserRole } from "@/types/tlo";
 import { toast } from "sonner";
+import { FormSkeleton } from "@/components/tlo/PageLoading";
 
 export default function Login() {
   const { user, apiMode, bootstrapping, signInWithApi, signInDemo } = useAuth();
@@ -56,9 +57,7 @@ export default function Login() {
             <h2 className="text-lg font-semibold mb-1">Iniciar sesión</h2>
             <p className="text-sm text-muted-foreground mb-5">Acceso al sistema operativo TLO</p>
             <form onSubmit={submit} className="space-y-4">
-              {apiMode && bootstrapping && (
-                <p className="text-sm text-muted-foreground text-center py-2">Cargando sesión…</p>
-              )}
+              {apiMode && bootstrapping && <FormSkeleton fields={2} />}
               {(!apiMode || !bootstrapping) && (
                 <>
                   <div>

@@ -79,7 +79,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
   const [trips, setTrips] = useState<Trip[]>(() => (hasApiConfigured() ? [] : mockTrips));
   const [systemUsers, setSystemUsers] = useState<SystemUser[]>(() => (hasApiConfigured() ? [] : mockSystemUsers));
   const [roles, setRoles] = useState<RoleDefinition[]>(() => (hasApiConfigured() ? [] : mockRoles));
-  const [catalogLoading, setCatalogLoading] = useState(false);
+  const [catalogLoading, setCatalogLoading] = useState(() => hasApiConfigured());
   const [catalogError, setCatalogError] = useState<string | null>(null);
 
   const reloadCatalog = useCallback(async () => {
@@ -117,6 +117,7 @@ export const TloProvider = ({ children }: { children: ReactNode }) => {
       setSystemUsers([]);
       setRoles([]);
       setCatalogError(null);
+      setCatalogLoading(hasApiConfigured());
       return;
     }
     if (!hasApiSession) {

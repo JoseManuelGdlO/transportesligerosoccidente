@@ -25,6 +25,7 @@ import {
 import { documentTypeMatchesSearch } from "@/lib/tableFilters";
 import { toast } from "sonner";
 import { Badge } from "@/components/ui/badge";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const empty: TenantDocumentType = {
   id: "",
@@ -42,13 +43,16 @@ export default function TiposDocumento() {
   const canManage = hasPermission("tipos_documento.gestionar");
   const canList = hasPermission("catalogos.ver") || hasPermission("tipos_documento.gestionar");
   const [rows, setRows] = useState<TenantDocumentType[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(apiMode && canList);
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<TenantDocumentType>(empty);
   const [search, setSearch] = useState("");
 
   const load = useCallback(async () => {
-    if (!apiMode || !canList) return;
+    if (!apiMode || !canList) {
+      setLoading(false);
+      return;
+    }
     setLoading(true);
     try {
       setRows(await fetchTenantDocumentTypes());
@@ -189,17 +193,17 @@ export default function TiposDocumento() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredRows.length === 0 ? (
+            {loading ? (
+              <TableBodySkeleton cols={canManage ? 7 : 6} />
+            ) : filteredRows.length === 0 ? (
               <TableRow>
                 <TableCell
                   colSpan={canManage ? 7 : 6}
                   className="text-center text-muted-foreground py-8"
                 >
-                  {loading
-                    ? "Cargando…"
-                    : rows.length === 0
-                      ? "No hay tipos configurados."
-                      : "Sin resultados para la búsqueda actual."}
+                  {rows.length === 0
+                    ? "No hay tipos configurados."
+                    : "Sin resultados para la búsqueda actual."}
                 </TableCell>
               </TableRow>
             ) : (

@@ -16,6 +16,7 @@ import { Plus, Pencil, ShieldCheck, ShieldAlert, Lock, Mail, UserCog } from "luc
 import { fmtDate } from "@/lib/format";
 import { FULL_ADMIN_PERMISSIONS, type SystemUser, type UserRole, type Permission } from "@/types/tlo";
 import { toast } from "sonner";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 
 const ALL_PERMISSION_GROUPS: { label: string; perms: { id: Permission; label: string }[] }[] = [
@@ -112,7 +113,7 @@ const emptyUser: SystemUser = {
 };
 
 export default function Usuarios() {
-  const { systemUsers, roles, upsertSystemUser, toggleSystemUserStatus, updateRolePermissions } = useTlo();
+  const { systemUsers, roles, upsertSystemUser, toggleSystemUserStatus, updateRolePermissions, catalogLoading } = useTlo();
   const { hasPermission } = useAuth();
   const isAdmin = hasPermission("usuarios.gestionar");
 
@@ -216,7 +217,16 @@ export default function Usuarios() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {systemUsers.map(u => (
+                {catalogLoading ? (
+                  <TableBodySkeleton cols={7} />
+                ) : systemUsers.length === 0 ? (
+                  <TableRow>
+                    <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
+                      Sin usuarios
+                    </TableCell>
+                  </TableRow>
+                ) : null}
+                {!catalogLoading && systemUsers.map(u => (
                   <TableRow key={u.id} className="hover:bg-muted/30">
                     <TableCell>
                       <div className="flex items-center gap-3">

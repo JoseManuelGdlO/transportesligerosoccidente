@@ -45,6 +45,7 @@ import { SupplierCombobox } from "@/components/tlo/SupplierCombobox";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
 import { llevaTarifa, MODALIDAD_COBRO_LABEL, parseModalidadCobro, permiteTimbrar } from "@/lib/modalidadCobro";
 import { ModalFacturas } from "@/components/modal/ModalFacturas";
+import { PageLoader } from "@/components/tlo/PageLoading";
 
 type ExpForm = {
   tipo: ExpenseTipo;
@@ -86,11 +87,12 @@ const defaultExpForm = (): ExpForm => ({
 export default function ViajeDetalle() {
   const { id } = useParams();
   const nav = useNavigate();
-  const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip, replaceTrip } = useTlo();
+  const { trips, drivers, trucks, clients, addFuel, removeFuel, addExpense, removeExpense, closeTrip, updateTrip, replaceTrip, catalogLoading } = useTlo();
   const { tenant, hasPermission } = useAuth();
   const canViewCuentas = hasPermission("cuentas.ver");
   const tripCtx = trips.find(t => t.id === id);
   const [tripOverride, setTripOverride] = useState<Trip | null>(null);
+  const [tripLoading, setTripLoading] = useState(() => hasApiConfigured());
   const trip = tripOverride ?? tripCtx;
   const showCartaPorte =
     FEATURE_CARTA_PORTE &&
@@ -122,12 +124,20 @@ export default function ViajeDetalle() {
   useEffect(() => {
     let cancelled = false;
     void (async () => {
-      if (!id || !hasApiConfigured()) return;
-      const r = await apiFetch(`/trips/${id}`);
-      if (!r.ok || cancelled) return;
-      const j = await readJson<Record<string, unknown>>(r);
-      if (cancelled) return;
-      publishTrip(normalizeTrip(j));
+      if (!id || !hasApiConfigured()) {
+        setTripLoading(false);
+        return;
+      }
+      setTripLoading(true);
+      try {
+        const r = await apiFetch(`/trips/${id}`);
+        if (!r.ok || cancelled) return;
+        const j = await readJson<Record<string, unknown>>(r);
+        if (cancelled) return;
+        publishTrip(normalizeTrip(j));
+      } finally {
+        if (!cancelled) setTripLoading(false);
+      }
     })();
     return () => {
       cancelled = true;
@@ -204,6 +214,10 @@ export default function ViajeDetalle() {
       setNotasDraft(trip.notas ?? "");
     }
   }, [trip?.id, trip?.statuses, trip?.notas]);
+
+  if (!trip && (catalogLoading || tripLoading)) {
+    return <PageLoader label="Cargando viaje" />;
+  }
 
   if (!trip) {
     return (

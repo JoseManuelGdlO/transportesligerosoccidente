@@ -76,9 +76,9 @@ import {
   ArrowDown,
   ChevronLeft,
   ChevronRight,
-  Loader2,
 } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { Badge } from "@/components/ui/badge";
 import { toast } from "sonner";
@@ -998,12 +998,6 @@ export default function Viajes() {
       </Card>
 
       <Card className="tlo-shadow-md">
-        {catalogLoading ? (
-          <div className="flex items-center justify-center gap-2 py-12 text-sm text-muted-foreground">
-            <Loader2 className="h-4 w-4 animate-spin" />
-            Cargando viajes…
-          </div>
-        ) : (
           <Table className="[&_th]:h-10 [&_th]:px-2 [&_td]:px-2 [&_td]:py-2.5">
           <TableHeader>
             <TableRow className="bg-secondary/50 [&_th]:sticky [&_th]:top-0 [&_th]:z-10 [&_th]:bg-secondary/95 [&_th]:backdrop-blur-sm">
@@ -1087,14 +1081,16 @@ export default function Viajes() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageData.total === 0 && (
+            {catalogLoading ? (
+              <TableBodySkeleton cols={11} />
+            ) : pageData.total === 0 ? (
               <TableRow>
                 <TableCell colSpan={11} className="text-center text-muted-foreground py-8">
                   Sin resultados
                 </TableCell>
               </TableRow>
-            )}
-            {pageData.slice.map(({ trip: t, fin }) => {
+            ) : (
+            pageData.slice.map(({ trip: t, fin }) => {
               const drNombre = tripDriverNombre(t, drivers);
               const tk = truckById(trucks, t.truck_id);
               const closed = tripIsClosed(t);
@@ -1199,10 +1195,10 @@ export default function Viajes() {
                   </TableCell>
                 </TableRow>
               );
-            })}
+            })
+            )}
           </TableBody>
         </Table>
-        )}
       </Card>
 
       {!catalogLoading && pageData.total > 0 ? (

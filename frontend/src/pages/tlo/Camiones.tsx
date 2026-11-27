@@ -46,6 +46,7 @@ import {
 import { toast } from "sonner";
 import { useAuth } from "@/context/AuthContext";
 import { OdometerResetDialog } from "@/components/tlo/OdometerResetDialog";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const empty: Truck = {
   id: "",
@@ -61,7 +62,7 @@ const empty: Truck = {
 };
 
 export default function Camiones() {
-  const { trucks, upsertTruck, deleteTruck, reloadCatalog } = useTlo();
+  const { trucks, upsertTruck, deleteTruck, reloadCatalog, catalogLoading } = useTlo();
   const { user } = useAuth();
   const [sheetOpen, setSheetOpen] = useState(false);
   const [form, setForm] = useState<Truck>(empty);
@@ -261,7 +262,9 @@ export default function Camiones() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {pageData.slice.length === 0 ? (
+            {catalogLoading ? (
+              <TableBodySkeleton cols={8} />
+            ) : pageData.slice.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={8} className="text-center text-muted-foreground py-8">
                   Sin resultados con los filtros actuales.

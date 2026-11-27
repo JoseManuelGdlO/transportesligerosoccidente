@@ -14,6 +14,7 @@ import { deleteSupplierApi, fetchSuppliers, upsertSupplierApi } from "@/lib/tloA
 import { SupplierCleanupPanel } from "@/components/tlo/SupplierCleanupPanel";
 import { useAuth } from "@/context/AuthContext";
 import { toast } from "sonner";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const SAT_RFC =
   /^[A-Z&Ñ]{3,4}[0-9]{2}(0[1-9]|1[0-2])(0[1-9]|[12][0-9]|3[01])[A-Z0-9]{2}[0-9A]$/;
@@ -40,12 +41,16 @@ export default function Proveedores() {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Supplier>(empty);
   const [saving, setSaving] = useState(false);
+  const [loading, setLoading] = useState(canList);
 
   const load = useCallback(async () => {
+    setLoading(true);
     try {
       setRows(await fetchSuppliers());
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error al cargar proveedores");
+    } finally {
+      setLoading(false);
     }
   }, []);
 
@@ -132,7 +137,10 @@ export default function Proveedores() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {visible.map((r) => (
+            {loading ? (
+              <TableBodySkeleton cols={7} />
+            ) : (
+            visible.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">
                   {r.razon_social}
@@ -153,8 +161,9 @@ export default function Proveedores() {
                   )}
                 </TableCell>
               </TableRow>
-            ))}
-            {!visible.length && (
+            ))
+            )}
+            {!loading && !visible.length && (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   Sin proveedores

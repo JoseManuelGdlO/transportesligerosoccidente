@@ -21,6 +21,7 @@ import {
   type ClientFormErrors,
 } from "@/lib/validateClientForm";
 import { toast } from "sonner";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const empty: Client = {
   id: "",
@@ -33,7 +34,7 @@ const empty: Client = {
 };
 
 export default function Clientes() {
-  const { clients, upsertClient } = useTlo();
+  const { clients, upsertClient, catalogLoading } = useTlo();
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<Client>(empty);
   const [fieldErrors, setFieldErrors] = useState<ClientFormErrors>({});
@@ -197,13 +198,15 @@ export default function Clientes() {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {filteredClients.length === 0 && (
+            {catalogLoading ? (
+              <TableBodySkeleton cols={7} />
+            ) : filteredClients.length === 0 ? (
               <TableRow>
                 <TableCell colSpan={7} className="text-center text-muted-foreground py-8">
                   {search.trim() ? "Ningún cliente coincide con el filtro" : "Sin clientes registrados"}
                 </TableCell>
               </TableRow>
-            )}
+            ) : null}
             {filteredClients.map((c) => (
               <TableRow key={c.id} className="hover:bg-muted/30">
                 <TableCell className="font-medium">{c.razon_social}</TableCell>

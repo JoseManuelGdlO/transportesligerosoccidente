@@ -10,6 +10,7 @@ import type { Tenant, TenantFiscal } from "@/types/tlo";
 import { toast } from "sonner";
 import { Building2, FileText } from "lucide-react";
 import { FEATURE_CARTA_PORTE } from "@/config/features";
+import { FormSkeleton } from "@/components/tlo/PageLoading";
 
 export default function Empresa() {
   const { tenant: ctxTenant, hasPermission, refreshTenant, apiMode } = useAuth();
@@ -23,6 +24,7 @@ export default function Empresa() {
   const [pacTokenEditable, setPacTokenEditable] = useState(false);
   const [csdPasswordEditable, setCsdPasswordEditable] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [hydrating, setHydrating] = useState(hasApiConfigured());
 
   useEffect(() => {
     setTenant(ctxTenant);
@@ -30,16 +32,23 @@ export default function Empresa() {
   }, [ctxTenant]);
 
   useEffect(() => {
-    if (!hasApiConfigured()) return;
+    if (!hasApiConfigured()) {
+      setHydrating(false);
+      return;
+    }
     (async () => {
-      const res = await apiFetch("/tenant");
-      if (!res.ok) return;
-      const data = (await res.json()) as Tenant;
-      setTenant(data);
-      setNombre(data.nombre);
-      if (canFiscal) {
-        const fr = await apiFetch("/tenant/fiscal");
-        if (fr.ok) setFiscal((await fr.json()) as TenantFiscal);
+      try {
+        const res = await apiFetch("/tenant");
+        if (!res.ok) return;
+        const data = (await res.json()) as Tenant;
+        setTenant(data);
+        setNombre(data.nombre);
+        if (canFiscal) {
+          const fr = await apiFetch("/tenant/fiscal");
+          if (fr.ok) setFiscal((await fr.json()) as TenantFiscal);
+        }
+      } finally {
+        setHydrating(false);
       }
     })();
   }, [canFiscal]);
@@ -131,6 +140,10 @@ export default function Empresa() {
           <CardDescription>Datos visibles de la empresa. El código (slug) no se modifica desde aquí.</CardDescription>
         </CardHeader>
         <CardContent className="space-y-4">
+          {hydrating ? (
+            <FormSkeleton fields={2} />
+          ) : (
+          <>
           {tenant && (
             <div className="flex flex-wrap gap-2 text-sm">
               <Badge variant="secondary">Slug: {tenant.slug}</Badge>
@@ -147,6 +160,8 @@ export default function Empresa() {
           <Button onClick={() => void save()} disabled={!canEdit || loading} className="bg-primary text-primary-foreground">
             {loading ? "Guardando…" : "Guardar cambios"}
           </Button>
+          </>
+          )}
         </CardContent>
       </Card>
       {FEATURE_CARTA_PORTE && canFiscal && (

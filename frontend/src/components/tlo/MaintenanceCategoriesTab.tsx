@@ -15,6 +15,7 @@ import {
   upsertMaintenanceCategoryApi,
 } from "@/lib/tloApi";
 import { toast } from "sonner";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 
 const empty: MaintenanceCategory = {
   id: "",
@@ -32,7 +33,7 @@ export function MaintenanceCategoriesTab({ canEdit, onChanged }: Props) {
   const [open, setOpen] = useState(false);
   const [form, setForm] = useState<MaintenanceCategory>(empty);
   const [saving, setSaving] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
 
   const load = useCallback(async () => {
     setLoading(true);
@@ -98,7 +99,10 @@ export function MaintenanceCategoriesTab({ canEdit, onChanged }: Props) {
             </TableRow>
           </TableHeader>
           <TableBody>
-            {rows.map((r) => (
+            {loading ? (
+              <TableBodySkeleton cols={4} />
+            ) : (
+            rows.map((r) => (
               <TableRow key={r.id}>
                 <TableCell className="font-medium">{r.nombre}</TableCell>
                 <TableCell className="text-muted-foreground">{r.descripcion || "—"}</TableCell>
@@ -111,7 +115,8 @@ export function MaintenanceCategoriesTab({ canEdit, onChanged }: Props) {
                   )}
                 </TableCell>
               </TableRow>
-            ))}
+            ))
+            )}
             {!rows.length && !loading && (
               <TableRow>
                 <TableCell colSpan={4} className="text-center text-muted-foreground py-8">

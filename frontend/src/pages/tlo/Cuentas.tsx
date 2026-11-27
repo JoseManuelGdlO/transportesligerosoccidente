@@ -21,6 +21,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import { ChevronLeft, ChevronRight, Loader2, Plus, RefreshCw } from "lucide-react";
+import { Skeleton } from "@/components/ui/skeleton";
+import { PageLoader, TableBodySkeleton } from "@/components/tlo/PageLoading";
 import { useAuth } from "@/context/AuthContext";
 import { useTlo } from "@/context/TloContext";
 import { endOfWeek, fmtMXNDecimal, isoDay, startOfWeek } from "@/lib/format";
@@ -198,7 +200,7 @@ export default function Cuentas() {
   const [bulkPayRows, setBulkPayRows] = useState<
     { doc: AccountDocument; checked: boolean; monto: string }[]
   >([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(canView);
   const [syncing, setSyncing] = useState(false);
   const [pdfOpen, setPdfOpen] = useState(false);
 
@@ -1082,7 +1084,9 @@ export default function Cuentas() {
           </div>
 
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
-            {(Object.keys(BUCKET_LABELS) as AgingBucket[]).map((key) => (
+            {loading && !aging
+              ? Array.from({ length: 4 }, (_, i) => <Skeleton key={i} className="h-[88px] w-full rounded-lg" />)
+              : (Object.keys(BUCKET_LABELS) as AgingBucket[]).map((key) => (
               <Card
                 key={key}
                 className={`p-4 cursor-pointer transition-colors ${
@@ -1277,7 +1281,10 @@ export default function Cuentas() {
                 </TableRow>
               </TableHeader>
               <TableBody>
-                {pageData.slice.map((d) => (
+                {loading && !pageData.total ? (
+                  <TableBodySkeleton cols={tipo === "cxc" && canManage ? 16 : 15} />
+                ) : (
+                pageData.slice.map((d) => (
                   <TableRow
                     key={d.id}
                     className="cursor-pointer"
@@ -1333,8 +1340,9 @@ export default function Cuentas() {
                       )}
                     </TableCell>
                   </TableRow>
-                ))}
-                {!pageData.total && (
+                ))
+                )}
+                {!loading && !pageData.total && (
                   <TableRow>
                     <TableCell colSpan={tipo === "cxc" && canManage ? 16 : 15} className="text-center text-muted-foreground py-8">
                       Sin documentos
@@ -2181,7 +2189,7 @@ export default function Cuentas() {
             <div className="space-y-2">
               <Label>Facturas</Label>
               {cobroLoading ? (
-                <p className="text-sm text-muted-foreground">Cargando…</p>
+                <PageLoader label="Cargando facturas" className="py-6" />
               ) : cobroRows.length === 0 ? (
                 <p className="text-sm text-muted-foreground">No hay facturas con complemento disponible.</p>
               ) : (

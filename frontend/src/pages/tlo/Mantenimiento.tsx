@@ -63,7 +63,6 @@ import {
   ExternalLink,
   FileText,
   Gauge,
-  Loader2,
   Pencil,
   Plus,
   RefreshCw,
@@ -82,6 +81,7 @@ import {
 import { normalizeSearch, slicePage } from "@/lib/tableFilters";
 import { cn } from "@/lib/utils";
 import { toast } from "sonner";
+import { PageLoader } from "@/components/tlo/PageLoading";
 
 const tipoLabel: Record<MaintenanceType, string> = {
   preventivo: "Preventivo",
@@ -303,8 +303,8 @@ export default function Mantenimiento() {
   const [records, setRecords] = useState<MaintenanceRecordRow[]>([]);
   const [suppliers, setSuppliers] = useState<Supplier[]>([]);
   const [categories, setCategories] = useState<MaintenanceCategory[]>([]);
-  const [loading, setLoading] = useState(false);
-  const [recordsLoading, setRecordsLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
+  const [recordsLoading, setRecordsLoading] = useState(true);
   const [mainTab, setMainTab] = useState<MainTab>("unidades");
   const [recordOpen, setRecordOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -961,6 +961,10 @@ export default function Mantenimiento() {
         </TabsList>
 
         <TabsContent value="unidades" className="space-y-6 mt-4">
+          {loading && units.length === 0 ? (
+            <PageLoader label="Cargando unidades" />
+          ) : (
+          <>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
             <KpiCard
               label="Unidades"
@@ -1276,6 +1280,8 @@ export default function Mantenimiento() {
               </CardContent>
             </Card>
           )}
+          </>
+          )}
         </TabsContent>
 
         <TabsContent value="bitacora" className="space-y-4 mt-4">
@@ -1382,10 +1388,7 @@ export default function Mantenimiento() {
 
           <Card className="tlo-shadow-md overflow-hidden">
             {recordsLoading ? (
-              <div className="flex items-center justify-center gap-2 py-16 text-muted-foreground">
-                <Loader2 className="h-5 w-5 animate-spin" />
-                Cargando bitácora…
-              </div>
+              <PageLoader label="Cargando bitácora" />
             ) : (
               <Table>
                 <TableHeader>

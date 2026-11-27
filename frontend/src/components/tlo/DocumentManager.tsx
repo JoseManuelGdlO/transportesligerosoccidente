@@ -13,6 +13,7 @@ import {
   DialogTitle,
 } from "@/components/ui/dialog";
 import { Checkbox } from "@/components/ui/checkbox";
+import { TableBodySkeleton } from "@/components/tlo/PageLoading";
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { Textarea } from "@/components/ui/textarea";
 import { FileUp, Pencil, Trash2, ExternalLink, Loader2, Download } from "lucide-react";
@@ -65,7 +66,7 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
   const { hasPermission } = useAuth();
   const canEdit = hasPermission("documentos.editar");
   const [items, setItems] = useState<DocumentCatalogItem[]>([]);
-  const [loading, setLoading] = useState(false);
+  const [loading, setLoading] = useState(true);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editing, setEditing] = useState<DocumentCatalogItem | null>(null);
   const [file, setFile] = useState<File | null>(null);
@@ -291,7 +292,10 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
           </TableRow>
         </TableHeader>
         <TableBody>
-          {items.map((row) => (
+          {loading && items.length === 0 ? (
+            <TableBodySkeleton cols={4} rows={4} />
+          ) : (
+          items.map((row) => (
             <TableRow key={row.document_type.id}>
               <TableCell className="font-medium">{row.document_type.nombre}</TableCell>
               <TableCell>{statusBadge(row.status)}</TableCell>
@@ -325,7 +329,8 @@ export function DocumentManager({ kind, entityId, entityLabel }: Props) {
                 )}
               </TableCell>
             </TableRow>
-          ))}
+          ))
+          )}
         </TableBody>
       </Table>
 

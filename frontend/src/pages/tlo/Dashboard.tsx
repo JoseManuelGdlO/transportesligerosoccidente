@@ -26,6 +26,7 @@ import {
   FileWarning,
 } from "lucide-react";
 import { ResponsiveContainer, BarChart, Bar, XAxis, YAxis, Tooltip, CartesianGrid } from "recharts";
+import { DashboardSkeleton } from "@/components/tlo/PageLoading";
 
 /** Viajes relevantes a la semana: salieron, cerraron o siguen abiertos en el periodo. */
 function tripInWeekScope(t: Trip, wStart: Date, wEnd: Date): boolean {
@@ -74,7 +75,7 @@ export default function Dashboard() {
   }, [apiMode, hasPermission, catalogLoading]);
 
   if (catalogLoading) {
-    return <p className="text-sm text-muted-foreground">Cargando datos del servidor…</p>;
+    return <DashboardSkeleton />;
   }
 
   const now = new Date();
