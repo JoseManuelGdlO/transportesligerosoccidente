@@ -777,6 +777,7 @@ r.patch(
 );
 r.delete("/documents/:id", authenticateJwt, requirePermission("documentos.editar"), docC.deleteDocument);
 
+r.get("/notifications/summary", authenticateJwt, requirePermission("notificaciones.ver"), notifC.notificationSummary);
 r.get("/notifications", authenticateJwt, requirePermission("notificaciones.ver"), notifC.listNotifications);
 r.patch("/notifications/:id/read", authenticateJwt, requirePermission("notificaciones.ver"), notifC.markNotificationRead);
 r.post("/notifications/mark-all-read", authenticateJwt, requirePermission("notificaciones.ver"), notifC.markAllNotificationsRead);

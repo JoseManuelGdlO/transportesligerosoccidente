@@ -12,7 +12,16 @@ self.addEventListener("push", (event) => {
   } catch {
     /* ignore */
   }
-  event.waitUntil(self.registration.showNotification(data.title, { body: data.body, data: { url: data.url } }));
+  event.waitUntil(
+    Promise.all([
+      self.registration.showNotification(data.title, { body: data.body, data: { url: data.url } }),
+      self.clients.matchAll({ type: "window", includeUncontrolled: true }).then((clientList) => {
+        for (const client of clientList) {
+          client.postMessage({ type: "tlo:notifications-push" });
+        }
+      }),
+    ]),
+  );
 });
 
 self.addEventListener("notificationclick", (event) => {

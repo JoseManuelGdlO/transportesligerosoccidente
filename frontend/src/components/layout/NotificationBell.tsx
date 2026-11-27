@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useNavigate } from "react-router-dom";
 import { Bell } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -13,17 +13,29 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { useAuth } from "@/context/AuthContext";
 import type { NotificationItem } from "@/types/tlo";
-import { fetchNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/tloApi";
+import { fetchNotificationSummary, fetchNotifications, markNotificationRead, markAllNotificationsRead } from "@/lib/tloApi";
 import { NOTIFICATIONS_CHANGED_EVENT } from "@/lib/notificationGroups";
+import {
+  POLL_FALLBACK_MS,
+  isNotificationsPushMessage,
+  shouldPollNotifications,
+} from "@/lib/notificationPolling";
 import { toast } from "sonner";
+
+function notificationPermission(): NotificationPermission | "unsupported" {
+  return typeof Notification === "undefined" ? "unsupported" : Notification.permission;
+}
 
 export function NotificationBell() {
   const { hasPermission, apiMode } = useAuth();
   const nav = useNavigate();
   const [items, setItems] = useState<NotificationItem[]>([]);
+  const [unread, setUnread] = useState(0);
   const [open, setOpen] = useState(false);
+  const openRef = useRef(false);
+  const revisionRef = useRef("");
 
-  const load = useCallback(async () => {
+  const loadList = useCallback(async () => {
     if (!apiMode || !hasPermission("notificaciones.ver")) return;
     try {
       const list = await fetchNotifications();
@@ -33,24 +45,80 @@ export function NotificationBell() {
     }
   }, [apiMode, hasPermission]);
 
+  const loadSummary = useCallback(async () => {
+    if (!apiMode || !hasPermission("notificaciones.ver")) return;
+    try {
+      const summary = await fetchNotificationSummary();
+      const prevRevision = revisionRef.current;
+      revisionRef.current = summary.revision;
+      setUnread(summary.unread);
+      if (openRef.current && prevRevision !== summary.revision) {
+        await loadList();
+      }
+    } catch {
+      /* ignore poll errors */
+    }
+  }, [apiMode, hasPermission, loadList]);
+
   useEffect(() => {
-    void load();
-    const t = window.setInterval(() => void load(), 60_000);
-    const onChanged = () => void load();
-    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
-    return () => {
-      window.clearInterval(t);
-      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
+    openRef.current = open;
+  }, [open]);
+
+  useEffect(() => {
+    void loadSummary();
+
+    const startFallback = () => {
+      if (!shouldPollNotifications(notificationPermission(), document.visibilityState === "visible")) {
+        return undefined;
+      }
+      return window.setInterval(() => void loadSummary(), POLL_FALLBACK_MS);
     };
-  }, [load]);
+
+    let intervalId = startFallback();
+
+    const onVisibility = () => {
+      if (document.visibilityState === "visible") {
+        void loadSummary();
+        if (intervalId != null) window.clearInterval(intervalId);
+        intervalId = startFallback();
+        return;
+      }
+      if (intervalId != null) {
+        window.clearInterval(intervalId);
+        intervalId = undefined;
+      }
+    };
+
+    const onChanged = () => void loadSummary();
+    const onPush = (event: MessageEvent) => {
+      if (isNotificationsPushMessage(event.data)) void loadSummary();
+    };
+
+    document.addEventListener("visibilitychange", onVisibility);
+    window.addEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
+    navigator.serviceWorker?.addEventListener("message", onPush);
+
+    return () => {
+      if (intervalId != null) window.clearInterval(intervalId);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.removeEventListener(NOTIFICATIONS_CHANGED_EVENT, onChanged);
+      navigator.serviceWorker?.removeEventListener("message", onPush);
+    };
+  }, [loadSummary]);
 
   if (!apiMode || !hasPermission("notificaciones.ver")) return null;
 
-  const unread = items.filter((x) => !x.leida).length;
+  const onOpenChange = (next: boolean) => {
+    setOpen(next);
+    if (next) void loadList();
+  };
 
   const onSelect = async (n: NotificationItem) => {
     try {
-      if (!n.leida) await markNotificationRead(n.id);
+      if (!n.leida) {
+        await markNotificationRead(n.id);
+        setUnread((count) => Math.max(0, count - 1));
+      }
       setItems((prev) => prev.map((x) => (x.id === n.id ? { ...x, leida: true } : x)));
       const url = typeof n.payload.url === "string" ? n.payload.url : "";
       if (url) {
@@ -72,13 +140,14 @@ export function NotificationBell() {
     try {
       await markAllNotificationsRead();
       setItems((prev) => prev.map((x) => ({ ...x, leida: true })));
+      setUnread(0);
     } catch (e) {
       toast.error(e instanceof Error ? e.message : "Error");
     }
   };
 
   return (
-    <DropdownMenu open={open} onOpenChange={setOpen}>
+    <DropdownMenu open={open} onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" size="icon" className="relative h-9 w-9" aria-label="Notificaciones">
           <Bell className="h-4 w-4" />

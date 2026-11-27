@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { Op } from "sequelize";
 import { Notification, Tenant } from "../models";
 import { usersWithPermission } from "../utils/notifyUsers";
+import { sendUserPush } from "./webPush";
 import type { Tenant as TenantModel } from "../models/Tenant";
 import type { FuelImportResult } from "./fuelImportService";
 import { importFuelTicketsFromBuffer } from "./fuelImportService";
@@ -73,6 +74,7 @@ async function notifyFuelSync(
         leida: false,
         payload: { title, body, url: "/combustibles" },
       });
+      await sendUserPush(u.id, tenantId, { title, body, url: "/combustibles" });
     } catch (e: unknown) {
       const name = e && typeof e === "object" && "name" in e ? (e as { name: string }).name : "";
       if (name !== "SequelizeUniqueConstraintError") throw e;

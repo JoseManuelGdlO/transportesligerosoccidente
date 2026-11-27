@@ -1,4 +1,3 @@
-import webpush from "web-push";
 import cron from "node-cron";
 import { Op } from "sequelize";
 import { randomUUID } from "node:crypto";
@@ -7,25 +6,11 @@ import {
   DocumentType,
   Driver,
   Notification,
-  PushSubscription,
   Truck,
-  User,
 } from "../models";
+import { sendUserPush } from "../services/webPush";
 import { usersWithPermission } from "../utils/notifyUsers";
 import { logger } from "../utils/logger";
-
-let vapidConfigured = false;
-
-function configureVapid(): boolean {
-  if (vapidConfigured) return true;
-  const pub = process.env.VAPID_PUBLIC_KEY;
-  const priv = process.env.VAPID_PRIVATE_KEY;
-  const subject = process.env.VAPID_SUBJECT || "mailto:admin@tlo.mx";
-  if (!pub || !priv) return false;
-  webpush.setVapidDetails(subject, pub, priv);
-  vapidConfigured = true;
-  return true;
-}
 
 function localDateStr(): string {
   const now = new Date();
@@ -53,7 +38,6 @@ async function entityLabel(
 
 export function startDocumentExpirationJob(): void {
   const expr = process.env.CRON_DOC_CHECK || "0 7 * * *";
-  configureVapid();
 
   cron.schedule(expr, () => {
     void runDocumentExpirationCheck().catch((e) =>
@@ -65,7 +49,6 @@ export function startDocumentExpirationJob(): void {
 }
 
 export async function runDocumentExpirationCheck(): Promise<void> {
-  const pushOk = configureVapid();
   const alertDateStr = localDateStr();
   const today = new Date();
   today.setHours(0, 0, 0, 0);
@@ -138,10 +121,7 @@ export async function runDocumentExpirationCheck(): Promise<void> {
         if (name !== "SequelizeUniqueConstraintError") throw e;
       }
 
-      if (!pushOk) continue;
-
-      const subs = await PushSubscription.findAll({ where: { user_id: u.id, tenant_id: tenantId } });
-      const payload = JSON.stringify({
+      await sendUserPush(u.id, tenantId, {
         title,
         body,
         url:
@@ -149,27 +129,6 @@ export async function runDocumentExpirationCheck(): Promise<void> {
             ? `/operadores?open=${d.documentable_id}`
             : `/camiones?open=${d.documentable_id}`,
       });
-
-      for (const s of subs) {
-        try {
-          await webpush.sendNotification(
-            {
-              endpoint: s.endpoint,
-              keys: { p256dh: s.p256dh, auth: s.auth },
-            },
-            payload,
-            { TTL: 86_400 },
-          );
-        } catch (err: unknown) {
-          const sc =
-            err && typeof err === "object" && "statusCode" in err ? (err as { statusCode?: number }).statusCode : 0;
-          if (sc === 404 || sc === 410) {
-            await s.destroy();
-          } else {
-            logger.warn(`[webpush] ${err instanceof Error ? err.message : String(err)}`);
-          }
-        }
-      }
     }
   }
 }

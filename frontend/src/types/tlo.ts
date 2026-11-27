@@ -760,6 +760,11 @@ export interface NotificationItem {
   created_at?: string;
 }
 
+export interface NotificationSummary {
+  unread: number;
+  revision: string;
+}
+
 export interface DocumentDashboardSummary {
   por_vencer_count: number;
   vencido_count: number;

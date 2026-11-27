@@ -31,6 +31,7 @@ import type {
   DocumentCatalogItem,
   CatalogDocument,
   NotificationItem,
+  NotificationSummary,
   DocumentDashboardSummary,
   DocTypeRow,
   TripStatusRef,
@@ -1139,6 +1140,15 @@ export async function deleteDocument(documentId: string): Promise<void> {
 export async function fetchDocumentDashboard(): Promise<DocumentDashboardSummary> {
   const res = await apiFetch("/documents/dashboard");
   return readJson<DocumentDashboardSummary>(res);
+}
+
+export async function fetchNotificationSummary(): Promise<NotificationSummary> {
+  const res = await apiFetch("/notifications/summary");
+  const j = await readJson<{ unread?: unknown; revision?: unknown }>(res);
+  if (typeof j.unread !== "number" || typeof j.revision !== "string") {
+    throw new Error("Resumen de notificaciones inválido");
+  }
+  return { unread: j.unread, revision: j.revision };
 }
 
 export async function fetchNotifications(): Promise<NotificationItem[]> {

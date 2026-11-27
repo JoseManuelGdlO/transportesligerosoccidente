@@ -1,10 +1,25 @@
 import type { Request, Response } from "express";
 import { Notification } from "../models";
+import { notificationRevision } from "../services/notificationSummary";
 import { asyncHandler } from "../utils/asyncHandler";
 import { notificationToJson } from "../utils/documentSerialize";
 
 const tid = (req: Request) => req.user!.tenantId;
 const uid = (req: Request) => req.user!.id;
+
+export const notificationSummary = asyncHandler(async (req: Request, res: Response) => {
+  const tenantId = tid(req);
+  const userId = uid(req);
+  const whereUser = { tenant_id: tenantId, user_id: userId };
+  const [unread, latest] = await Promise.all([
+    Notification.count({ where: { ...whereUser, leida: false } }),
+    Notification.max("updatedAt", { where: whereUser }),
+  ]);
+  res.json({
+    unread,
+    revision: notificationRevision(unread, latest as Date | string | null),
+  });
+});
 
 export const listNotifications = asyncHandler(async (req: Request, res: Response) => {
   const rows = await Notification.findAll({

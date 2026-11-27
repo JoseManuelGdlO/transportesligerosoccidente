@@ -16,6 +16,7 @@ import {
 import type { MaintenanceType } from "../models/MaintenanceSchedule";
 import { num } from "../utils/numbers";
 import { usersWithPermission } from "../utils/notifyUsers";
+import { sendUserPush } from "./webPush";
 import { getClosedStatusIds, STATUSES_INCLUDE } from "./tripStatusService";
 import { loadTruckOdometerResets, resolveLastKmForTruck } from "./odometerResetService";
 import { uploadRootDir } from "../middlewares/uploadDocument";
@@ -781,6 +782,7 @@ export async function checkMaintenanceAlerts(tenantId: string) {
               alert_date: alertDate,
               leida: false,
             } as never);
+            await sendUserPush(u.id, tenantId, { title, body, url: "/mantenimiento" });
             pendingKeys.add(key);
           }
         }
@@ -820,6 +822,7 @@ export async function checkMaintenanceAlerts(tenantId: string) {
               alert_date: alertDate,
               leida: false,
             } as never);
+            await sendUserPush(u.id, tenantId, { title, body, url: "/mantenimiento" });
             pendingKeys.add(key);
           }
         }
